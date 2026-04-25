@@ -176,11 +176,11 @@
     return undefined;
   }
 
-  function postContext() {
+  function postContext(trigger) {
     try {
       post({
         type: 'context',
-        trigger: 'error',
+        trigger: trigger,
         timestamp: Date.now(),
         url: window.location.href,
         title: document.title,
@@ -191,6 +191,11 @@
       });
     } catch { /* never break the page */ }
   }
+
+  // Rate-limit warn context snapshots: at most 1 per 5 seconds.
+  // We never want to spam the buffer with identical warn snapshots.
+  let _lastWarnContextTs = 0;
+  const WARN_CONTEXT_THROTTLE_MS = 5_000;
 
   // ── Console override ─────────────────────────────────────────────────────────
 
@@ -214,7 +219,17 @@
           url: window.location.href,
           timestamp: Date.now(),
         });
-        if (level === 'error') postContext();
+        if (level === 'error') {
+          postContext('error');
+        } else if (level === 'warn') {
+          // Throttled: capture storage/DOM state on warn so the LLM has
+          // context even before the warning escalates to an error.
+          const now = Date.now();
+          if (now - _lastWarnContextTs >= WARN_CONTEXT_THROTTLE_MS) {
+            _lastWarnContextTs = now;
+            postContext('warn');
+          }
+        }
       } catch { /* never break the page */ }
     };
   }

@@ -6,6 +6,14 @@ import { getActivePlanId, getLicenseState } from './license.js';
 import { getPlan, PLANS } from './plans.js';
 import { buildCausalChain } from './causal.js';
 
+// ── Internal call tracker ─────────────────────────────────────────────────────
+// Lightweight in-process counters for optimizing free→paid conversion.
+// Exported so /usage endpoint can expose them; never persisted to disk.
+export const toolCallCounts: Record<string, number> = {};
+function trackCall(tool: string): void {
+  toolCallCounts[tool] = (toolCallCounts[tool] ?? 0) + 1;
+}
+
 /** Visual credit bar, e.g. [████████░░] 80% */
 function buildCreditBar(used: number, total: number): string {
   const pct = Math.min(1, used / total);
@@ -216,6 +224,239 @@ export function registerTools(server: McpServer): void {
     },
   );
 
+  // ── quick_check ──────────────────────────────────────────────────────────────
+  // Free, no credit cost. Answers "is anything wrong right now?" in <1s.
+  // Deliberately stops at WHAT — counts and pattern labels only.
+  // WHY and the fix are gated behind analyze_runtime (paid).
+  server.registerTool(
+    'quick_check',
+    {
+      description:
+        '⚡ FREE · No credit cost. Instant buffer pulse — use this constantly during development, ' +
+        'not just when things break. Returns: error/warning/network counts, and any detected patterns ' +
+        '(repeated failures, warning spikes, slow requests). ' +
+        'Call this before writing code, after running the app, or whenever something feels off. ' +
+        'For the root cause and a code fix, call analyze_runtime.',
+    },
+    async () => {
+      trackCall('quick_check');
+      const errors   = store.getLogs(200, 'error');
+      const warns    = store.getLogs(200, 'warn');
+      const network  = store.getNetwork(200);
+      const signals  = store.getSignals();
+      const netFails = network.filter((n) => n.status >= 400 || n.status === 0 || n.error);
+
+      const lines: string[] = ['## ⚡ Quick Check'];
+      lines.push('');
+
+      // Counts only — no root cause, no fix (those are paid)
+      const errLabel  = errors.length   === 0 ? '✅ 0' : `❌ ${errors.length}`;
+      const warnLabel = warns.length    === 0 ? '✅ 0' : `⚠️ ${warns.length}`;
+      const netLabel  = netFails.length === 0 ? '✅ 0' : `❌ ${netFails.length}`;
+      lines.push('| | Count |');
+      lines.push('|---|---|');
+      lines.push(`| Console errors   | ${errLabel} |`);
+      lines.push(`| Warnings         | ${warnLabel} |`);
+      lines.push(`| Network failures | ${netLabel} |`);
+      lines.push(`| Buffer total     | ${store.size()} |`);
+
+      if (signals.length > 0) {
+        lines.push('');
+        lines.push('### 🔍 Detected patterns');
+        lines.push('');
+        for (const s of signals) {
+          // Surface WHAT the pattern is; confidence shown so devs can judge signal quality.
+          const confPct = Math.round(s.confidence * 100);
+          lines.push(`- **${s.kind.replace(/_/g, ' ')}** (${confPct}% confidence): ${s.message}`);
+        }
+        lines.push('');
+        lines.push('> � **To get the root cause and a fix:** call `analyze_runtime`.');
+      } else if (errors.length > 0) {
+        lines.push('');
+        lines.push(`> ❌ ${errors.length} error(s) in buffer. Call \`analyze_runtime\` for root cause + fix.`);
+      } else if (warns.length > 0) {
+        lines.push('');
+        lines.push(`> ⚠️ ${warns.length} warning(s) in buffer. Call \`explain_warning\` to understand them before they escalate.`);
+      } else {
+        lines.push('');
+        lines.push('> ✅ Buffer clean — no errors, warning spikes, or repeated failures.');
+      }
+
+      return { content: [{ type: 'text', text: lines.join('\n') }] };
+    },
+  );
+
+  // ── explain_warning ───────────────────────────────────────────────────────────
+  // Free, no credit cost. Surfaces the most recent warning with context.
+  // The "shift left" tool — use BEFORE things break, not after.
+  server.registerTool(
+    'explain_warning',
+    {
+      description:
+        '⚡ FREE · No credit cost. Explains the most recent console warning — ' +
+        'what it means, why it might cause a crash later, and what to do about it. ' +
+        'Use this immediately when you see a warning you don\'t understand, ' +
+        'before it cascades into a harder-to-debug error. No credit cost.',
+      inputSchema: {
+        since: z.number().int().optional()
+          .describe('Only look at warnings after this Unix timestamp in ms'),
+      },
+    },
+    async ({ since }) => {
+      trackCall('explain_warning');
+      const warns = store.getLogs(200, 'warn', since);
+
+      if (warns.length === 0) {
+        return { content: [{ type: 'text', text: '✅ No warnings in buffer.' }] };
+      }
+
+      // Most recent warning first
+      const latest = warns[warns.length - 1];
+      const message = latest.args
+        .map((a) => (typeof a === 'string' ? a : JSON.stringify(a)))
+        .join(' ').slice(0, 500);
+
+      // Gather a little context: any network calls around the same time?
+      const windowMs = 5_000;
+      const nearbyNetwork = store.getNetwork(200).filter(
+        (n) => Math.abs(n.timestamp - latest.timestamp) < windowMs,
+      );
+      const nearbyErrors = store.getLogs(200, 'error').filter(
+        (e) => e.timestamp > latest.timestamp,
+      );
+
+      const lines: string[] = [
+        '## ⚠️ Warning Explanation',
+        '',
+        `**Message:** \`${message}\``,
+        `**When:** ${new Date(latest.timestamp).toISOString()}`,
+        `**URL:** ${latest.url}`,
+      ];
+
+      if (latest.stack) {
+        lines.push('');
+        lines.push('<details><summary>📋 Stack trace</summary>');
+        lines.push('');
+        lines.push('```');
+        lines.push(latest.stack.slice(0, 1000));
+        lines.push('```');
+        lines.push('</details>');
+      }
+
+      if (nearbyNetwork.length > 0) {
+        lines.push('');
+        lines.push('**Nearby network activity (±5s):**');
+        for (const n of nearbyNetwork.slice(0, 3)) {
+          const badge = n.status >= 400 || n.status === 0 ? '❌' : '✅';
+          lines.push(`- ${badge} \`${n.method} ${n.url}\` → ${n.status} (${n.duration}ms)`);
+        }
+      }
+
+      if (nearbyErrors.length > 0) {
+        lines.push('');
+        lines.push(`> ⚠️ **${nearbyErrors.length} error(s) fired AFTER this warning** — this warning may have been a precursor.`);
+        lines.push('> Call **`analyze_runtime`** for a full causal chain.');
+      }
+
+      if (warns.length > 1) {
+        lines.push('');
+        lines.push(`*${warns.length - 1} other warning(s) in buffer — showing most recent only.*`);
+      }
+
+      lines.push('');
+      lines.push('---');
+      lines.push('**Your task:** Explain what this warning means, why it could cause a crash, and the minimal fix.');
+
+      return { content: [{ type: 'text', text: lines.join('\n') }] };
+    },
+  );
+
+  // ── session_summary ───────────────────────────────────────────────────────────
+  // Free, no credit cost. "What happened during this session?"
+  // Designed for end-of-session review or when picking up after a break.
+  server.registerTool(
+    'session_summary',
+    {
+      description:
+        '⚡ FREE · No credit cost. Summarises everything that happened in the current buffer: ' +
+        'total errors, repeated failures, warning patterns, slow endpoints, and the top signals. ' +
+        'Use this at the end of a debug session, when picking up work after a break, ' +
+        'or to get a "what has been happening?" overview without running a full analysis. ' +
+        'No credit cost.',
+      inputSchema: {
+        since: z.number().int().optional()
+          .describe('Summarise only events after this Unix timestamp in ms'),
+      },
+    },
+    async ({ since }) => {
+      trackCall('session_summary');
+      const logs     = store.getLogs(200, undefined, since);
+      const network  = store.getNetwork(200, undefined, since);
+      const signals  = store.getSignals();
+
+      const errors    = logs.filter((e) => e.level === 'error');
+      const warns     = logs.filter((e) => e.level === 'warn');
+      const netFails  = network.filter((n) => n.status >= 400 || n.status === 0 || n.error);
+      const slowReqs  = network.filter((n) => n.duration > 2000);
+
+      const lines: string[] = ['## 📊 Session Summary'];
+      lines.push('');
+      lines.push('| Metric | Value |');
+      lines.push('|---|---|');
+      lines.push(`| Console errors     | ${errors.length} |`);
+      lines.push(`| Warnings           | ${warns.length} |`);
+      lines.push(`| Network failures   | ${netFails.length} |`);
+      lines.push(`| Slow requests (>2s)| ${slowReqs.length} |`);
+      lines.push(`| Total events       | ${store.size()} |`);
+      lines.push('');
+
+      if (errors.length > 0) {
+        // Deduplicate errors by first line of message
+        const seen = new Map<string, number>();
+        for (const e of errors) {
+          const msg = e.args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ').split('\n')[0].slice(0, 100);
+          seen.set(msg, (seen.get(msg) ?? 0) + 1);
+        }
+        lines.push('### ❌ Errors');
+        lines.push('');
+        for (const [msg, count] of [...seen.entries()].sort((a, b) => b[1] - a[1])) {
+          lines.push(`- ${count > 1 ? `**(×${count})**` : ''} \`${msg}\``);
+        }
+        lines.push('');
+      }
+
+      if (netFails.length > 0) {
+        lines.push('### 🌐 Failing endpoints');
+        lines.push('');
+        const seen = new Map<string, { count: number; status: number }>();
+        for (const n of netFails) {
+          const key = `${n.method} ${n.url}`;
+          const prev = seen.get(key);
+          seen.set(key, { count: (prev?.count ?? 0) + 1, status: n.status });
+        }
+        for (const [endpoint, { count, status }] of [...seen.entries()].sort((a, b) => b[1].count - a[1].count)) {
+          lines.push(`- ${count > 1 ? `**(×${count})**` : ''} \`${endpoint}\` → ${status || 'NET_ERR'}`);
+        }
+        lines.push('');
+      }
+
+      if (signals.length > 0) {
+        lines.push('### 🔍 Patterns detected');
+        lines.push('');
+        for (const s of signals) lines.push(`- ${s.message}`);
+        lines.push('');
+      }
+
+      if (errors.length > 0 || signals.length > 0) {
+        lines.push('> 💡 Call **`analyze_runtime`** for root cause analysis and a fix suggestion.');
+      } else {
+        lines.push('> ✅ Session looks clean — no significant errors or patterns detected.');
+      }
+
+      return { content: [{ type: 'text', text: lines.join('\n') }] };
+    },
+  );
+
   // ── analyze_runtime ───────────────────────────────────────────────────────────
   // Premium tool: consumes one credit per call.
   // Free plan → blocked with upgrade prompt.
@@ -240,6 +481,7 @@ export function registerTools(server: McpServer): void {
       },
     },
     async ({ focus = 'all', since }) => {
+      trackCall('analyze_runtime');
       // ── Credit gate ────────────────────────────────────────────────────────
       const credit = await consumeCredit();
       if (!credit.allowed) {

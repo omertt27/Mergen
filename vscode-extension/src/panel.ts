@@ -1,11 +1,20 @@
 import * as vscode from 'vscode';
 
+interface SessionSignal {
+  kind: string;
+  message: string;
+  count: number;
+  confidence: number;
+  suggestedTool: string;
+}
+
 interface HealthResponse {
   ok: boolean;
   buffered: number;
   errors: number;
   warnings: number;
   networkErrors: number;
+  signals: SessionSignal[];
   version: string;
 }
 
@@ -22,6 +31,7 @@ interface UsageSnapshot {
   overagePendingCredits: number;
   overageCentsPerCredit: number;
   estimatedOverageCents: number;
+  toolCallCounts?: Record<string, number>;
 }
 
 interface ServerState {
@@ -54,10 +64,27 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     webviewView.webview.html = this._getHtml();
 
     // Handle messages from the webview
-    webviewView.webview.onDidReceiveMessage(async (msg: { type: string }) => {
+    webviewView.webview.onDidReceiveMessage(async (msg: { type: string; tool?: string }) => {
       if (msg.type === 'clear') await this.clearBuffer();
       if (msg.type === 'refresh') await this.refresh();
       if (msg.type === 'ready') await this._poll();
+      if (msg.type === 'runTool' && msg.tool) {
+        // Open the AI chat panel with the tool name pre-filled (Cursor / Copilot Chat).
+        // The tool name is already on the clipboard; user just needs to hit Enter.
+        const chatInput = `Run ${msg.tool}`;
+        await vscode.commands.executeCommand(
+          'workbench.action.chat.open',
+          { query: chatInput },
+        ).then(undefined, () => {
+          // Fallback when chat extension is not present.
+          vscode.window.showInformationMessage(
+            `Paste into your AI chat: ${msg.tool!}()`,
+            'Copy',
+          ).then(action => {
+            if (action === 'Copy') vscode.env.clipboard.writeText(msg.tool! + '()');
+          });
+        });
+      }
     });
 
     // Start polling
@@ -342,6 +369,62 @@ export class MergenPanel implements vscode.WebviewViewProvider {
 
   .billing-pending { color: var(--vscode-charts-yellow); }
   .billing-confirmed { color: var(--vscode-charts-green); }
+
+  /* ── Signals / nudge card ── */
+  .signal-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--vscode-widget-border, rgba(127,127,127,.1));
+    font-size: 11px;
+  }
+  .signal-item:last-child { border-bottom: none; }
+  .signal-icon { flex-shrink: 0; margin-top: 1px; }
+  .signal-body { flex: 1; min-width: 0; }
+  .signal-msg { color: var(--vscode-foreground); line-height: 1.4; }
+  .signal-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  /* Confidence bar */
+  .conf-bar-wrap {
+    flex: 1;
+    background: var(--vscode-sideBar-background);
+    border-radius: 3px;
+    height: 4px;
+    overflow: hidden;
+  }
+  .conf-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: var(--vscode-charts-blue);
+  }
+  .conf-bar-fill.med  { background: var(--vscode-charts-yellow); }
+  .conf-bar-fill.low  { background: var(--vscode-descriptionForeground); }
+  .conf-pct {
+    font-size: 10px;
+    color: var(--vscode-descriptionForeground);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  /* Run button */
+  .signal-run {
+    display: inline-block;
+    margin-top: 5px;
+    padding: 2px 8px;
+    font-size: 10px;
+    border: 1px solid var(--vscode-button-border, transparent);
+    border-radius: 3px;
+    cursor: pointer;
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    font-family: inherit;
+    white-space: nowrap;
+  }
+  .signal-run:hover { opacity: .85; }
 </style>
 </head>
 <body>
@@ -384,6 +467,12 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     <button class="primary" onclick="send('refresh')">↺ Refresh</button>
     <button onclick="send('clear')">✕ Clear</button>
   </div>
+</div>
+
+<!-- Proactive signals -->
+<div class="card" id="card-signals" style="display:none">
+  <div class="card-title">Detected Patterns</div>
+  <div id="signals-list"></div>
 </div>
 
 <!-- Credits -->
@@ -450,6 +539,18 @@ export class MergenPanel implements vscode.WebviewViewProvider {
 
   function send(type) { vscode.postMessage({ type }); }
 
+  function escHtml(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // One-click: copy the MCP tool call to clipboard so the user can paste it
+  // into any AI chat (Cursor, Copilot Chat, Claude, etc.) immediately.
+  function copyTool(toolName) {
+    const cmd = toolName + '()';
+    navigator.clipboard?.writeText(cmd).catch(() => {});
+    vscode.postMessage({ type: 'runTool', tool: toolName });
+  }
+
   // Signal ready to start polling
   send('ready');
 
@@ -477,6 +578,46 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     document.getElementById('stat-errors').textContent  = h.errors;
     document.getElementById('stat-warns').textContent   = h.warnings;
     document.getElementById('stat-net').textContent     = h.networkErrors;
+
+    // Signals card
+    const signals = h.signals ?? [];
+    const signalsCard = document.getElementById('card-signals');
+    const signalsList = document.getElementById('signals-list');
+    if (signals.length > 0) {
+      signalsCard.style.display = 'block';
+      const ICON = {
+        repeated_network_error: '🔁',
+        warn_spike: '⚠️',
+        repeated_error: '❌',
+        slow_requests: '🐢',
+      };
+      // Map each signal to its suggested free tool, then the paid upsell
+      const TOOL_LABEL = {
+        quick_check:     '⚡ Run quick_check',
+        explain_warning: '⚡ Run explain_warning',
+        session_summary: '⚡ Run session_summary',
+      };
+      signalsList.innerHTML = signals.map(s => {
+        const icon      = ICON[s.kind] ?? '🔍';
+        const confPct   = Math.round((s.confidence ?? 0) * 100);
+        const barClass  = confPct >= 80 ? '' : confPct >= 60 ? ' med' : ' low';
+        const toolKey   = s.suggestedTool ?? 'quick_check';
+        const toolLabel = TOOL_LABEL[toolKey] ?? '⚡ Run ' + toolKey;
+        return '<div class="signal-item">' +
+          '<span class="signal-icon">' + icon + '</span>' +
+          '<div class="signal-body">' +
+            '<div class="signal-msg">' + escHtml(s.message) + '</div>' +
+            '<div class="signal-meta">' +
+              '<div class="conf-bar-wrap"><div class="conf-bar-fill' + barClass + '" style="width:' + confPct + '%"></div></div>' +
+              '<span class="conf-pct">' + confPct + '%</span>' +
+            '</div>' +
+            '<button class="signal-run" onclick="copyTool(' + JSON.stringify(toolKey) + ')">' + escHtml(toolLabel) + '</button>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    } else {
+      signalsCard.style.display = 'none';
+    }
 
     // Server info
     document.getElementById('server-port').textContent     = state.port;

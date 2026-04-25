@@ -3,6 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { ingestRouter } from './ingest.js';
 import { registerTools } from './tools.js';
+import { toolCallCounts } from './tools.js';
 import { SYSTEM_PROMPT } from './prompts.js';
 import logger from './logger.js';
 import { store } from './buffer.js';
@@ -72,6 +73,7 @@ async function main(): Promise<void> {
       errors: store.getLogs(200, 'error').length,
       warnings: store.getLogs(200, 'warn').length,
       networkErrors: store.getNetwork(200).filter((e) => e.status >= 400).length,
+      signals: store.getSignals(),
       name: 'mergen',
       version: SERVER_VERSION,
       teamSync: isTeamEnabled()
@@ -134,7 +136,7 @@ async function main(): Promise<void> {
   // ── Usage endpoint ─────────────────────────────────────────────────────────
 
   app.get('/usage', (_req, res) => {
-    res.json(getUsageSnapshot());
+    res.json({ ...getUsageSnapshot(), toolCallCounts });
   });
 
   // ── Billing webhooks (raw body — must be before express.json router) ───────

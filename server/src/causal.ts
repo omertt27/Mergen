@@ -548,6 +548,7 @@ export async function buildCausalChain(
   }
 
   // ── Format the Context Pack string ───────────────────────────────────────────
+  // §1 Source · §2 Diagnosis · §3 State · §4 Network · §5 DOM · §6 Timeline · §7 Task
   const partialChain = {
     capturedAt,
     totalEvents,
@@ -567,19 +568,22 @@ export async function buildCausalChain(
 
 // ── Context Pack formatter ────────────────────────────────────────────────────
 //
-// Layout (mirrors the mental model of a developer investigating a crash):
+// Layout — diagnosis-first: interpretation before raw data.
 //
 //   §1  Source Snippet    — exact crash line in original source + ±5-line window
-//   §2  Invisible State   — localStorage / sessionStorage at moment of crash
-//   §3  Network Pulse     — last 3 API calls with full Req/Res headers + bodies
-//   §4  DOM Trace         — focused element, component, current URL
-//   §5  Mergen Diagnosis  — pre-computed hypothesis
-//   §6  Causal Timeline   — all events in chronological order
-//   §7  Task Prompt       — explicit 4-point output contract for the LLM
+//   §2  Mergen Diagnosis  — pre-computed hypothesis (moved before raw evidence)
+//   §3  Invisible State   — localStorage / sessionStorage at moment of crash
+//   §4  Network Pulse     — last 3 API calls with full Req/Res headers + bodies
+//   §5  DOM Trace         — focused element, component, current URL
+//   §6  Causal Timeline   — all events with delta timestamps
+//   §7  Task Prompt       — concise 3-point output contract for the LLM
 
 function formatContextPack(c: Omit<CausalChain, 'contextPack'>): string {
   const lines: string[] = [];
   const primaryErr = c.errors[0] ?? null;
+
+  // ── Shared empty-state renderer ───────────────────────────────────────────
+  const emptyState = (msg: string) => `> ℹ️ *${msg}*`;
 
   // ── Header ────────────────────────────────────────────────────────────────
   lines.push('### 🚨 Mergen Context Pack');
@@ -588,35 +592,31 @@ function formatContextPack(c: Omit<CausalChain, 'contextPack'>): string {
 
   // ══════════════════════════════════════════════════════════════════════════
   // TL;DR  ONE-LINE DIAGNOSIS
-  //     Lead with the answer, not the data. A developer scanning this in
-  //     Cursor should know the root cause before reading anything else.
-  //     Show the top hypothesis only. Full ranked list is in §5.
+  //     Lead with the answer. A developer scanning this in Cursor should know
+  //     the root cause before reading anything else.
   // ══════════════════════════════════════════════════════════════════════════
   const topHypothesis = c.hypotheses[0] ?? null;
   if (topHypothesis) {
     const confidenceEmoji = topHypothesis.confidence === 'HIGH' ? '🟢' : topHypothesis.confidence === 'MEDIUM' ? '🟡' : '🔴';
     lines.push(`> ${confidenceEmoji} **${topHypothesis.confidence}:** ${topHypothesis.summary}`);
-    if (topHypothesis.fixHint) lines.push(`> 💡 **Fix:** ${topHypothesis.fixHint}`);
     if (c.hypotheses.length > 1) {
-      lines.push(`> ⚠️ *${c.hypotheses.length - 1} competing hypothesis(es) — see §5.*`);
+      lines.push(`> ⚠️ *${c.hypotheses.length - 1} competing hypothesis(es) — see §2.*`);
     }
     lines.push('');
   } else if (c.errors.length > 0) {
-    lines.push(`> 🔴 **${c.errors[0].message}** — insufficient signal for automatic diagnosis. See §2–§3 below.`);
+    lines.push(`> 🔴 **${c.errors[0].message}** — insufficient signal for automatic diagnosis. See §3–§4 below.`);
     lines.push('');
   }
 
   // ══════════════════════════════════════════════════════════════════════════
   // §1  SOURCE SNIPPET
-  //     The broken line in original source, ±5 lines, ▶ pointer, [ROOT CAUSE]
-  //     annotation. First thing Claude sees = first thing a developer looks at.
   // ══════════════════════════════════════════════════════════════════════════
   lines.push('---');
   lines.push('#### 💻 §1 · Source Snippet');
   lines.push('');
 
   if (!primaryErr) {
-    lines.push('✅ No console errors detected. Buffer is clean.');
+    lines.push(emptyState('No console errors detected. Buffer is clean.'));
   } else {
     lines.push(`**Error:** \`${primaryErr.message}\``);
     lines.push(`**When:**  ${primaryErr.isoTs}`);
@@ -650,7 +650,7 @@ function formatContextPack(c: Omit<CausalChain, 'contextPack'>): string {
     // Additional errors — collapsed
     if (c.errors.length > 1) {
       lines.push('');
-      lines.push(`<details><summary>+${c.errors.length - 1} more error(s)</summary>`);
+      lines.push(`<details><summary>📋 +${c.errors.length - 1} more error(s)</summary>`);
       lines.push('');
       for (const err of c.errors.slice(1)) {
         lines.push(`- \`[${err.isoTs}]\` **${err.message}**`);
@@ -665,7 +665,7 @@ function formatContextPack(c: Omit<CausalChain, 'contextPack'>): string {
     // Full resolved stack — collapsed
     if (primaryErr.resolvedStack) {
       lines.push('');
-      lines.push('<details><summary>Full resolved stack trace</summary>');
+      lines.push('<details><summary>📋 Full resolved stack trace</summary>');
       lines.push('');
       lines.push('```');
       lines.push(primaryErr.resolvedStack.slice(0, 3000));
@@ -675,14 +675,87 @@ function formatContextPack(c: Omit<CausalChain, 'contextPack'>): string {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // §2  INVISIBLE STATE
-  //     localStorage + sessionStorage at moment of crash.
-  //     Keys that are null/empty/undefined are flagged — these are often the
-  //     root cause the code above is missing (token not persisted, etc.).
+  // §2  MERGEN DIAGNOSIS  ← moved before raw evidence
+  //     All hypotheses that met the minimum threshold, ranked by confidence.
+  //     Top hypothesis is visually dominant. Fix hint is the last thing read.
+  //     Multiple hypotheses shown explicitly — the LLM must adjudicate.
   // ══════════════════════════════════════════════════════════════════════════
   lines.push('');
   lines.push('---');
-  lines.push('#### 📦 §2 · Invisible State  *(storage at moment of crash)*');
+  lines.push('#### 🔬 §2 · Mergen Diagnosis');
+  lines.push('');
+
+  if (c.hypotheses.length === 0) {
+    if (c.errors.length > 0) {
+      lines.push('> 🔴 **INSUFFICIENT DATA** — no detector reached the minimum confidence threshold.');
+      lines.push('> The system will not guess. Investigate §3 (storage) and §4 (network) manually.');
+    } else {
+      lines.push(emptyState('No errors detected — nothing to diagnose.'));
+    }
+  } else {
+    if (c.hypotheses.length > 1) {
+      lines.push(`> ⚠️ **${c.hypotheses.length} competing hypotheses** — heuristic scores, not learned weights. The system may be wrong.`);
+      lines.push('');
+    }
+
+    for (let hi = 0; hi < c.hypotheses.length; hi++) {
+      const h = c.hypotheses[hi];
+      const confidenceEmoji = h.confidence === 'HIGH' ? '🟢' : h.confidence === 'MEDIUM' ? '🟡' : '🔴';
+      const isTop = hi === 0;
+
+      // Top hypothesis gets a visual separator to dominate the section
+      if (isTop && c.hypotheses.length > 1) {
+        lines.push(`**#1 — Primary hypothesis**`);
+        lines.push('');
+      } else if (hi > 0) {
+        lines.push(`**#${hi + 1} — Alternative hypothesis**`);
+        lines.push('');
+      }
+
+      // Confidence label without score percentage — qualitative only
+      lines.push(`${confidenceEmoji} **${h.confidence}** · \`${h.tag}\``);
+      lines.push('');
+      lines.push(`> ${h.summary}`);
+      lines.push('');
+
+      if (h.causalPath.length > 0) {
+        lines.push('**Causal path:**');
+        lines.push('');
+        for (let si = 0; si < h.causalPath.length; si++) {
+          lines.push(`${si + 1}. ${h.causalPath[si]}`);
+        }
+      }
+
+      if (h.evidence.length > 0) {
+        lines.push('');
+        lines.push('**Supporting evidence:**');
+        lines.push('');
+        for (const ev of h.evidence) lines.push(`- ${ev}`);
+      }
+
+      // Fix hint last — most actionable item, final word on each hypothesis
+      if (h.fixHint) {
+        lines.push('');
+        lines.push('---');
+        lines.push(`> 💡 **Fix:** ${h.fixHint}`);
+      }
+
+      if (hi < c.hypotheses.length - 1) {
+        lines.push('');
+        lines.push('');
+      }
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // §3  INVISIBLE STATE
+  //     localStorage + sessionStorage at moment of crash.
+  // ══════════════════════════════════════════════════════════════════════════
+  lines.push('');
+  lines.push('---');
+  lines.push('#### 📦 §3 · Invisible State');
+  lines.push('');
+  lines.push('*Storage snapshot at moment of crash. Keys flagged ⚠️ are null/empty — common root cause.*');
   lines.push('');
 
   if (c.stateAtError) {
@@ -699,7 +772,7 @@ function formatContextPack(c: Omit<CausalChain, 'contextPack'>): string {
         lines.push(`- \`localStorage.${k}\`: \`${truncate(v, 100)}\`${flag}`);
       }
     } else {
-      lines.push('- **localStorage:** *(empty — no keys were set at crash time)*');
+      lines.push(emptyState('localStorage was empty at crash time — no keys were set.'));
     }
 
     if (ssEntries.length > 0) {
@@ -713,19 +786,18 @@ function formatContextPack(c: Omit<CausalChain, 'contextPack'>): string {
       }
     }
   } else {
-    lines.push('*No storage snapshot captured.*');
-    lines.push('Snapshots are taken automatically on `console.error` by the browser extension.');
+    lines.push(emptyState('No storage snapshot captured. Snapshots are taken automatically on `console.error` by the browser extension.'));
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // §3  NETWORK PULSE
-  //     Last 3 API calls (most recent first), with full request + response
-  //     headers and bodies. Identifies auth failures, expired tokens, 5xx
-  //     errors that the UI thought had succeeded.
+  // §4  NETWORK PULSE
+  //     Last 3 API calls (failed first), full Req/Res headers + bodies.
   // ══════════════════════════════════════════════════════════════════════════
   lines.push('');
   lines.push('---');
-  lines.push('#### 🌐 §3 · Network Pulse  *(last 3 API calls before crash)*');
+  lines.push('#### 🌐 §4 · Network Pulse');
+  lines.push('');
+  lines.push('*Failed calls first, then most-recent successful. Up to 3 shown.*');
 
   // Show up to 3, failed first, then most-recent successful
   const netFails = c.correlatedNetwork.filter((n) => n.status >= 400 || n.status === 0 || n.error);
@@ -734,7 +806,7 @@ function formatContextPack(c: Omit<CausalChain, 'contextPack'>): string {
 
   if (pulse.length === 0) {
     lines.push('');
-    lines.push('*No network calls intercepted in the 30-second window before crash.*');
+    lines.push(emptyState('No network calls intercepted in the 30-second window before crash.'));
   } else {
     for (const n of pulse) {
       const isFail = n.status >= 400 || n.status === 0 || !!n.error;
@@ -748,7 +820,6 @@ function formatContextPack(c: Omit<CausalChain, 'contextPack'>): string {
       if (reqHeaders.length > 0) {
         lines.push('- **Request headers:**');
         for (const [k, v] of reqHeaders) {
-          // Redact credentials partially
           const display = /authorization|cookie|x-api-key/i.test(k)
             ? redactHeader(v)
             : truncate(v, 120);
@@ -764,7 +835,7 @@ function formatContextPack(c: Omit<CausalChain, 'contextPack'>): string {
         lines.push('  ```');
       }
 
-      // Response headers (most diagnostic ones first)
+      // Response headers
       const resHeaders = Object.entries(n.responseHeaders);
       if (resHeaders.length > 0) {
         lines.push('- **Response headers:**');
@@ -786,7 +857,7 @@ function formatContextPack(c: Omit<CausalChain, 'contextPack'>): string {
 
     if (c.correlatedNetwork.length > 3) {
       lines.push('');
-      lines.push(`<details><summary>+${c.correlatedNetwork.length - 3} more call(s) in window</summary>`);
+      lines.push(`<details><summary>📋 +${c.correlatedNetwork.length - 3} more call(s) in window</summary>`);
       lines.push('');
       for (const n of c.correlatedNetwork.slice(3)) {
         const badge = (n.status >= 400 || n.status === 0) ? '❌' : '✅';
@@ -797,13 +868,13 @@ function formatContextPack(c: Omit<CausalChain, 'contextPack'>): string {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // §4  DOM TRACE
-  //     The focused element (what the user was clicking), the active React/Vue
-  //     component, and the current URL path. Answers "what was the user doing?"
+  // §5  DOM TRACE
   // ══════════════════════════════════════════════════════════════════════════
   lines.push('');
   lines.push('---');
-  lines.push('#### 🖱️ §4 · DOM Trace  *(user context at crash)*');
+  lines.push('#### 🖱️ §5 · DOM Trace');
+  lines.push('');
+  lines.push('*What the user was doing at the moment of crash.*');
   lines.push('');
 
   if (c.stateAtError) {
@@ -814,112 +885,64 @@ function formatContextPack(c: Omit<CausalChain, 'contextPack'>): string {
     if (s.component)      lines.push(`- **Active component:** \`<${s.component}>\``);
     lines.push(`- **Snapshot time:**   ${s.isoTs}`);
   } else {
-    lines.push('*No DOM snapshot available.*');
-  }
-
-  // ══════════════════════════════════════════════════════════════════════════
-  // §5  MERGEN DIAGNOSIS
-  //     All hypotheses that met the minimum threshold, ranked by confidence.
-  //     Multiple hypotheses are shown explicitly — the LLM must adjudicate.
-  //     If none passed the threshold, the system says so rather than guessing.
-  // ══════════════════════════════════════════════════════════════════════════
-  lines.push('');
-  lines.push('---');
-  lines.push('#### 🔬 §5 · Mergen Diagnosis  *(competing hypotheses, ranked)*');
-  lines.push('');
-
-  if (c.hypotheses.length === 0) {
-    if (c.errors.length > 0) {
-      lines.push('> 🔴 **INSUFFICIENT DATA** — no detector reached the minimum confidence threshold.');
-      lines.push('> The system will not guess. Investigate §2 (storage) and §3 (network) manually.');
-    } else {
-      lines.push('> ✅ No errors detected.');
-    }
-  } else {
-    if (c.hypotheses.length > 1) {
-      lines.push(`> ⚠️ **${c.hypotheses.length} competing hypotheses** — these are heuristic, not learned. The system may be wrong.`);
-      lines.push('> The LLM should weigh the evidence and select the most plausible explanation.');
-      lines.push('');
-    }
-
-    for (let hi = 0; hi < c.hypotheses.length; hi++) {
-      const h = c.hypotheses[hi];
-      const confidenceEmoji = h.confidence === 'HIGH' ? '🟢' : h.confidence === 'MEDIUM' ? '🟡' : '🔴';
-      const rank = c.hypotheses.length > 1 ? `**#${hi + 1}** ` : '';
-
-      lines.push(`${rank}${confidenceEmoji} **${h.confidence}** (score: ${(h.confidenceScore * 100).toFixed(0)}%) · \`${h.tag}\``);
-      lines.push('');
-      lines.push(`> ${h.summary}`);
-      lines.push('');
-
-      if (h.causalPath.length > 0) {
-        lines.push('**Causal path:**');
-        lines.push('');
-        for (let si = 0; si < h.causalPath.length; si++) {
-          lines.push(`${si + 1}. ${h.causalPath[si]}`);
-        }
-      }
-
-      if (h.evidence.length > 0) {
-        lines.push('');
-        lines.push('**Supporting evidence:**');
-        lines.push('');
-        for (const ev of h.evidence) lines.push(`- ${ev}`);
-      }
-
-      if (h.fixHint) {
-        lines.push('');
-        lines.push(`**💡 Suggested fix:** ${h.fixHint}`);
-      }
-
-      if (hi < c.hypotheses.length - 1) lines.push('');
-    }
+    lines.push(emptyState('No DOM snapshot available.'));
   }
 
   // ══════════════════════════════════════════════════════════════════════════
   // §6  CAUSAL TIMELINE
-  //     All events chronological. Crash line is bolded — everything before is
-  //     cause, everything after is consequence.
+  //     Delta timestamps (+Xms from previous event) reduce noise.
+  //     Absolute timestamp shown only for the crash event.
   // ══════════════════════════════════════════════════════════════════════════
   lines.push('');
   lines.push('---');
-  lines.push('#### ⏱️ §6 · Causal Timeline  *(chronological)*');
+  lines.push('#### ⏱️ §6 · Causal Timeline');
+  lines.push('');
+  lines.push('*Delta from previous event shown. Crash timestamp is absolute.*');
   lines.push('');
 
   if (c.chain.length === 0) {
-    lines.push('*No events recorded.*');
+    lines.push(emptyState('No events recorded.'));
   } else {
     const ICON: Record<CausalEvent['kind'], string> = {
-      nav: '🌐', network_ok: '✅', network_fail: '❌', warn: '⚠️', error: '💥', state: '📸',
+      nav: '🌐', network_ok: '✅', network_fail: '❌', warn: '⚠️', error: '�', state: '📸',
     };
+    let prevTs: number | null = null;
     for (let i = 0; i < c.chain.length; i++) {
       const ev   = c.chain[i];
       const icon = ICON[ev.kind] ?? '•';
-      const time = ev.isoTs.split(' ')[1] ?? ev.isoTs;
-      const row  = ev.kind === 'error'
-        ? `${i + 1}. \`${time}\` ${icon} **${ev.summary}**`
-        : `${i + 1}. \`${time}\` ${icon} ${ev.summary}`;
+
+      // Errors show absolute time; everything else shows delta from previous event
+      let timeLabel: string;
+      if (ev.kind === 'error') {
+        timeLabel = ev.isoTs.split(' ')[1] ?? ev.isoTs;
+      } else if (prevTs !== null) {
+        const deltaMs = ev.ts - prevTs;
+        timeLabel = `+${deltaMs}ms`;
+      } else {
+        timeLabel = ev.isoTs.split(' ')[1] ?? ev.isoTs;
+      }
+      prevTs = ev.ts;
+
+      const row = ev.kind === 'error'
+        ? `${i + 1}. \`${timeLabel}\` ${icon} **${ev.summary}**`
+        : `${i + 1}. \`${timeLabel}\` ${icon} ${ev.summary}`;
       lines.push(row);
       if (ev.detail) lines.push(`   ↳ *${ev.detail}*`);
     }
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // §7  TASK PROMPT
+  // §7  TASK PROMPT  — concise 3-point contract
   // ══════════════════════════════════════════════════════════════════════════
   lines.push('');
   lines.push('---');
   lines.push('#### 🎯 §7 · Your Task');
   lines.push('');
-  lines.push('Using **only** the evidence above, provide:');
+  lines.push('1. **Root cause** — one sentence: what broke and exactly why.');
+  lines.push('2. **Fix** — minimal before/after diff. Prioritise §3 (storage) and §4 (network) as the cause of §1 (the crash).');
+  lines.push('3. **Confidence** — `HIGH` / `MEDIUM` / `LOW` and what signal is missing.');
   lines.push('');
-  lines.push('1. **Root cause** — one sentence: *what* broke and *exactly why*.');
-  lines.push('2. **Causal path** — trace the chain step by step: which event caused which consequence.');
-  lines.push('3. **Fix** — the minimal code change. Show a before/after diff.');
-  lines.push('4. **Confidence** — `HIGH` / `MEDIUM` / `LOW` and what evidence is missing.');
-  lines.push('');
-  lines.push('> **Prioritise §2 (storage) and §3 (network) when diagnosing why §1 (the code) failed.**');
-  lines.push('> Do **not** summarise the data above — diagnose it. Be precise. Be brief.');
+  lines.push('> Diagnose. Do not summarise. Be brief.');
 
   return lines.join('\n');
 }
