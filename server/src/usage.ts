@@ -120,21 +120,43 @@ export async function initUsage(): Promise<void> {
 
 // ── Snapshot ──────────────────────────────────────────────────────────────────
 
+/** ISO timestamp of the next monthly reset (1st of next month, 00:00 UTC). */
+function nextResetAt(): string {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString();
+}
+
 export function getUsageSnapshot() {
   const plan = getPlan(getActivePlanId());
   const included = plan.analyzeCreditsPerMonth;
   const remaining = included === Infinity ? Infinity : Math.max(0, included - _usage.used);
   // #3 — correct overage formula for all plans including PAYG (included === 0)
   const overage = included === Infinity ? 0 : Math.max(0, _usage.used - included);
+
+  // Low-credit threshold: warn when ≤ 20% of quota remains (min 5, max 10)
+  const lowCreditThreshold =
+    included !== Infinity && included > 0
+      ? Math.min(10, Math.max(5, Math.floor(included * 0.2)))
+      : null;
+  const lowCredits =
+    lowCreditThreshold !== null &&
+    remaining !== Infinity &&
+    (remaining as number) <= lowCreditThreshold;
+
   return {
     planId: plan.id,
+    planName: plan.name,
     month: _usage.month,
+    resetsAt: nextResetAt(),                            // pain #5 — expose reset time
     used: _usage.used,
     included: included === Infinity ? null : included,
     remaining: remaining === Infinity ? null : remaining,
+    lowCredits,                                         // pain #2 — low-credit flag
     overage,
-    overageReported: _usage.overageReported,
-    overagePending: _usage.overagePending,
+    // pain #6 — rename to a user-friendly label; keep internal key for compat
+    billingStatus: _usage.overagePending > 0 ? 'pending' : 'confirmed' as 'pending' | 'confirmed',
+    overagePendingCredits: _usage.overagePending,       // pain #6 — clear label
+    overageConfirmedCredits: _usage.overageReported,
     overageCentsPerCredit: plan.overageCentsPerCredit,
     estimatedOverageCents: overage * plan.overageCentsPerCredit,
   };
@@ -239,9 +261,10 @@ function scheduleFlush(): void {
 
 /**
  * Attempt to consume one credit.
- * Returns { allowed: true } or { allowed: false, reason: string }.
+ * Returns { allowed: true, notice? } or { allowed: false, reason: string }.
+ * `notice` carries one-time informational messages surfaced to the user.
  */
-export async function consumeCredit(): Promise<{ allowed: boolean; reason?: string }> {
+export async function consumeCredit(): Promise<{ allowed: boolean; reason?: string; notice?: string }> {
   return withLock(async () => {
     // Refresh month boundary
     if (_usage.month !== currentMonth()) {
@@ -275,24 +298,40 @@ export async function consumeCredit(): Promise<{ allowed: boolean; reason?: stri
     if (_usage.used < included) {
       _usage.used++;
       await saveUsage();
-      return { allowed: true };
+
+      // Pain #2 — warn when approaching the quota wall
+      const remaining = included - _usage.used;
+      const threshold = Math.min(10, Math.max(5, Math.floor(included * 0.2)));
+      const notice =
+        remaining <= threshold && remaining > 0
+          ? `⚠ You have ${remaining} of ${included} analyze_runtime credits left this month (resets ${nextResetAt().slice(0, 10)}).`
+          : remaining === 0
+            ? `⚠ That was your last included credit. Additional calls are billed at $${(plan.overageCentsPerCredit / 100).toFixed(2)} each.`
+            : undefined;
+
+      return { allowed: true, notice };
     }
 
     // Pay-as-you-go / solo_standard overage — report to LemonSqueezy
     if (plan.overageCentsPerCredit > 0) {
+      const isFirstOverage = _usage.overagePending === 0 && _usage.overageReported === 0;
       _usage.used++;
       _usage.overagePending++;
       await saveUsage();
 
-      // #3 — correct overage count for PAYG (included === 0) vs quota plans
+      // Pain #3 — one-time consent notice on first overage call
       const overageCount = _usage.used - included;
+      const notice = isFirstOverage
+        ? `💳 You've used all ${included} included credits. You are now in overage — each call costs $${(plan.overageCentsPerCredit / 100).toFixed(2)} and will be billed at your next cycle.`
+        : undefined;
+
       logger.info(
         { overageCall: overageCount, pending: _usage.overagePending },
         'overage credit consumed — queued for LS reporting',
       );
 
       scheduleFlush();
-      return { allowed: true };
+      return { allowed: true, notice };
     }
 
     return {

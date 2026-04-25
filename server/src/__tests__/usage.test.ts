@@ -260,8 +260,8 @@ describe('flushOverage retry logic', () => {
     // Use short retry delays by calling flushOverageOnShutdown
     await flushOverageOnShutdown();
     expect(calls).toBe(2);
-    expect(getUsageSnapshot().overagePending).toBe(0);
-    expect(getUsageSnapshot().overageReported).toBe(5);
+    expect(getUsageSnapshot().overagePendingCredits).toBe(0);
+    expect(getUsageSnapshot().overageConfirmedCredits).toBe(5);
     delete process.env.LS_API_KEY;
   });
 
@@ -274,7 +274,7 @@ describe('flushOverage retry logic', () => {
     mockFetchFail(503);
 
     await flushOverageOnShutdown();
-    expect(getUsageSnapshot().overagePending).toBe(3); // not cleared
+    expect(getUsageSnapshot().overagePendingCredits).toBe(3); // not cleared
     delete process.env.LS_API_KEY;
   });
 

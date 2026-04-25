@@ -3,8 +3,15 @@ import { z } from 'zod';
 import { store, LogLevel } from './buffer.js';
 import { consumeCredit, getUsageSnapshot } from './usage.js';
 import { getActivePlanId, getLicenseState } from './license.js';
-import { getPlan } from './plans.js';
+import { getPlan, PLANS } from './plans.js';
 import { buildCausalChain } from './causal.js';
+
+/** Visual credit bar, e.g. [████████░░] 80% */
+function buildCreditBar(used: number, total: number): string {
+  const pct = Math.min(1, used / total);
+  const filled = Math.round(pct * 10);
+  return `[${'█'.repeat(filled)}${'░'.repeat(10 - filled)}] ${Math.round(pct * 100)}%`;
+}
 
 export function registerTools(server: McpServer): void {
   // ── get_recent_logs ──────────────────────────────────────────────────────────
@@ -149,6 +156,66 @@ export function registerTools(server: McpServer): void {
     },
   );
 
+  // ── get_status ────────────────────────────────────────────────────────────────
+  server.registerTool(
+    'get_status',
+    {
+      description:
+        'Returns your current plan, credit usage, billing status, and next reset date. ' +
+        'Use this to check how many analyze_runtime credits remain before calling that tool.',
+    },
+    async () => {
+      const snap = getUsageSnapshot();
+      const licState = getLicenseState();
+
+      const lines: string[] = [
+        `## Mergen Status`,
+        ``,
+        `**Plan:** ${snap.planName}`,
+        `**Period:** ${snap.month}  |  **Resets:** ${new Date(snap.resetsAt).toUTCString()}`,
+        ``,
+      ];
+
+      if (snap.included === null) {
+        lines.push(`**Credits:** ${snap.used} used  (unlimited plan)`);
+      } else {
+        const bar = buildCreditBar(snap.used, snap.included);
+        lines.push(`**Credits:** ${snap.used} / ${snap.included} used  ${bar}`);
+        lines.push(`**Remaining:** ${snap.remaining}`);
+        if (snap.lowCredits) {
+          lines.push(`⚠ **Low credits** — only ${snap.remaining} call(s) left at no extra charge.`);
+        }
+      }
+
+      if (snap.overage > 0) {
+        const rate = `$${(snap.overageCentsPerCredit / 100).toFixed(2)}/call`;
+        lines.push(``);
+        lines.push(`**Overage:** ${snap.overage} call(s) × ${rate} = **$${(snap.estimatedOverageCents / 100).toFixed(2)}** estimated`);
+        lines.push(`**Billing status:** ${snap.billingStatus === 'confirmed' ? '✅ confirmed' : '⏳ pending (will be sent to LemonSqueezy within 5 s)'}`);
+      }
+
+      if (snap.planId === 'free') {
+        lines.push(``);
+        lines.push(`> **Upgrade to unlock analyze_runtime:**`);
+        for (const plan of Object.values(PLANS)) {
+          if (plan.id === 'free') continue;
+          const price = plan.priceUsdCents === 0 ? 'pay-as-you-go ($0.05/call)' : `$${(plan.priceUsdCents / 100).toFixed(0)}/mo`;
+          const credits = plan.analyzeCreditsPerMonth === Infinity ? 'unlimited' : `${plan.analyzeCreditsPerMonth}/mo`;
+          lines.push(`> - **${plan.name}** — ${price} — ${credits} credits`);
+        }
+        lines.push(`>`);
+        lines.push(`> https://mergen.dev/pricing`);
+      }
+
+      if (licState?.customerEmail) {
+        lines.push(``);
+        lines.push(`**Account:** ${licState.customerEmail}  |  Last validated: ${licState.validatedAt?.slice(0, 10)}`);
+      }
+
+      return { content: [{ type: 'text', text: lines.join('\n') }] };
+    },
+  );
+
   // ── analyze_runtime ───────────────────────────────────────────────────────────
   // Premium tool: consumes one credit per call.
   // Free plan → blocked with upgrade prompt.
@@ -174,13 +241,23 @@ export function registerTools(server: McpServer): void {
       // ── Credit gate ────────────────────────────────────────────────────────
       const credit = await consumeCredit();
       if (!credit.allowed) {
+        // Pain #1 — actionable message with plan names and prices
+        const upgradeOptions = Object.values(PLANS)
+          .filter(p => p.id !== 'free' && p.analyzeCreditsPerMonth > 0)
+          .map(p => {
+            const price = p.priceUsdCents === 0 ? '$0.05/call' : `$${(p.priceUsdCents / 100).toFixed(0)}/mo`;
+            const credits = p.analyzeCreditsPerMonth === Infinity ? 'unlimited' : `${p.analyzeCreditsPerMonth}/mo`;
+            return `  • ${p.name} — ${price} — ${credits} analyze_runtime credits`;
+          })
+          .join('\n');
+
         return {
           content: [{
             type: 'text',
             text:
-              `⛔ ${credit.reason}\n\n` +
-              `Current plan: ${getPlan(getActivePlanId()).name}\n` +
-              `Upgrade at: https://mergen.dev/pricing`,
+              `⛔ analyze_runtime is not available on the **${getPlan(getActivePlanId()).name}** plan.\n\n` +
+              `**Upgrade options:**\n${upgradeOptions}\n\n` +
+              `→ https://mergen.dev/pricing`,
           }],
           isError: true,
         };
@@ -194,15 +271,18 @@ export function registerTools(server: McpServer): void {
       // ── Build causal chain + context pack ──────────────────────────────────
       const causal = await buildCausalChain(logs, network, contexts, since);
 
-      // Append usage footer
+      // Append usage footer + any one-time notice (low credits, first overage)
       const usage = getUsageSnapshot();
       const usageFooter = usage.included === null
         ? `\n\n---\n*Credits used this month: ${usage.used} (unlimited plan)*`
-        : `\n\n---\n*Credits used this month: ${usage.used} / ${usage.included}` +
-          (usage.overage > 0 ? ` (+${usage.overage} overage)` : '') + '*';
+        : `\n\n---\n*Credits: ${usage.used} / ${usage.included} used` +
+          (usage.overage > 0 ? ` · ${usage.overage} overage ($${(usage.estimatedOverageCents / 100).toFixed(2)} est.)` : '') +
+          ` · resets ${new Date(usage.resetsAt).toUTCString()}*`;
+
+      const noticeBlock = credit.notice ? `\n\n> ${credit.notice}` : '';
 
       return {
-        content: [{ type: 'text', text: causal.contextPack + usageFooter }],
+        content: [{ type: 'text', text: causal.contextPack + noticeBlock + usageFooter }],
       };
     },
   );

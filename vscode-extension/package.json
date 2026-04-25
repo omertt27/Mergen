@@ -1,0 +1,114 @@
+{
+  "name": "mergen",
+  "displayName": "Mergen — Browser Observability",
+  "description": "Live browser logs, network events and AI root-cause analysis, right inside VS Code.",
+  "version": "1.0.0",
+  "publisher": "mergen",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Debuggers",
+    "Other"
+  ],
+  "keywords": [
+    "debug",
+    "mcp",
+    "ai",
+    "browser",
+    "logs"
+  ],
+  "icon": "icons/icon128.png",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "mergen",
+          "title": "Mergen",
+          "icon": "icons/icon16.svg"
+        }
+      ]
+    },
+    "views": {
+      "mergen": [
+        {
+          "type": "webview",
+          "id": "mergen.panel",
+          "name": "Mergen",
+          "retainContextWhenHidden": true
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "mergen.openPanel",
+        "title": "Mergen: Open Panel",
+        "icon": "$(debug-console)"
+      },
+      {
+        "command": "mergen.clearBuffer",
+        "title": "Mergen: Clear Buffer"
+      },
+      {
+        "command": "mergen.refresh",
+        "title": "Mergen: Refresh",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "mergen.refresh",
+          "when": "view == mergen.panel",
+          "group": "navigation"
+        },
+        {
+          "command": "mergen.clearBuffer",
+          "when": "view == mergen.panel",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Mergen",
+      "properties": {
+        "mergen.serverPort": {
+          "type": "number",
+          "default": 3000,
+          "description": "Port where the Mergen MCP server is running."
+        },
+        "mergen.pollIntervalMs": {
+          "type": "number",
+          "default": 2000,
+          "description": "How often (ms) the sidebar polls the server for new events."
+        }
+      }
+    },
+    "mcp": {
+      "servers": {
+        "mergen": {
+          "type": "stdio",
+          "command": "node",
+          "args": [
+            "${workspaceFolder}/../server/dist/index.js"
+          ]
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-webview.mjs",
+    "watch": "tsc -p tsconfig.json --watch",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.5",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.3"
+  }
+}
