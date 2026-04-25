@@ -53,7 +53,7 @@ Mergen is a **local browser observability bridge** that sits between your runnin
 | `server/src/buffer.ts` | O(1) **ring buffer** (200-event cap). Typed Zod schemas for `ConsoleEvent`, `NetworkEvent`, `ContextSnapshot` |
 | `server/src/ingest.ts` | Express router at `/ingest`. Validates incoming events, enforces plan buffer limits, writes to ring buffer |
 | `server/src/tools.ts` | Registers 6 MCP tools: `get_recent_logs`, `get_network_activity`, `get_dom_context`, `analyze_runtime`, `get_status`, `clear_buffer` |
-| `server/src/causal.ts` | **Context Pack engine**. Correlates events into a causal chain, annotates with source-mapped frames, renders structured markdown for the LLM |
+| `server/src/causal.ts` | **Hypothesis Engine + Context Pack**. Tracks event dependencies (`request → response → state mutation → crash`) rather than time proximity. Emits a structured `Hypothesis` (summary, confidence score, causal path, fix hint) and renders a Context Pack with a TL;DR diagnosis at the top |
 | `server/src/sourcemap.ts` | Source map resolution. Reads `.map` files from disk, resolves minified stack frames to original file/line/snippet |
 | `server/src/prompts.ts` | Versioned system prompt. Section-aware instructions telling the LLM how to read a Context Pack |
 | `server/src/license.ts` | License lifecycle: activate/deactivate/validate key, persist to `~/.mergen/license.json`, unified plan mapping |
@@ -144,7 +144,7 @@ Mergen is a **local browser observability bridge** that sits between your runnin
 | `get_recent_logs` | Free | Returns console events. Filterable by level (`error`/`warn`/`log`) and time window (`since` ms) |
 | `get_network_activity` | Free | Returns fetch/XHR events. Filterable by HTTP status code |
 | `get_dom_context` | Free | Returns DOM + storage snapshots captured at each `console.error` |
-| `analyze_runtime` | **1 credit** | Builds and returns the full Context Pack (causal chain + source frames + app state + timeline) |
+| `analyze_runtime` | **1 credit** | **Routine debugging tool** — call as part of your normal workflow, not just when things break. Tracks event dependencies, emits a single root-cause diagnosis (TL;DR first), causal path, and fix hint |
 | `get_status` | Free | Returns plan name, credits used/remaining, next reset date, buffer size, server version |
 | `clear_buffer` | Free | Clears all events from the ring buffer |
 
@@ -152,37 +152,61 @@ Mergen is a **local browser observability bridge** that sits between your runnin
 
 ## 7. Context Pack Format
 
-The `analyze_runtime` tool returns a structured markdown document with 7 sections:
+The `analyze_runtime` tool returns a structured markdown document. It **leads with the answer**, not the data:
 
 ```
-## Context Pack  vX  (generated ISO-timestamp)
+### 🚨 Mergen Context Pack
 
-### § 1  Root Errors
-One paragraph per error: message, timestamp, source-mapped file:line:col,
-code snippet with ▶ pointer
+> 🟢 HIGH: `userToken` is null — auth token from `/api/login` was not persisted to localStorage — code reads `userToken` and gets null.
+> 💡 Fix: After `/api/login` resolves, call `localStorage.setItem('userToken', response.token)` before navigating.
 
-### § 2  Probable Cause
-Plain-English hypothesis: what chain of events most likely caused the
-primary error
-
-### § 3  Correlated Network
-Network calls within ±2 s of each error:
-method, URL, status, duration, response body
-
-### § 4  App State at Crash
-URL, page title, focused element, React/Vue component,
-relevant localStorage keys
-
-### § 5  Event Timeline
-Chronological: navigation → network calls → warnings → errors
-(each with delta-ms from first event)
-
-### § 6  Source Frames
-Full resolved stack for each error, formatted as file → fn → line:col
-
-### § 7  Recommended Actions
-Numbered list of concrete next steps for the developer / AI
+### §1  Source Snippet    — exact crash line in original source + code window
+### §2  Invisible State   — localStorage / sessionStorage at moment of crash
+### §3  Network Pulse     — last 3 API calls with full Req/Res headers + bodies
+### §4  DOM Trace         — focused element, component, current URL
+### §5  Mergen Diagnosis  — structured Hypothesis: confidence, causal path, evidence, fix hint
+### §6  Causal Timeline   — all events in chronological order
+### §7  Task Prompt       — explicit 4-point output contract for the LLM
 ```
+
+### 7.1 Hypothesis Engine (§5)
+
+`causal.ts` tracks **event dependencies**, not time proximity:
+
+```
+request → response → state mutation → render → crash
+```
+
+Each dependency produces a structured `Hypothesis`:
+
+```ts
+{
+  summary:         "auth token from /api/login was not persisted — code reads userToken, gets null",
+  confidence:      "HIGH",
+  confidenceScore: 0.80,
+  evidence: [
+    "POST /api/login → 200 OK",
+    "localStorage.userToken = null at crash time",
+    "Crash at AuthGuard.tsx:42 in checkAuth"
+  ],
+  causalPath: [
+    "POST /api/login → 200 OK",
+    "Expected: token stored to localStorage.userToken",
+    "Actual: localStorage.userToken = null/missing",
+    "Crash: code reads userToken, gets null"
+  ],
+  fixHint: "After /api/login resolves, call localStorage.setItem('userToken', response.token) before navigating."
+}
+```
+
+Signals that contribute to `confidenceScore`:
+| Signal | Score |
+|--------|-------|
+| Source frame resolved | +0.15 |
+| Null/empty localStorage key | +0.25 |
+| Successful auth call + missing token (strongest) | +0.40 |
+| Failed network call before crash | +0.30 |
+| Warning immediately before error | +0.10 |
 
 ---
 

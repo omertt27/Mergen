@@ -225,10 +225,12 @@ export function registerTools(server: McpServer): void {
     'analyze_runtime',
     {
       description:
-        '🔬 PREMIUM — Reconstructs the causal chain that led to the current runtime error. ' +
-        'Resolves stack frames to original source (with code snippets), correlates console errors ' +
-        'with network failures and DOM state at the exact moment of crash, and produces a ' +
-        'structured Context Pack for precise root-cause diagnosis. ' +
+        '🔬 ROUTINE DEBUGGING — Call this as part of your normal debugging workflow, not just when things break. ' +
+        'Reconstructs what happened in the browser: resolves stack frames to original source (with code snippets), ' +
+        'tracks event dependencies (request → response → state mutation → crash), and produces a structured diagnosis ' +
+        'with a single root-cause summary, causal path, and fix hint. ' +
+        'Use it whenever the user asks why something is wrong, why a component is behaving unexpectedly, ' +
+        'or what happened before an error. ' +
         'Costs 1 credit per call. Free plan: unavailable. Solo Standard: 500/mo. Solo Pro/Team: unlimited.',
       inputSchema: {
         focus: z.enum(['errors', 'network', 'all']).optional()

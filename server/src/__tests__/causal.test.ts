@@ -43,7 +43,7 @@ describe('buildCausalChain', () => {
     expect(c.errors).toHaveLength(0);
     expect(c.chain).toHaveLength(0);
     expect(c.contextPack).toContain('No console errors');
-    expect(c.hypothesis).toBeNull();
+    expect(c.hypotheses).toHaveLength(0);
   });
 
   it('builds errorBlocks for errors without stacks', async () => {
@@ -85,9 +85,16 @@ describe('buildCausalChain', () => {
     const loginOk = makeNetwork('/api/login', 200, NOW - 4000);
     const snap = makeContext(NOW - 200, { token: 'null' });
     const c = await buildCausalChain([makeError('Cannot read token')], [loginOk], [snap]);
-    // Hypothesis should mention the null token and/or successful auth call
-    expect(c.hypothesis).not.toBeNull();
-    expect(c.hypothesis).toMatch(/token|null|localStorage/i);
+    // Should produce at least one hypothesis; the top one should be auth-related
+    expect(c.hypotheses.length).toBeGreaterThan(0);
+    const top = c.hypotheses[0];
+    expect(top.tag).toBe('auth_token_not_persisted');
+    expect(top.summary).toMatch(/token|null|localStorage/i);
+    expect(top.confidence).not.toBe('INSUFFICIENT');
+    // Competing hypothesis for token overwrite should also fire (2+ conditions met)
+    // and be ranked below the primary
+    const tags = c.hypotheses.map((h) => h.tag);
+    expect(tags[0]).toBe('auth_token_not_persisted'); // highest score first
   });
 
   it('orders the causal chain chronologically', async () => {

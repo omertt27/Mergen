@@ -67,6 +67,39 @@ export interface CorrelatedNetworkCall {
   isoTs: string;
 }
 
+// ── Hypothesis Engine ────────────────────────────────────────────────────────
+// A structured pre-diagnosis generated from correlated signals.
+// Each detector fires independently; all that meet the threshold are returned
+// as competing hypotheses, ranked by confidenceScore. The LLM chooses.
+//
+// ⚠️  These are heuristic scores, not learned weights. They will mis-fire on
+// edge cases (race conditions, state overwrites, etc.). The system is designed
+// to be honest about this: it never suppresses a lower-ranked hypothesis, and
+// it explicitly reports "insufficient data" when no detector passes the minimum
+// threshold. A wrong confident answer is worse than no answer.
+
+export type ConfidenceLevel = 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT';
+
+/** Minimum score a hypothesis must reach to be included in output. Below this,
+ *  the system reports "insufficient data" for that detector rather than guess. */
+const MIN_HYPOTHESIS_SCORE = 0.25;
+
+export interface Hypothesis {
+  /** Machine-readable label — stable identifier for tests and tooling */
+  tag: string;
+  /** One sentence root cause: what broke and why. */
+  summary: string;
+  confidence: ConfidenceLevel;
+  /** 0.0 – 1.0, sum of corroborating signal weights for this specific pattern */
+  confidenceScore: number;
+  /** Supporting facts from the telemetry that justify the hypothesis */
+  evidence: string[];
+  /** Ordered steps showing how one event caused the next: A → B → C → crash */
+  causalPath: string[];
+  /** Minimal concrete fix suggestion, or null if not enough signal */
+  fixHint: string | null;
+}
+
 export interface CausalChain {
   capturedAt: string;
   totalEvents: number;
@@ -74,7 +107,9 @@ export interface CausalChain {
   chain: CausalEvent[];           // chronological, all event types
   stateAtError: StateBlock | null;
   correlatedNetwork: CorrelatedNetworkCall[];
-  hypothesis: string | null;      // pre-computed hypothesis string for the LLM
+  /** All hypotheses that met MIN_HYPOTHESIS_SCORE, ranked by confidenceScore descending.
+   *  Empty array = insufficient signal — the system explicitly has no theory. */
+  hypotheses: Hypothesis[];
   contextPack: string;            // the full formatted string for the LLM
 }
 
@@ -242,47 +277,274 @@ export async function buildCausalChain(
 
   chain.sort((a, b) => a.ts - b.ts);
 
-  // ── Hypothesis generation ────────────────────────────────────────────────────
-  // We pre-compute a hypothesis hint so the LLM starts from structured signal
-  // rather than blank-slate reasoning.
-  let hypothesis: string | null = null;
+  // ── Hypothesis Engine ────────────────────────────────────────────────────────
+  // Each detector function runs independently on the same telemetry and returns
+  // a Hypothesis if it fires, or null if it doesn't see its pattern.
+  // All hypotheses that score >= MIN_HYPOTHESIS_SCORE are kept and ranked.
+  // If none pass the threshold the system says "insufficient data" — it never
+  // invents a confident answer from weak signal.
+
+  type DetectorInput = {
+    primaryErr: ErrorBlock;
+    stateAtError: StateBlock | null;
+    correlatedNetwork: CorrelatedNetworkCall[];
+    chain: CausalEvent[];
+  };
+
+  function scoreToConfidence(score: number): ConfidenceLevel {
+    if (score >= 0.65) return 'HIGH';
+    if (score >= 0.40) return 'MEDIUM';
+    if (score >= MIN_HYPOTHESIS_SCORE) return 'LOW';
+    return 'INSUFFICIENT';
+  }
+
+  // ── Detector A: auth token not persisted after successful login ───────────
+  // Pattern: POST /auth → 200 OK  →  token key absent/null in localStorage  →  crash
+  function detectAuthTokenNotPersisted(d: DetectorInput): Hypothesis | null {
+    if (!d.stateAtError) return null;
+    const authCalls = d.correlatedNetwork.filter(
+      (n) => /login|auth|signin|token/i.test(n.url) && n.status === 200,
+    );
+    if (authCalls.length === 0) return null;
+
+    const ls = d.stateAtError.localStorage;
+    const AUTH_KEYS = ['token', 'userToken', 'accessToken', 'authToken', 'jwt', 'user', 'session'];
+    const missingKeys = AUTH_KEYS.filter(
+      (k) => !(k in ls) || ls[k] === 'null' || ls[k] === '' || ls[k] === 'undefined',
+    );
+    if (missingKeys.length === 0) return null;
+
+    const authCall = authCalls[authCalls.length - 1];
+    const key = missingKeys[0];
+    let score = 0.55; // auth call 200 + token missing is strong
+    if (d.primaryErr.primaryFrame) score += 0.15; // source frame adds certainty
+    const confidence = scoreToConfidence(score);
+    if (confidence === 'INSUFFICIENT') return null;
+
+    return {
+      tag: 'auth_token_not_persisted',
+      summary: `Auth token from \`${authCall.url}\` was not persisted — code reads \`${key}\` from localStorage and gets null.`,
+      confidence,
+      confidenceScore: score,
+      evidence: [
+        `\`${authCall.method} ${authCall.url}\` returned HTTP 200.`,
+        `\`localStorage.${key}\` is null/absent at crash time.`,
+        ...(d.primaryErr.primaryFrame
+          ? [`Crash at \`${d.primaryErr.primaryFrame.file}:${d.primaryErr.primaryFrame.line}\`.`]
+          : []),
+      ],
+      causalPath: [
+        `${authCall.method} ${authCall.url} → 200 OK`,
+        `Expected: response token written to localStorage.${key}`,
+        `Actual: localStorage.${key} = null/missing (write never happened or was overwritten)`,
+        `Crash: downstream code reads ${key}, receives null`,
+      ],
+      fixHint: `After \`${authCall.url}\` resolves, call \`localStorage.setItem('${key}', response.token)\` before navigating away.`,
+    };
+  }
+
+  // ── Detector B: token overwrite / race condition ──────────────────────────
+  // Pattern: multiple auth/state calls in quick succession  →  later one wins
+  //          with null/empty  →  overwrites the good value  →  crash
+  // This is the "competing" hypothesis to Detector A: the token WAS stored, but
+  // something wiped it afterwards. We look for 2+ auth calls within 3 s.
+  function detectTokenOverwrite(d: DetectorInput): Hypothesis | null {
+    if (!d.stateAtError) return null;
+    const authCalls = d.correlatedNetwork.filter(
+      (n) => /login|auth|signin|token|session/i.test(n.url),
+    );
+    if (authCalls.length < 2) return null;
+
+    const ls = d.stateAtError.localStorage;
+    const AUTH_KEYS = ['token', 'userToken', 'accessToken', 'authToken', 'jwt', 'user', 'session'];
+    const nullKeys = AUTH_KEYS.filter(
+      (k) => k in ls && (ls[k] === 'null' || ls[k] === '' || ls[k] === 'undefined'),
+    );
+    if (nullKeys.length === 0) return null;
+
+    // Check temporal proximity: did two auth calls happen within 3 s?
+    const sorted = [...authCalls].sort((a, b) => (a.msBeforeError ?? 0) - (b.msBeforeError ?? 0));
+    const first = sorted[0];
+    const last  = sorted[sorted.length - 1];
+    const spanMs = Math.abs((first.msBeforeError ?? 0) - (last.msBeforeError ?? 0));
+    if (spanMs > 5000) return null; // too far apart, not a race
+
+    const key = nullKeys[0];
+    const score = 0.35 + (spanMs < 1000 ? 0.15 : 0.05); // tighter race = more confidence
+    const confidence = scoreToConfidence(score);
+    if (confidence === 'INSUFFICIENT') return null;
+
+    return {
+      tag: 'token_overwrite_race',
+      summary: `\`${key}\` may have been overwritten to null by a concurrent auth request — ${authCalls.length} auth calls fired within ${spanMs}ms.`,
+      confidence,
+      confidenceScore: score,
+      evidence: [
+        `${authCalls.length} auth-related requests fired within ${spanMs}ms of each other.`,
+        `\`localStorage.${key}\` is null at crash time despite at least one 200 response.`,
+        `Race window: ${first.isoTs} → ${last.isoTs}.`,
+      ],
+      causalPath: [
+        `Multiple concurrent auth calls: ${authCalls.map((n) => `${n.method} ${n.url}`).join(', ')}`,
+        `Later response (or error handler) writes null to localStorage.${key}`,
+        `Overwrites the valid token from the earlier successful response`,
+        `Crash: code reads ${key}, receives null`,
+      ],
+      fixHint: `Deduplicate auth calls (abort the earlier request when a new one starts) and avoid writing null to \`${key}\` in error handlers.`,
+    };
+  }
+
+  // ── Detector C: failed network call → uninitialised state → crash ─────────
+  // Pattern: HTTP 4xx/5xx/net-err  →  response data never parsed  →  crash
+  function detectFailedRequestCausedCrash(d: DetectorInput): Hypothesis | null {
+    const failedCalls = d.correlatedNetwork.filter(
+      (n) => n.status >= 400 || n.status === 0 || !!n.error,
+    );
+    if (failedCalls.length === 0) return null;
+
+    const worst = failedCalls.reduce((a, b) =>
+      (a.status === 0 || a.status >= 500) ? a : (b.status === 0 || b.status >= 500) ? b : a,
+    );
+    const label = worst.status === 0
+      ? `network error (${worst.error ?? 'no response'})`
+      : `HTTP ${worst.status}`;
+
+    let score = 0.30;
+    if (worst.status === 0 || worst.status >= 500) score += 0.15; // 5xx/net errors are more causal
+    if (worst.msBeforeError !== null && worst.msBeforeError < 500) score += 0.15; // tight timing
+    if (d.primaryErr.primaryFrame) score += 0.10;
+    const confidence = scoreToConfidence(score);
+    if (confidence === 'INSUFFICIENT') return null;
+
+    return {
+      tag: 'failed_request_uninitialised_state',
+      summary: `\`${worst.method} ${worst.url}\` failed with ${label} — dependent state was never populated, leading to the crash.`,
+      confidence,
+      confidenceScore: score,
+      evidence: [
+        `\`${worst.method} ${worst.url}\` → ${label}${worst.msBeforeError != null ? `, ${worst.msBeforeError}ms before crash` : ''}.`,
+        ...(failedCalls.length > 1 ? [`${failedCalls.length - 1} other failing call(s) in the same window.`] : []),
+        ...(d.primaryErr.primaryFrame ? [`Crash at \`${d.primaryErr.primaryFrame.file}:${d.primaryErr.primaryFrame.line}\`.`] : []),
+      ],
+      causalPath: [
+        `${worst.method} ${worst.url} → ${label}`,
+        `Response data was never parsed/stored`,
+        `State variable that depended on the response remained uninitialised (undefined/null)`,
+        `Crash: code tried to access a property of the uninitialised value`,
+      ],
+      fixHint: `Guard the code that reads the response: check \`response.ok\` (or catch the thrown error) and handle the failure case before accessing response data.`,
+    };
+  }
+
+  // ── Detector D: null/empty localStorage key (no auth context) ────────────
+  // Pattern: key exists but is null/empty, no clear network cause
+  // Lower-confidence fallback — something didn't get set, but we don't know why.
+  function detectNullStorageKey(d: DetectorInput): Hypothesis | null {
+    if (!d.stateAtError) return null;
+    const ls = d.stateAtError.localStorage;
+    const nullKeys = Object.entries(ls)
+      .filter(([, v]) => v === 'null' || v === '' || v === 'undefined')
+      .map(([k]) => k);
+    if (nullKeys.length === 0) return null;
+
+    // Skip if another detector already provides a richer explanation via auth keys
+    const AUTH_KEYS = new Set(['token', 'userToken', 'accessToken', 'authToken', 'jwt', 'user', 'session']);
+    const nonAuthNullKeys = nullKeys.filter((k) => !AUTH_KEYS.has(k));
+    const relevantKeys = nonAuthNullKeys.length > 0 ? nonAuthNullKeys : nullKeys;
+
+    const key = relevantKeys[0];
+    let score = 0.25;
+    if (d.primaryErr.primaryFrame) score += 0.10;
+    const confidence = scoreToConfidence(score);
+    if (confidence === 'INSUFFICIENT') return null;
+
+    return {
+      tag: 'null_storage_key',
+      summary: `\`localStorage.${key}\` was null/empty at crash time — code that reads it received null.`,
+      confidence,
+      confidenceScore: score,
+      evidence: [
+        `\`localStorage.${key}\` = null/empty/undefined at crash time.`,
+        ...(relevantKeys.length > 1 ? [`Other empty keys: ${relevantKeys.slice(1).map(k => `\`${k}\``).join(', ')}.`] : []),
+      ],
+      causalPath: [
+        `localStorage.${key} was null/empty before the crash`,
+        `Unknown cause: key was never set, was cleared, or was set to null explicitly`,
+        `Crash: code read ${key} and received null`,
+      ],
+      fixHint: `Add a null-check before reading \`localStorage.${key}\`, and trace back where this key should be written.`,
+    };
+  }
+
+  // ── Detector E: warning immediately before error ──────────────────────────
+  // Pattern: console.warn fired as a last signal before console.error
+  // Very low confidence alone — useful only as a supporting signal.
+  function detectWarningBeforeError(d: DetectorInput): Hypothesis | null {
+    const warnsBeforeError = d.chain
+      .filter((ev) => ev.kind === 'warn' && ev.ts < d.primaryErr.timestamp)
+      .slice(-1);
+    if (warnsBeforeError.length === 0) return null;
+
+    const w = warnsBeforeError[0];
+    const score = 0.25; // Never HIGH on its own; it's supporting context
+    const confidence = scoreToConfidence(score);
+    if (confidence === 'INSUFFICIENT') return null;
+
+    return {
+      tag: 'warning_preceded_error',
+      summary: `A warning fired immediately before the crash: "${w.summary}" — this may indicate the code path that led to the error.`,
+      confidence,
+      confidenceScore: score,
+      evidence: [
+        `Warning at ${w.isoTs}: "${w.summary}".`,
+        `Crash fired ${d.primaryErr.timestamp - w.ts}ms later.`,
+      ],
+      causalPath: [
+        `⚠️ Warning: "${w.summary}"`,
+        `Code continued past the warning rather than bailing out`,
+        `Crash: the condition the warning flagged caused the error`,
+      ],
+      fixHint: `Investigate the warning — it may be a guard that should throw instead of warn.`,
+    };
+  }
+
+  // ── Run all detectors, collect results ────────────────────────────────────
+  const hypotheses: Hypothesis[] = [];
 
   if (errorBlocks.length > 0) {
-    const primaryErr = errorBlocks[0];
-    const parts: string[] = [];
+    const input: DetectorInput = {
+      primaryErr: errorBlocks[0],
+      stateAtError,
+      correlatedNetwork,
+      chain,
+    };
 
-    // Frame-level signal
-    if (primaryErr.primaryFrame) {
-      const f = primaryErr.primaryFrame;
-      parts.push(`The crash originated at ${f.file}:${f.line} in ${f.fn || '<anonymous>'}.`);
-    }
-
-    // State signal — look for null / undefined tokens / auth state
-    if (stateAtError) {
-      const ls = stateAtError.localStorage;
-      const nullKeys = Object.entries(ls)
-        .filter(([, v]) => v === 'null' || v === '' || v === 'undefined')
-        .map(([k]) => k);
-
-      if (nullKeys.length > 0) {
-        parts.push(`At error time, localStorage.${nullKeys.join(', ')} was null/empty.`);
-      }
-
-      const missingAuthKeys = ['token', 'userToken', 'accessToken', 'authToken', 'user']
-        .filter((k) => !(k in ls));
-      if (missingAuthKeys.length > 0 && correlatedNetwork.some((n) => /login|auth|signin/i.test(n.url) && n.status === 200)) {
-        parts.push(`A successful auth network call was made but ${missingAuthKeys.join('/')} is absent from localStorage — the token may not have been persisted.`);
+    for (const detector of [
+      detectAuthTokenNotPersisted,
+      detectTokenOverwrite,
+      detectFailedRequestCausedCrash,
+      detectNullStorageKey,
+      detectWarningBeforeError,
+    ]) {
+      try {
+        const result = detector(input);
+        if (result) hypotheses.push(result);
+      } catch (err) {
+        logger.warn({ err, detector: detector.name }, 'hypothesis detector threw');
       }
     }
 
-    // Network correlation signal
-    const failedCalls = correlatedNetwork.filter((n) => n.status >= 400 || n.status === 0);
-    if (failedCalls.length > 0) {
-      const f = failedCalls[0];
-      parts.push(`The most recent failing network call was ${f.method} ${f.url} → ${f.status} (${f.msBeforeError}ms before the error).`);
-    }
+    // Rank by confidenceScore descending; remove dominated hypotheses that
+    // share the same causal explanation but score lower.
+    hypotheses.sort((a, b) => b.confidenceScore - a.confidenceScore);
 
-    hypothesis = parts.length > 0 ? parts.join(' ') : null;
+    // If the top hypothesis is HIGH confidence auth-related, suppress the
+    // generic null-storage detector for the same key to avoid repetition.
+    const topTag = hypotheses[0]?.tag;
+    if (topTag === 'auth_token_not_persisted' || topTag === 'token_overwrite_race') {
+      const idx = hypotheses.findIndex((h) => h.tag === 'null_storage_key');
+      if (idx > 0) hypotheses.splice(idx, 1);
+    }
   }
 
   // ── Format the Context Pack string ───────────────────────────────────────────
@@ -293,7 +555,7 @@ export async function buildCausalChain(
     chain,
     stateAtError,
     correlatedNetwork,
-    hypothesis,
+    hypotheses,
   };
   const contextPack = formatContextPack(partialChain);
 
@@ -323,6 +585,26 @@ function formatContextPack(c: Omit<CausalChain, 'contextPack'>): string {
   lines.push('### 🚨 Mergen Context Pack');
   lines.push(`*Captured ${c.capturedAt} · ${c.totalEvents} events in buffer*`);
   lines.push('');
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // TL;DR  ONE-LINE DIAGNOSIS
+  //     Lead with the answer, not the data. A developer scanning this in
+  //     Cursor should know the root cause before reading anything else.
+  //     Show the top hypothesis only. Full ranked list is in §5.
+  // ══════════════════════════════════════════════════════════════════════════
+  const topHypothesis = c.hypotheses[0] ?? null;
+  if (topHypothesis) {
+    const confidenceEmoji = topHypothesis.confidence === 'HIGH' ? '🟢' : topHypothesis.confidence === 'MEDIUM' ? '🟡' : '🔴';
+    lines.push(`> ${confidenceEmoji} **${topHypothesis.confidence}:** ${topHypothesis.summary}`);
+    if (topHypothesis.fixHint) lines.push(`> 💡 **Fix:** ${topHypothesis.fixHint}`);
+    if (c.hypotheses.length > 1) {
+      lines.push(`> ⚠️ *${c.hypotheses.length - 1} competing hypothesis(es) — see §5.*`);
+    }
+    lines.push('');
+  } else if (c.errors.length > 0) {
+    lines.push(`> 🔴 **${c.errors[0].message}** — insufficient signal for automatic diagnosis. See §2–§3 below.`);
+    lines.push('');
+  }
 
   // ══════════════════════════════════════════════════════════════════════════
   // §1  SOURCE SNIPPET
@@ -537,24 +819,61 @@ function formatContextPack(c: Omit<CausalChain, 'contextPack'>): string {
 
   // ══════════════════════════════════════════════════════════════════════════
   // §5  MERGEN DIAGNOSIS
-  //     Pre-computed hypothesis from correlated signals. Gives Claude a
-  //     structured starting theory so it diagnoses rather than explores.
+  //     All hypotheses that met the minimum threshold, ranked by confidence.
+  //     Multiple hypotheses are shown explicitly — the LLM must adjudicate.
+  //     If none passed the threshold, the system says so rather than guessing.
   // ══════════════════════════════════════════════════════════════════════════
   lines.push('');
   lines.push('---');
-  lines.push('#### 🔬 §5 · Mergen Diagnosis  *(pre-computed signal)*');
+  lines.push('#### 🔬 §5 · Mergen Diagnosis  *(competing hypotheses, ranked)*');
   lines.push('');
 
-  if (c.hypothesis) {
-    lines.push('> *Machine-generated — use as a starting point, not a conclusion.*');
-    lines.push('>');
-    for (const sentence of c.hypothesis.split('. ').filter(Boolean)) {
-      lines.push(`> ${sentence.endsWith('.') ? sentence : sentence + '.'}`);
+  if (c.hypotheses.length === 0) {
+    if (c.errors.length > 0) {
+      lines.push('> 🔴 **INSUFFICIENT DATA** — no detector reached the minimum confidence threshold.');
+      lines.push('> The system will not guess. Investigate §2 (storage) and §3 (network) manually.');
+    } else {
+      lines.push('> ✅ No errors detected.');
     }
-  } else if (c.errors.length > 0) {
-    lines.push('> No enriched hypothesis could be computed — insufficient correlated signals.');
   } else {
-    lines.push('> ✅ No errors detected.');
+    if (c.hypotheses.length > 1) {
+      lines.push(`> ⚠️ **${c.hypotheses.length} competing hypotheses** — these are heuristic, not learned. The system may be wrong.`);
+      lines.push('> The LLM should weigh the evidence and select the most plausible explanation.');
+      lines.push('');
+    }
+
+    for (let hi = 0; hi < c.hypotheses.length; hi++) {
+      const h = c.hypotheses[hi];
+      const confidenceEmoji = h.confidence === 'HIGH' ? '🟢' : h.confidence === 'MEDIUM' ? '🟡' : '🔴';
+      const rank = c.hypotheses.length > 1 ? `**#${hi + 1}** ` : '';
+
+      lines.push(`${rank}${confidenceEmoji} **${h.confidence}** (score: ${(h.confidenceScore * 100).toFixed(0)}%) · \`${h.tag}\``);
+      lines.push('');
+      lines.push(`> ${h.summary}`);
+      lines.push('');
+
+      if (h.causalPath.length > 0) {
+        lines.push('**Causal path:**');
+        lines.push('');
+        for (let si = 0; si < h.causalPath.length; si++) {
+          lines.push(`${si + 1}. ${h.causalPath[si]}`);
+        }
+      }
+
+      if (h.evidence.length > 0) {
+        lines.push('');
+        lines.push('**Supporting evidence:**');
+        lines.push('');
+        for (const ev of h.evidence) lines.push(`- ${ev}`);
+      }
+
+      if (h.fixHint) {
+        lines.push('');
+        lines.push(`**💡 Suggested fix:** ${h.fixHint}`);
+      }
+
+      if (hi < c.hypotheses.length - 1) lines.push('');
+    }
   }
 
   // ══════════════════════════════════════════════════════════════════════════
