@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "mergen": {
+      "command": "node",
+      "args": ["./server/dist/index.js"]
+    }
+  }
+}

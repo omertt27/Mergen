@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "mergen": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}/server/dist/index.js"]
+    }
+  }
+}
