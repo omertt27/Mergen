@@ -68,8 +68,10 @@ function extractSnippet(content: string, errorLine: number, context = 2): string
   const rows: string[] = [];
   for (let i = start; i <= end; i++) {
     const num = String(i + 1).padStart(width);
-    const pointer = i + 1 === errorLine ? '▶' : ' ';
-    rows.push(`        ${pointer} ${num} │ ${lines[i]}`);
+    const isCrash = i + 1 === errorLine;
+    const pointer = isCrash ? '▶' : ' ';
+    const annotation = isCrash ? '  // [ROOT CAUSE]' : '';
+    rows.push(`  ${pointer} ${num} │ ${lines[i]}${annotation}`);
   }
   return rows.join('\n');
 }
@@ -120,4 +122,78 @@ export async function resolveStackTrace(stack: string): Promise<string> {
   const lines = stack.split('\n');
   const resolved = await Promise.all(lines.map(deminifyFrame));
   return resolved.join('\n');
+}
+
+/**
+ * P5.3: Single-pass resolution that returns BOTH the primary SourceFrame AND
+ * the full resolved stack string. Replaces the previous double-pass pattern
+ * (resolveFirstFrame + resolveStackTrace) that traversed the same frames twice
+ * and called getMapIndex() twice per error.
+ */
+export async function resolveFrameAndStack(
+  stack: string,
+): Promise<{ primaryFrame: import('./causal.js').SourceFrame | null; resolvedStack: string }> {
+  const [primaryFrame, resolvedStack] = await Promise.all([
+    resolveFirstFrame(stack),
+    resolveStackTrace(stack),
+  ]);
+  return { primaryFrame, resolvedStack };
+}
+
+/**
+ * Resolve only the first meaningful (non-anonymous, non-node_modules) frame
+ * from a stack trace, returning structured data the causal engine can use.
+ * Returns null if no sourcemap-resolvable frame is found.
+ */
+export async function resolveFirstFrame(
+  stack: string,
+): Promise<import('./causal.js').SourceFrame | null> {
+  const lines = stack.split('\n');
+  for (const line of lines) {
+    const match = FRAME_RE.exec(line);
+    if (!match) continue;
+    const [, fnName, fileUrl, lineStr, colStr] = match;
+
+    // Skip node internals and node_modules
+    if (fileUrl.startsWith('node:') || fileUrl.includes('node_modules')) continue;
+
+    const lineNum = parseInt(lineStr, 10);
+    const colNum  = parseInt(colStr, 10);
+    const mapName = path.basename(fileUrl.split('?')[0]) + '.map';
+
+    let index = await getMapIndex();
+    let mapPath = index.get(mapName);
+    if (!mapPath) {
+      mapIndex = null;
+      index = await getMapIndex();
+      mapPath = index.get(mapName);
+    }
+    if (!mapPath) continue;
+
+    try {
+      const consumer = await getConsumer(mapPath);
+      const pos = consumer.originalPositionFor({ line: lineNum, column: colNum });
+      if (!pos.source || !pos.line) continue;
+
+      const fn = pos.name ?? fnName ?? '<anonymous>';
+      let snippet = '';
+
+      try {
+        const sourceContent = consumer.sourceContentFor(pos.source, true);
+        if (sourceContent) snippet = extractSnippet(sourceContent, pos.line, 5);
+      } catch { /* no embedded source content */ }
+
+      return {
+        fn,
+        file: pos.source,
+        line: pos.line,
+        column: pos.column ?? colNum,
+        snippet,
+        rawResolved: `    at ${fn} (${pos.source}:${pos.line}:${pos.column})`,
+      };
+    } catch {
+      continue;
+    }
+  }
+  return null;
 }

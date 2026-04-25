@@ -7,22 +7,37 @@ export const ingestRouter = Router();
 
 const SHARED_SECRET = process.env.MERGEN_SECRET;
 
-// ── Rate limiter: sliding-window counter, max 100 events / second globally ───
-// This prevents a runaway extension from exhausting memory.
+// ── Rate limiter: token-bucket, max 100 events / second ──────────────────────
+// P1.3: Replaced the leaky O(n) Array.shift() approach with an O(1)
+// counter+timer bucket. The bucket refills every second; no array scanning.
 const RATE_LIMIT = 100;
 const RATE_WINDOW_MS = 1_000;
-const requestTimestamps: number[] = [];
+let _bucketCount = 0;
+let _bucketTimer: ReturnType<typeof setTimeout> | null = null;
 
 function isRateLimited(): boolean {
-  const now = Date.now();
-  const cutoff = now - RATE_WINDOW_MS;
-  // Evict timestamps outside the window
-  while (requestTimestamps.length > 0 && requestTimestamps[0] < cutoff) {
-    requestTimestamps.shift();
+  if (_bucketCount >= RATE_LIMIT) return true;
+  _bucketCount++;
+  if (!_bucketTimer) {
+    _bucketTimer = setTimeout(() => {
+      _bucketCount = 0;
+      _bucketTimer = null;
+    }, RATE_WINDOW_MS);
   }
-  if (requestTimestamps.length >= RATE_LIMIT) return true;
-  requestTimestamps.push(now);
   return false;
+}
+
+// ── Sourcemap resolution timeout ──────────────────────────────────────────────
+// P2.1: Guard against hung disk scans blocking the event loop indefinitely.
+const SOURCEMAP_TIMEOUT_MS = 2_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`sourcemap resolution timed out after ${ms}ms`)), ms),
+    ),
+  ]);
 }
 
 ingestRouter.post('/ingest', (req: Request, res: Response): void => {
@@ -48,10 +63,10 @@ ingestRouter.post('/ingest', (req: Request, res: Response): void => {
   res.status(204).end();
 
   if (event.type === 'console' && typeof event.stack === 'string') {
-    resolveStackTrace(event.stack)
+    withTimeout(resolveStackTrace(event.stack), SOURCEMAP_TIMEOUT_MS)
       .then((resolved) => store.push({ ...event, stack: resolved }))
       .catch((err) => {
-        logger.warn({ err }, 'sourcemap resolution failed, storing raw event');
+        logger.warn({ err }, 'sourcemap resolution failed or timed out, storing raw event');
         store.push(event);
       });
   } else {

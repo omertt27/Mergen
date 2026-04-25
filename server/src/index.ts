@@ -13,6 +13,11 @@ import { teamRouter, initTeam, getTeamState, isTeamEnabled } from './team.js';
 import { getPlan } from './plans.js';
 import net from 'net';
 import type { Server as HttpServer } from 'http';
+import { createRequire } from 'module';
+
+// P4.4: Read version from package.json — single source of truth
+const _require = createRequire(import.meta.url);
+const { version: SERVER_VERSION } = _require('../package.json') as { version: string };
 
 const PORT_RANGE_START = 3000;
 const PORT_RANGE_END = 3010;
@@ -68,7 +73,7 @@ async function main(): Promise<void> {
       warnings: store.getLogs(200, 'warn').length,
       networkErrors: store.getNetwork(200).filter((e) => e.status >= 400).length,
       name: 'mergen',
-      version: '1.0.0',
+      version: SERVER_VERSION,
       teamSync: isTeamEnabled()
         ? { enabled: true, memberName: teamState?.memberName, connectedPeers: 0 }
         : { enabled: false },
@@ -163,7 +168,7 @@ async function main(): Promise<void> {
 
   // ── MCP Server (stdio) ────────────────────────────────────────────────────
   const mcp = new McpServer(
-    { name: 'mergen', version: '1.0.0' },
+    { name: 'mergen', version: SERVER_VERSION },
     { instructions: SYSTEM_PROMPT },
   );
 

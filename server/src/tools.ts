@@ -4,6 +4,7 @@ import { store, LogLevel } from './buffer.js';
 import { consumeCredit, getUsageSnapshot } from './usage.js';
 import { getActivePlanId, getLicenseState } from './license.js';
 import { getPlan } from './plans.js';
+import { buildCausalChain } from './causal.js';
 
 export function registerTools(server: McpServer): void {
   // ── get_recent_logs ──────────────────────────────────────────────────────────
@@ -157,13 +158,14 @@ export function registerTools(server: McpServer): void {
     'analyze_runtime',
     {
       description:
-        '🔬 PREMIUM — Deep analysis of current browser telemetry. ' +
-        'Identifies root causes, correlates console errors with network failures, ' +
-        'and proposes a concrete fix. Costs 1 credit per call. ' +
-        'Free plan: not available. Solo Standard: 500/mo. Solo Pro/Team: unlimited.',
+        '🔬 PREMIUM — Reconstructs the causal chain that led to the current runtime error. ' +
+        'Resolves stack frames to original source (with code snippets), correlates console errors ' +
+        'with network failures and DOM state at the exact moment of crash, and produces a ' +
+        'structured Context Pack for precise root-cause diagnosis. ' +
+        'Costs 1 credit per call. Free plan: unavailable. Solo Standard: 500/mo. Solo Pro/Team: unlimited.',
       inputSchema: {
         focus: z.enum(['errors', 'network', 'all']).optional()
-          .describe('What to focus the analysis on (default: all)'),
+          .describe('Limit analysis scope (default: all)'),
         since: z.number().int().optional()
           .describe('Only analyze events after this Unix timestamp in ms'),
       },
@@ -172,96 +174,36 @@ export function registerTools(server: McpServer): void {
       // ── Credit gate ────────────────────────────────────────────────────────
       const credit = await consumeCredit();
       if (!credit.allowed) {
-        const ls = getLicenseState();
-        const upgradeUrl = 'https://mergen.dev/pricing';
         return {
           content: [{
             type: 'text',
             text:
               `⛔ ${credit.reason}\n\n` +
               `Current plan: ${getPlan(getActivePlanId()).name}\n` +
-              `Upgrade at: ${upgradeUrl}`,
+              `Upgrade at: https://mergen.dev/pricing`,
           }],
           isError: true,
         };
       }
 
-      // ── Gather telemetry ───────────────────────────────────────────────────
-      const logs     = (focus === 'network') ? [] : store.getLogs(200, undefined, since);
-      const network  = (focus === 'errors')  ? [] : store.getNetwork(200, undefined, since);
-      const contexts = store.getContext(10, since);
+      // ── Gather raw telemetry ───────────────────────────────────────────────
+      const logs     = focus === 'network' ? [] : store.getLogs(200, undefined, since);
+      const network  = focus === 'errors'  ? [] : store.getNetwork(200, undefined, since);
+      const contexts = store.getContext(20, since);
 
-      const errors   = logs.filter((e) => e.level === 'error');
-      const warns    = logs.filter((e) => e.level === 'warn');
-      const netFails = network.filter((e) => e.status >= 400 || e.status === 0);
+      // ── Build causal chain + context pack ──────────────────────────────────
+      const causal = await buildCausalChain(logs, network, contexts, since);
 
+      // Append usage footer
       const usage = getUsageSnapshot();
-      const usageLine = usage.included === null
-        ? `Credits used this month: ${usage.used} (unlimited plan)`
-        : `Credits used this month: ${usage.used} / ${usage.included}`;
+      const usageFooter = usage.included === null
+        ? `\n\n---\n*Credits used this month: ${usage.used} (unlimited plan)*`
+        : `\n\n---\n*Credits used this month: ${usage.used} / ${usage.included}` +
+          (usage.overage > 0 ? ` (+${usage.overage} overage)` : '') + '*';
 
-      // ── Build structured prompt for the AI ────────────────────────────────
-      // The MCP client (Claude / Cursor) will receive this as tool output and
-      // reason over it. We structure it so the AI has everything it needs to
-      // produce a root-cause analysis and diff.
-      const sections: string[] = [
-        `# Mergen Runtime Analysis — ${new Date().toISOString()}`,
-        `${usageLine}\n`,
-      ];
-
-      if (errors.length > 0) {
-        sections.push(`## Console Errors (${errors.length})`);
-        sections.push(errors.map((e) => {
-          const args = e.args.map((a) => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
-          const stack = e.stack ? `\n${e.stack}` : '';
-          return `- [${new Date(e.timestamp).toISOString()}] ${args}${stack}`;
-        }).join('\n'));
-      }
-
-      if (warns.length > 0) {
-        sections.push(`## Console Warnings (${warns.length})`);
-        sections.push(warns.map((e) =>
-          `- ${e.args.map((a) => typeof a === 'string' ? a : JSON.stringify(a)).join(' ')}`
-        ).join('\n'));
-      }
-
-      if (netFails.length > 0) {
-        sections.push(`## Failed Network Requests (${netFails.length})`);
-        sections.push(netFails.map((e) => {
-          const body = e.error ? ` | ${e.error}` : e.responseBody
-            ? ` | ${JSON.stringify(e.responseBody).slice(0, 300)}` : '';
-          return `- ${e.method} ${e.url} → ${e.status} ${e.statusText}${body}`;
-        }).join('\n'));
-      }
-
-      if (contexts.length > 0) {
-        sections.push(`## DOM & Storage Context at Error Time (${contexts.length} snapshot(s))`);
-        sections.push(contexts.map((s) => {
-          const parts = [`- [${new Date(s.timestamp).toISOString()}] ${s.url} | Page: "${s.title}"`];
-          if (s.activeElement) parts.push(`  Focused: ${s.activeElement}`);
-          if (s.component)     parts.push(`  Component: ${s.component}`);
-          const ls = Object.entries(s.localStorage);
-          if (ls.length > 0) parts.push(`  localStorage: ${ls.map(([k, v]) => `${k}=${v}`).join(', ')}`);
-          const ss = Object.entries(s.sessionStorage);
-          if (ss.length > 0) parts.push(`  sessionStorage: ${ss.map(([k, v]) => `${k}=${v}`).join(', ')}`);
-          return parts.join('\n');
-        }).join('\n'));
-      }
-
-      if (errors.length === 0 && warns.length === 0 && netFails.length === 0) {
-        sections.push('✅ No errors, warnings, or failed network requests detected.');
-      }
-
-      sections.push(
-        '\n---',
-        'Using the telemetry above:',
-        '1. Identify the root cause(s).',
-        '2. Correlate any console errors with network failures if related.',
-        '3. Propose a concrete fix (code diff if possible).',
-        '4. Flag anything that needs immediate attention.',
-      );
-
-      return { content: [{ type: 'text', text: sections.join('\n\n') }] };
+      return {
+        content: [{ type: 'text', text: causal.contextPack + usageFooter }],
+      };
     },
   );
 }

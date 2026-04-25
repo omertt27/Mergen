@@ -12,36 +12,38 @@
  */
 
 import crypto from 'crypto';
+import fs from 'fs/promises';
 import { Router, type Request, type Response } from 'express';
 import { lemonSqueezySetup } from '@lemonsqueezy/lemonsqueezy.js';
 import logger from './logger.js';
-import { getLicenseState, getActivePlanId } from './license.js';
-import { getPlan, PLANS, type PlanId } from './plans.js';
-import fs from 'fs/promises';
-import path from 'path';
-import os from 'os';
+import { planFromVariantId } from './license.js';   // P1.1 — single source of truth
+import { DATA_DIR, LICENSE_FILE } from './paths.js'; // P4.1 — no more local path strings
 
 const LS_WEBHOOK_SECRET = process.env.LS_WEBHOOK_SECRET ?? '';
-const DATA_DIR  = path.join(os.homedir(), '.mergen');
-const LICENSE_FILE = path.join(DATA_DIR, 'license.json');
+
+// P1.2: Log a startup warning when the secret is missing so it's caught early.
+if (!LS_WEBHOOK_SECRET) {
+  logger.warn(
+    'LS_WEBHOOK_SECRET is not set — webhook signature verification is DISABLED. ' +
+    'Set this env var before going to production.',
+  );
+}
 
 export const billingRouter = Router();
 
-function verifySignature(rawBody: Buffer, signature: string): boolean {
-  if (!LS_WEBHOOK_SECRET) return true; // dev mode: skip verification
+function verifySignature(rawBody: Buffer, signature: string, secret = LS_WEBHOOK_SECRET): boolean {
+  // P1.2: Hard-reject if secret is not configured (fail-closed in production).
+  if (!secret) return false;
   const expected = crypto
-    .createHmac('sha256', LS_WEBHOOK_SECRET)
+    .createHmac('sha256', secret)
     .update(rawBody)
     .digest('hex');
-  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
-}
-
-function planFromVariantId(variantId: string | number | undefined): PlanId {
-  const vid = String(variantId ?? '');
-  for (const plan of Object.values(PLANS)) {
-    if (plan.lsVariantId && plan.lsVariantId === vid) return plan.id;
-  }
-  return 'solo_standard';
+  // timingSafeEqual requires equal-length buffers — a short/long forged
+  // signature must be treated as a mismatch, not throw a RangeError.
+  const expBuf = Buffer.from(expected);
+  const sigBuf = Buffer.from(signature);
+  if (expBuf.length !== sigBuf.length) return false;
+  return crypto.timingSafeEqual(expBuf, sigBuf);
 }
 
 billingRouter.post(
@@ -77,12 +79,11 @@ billingRouter.post(
         const status    = attrs?.status as string;
         const email     = (attrs?.user_email as string) ?? '';
         const name      = (attrs?.user_name as string) ?? '';
-        const planId    = planFromVariantId(variantId);
+        const planId    = planFromVariantId(variantId);   // P1.1 — no local duplicate
 
         // Extract the first subscription item ID for usage-based billing
-        // LS puts items in attrs.first_subscription_item or we fetch from relationships
         const subItemId = (attrs?.first_subscription_item as Record<string, unknown> | undefined)?.id
-          ?? (payload.data as Record<string, unknown>)?.id; // fallback to subscription id
+          ?? (payload.data as Record<string, unknown>)?.id;
 
         const current = await readLicenseFile();
         const updated: Record<string, unknown> = {
@@ -94,7 +95,6 @@ billingRouter.post(
           validatedAt: new Date().toISOString(),
         };
 
-        // Store subscription item ID for usage-based billing (overage / PAYG)
         if (subItemId) updated['lsSubscriptionItemId'] = String(subItemId);
 
         await writeLicenseFile(updated);
@@ -103,11 +103,10 @@ billingRouter.post(
       }
 
       case 'order_created': {
-        // For PAYG one-time orders, store the order item so we can report usage
-        const orderId = (payload.data as Record<string, unknown>)?.id;
-        const email   = (attrs?.user_email as string) ?? '';
+        const orderId   = (payload.data as Record<string, unknown>)?.id;
+        const email     = (attrs?.user_email as string) ?? '';
         const variantId = (attrs?.first_order_item as Record<string, unknown> | undefined)?.variant_id as string | number | undefined;
-        const planId = planFromVariantId(variantId);
+        const planId    = planFromVariantId(variantId);
 
         const current = await readLicenseFile();
         if (current) {

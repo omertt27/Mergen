@@ -17,17 +17,14 @@
  */
 
 import fs from 'fs/promises';
-import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
 import { Router, type Request, type Response } from 'express';
 import type { BrowserEvent } from './buffer.js';
 import { store } from './buffer.js';
 import { getActivePlanId } from './license.js';
+import { DATA_DIR, TEAM_FILE } from './paths.js';  // P4.1
 import logger from './logger.js';
-
-const DATA_DIR   = path.join(os.homedir(), '.mergen');
-const TEAM_FILE  = path.join(DATA_DIR, 'team.json');
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

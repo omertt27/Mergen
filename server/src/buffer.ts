@@ -22,7 +22,9 @@ export const NetworkEventSchema = z.object({
   statusText: z.string(),
   duration: z.number(),
   requestBody: z.unknown().optional(),
+  requestHeaders: z.record(z.string()).optional(),
   responseBody: z.unknown().optional(),
+  responseHeaders: z.record(z.string()).optional(),
   error: z.string().optional(),
   timestamp: z.number(),
 });

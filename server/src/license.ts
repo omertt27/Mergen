@@ -6,28 +6,25 @@
  *   2. Extension popup POST /license { key } → server activates it with LS API.
  *   3. Activation response contains the variant_id → we resolve the PlanId.
  *   4. State is saved to ~/.mergen/license.json and kept in memory.
- *   5. On startup we re-validate the cached key (once) to catch revocations.
+ *   5. On startup we re-validate the cached key in the BACKGROUND so the
+ *      server is immediately ready — revocations are applied asynchronously.
  *   6. GET /license returns the current state (plan, status, name, email).
  */
 
 import fs from 'fs/promises';
-import path from 'path';
 import os from 'os';
 import { lemonSqueezySetup, activateLicense, validateLicense, deactivateLicense } from '@lemonsqueezy/lemonsqueezy.js';
 import { getPlan, PLANS, type PlanId } from './plans.js';
+import { DATA_DIR, LICENSE_FILE } from './paths.js';
 import logger from './logger.js';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const LS_API_KEY = process.env.LS_API_KEY ?? '';
-const LS_STORE_ID = process.env.LS_STORE_ID ?? '';
 
 // The instance name identifies this machine's activation (LS allows multiple
 // activations per key up to the plan limit).
 const INSTANCE_NAME = `mergen-${os.hostname()}`;
-
-const DATA_DIR = path.join(os.homedir(), '.mergen');
-const LICENSE_FILE = path.join(DATA_DIR, 'license.json');
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -40,6 +37,8 @@ export interface LicenseState {
   customerEmail: string;
   activatedAt: string; // ISO
   validatedAt: string; // ISO — last successful remote check
+  /** LemonSqueezy subscription item ID — used for usage-based billing reports */
+  lsSubscriptionItemId?: string;
 }
 
 // ── In-memory state ───────────────────────────────────────────────────────────
@@ -74,7 +73,7 @@ async function loadFromDisk(): Promise<LicenseState | null> {
 
 // ── Variant → Plan mapping ────────────────────────────────────────────────────
 
-function planFromVariantId(variantId: number | string | undefined): PlanId {
+export function planFromVariantId(variantId: number | string | undefined): PlanId {
   const vid = String(variantId ?? '');
   for (const plan of Object.values(PLANS)) {
     if (plan.lsVariantId && plan.lsVariantId === vid) return plan.id;
@@ -100,28 +99,30 @@ export async function initLicense(): Promise<void> {
     return;
   }
 
-  // Re-validate against LS to catch revocations / expirations
-  try {
-    const { data, error } = await validateLicense(cached.key, cached.instanceId);
-    if (error || !data?.valid) {
-      logger.warn({ error }, 'license validation failed — falling back to free');
-      cached.status = 'inactive';
-      _state = cached;
-      return;
-    }
+  // P1.5: Apply the cached state immediately so the server is ready at once.
+  // Re-validation runs in the background — revocations are applied async.
+  _state = cached;
+  logger.info({ plan: cached.planId }, 'license loaded from disk — serving immediately');
 
-    const updated: LicenseState = {
-      ...cached,
-      status: 'active',
-      validatedAt: new Date().toISOString(),
-    };
-    await persist(updated);
-    logger.info({ plan: updated.planId }, 'license validated on startup');
-  } catch (err) {
-    // Network error during validation — trust the cached state for now
-    logger.warn({ err }, 'could not reach LS API — trusting cached license');
-    _state = cached;
-  }
+  // Background validation (non-blocking)
+  validateInBackground(cached);
+}
+
+function validateInBackground(cached: LicenseState): void {
+  validateLicense(cached.key, cached.instanceId)
+    .then(async ({ data, error }) => {
+      if (error || !data?.valid) {
+        logger.warn({ error }, 'background license validation failed — downgrading to free');
+        _state = { ...cached, status: 'inactive' };
+        return;
+      }
+      const updated: LicenseState = { ...cached, status: 'active', validatedAt: new Date().toISOString() };
+      await persist(updated);
+      logger.info({ plan: updated.planId }, 'license validated in background ✓');
+    })
+    .catch((err) => {
+      logger.warn({ err }, 'could not reach LS API — trusting cached license');
+    });
 }
 
 // ── Activate (called from POST /license) ─────────────────────────────────────
