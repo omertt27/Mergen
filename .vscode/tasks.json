@@ -1,0 +1,40 @@
+{
+  // Mergen VS Code tasks.
+  //
+  // "mergen: checkpoint on save" — bind this to a keyboard shortcut or
+  // trigger it from a file-watcher extension (e.g. Trigger Task on Save)
+  // to mark every save cycle in the Mergen causal timeline.
+  //
+  // This gives Mergen visibility during normal dev flow — not just at crashes.
+  // The panel status bar item will update immediately after each checkpoint.
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "mergen: checkpoint on save",
+      "type": "shell",
+      "command": "curl -sf -X POST http://127.0.0.1:3000/checkpoint -H 'Content-Type: application/json' -d '{\"label\":\"save: ${fileBasename}\"}' | node -e \"let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{ try{ const r=JSON.parse(d); if(r.topSignal) console.log('Mergen: '+r.topSignal.message); } catch{} });\"",
+      "isBackground": false,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "runOptions": {
+        "runOn": "default"
+      }
+    },
+    {
+      "label": "mergen: session summary",
+      "type": "shell",
+      "command": "curl -sf http://127.0.0.1:3000/health | node -e \"let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{ try{ const h=JSON.parse(d); console.log('Mergen: '+h.errors+' errors, '+h.warnings+' warns, '+h.networkErrors+' net errors, '+(h.signals||[]).length+' patterns'); (h.signals||[]).forEach(s=>console.log('  · '+s.message)); } catch{} });\"",
+      "isBackground": false,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    }
+  ]
+}

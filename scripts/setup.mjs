@@ -157,7 +157,79 @@ const IDES = [
   { label: 'Windsurf',     key: '3', fn: setupWindsurf },
   { label: 'VS Code',      key: '4', fn: setupVSCode },
   { label: 'All of the above', key: '5', fn: null },
+  { label: 'Git pre-commit hook (surfaces signals before every commit)', key: '6', fn: setupGitHook },
 ];
+
+// ── Git pre-commit hook ───────────────────────────────────────────────────────
+// Installs a hook that:
+//   1. POSTs a checkpoint event to the Mergen server (marks the commit in the timeline)
+//   2. Fetches the signal list — if any HIGH-confidence signals exist, prints them
+//      and asks the dev whether to proceed. Does NOT block commits automatically
+//      (that would be annoying) — it just makes the signal visible at the right moment.
+//
+// This is the engagement hook for normal dev flow: every commit = one Mergen moment.
+
+function setupGitHook() {
+  const gitDir = resolve(REPO_ROOT, '.git');
+  if (!existsSync(gitDir)) {
+    console.error('\nERROR: .git directory not found. Run from the repo root.\n');
+    return;
+  }
+
+  const hooksDir = resolve(gitDir, 'hooks');
+  if (!existsSync(hooksDir)) mkdirSync(hooksDir, { recursive: true });
+
+  const hookPath = resolve(hooksDir, 'pre-commit');
+  const hookContent = `#!/bin/sh
+# Mergen pre-commit hook — installed by scripts/setup.mjs
+# Posts a checkpoint to the local Mergen server and surfaces any detected signals.
+# Does NOT block commits — it just makes patterns visible at commit time.
+
+MERGEN_URL="http://127.0.0.1:3000"
+
+# Post a checkpoint (marks this commit in the causal timeline)
+RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \\
+  -X POST "$MERGEN_URL/checkpoint" \\
+  -H "Content-Type: application/json" \\
+  -d "{\\"label\\": \\"pre-commit: $(git log --oneline -1 2>/dev/null | cut -c1-60 || echo 'commit')\\"}" \\
+  --connect-timeout 1 --max-time 2 2>/dev/null)
+
+if [ "$RESPONSE" = "200" ]; then
+  # Fetch signals from the health endpoint
+  SIGNALS=$(curl -s "$MERGEN_URL/health" --connect-timeout 1 --max-time 2 2>/dev/null | \\
+    node -e "
+      let d='';
+      process.stdin.on('data',c=>d+=c);
+      process.stdin.on('end',()=>{
+        try {
+          const s = JSON.parse(d).signals || [];
+          const high = s.filter(x => x.confidence >= 0.80);
+          if (high.length) {
+            console.log('');
+            console.log('  ⚡ Mergen detected ' + high.length + ' pattern(s) before this commit:');
+            high.forEach(x => console.log('    · ' + x.message + ' (' + Math.round(x.confidence*100) + '%)'));
+            console.log('  Run quick_check in your AI assistant for details.');
+            console.log('');
+          }
+        } catch {}
+      });
+    " 2>/dev/null)
+  echo "$SIGNALS"
+fi
+
+exit 0
+`;
+
+  writeFileSync(hookPath, hookContent, { mode: 0o755 });
+
+  hr();
+  console.log('Git pre-commit hook installed.\n');
+  console.log('On every commit the hook will:');
+  console.log('  • Mark the commit in the Mergen causal timeline');
+  console.log('  • Print any HIGH-confidence signals detected in the buffer');
+  console.log('  • Never block the commit — it only surfaces patterns\n');
+  console.log(`Hook location: ${hookPath}\n`);
+}
 
 console.log('\nMergen Setup');
 console.log('Server entry:', SERVER_ENTRY);
@@ -165,7 +237,7 @@ console.log('\nWhich IDE do you want to configure?\n');
 IDES.forEach(({ key, label }) => console.log(`  ${key}) ${label}`));
 
 const rl = createInterface({ input: process.stdin, output: process.stdout });
-const answer = (await ask(rl, '\nChoice [1-5]: ')).trim();
+const answer = (await ask(rl, '\nChoice [1-6]: ')).trim();
 rl.close();
 
 const chosen = IDES.find((ide) => ide.key === answer);

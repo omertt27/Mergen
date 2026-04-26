@@ -197,6 +197,49 @@
   let _lastWarnContextTs = 0;
   const WARN_CONTEXT_THROTTLE_MS = 5_000;
 
+  // ── HMR checkpoint (Vite + webpack-HMR) ─────────────────────────────────────
+  // When the dev server hot-reloads a module, we post a lightweight checkpoint
+  // event so Mergen can show the state *between* saves — not just after a crash.
+  // This turns Mergen from a "crash detector" into a "dev loop observer".
+  //
+  // Vite emits a custom event on window: 'vite:afterUpdate'
+  // webpack HMR emits: module.hot events — we detect via the public API
+  let _lastHmrContextTs = 0;
+  const HMR_CONTEXT_THROTTLE_MS = 3_000; // at most one snapshot per save cycle
+
+  function onHmrUpdate(source) {
+    try {
+      const now = Date.now();
+      if (now - _lastHmrContextTs < HMR_CONTEXT_THROTTLE_MS) return;
+      _lastHmrContextTs = now;
+      post({
+        type: 'console',
+        level: 'log',
+        args: ['[mergen:hmr] hot reload — ' + source],
+        stack: '',
+        url: window.location.href,
+        timestamp: now,
+      });
+      // Also snapshot storage/DOM so state is always captured around each save
+      postContext('warn'); // reuse 'warn' trigger (already accepted by the schema)
+    } catch { /* never break the page */ }
+  }
+
+  try {
+    // Vite
+    window.addEventListener('vite:afterUpdate', function() { onHmrUpdate('vite'); });
+    // webpack HMR — module.hot.addStatusHandler fires on 'apply' (after patch)
+    if (typeof module !== 'undefined' && module.hot) {
+      module.hot.addStatusHandler(function(status) {
+        if (status === 'apply') onHmrUpdate('webpack');
+      });
+    }
+    // Next.js / generic HMR via custom event
+    window.addEventListener('next-route-announcer:route-changed', function() {
+      onHmrUpdate('next');
+    });
+  } catch { /* not in a dev server context — ignore */ }
+
   // ── Console override ─────────────────────────────────────────────────────────
 
   const _origConsole = {

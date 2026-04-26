@@ -265,12 +265,12 @@ export function registerTools(server: McpServer): void {
         lines.push('### 🔍 Detected patterns');
         lines.push('');
         for (const s of signals) {
-          // Surface WHAT the pattern is; confidence shown so devs can judge signal quality.
           const confPct = Math.round(s.confidence * 100);
-          lines.push(`- **${s.kind.replace(/_/g, ' ')}** (${confPct}% confidence): ${s.message}`);
+          lines.push(`**${confPct}%** — ${s.message}`);
+          lines.push(`  → **Next step:** ${s.action}`);
+          lines.push('');
         }
-        lines.push('');
-        lines.push('> � **To get the root cause and a fix:** call `analyze_runtime`.');
+        lines.push('> 🔬 **Root cause + fix:** call `analyze_runtime`.');
       } else if (errors.length > 0) {
         lines.push('');
         lines.push(`> ❌ ${errors.length} error(s) in buffer. Call \`analyze_runtime\` for root cause + fix.`);
@@ -443,7 +443,10 @@ export function registerTools(server: McpServer): void {
       if (signals.length > 0) {
         lines.push('### 🔍 Patterns detected');
         lines.push('');
-        for (const s of signals) lines.push(`- ${s.message}`);
+        for (const s of signals) {
+          lines.push(`- ${s.message}`);
+          lines.push(`  → **${s.action}**`);
+        }
         lines.push('');
       }
 

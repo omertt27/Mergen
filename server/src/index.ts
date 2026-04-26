@@ -89,6 +89,45 @@ async function main(): Promise<void> {
     res.json({ ok: true, cleared: was });
   });
 
+  // ── Checkpoint endpoint ────────────────────────────────────────────────────
+  // POST /checkpoint { label?: string }
+  //
+  // Named dev milestone snapshot — injected into the buffer as a console.log
+  // event so it appears in the causal timeline and in session_summary output.
+  //
+  // Called by:
+  //   • The git pre-commit hook (installed by setup.mjs --git-hooks)
+  //   • A VS Code task run on save (optional, documented in SETUP.md)
+  //   • Any script that wants to mark a point in time ("after login impl", etc.)
+  //
+  // This is the key engagement hook for normal dev flow:
+  // the buffer now accumulates across saves + commits, not just crashes.
+  app.post('/checkpoint', (req, res) => {
+    const { label } = (req.body ?? {}) as { label?: string };
+    const name = (typeof label === 'string' && label.trim())
+      ? label.trim().slice(0, 120)
+      : 'checkpoint';
+
+    store.push({
+      type: 'console',
+      level: 'log',
+      args: [`[mergen:checkpoint] ${name}`],
+      url: 'mergen://checkpoint',
+      timestamp: Date.now(),
+    });
+
+    const signals = store.getSignals();
+    res.json({
+      ok: true,
+      label: name,
+      buffered: store.size(),
+      signals: signals.length,
+      // Surface the top signal immediately — this is the "loop re-entry" moment.
+      // A script or IDE plugin can show this to the dev right after each save.
+      topSignal: signals[0] ?? null,
+    });
+  });
+
   // ── License endpoints ──────────────────────────────────────────────────────
 
   // GET /license — current plan + activation state

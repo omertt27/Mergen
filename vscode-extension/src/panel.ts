@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 interface SessionSignal {
   kind: string;
   message: string;
+  action: string;
   count: number;
   confidence: number;
   suggestedTool: string;
@@ -46,8 +47,22 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private _state: ServerState = { connected: false, port: 3000, health: null, usage: null, error: null };
   private _pollTimer?: ReturnType<typeof setTimeout>;
+  private _statusBar: vscode.StatusBarItem;
 
-  constructor(private readonly _context: vscode.ExtensionContext) {}
+  constructor(private readonly _context: vscode.ExtensionContext) {
+    // Always-visible status bar item — this is the engagement hook during
+    // normal dev flow, not just when things break.
+    this._statusBar = vscode.window.createStatusBarItem(
+      vscode.StatusBarAlignment.Right,
+      90,  // priority: right of language selector, left of encoding
+    );
+    this._statusBar.name = 'Mergen';
+    this._statusBar.command = 'mergen.openPanel';
+    this._statusBar.text = '$(circle-slash) Mergen';
+    this._statusBar.tooltip = 'Mergen — click to open panel';
+    this._statusBar.show();
+    this._context.subscriptions.push(this._statusBar);
+  }
 
   resolveWebviewView(
     webviewView: vscode.WebviewView,
@@ -173,6 +188,52 @@ export class MergenPanel implements vscode.WebviewViewProvider {
 
   private _send(msg: unknown): void {
     this._view?.webview.postMessage(msg);
+    // Keep the status bar in sync on every state update so it's always live
+    // even when the panel is hidden — this is the always-on engagement hook.
+    if ((msg as { type?: string }).type === 'state') {
+      this._updateStatusBar((msg as { state: ServerState }).state);
+    }
+  }
+
+  private _updateStatusBar(state: ServerState): void {
+    if (!state.connected) {
+      this._statusBar.text = '$(circle-slash) Mergen';
+      this._statusBar.tooltip = 'Mergen — server not running. Click to open panel.';
+      this._statusBar.backgroundColor = undefined;
+      return;
+    }
+
+    const h = state.health;
+    if (!h) return;
+
+    const signals  = h.signals ?? [];
+    const errors   = h.errors;
+    const warns    = h.warnings;
+    const netErrs  = h.networkErrors;
+
+    // Choose the most prominent indicator to surface in the status bar.
+    // The goal: developer glances at the bar and knows immediately whether
+    // something needs attention — even mid-flow, before anything crashes.
+    if (errors > 0) {
+      this._statusBar.text = `$(error) Mergen ${errors} err`;
+      this._statusBar.tooltip = `Mergen — ${errors} error(s) in buffer. Click to open panel.`;
+      this._statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+    } else if (signals.length > 0) {
+      // Highest-confidence signal drives the message
+      const top = signals[0];
+      const confPct = Math.round(top.confidence * 100);
+      this._statusBar.text = `$(warning) Mergen ${signals.length} signal${signals.length > 1 ? 's' : ''}`;
+      this._statusBar.tooltip = `Mergen — ${top.message} (${confPct}% confidence). Click to open panel.`;
+      this._statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+    } else if (warns > 0 || netErrs > 0) {
+      this._statusBar.text = `$(bell) Mergen`;
+      this._statusBar.tooltip = `Mergen — ${warns} warning(s), ${netErrs} net error(s). Click to open panel.`;
+      this._statusBar.backgroundColor = undefined;
+    } else {
+      this._statusBar.text = '$(check) Mergen';
+      this._statusBar.tooltip = 'Mergen — buffer clean. Click to open panel.';
+      this._statusBar.backgroundColor = undefined;
+    }
   }
 
   // ── HTML ─────────────────────────────────────────────────────────────────────
@@ -590,19 +651,20 @@ export class MergenPanel implements vscode.WebviewViewProvider {
         warn_spike: '⚠️',
         repeated_error: '❌',
         slow_requests: '🐢',
-      };
-      // Map each signal to its suggested free tool, then the paid upsell
-      const TOOL_LABEL = {
-        quick_check:     '⚡ Run quick_check',
-        explain_warning: '⚡ Run explain_warning',
-        session_summary: '⚡ Run session_summary',
+        auth_token_not_stored: '🔑',
+        auth_500: '🔥',
+        storage_cleared: '🗑️',
       };
       signalsList.innerHTML = signals.map(s => {
         const icon      = ICON[s.kind] ?? '🔍';
         const confPct   = Math.round((s.confidence ?? 0) * 100);
-        const barClass  = confPct >= 80 ? '' : confPct >= 60 ? ' med' : ' low';
+        const barClass  = confPct >= 80 ? '' : confPct >= 55 ? ' med' : ' low';
         const toolKey   = s.suggestedTool ?? 'quick_check';
-        const toolLabel = TOOL_LABEL[toolKey] ?? '⚡ Run ' + toolKey;
+        // Use s.action (specific, contextual) as the button text.
+        // Truncate to 58 chars so it fits on one line in the panel.
+        const actionText = s.action
+          ? (s.action.length > 58 ? s.action.slice(0, 57) + '…' : s.action)
+          : ('▶ Run ' + toolKey);
         return '<div class="signal-item">' +
           '<span class="signal-icon">' + icon + '</span>' +
           '<div class="signal-body">' +
@@ -611,7 +673,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
               '<div class="conf-bar-wrap"><div class="conf-bar-fill' + barClass + '" style="width:' + confPct + '%"></div></div>' +
               '<span class="conf-pct">' + confPct + '%</span>' +
             '</div>' +
-            '<button class="signal-run" onclick="copyTool(' + JSON.stringify(toolKey) + ')">' + escHtml(toolLabel) + '</button>' +
+            '<button class="signal-run" onclick="copyTool(' + JSON.stringify(toolKey) + ')">▶ ' + escHtml(actionText) + '</button>' +
           '</div>' +
         '</div>';
       }).join('');
