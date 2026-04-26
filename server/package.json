@@ -11,7 +11,9 @@
     "dev": "tsx watch src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "eval": "node ../scripts/eval.mjs",
+    "eval:fast": "node ../scripts/eval.mjs --model gpt-4o-mini"
   },
   "dependencies": {
     "@lemonsqueezy/lemonsqueezy.js": "^4.0.0",

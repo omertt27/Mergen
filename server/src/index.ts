@@ -7,6 +7,7 @@ import { toolCallCounts } from './tools.js';
 import { SYSTEM_PROMPT } from './prompts.js';
 import logger from './logger.js';
 import { store } from './buffer.js';
+import { buildCausalChain } from './causal.js';
 import { initLicense, getLicenseState, activateKey, deactivateKey, getActivePlanId } from './license.js';
 import { initUsage, getUsageSnapshot, flushOverageOnShutdown } from './usage.js';
 import { billingRouter } from './billing.js';
@@ -170,6 +171,75 @@ async function main(): Promise<void> {
   app.delete('/license', async (_req, res) => {
     await deactivateKey();
     res.json({ ok: true, plan: 'free' });
+  });
+
+  // ── Diagnose endpoint ─────────────────────────────────────────────────────
+  // GET /diagnose
+  //
+  // Returns the current buffer's contextPack plus a fully-formed OpenAI
+  // chat/completions request body. Drop the `openai_request` object straight
+  // into curl / fetch to get a structured diagnosis without opening the IDE.
+  //
+  // Quick test (set OPENAI_API_KEY first):
+  //   curl -s http://127.0.0.1:3000/diagnose | node scripts/diagnose.mjs
+  //
+  // Or pipe the raw request body:
+  //   curl -s http://127.0.0.1:3000/diagnose \
+  //     | jq .openai_request \
+  //     | curl -s https://api.openai.com/v1/chat/completions \
+  //         -H "Authorization: Bearer $OPENAI_API_KEY" \
+  //         -H "Content-Type: application/json" \
+  //         -d @-
+  app.get('/diagnose', async (_req, res) => {
+    const logs     = store.getLogs(200);
+    const network  = store.getNetwork(200);
+    const contexts = store.getContext(20);
+
+    const causal = await buildCausalChain(logs, network, contexts);
+
+    const SYSTEM = [
+      'You are a concise runtime-debug assistant.',
+      'You will receive a structured telemetry report called a "Context Pack".',
+      'Your job is to identify the root cause of the bug and the exact fix.',
+      '',
+      'Rules:',
+      '1. Respond with a single JSON object only — no surrounding prose, no markdown fences.',
+      '2. Be maximally specific: name the endpoint, field, or code path that is broken.',
+      '3. The fix must be a concrete, immediately-applicable action (a code line, not a concept).',
+      '4. If you are not confident, say so in missing_signals — do not hallucinate.',
+    ].join('\n');
+
+    const USER = [
+      causal.contextPack,
+      '',
+      'Return a single JSON object with exactly these fields:',
+      '  root_cause  — one sentence naming what broke and why (be specific: endpoint/field/line)',
+      '  fix         — one concrete action: a code line, config change, or exact command',
+      '  confidence  — HIGH | MEDIUM | LOW',
+      '  missing_signals — what telemetry would make this HIGH confidence, or null',
+    ].join('\n');
+
+    const openaiRequest = {
+      model: 'gpt-4o',
+      temperature: 0,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: SYSTEM },
+        { role: 'user',   content: USER },
+      ],
+    };
+
+    res.json({
+      ok: true,
+      buffered: store.size(),
+      hypotheses: causal.hypotheses.length,
+      // The context pack rendered as a string — for human inspection
+      contextPack: causal.contextPack,
+      // Drop this directly into POST https://api.openai.com/v1/chat/completions
+      openai_request: openaiRequest,
+      // Convenience: the system + user messages as plain text for other LLMs
+      prompt: { system: SYSTEM, user: USER },
+    });
   });
 
   // ── Usage endpoint ─────────────────────────────────────────────────────────

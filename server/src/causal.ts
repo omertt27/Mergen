@@ -944,6 +944,20 @@ function formatContextPack(c: Omit<CausalChain, 'contextPack'>): string {
   lines.push('');
   lines.push('> Diagnose. Do not summarise. Be brief.');
 
+  // ── Explicit machine-readable output contract for experiment automation ──
+  lines.push('');
+  lines.push('---');
+  lines.push('#### 🧭 §8 · LLM OUTPUT CONTRACT (MUST-FOLLOW)');
+  lines.push('');
+  lines.push('Respond with a single JSON object only (no surrounding prose). The object MUST have these fields:');
+  lines.push('- `root_cause` (string): one-sentence diagnosis describing what broke and why.');
+  lines.push('- `fix` (string): a minimal, actionable fix or code change suggestion.');
+  lines.push('- `confidence` (string): one of `HIGH`, `MEDIUM`, or `LOW`.');
+  lines.push('- `missing_signals` (string|null): what additional telemetry would make this diagnosis HIGH confidence, or null if none.');
+  lines.push('');
+  lines.push('Example reply (single-line JSON):');
+  lines.push('`{"root_cause":"Auth token not persisted after login","fix":"Call localStorage.setItem(\"token\", resp.token) before navigation","confidence":"HIGH","missing_signals":null}`');
+
   return lines.join('\n');
 }
 
