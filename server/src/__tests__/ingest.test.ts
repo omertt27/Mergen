@@ -1,81 +1,74 @@
 /**
- * ingest.test.ts — rate limiter + auth tests (P3)
+ * ingest.test.ts — rate limiter + auth tests
  *
- * We test the pure logic in isolation without spinning up Express.
+ * Tests the REAL TokenBucket class exported from ingest.ts,
+ * not a reimplemented copy.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { TokenBucket } from '../ingest.js';
 
-// ── Token-bucket rate limiter (extracted for testability) ────────────────────
-// Mirror the exact logic from ingest.ts so we can test it in isolation.
-
-const RATE_LIMIT = 100;
-const RATE_WINDOW_MS = 1_000;
-
-function makeBucket() {
-  let count = 0;
-  let timer: ReturnType<typeof setTimeout> | null = null;
-
-  function isRateLimited(): boolean {
-    if (count >= RATE_LIMIT) return true;
-    count++;
-    if (!timer) {
-      timer = setTimeout(() => {
-        count = 0;
-        timer = null;
-      }, RATE_WINDOW_MS);
-    }
-    return false;
-  }
-
-  function reset() {
-    if (timer) { clearTimeout(timer); timer = null; }
-    count = 0;
-  }
-
-  return { isRateLimited, reset };
-}
-
-describe('ingest rate limiter (token bucket)', () => {
+describe('TokenBucket (real implementation)', () => {
   beforeEach(() => { vi.useFakeTimers(); });
   afterEach(() => { vi.useRealTimers(); });
 
-  it('allows up to RATE_LIMIT requests per window', () => {
-    const { isRateLimited, reset } = makeBucket();
-    for (let i = 0; i < RATE_LIMIT; i++) {
-      expect(isRateLimited()).toBe(false);
+  it('allows up to `limit` requests per window', () => {
+    const bucket = new TokenBucket(100, 1_000);
+    for (let i = 0; i < 100; i++) {
+      expect(bucket.isRateLimited()).toBe(false);
     }
-    expect(isRateLimited()).toBe(true);
-    reset();
+    expect(bucket.isRateLimited()).toBe(true);
+    bucket.reset();
   });
 
   it('resets after the window elapses', () => {
-    const { isRateLimited, reset } = makeBucket();
-    for (let i = 0; i < RATE_LIMIT; i++) isRateLimited();
-    expect(isRateLimited()).toBe(true);
+    const bucket = new TokenBucket(100, 1_000);
+    for (let i = 0; i < 100; i++) bucket.isRateLimited();
+    expect(bucket.isRateLimited()).toBe(true);
 
-    vi.advanceTimersByTime(RATE_WINDOW_MS + 1);
-    expect(isRateLimited()).toBe(false);
-    reset();
+    vi.advanceTimersByTime(1_001);
+    expect(bucket.isRateLimited()).toBe(false);
+    bucket.reset();
   });
 
-  it('is O(1) — does not use array operations', () => {
-    // Smoke: calling 200 times in the same window should not throw
-    const { isRateLimited, reset } = makeBucket();
+  it('reset() clears counters and timer', () => {
+    const bucket = new TokenBucket(5, 1_000);
+    for (let i = 0; i < 5; i++) bucket.isRateLimited();
+    expect(bucket.isRateLimited()).toBe(true);
+
+    bucket.reset();
+    expect(bucket.isRateLimited()).toBe(false);
+  });
+
+  it('respects custom limit and windowMs', () => {
+    const bucket = new TokenBucket(3, 500);
+    expect(bucket.isRateLimited()).toBe(false);
+    expect(bucket.isRateLimited()).toBe(false);
+    expect(bucket.isRateLimited()).toBe(false);
+    expect(bucket.isRateLimited()).toBe(true);
+
+    vi.advanceTimersByTime(501);
+    expect(bucket.isRateLimited()).toBe(false);
+    bucket.reset();
+  });
+
+  it('is O(1) — handles 200 calls in the same window without throwing', () => {
+    const bucket = new TokenBucket(100, 1_000);
     expect(() => {
-      for (let i = 0; i < 200; i++) isRateLimited();
+      for (let i = 0; i < 200; i++) bucket.isRateLimited();
     }).not.toThrow();
-    reset();
+    bucket.reset();
   });
 });
 
 // ── Shared secret auth ────────────────────────────────────────────────────────
+// The auth logic is inline in the route handler, so we test the pattern directly.
 
-function checkAuth(configuredSecret: string, headerSecret: string): boolean {
-  return !configuredSecret || headerSecret === configuredSecret;
-}
+describe('ingest auth pattern', () => {
+  function checkAuth(configuredSecret: string, headerSecret: string): boolean {
+    return !configuredSecret || headerSecret === configuredSecret;
+  }
 
-describe('ingest auth', () => {
   it('rejects a request when secret is wrong', () => {
     expect(checkAuth('correct-secret', 'wrong-secret')).toBe(false);
   });

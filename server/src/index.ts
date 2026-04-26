@@ -6,13 +6,14 @@ import { registerTools } from './tools.js';
 import { toolCallCounts } from './tools.js';
 import { SYSTEM_PROMPT } from './prompts.js';
 import logger from './logger.js';
-import { store } from './buffer.js';
+import { store, setBufferSizeGetter } from './buffer.js';
 import { buildCausalChain } from './causal.js';
 import { initLicense, getLicenseState, activateKey, deactivateKey, getActivePlanId } from './license.js';
 import { initUsage, getUsageSnapshot, flushOverageOnShutdown } from './usage.js';
 import { billingRouter } from './billing.js';
 import { teamRouter, initTeam, getTeamState, isTeamEnabled } from './team.js';
 import { getPlan } from './plans.js';
+import { lemonSqueezySetup } from '@lemonsqueezy/lemonsqueezy.js';
 import net from 'net';
 import type { Server as HttpServer } from 'http';
 import { createRequire } from 'module';
@@ -43,13 +44,23 @@ async function findPort(start: number, end: number): Promise<number> {
 }
 
 async function main(): Promise<void> {
+  // ── Init LemonSqueezy SDK once (before any module that uses it) ────────────
+  const lsApiKey = process.env.LS_API_KEY;
+  if (lsApiKey) lemonSqueezySetup({ apiKey: lsApiKey });
+
   // ── Init license + usage + team (before HTTP server) ────────────────────────
   await initLicense();
   await initUsage();
   await initTeam();
 
+  // Wire plan-aware buffer size limit (free plan = 50 events visible)
+  setBufferSizeGetter(() => getPlan(getActivePlanId()).bufferSize);
+
   // ── Express (HTTP ingest) ──────────────────────────────────────────────────
   const app = express();
+
+  // Billing webhook needs raw body for HMAC — mount BEFORE express.json()
+  app.use(billingRouter);
 
   app.use(express.json({ strict: true, limit: '1mb' }));
 
@@ -68,12 +79,13 @@ async function main(): Promise<void> {
   // Health endpoint — used by the extension for port discovery
   app.get('/health', (_req, res) => {
     const teamState = getTeamState();
+    const counters = store.getCounters();
     res.json({
       ok: true,
       buffered: store.size(),
-      errors: store.getLogs(200, 'error').length,
-      warnings: store.getLogs(200, 'warn').length,
-      networkErrors: store.getNetwork(200).filter((e) => e.status >= 400).length,
+      errors: counters.errors,
+      warnings: counters.warnings,
+      networkErrors: counters.networkErrors,
       signals: store.getSignals(),
       name: 'mergen',
       version: SERVER_VERSION,
@@ -247,9 +259,6 @@ async function main(): Promise<void> {
   app.get('/usage', (_req, res) => {
     res.json({ ...getUsageSnapshot(), toolCallCounts });
   });
-
-  // ── Billing webhooks (raw body — must be before express.json router) ───────
-  app.use(billingRouter);
 
   // ── Team sync routes ───────────────────────────────────────────────────────
   app.use(teamRouter);

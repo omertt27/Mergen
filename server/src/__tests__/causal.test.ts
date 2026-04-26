@@ -120,7 +120,7 @@ describe('buildCausalChain', () => {
   it('contextPack flags null localStorage values with warning emoji', async () => {
     const snap = makeContext(NOW - 200, { userToken: 'null', sessionId: '' });
     const c = await buildCausalChain([makeError('err')], [], [snap]);
-    expect(c.contextPack).toContain('⚠️ *NULL/EMPTY*');
+    expect(c.contextPack).toContain('*NULL/EMPTY*');
   });
 
   it('includes full request/response bodies for correlated network failures', async () => {

@@ -9,8 +9,14 @@ import { buildCausalChain } from './causal.js';
 // ── Internal call tracker ─────────────────────────────────────────────────────
 // Lightweight in-process counters for optimizing free→paid conversion.
 // Exported so /usage endpoint can expose them; never persisted to disk.
+// Capped to known tool names to prevent unbounded key growth.
+const KNOWN_TOOLS = new Set([
+  'quick_check', 'explain_warning', 'session_summary', 'analyze_runtime',
+  'get_recent_logs', 'get_network_activity', 'get_dom_context', 'clear_buffer', 'get_status',
+]);
 export const toolCallCounts: Record<string, number> = {};
 function trackCall(tool: string): void {
+  if (!KNOWN_TOOLS.has(tool)) return;
   toolCallCounts[tool] = (toolCallCounts[tool] ?? 0) + 1;
 }
 

@@ -13,7 +13,7 @@
 
 import fs from 'fs/promises';
 import os from 'os';
-import { lemonSqueezySetup, activateLicense, validateLicense, deactivateLicense } from '@lemonsqueezy/lemonsqueezy.js';
+import { activateLicense, validateLicense, deactivateLicense } from '@lemonsqueezy/lemonsqueezy.js';
 import { getPlan, PLANS, type PlanId } from './plans.js';
 import { DATA_DIR, LICENSE_FILE } from './paths.js';
 import logger from './logger.js';
@@ -91,7 +91,7 @@ export async function initLicense(): Promise<void> {
     return;
   }
 
-  lemonSqueezySetup({ apiKey: LS_API_KEY });
+  // lemonSqueezySetup is called once in main() — no need to call it here
 
   const cached = await loadFromDisk();
   if (!cached) {
@@ -130,8 +130,6 @@ function validateInBackground(cached: LicenseState): void {
 export async function activateKey(key: string): Promise<LicenseState> {
   if (!LS_API_KEY) throw new Error('LS_API_KEY not configured on this server');
 
-  lemonSqueezySetup({ apiKey: LS_API_KEY });
-
   const { data, error } = await activateLicense(key, INSTANCE_NAME);
 
   if (error || !data?.activated) {
@@ -162,8 +160,6 @@ export async function activateKey(key: string): Promise<LicenseState> {
 
 export async function deactivateKey(): Promise<void> {
   if (!_state) return;
-
-  lemonSqueezySetup({ apiKey: LS_API_KEY });
 
   try {
     await deactivateLicense(_state.key, _state.instanceId);

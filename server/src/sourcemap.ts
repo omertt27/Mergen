@@ -16,11 +16,14 @@ const consumerCache = new LRUCache<string, SourceMapConsumer>({
 // Map index: basename → absolute path, e.g. "bundle.js.map" → "/project/dist/bundle.js.map"
 // Protected by a single in-flight promise so concurrent callers don't launch
 // multiple full disk scans simultaneously.
+// TTL-based invalidation: index expires after 30 s so new builds are picked up.
+const MAP_INDEX_TTL_MS = 30_000;
 let mapIndex: Map<string, string> | null = null;
+let mapIndexCreatedAt = 0;
 let scanInFlight: Promise<Map<string, string>> | null = null;
 
 async function getMapIndex(): Promise<Map<string, string>> {
-  if (mapIndex) return mapIndex;
+  if (mapIndex && Date.now() - mapIndexCreatedAt < MAP_INDEX_TTL_MS) return mapIndex;
   if (scanInFlight) return scanInFlight;
 
   scanInFlight = (async () => {
@@ -35,6 +38,7 @@ async function getMapIndex(): Promise<Map<string, string>> {
       index.set(path.basename(f), f);
     }
     mapIndex = index;
+    mapIndexCreatedAt = Date.now();
     scanInFlight = null;
     return index;
   })();
@@ -125,19 +129,98 @@ export async function resolveStackTrace(stack: string): Promise<string> {
 }
 
 /**
- * P5.3: Single-pass resolution that returns BOTH the primary SourceFrame AND
- * the full resolved stack string. Replaces the previous double-pass pattern
- * (resolveFirstFrame + resolveStackTrace) that traversed the same frames twice
- * and called getMapIndex() twice per error.
+ * P5.3: True single-pass resolution that returns BOTH the primary SourceFrame
+ * AND the full resolved stack string. Iterates frames once, resolves each,
+ * captures the first meaningful frame as primaryFrame along the way.
  */
 export async function resolveFrameAndStack(
   stack: string,
 ): Promise<{ primaryFrame: import('./causal.js').SourceFrame | null; resolvedStack: string }> {
-  const [primaryFrame, resolvedStack] = await Promise.all([
-    resolveFirstFrame(stack),
-    resolveStackTrace(stack),
-  ]);
-  return { primaryFrame, resolvedStack };
+  const lines = stack.split('\n');
+  let primaryFrame: import('./causal.js').SourceFrame | null = null;
+
+  const resolvedLines = await Promise.all(
+    lines.map(async (line) => {
+      const match = FRAME_RE.exec(line);
+      if (!match) return line;
+
+      const [, fnName, fileUrl, lineStr, colStr] = match;
+      const lineNum = parseInt(lineStr, 10);
+      const colNum = parseInt(colStr, 10);
+      const mapName = path.basename(fileUrl.split('?')[0]) + '.map';
+
+      let index = await getMapIndex();
+      let mapPath = index.get(mapName);
+      if (!mapPath) {
+        mapIndex = null;
+        index = await getMapIndex();
+        mapPath = index.get(mapName);
+        if (!mapPath) return `${line} [no sourcemap found]`;
+      }
+
+      try {
+        const consumer = await getConsumer(mapPath);
+        const pos = consumer.originalPositionFor({ line: lineNum, column: colNum });
+        if (!pos.source) return `${line} [no sourcemap found]`;
+        const fn = pos.name ?? fnName ?? '<anonymous>';
+        const resolved = `    at ${fn} (${pos.source}:${pos.line}:${pos.column})`;
+
+        let snippet = '';
+        try {
+          const sourceContent = consumer.sourceContentFor(pos.source, true);
+          if (sourceContent && pos.line) {
+            snippet = extractSnippet(sourceContent, pos.line);
+          }
+        } catch { /* sourceContent not embedded in map — skip snippet */ }
+
+        return snippet ? `${resolved}\n${snippet}` : resolved;
+      } catch {
+        return `${line} [sourcemap error]`;
+      }
+    }),
+  );
+
+  // Find the primary frame from the resolved results (first non-internal, non-node_modules)
+  for (let i = 0; i < lines.length; i++) {
+    if (primaryFrame) break;
+    const match = FRAME_RE.exec(lines[i]);
+    if (!match) continue;
+    const [, fnName, fileUrl, lineStr, colStr] = match;
+    if (fileUrl.startsWith('node:') || fileUrl.includes('node_modules')) continue;
+
+    const lineNum = parseInt(lineStr, 10);
+    const colNum = parseInt(colStr, 10);
+    const mapName = path.basename(fileUrl.split('?')[0]) + '.map';
+    const index = await getMapIndex();
+    const mapPath = index.get(mapName);
+    if (!mapPath) continue;
+
+    try {
+      const consumer = await getConsumer(mapPath);
+      const pos = consumer.originalPositionFor({ line: lineNum, column: colNum });
+      if (!pos.source || !pos.line) continue;
+
+      const fn = pos.name ?? fnName ?? '<anonymous>';
+      let snippet = '';
+      try {
+        const sourceContent = consumer.sourceContentFor(pos.source, true);
+        if (sourceContent) snippet = extractSnippet(sourceContent, pos.line, 5);
+      } catch { /* no embedded source content */ }
+
+      primaryFrame = {
+        fn,
+        file: pos.source,
+        line: pos.line,
+        column: pos.column ?? colNum,
+        snippet,
+        rawResolved: `    at ${fn} (${pos.source}:${pos.line}:${pos.column})`,
+      };
+    } catch {
+      continue;
+    }
+  }
+
+  return { primaryFrame, resolvedStack: resolvedLines.join('\n') };
 }
 
 /**

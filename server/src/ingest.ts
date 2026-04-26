@@ -10,21 +10,38 @@ const SHARED_SECRET = process.env.MERGEN_SECRET;
 // ── Rate limiter: token-bucket, max 100 events / second ──────────────────────
 // P1.3: Replaced the leaky O(n) Array.shift() approach with an O(1)
 // counter+timer bucket. The bucket refills every second; no array scanning.
-const RATE_LIMIT = 100;
-const RATE_WINDOW_MS = 1_000;
-let _bucketCount = 0;
-let _bucketTimer: ReturnType<typeof setTimeout> | null = null;
+
+export class TokenBucket {
+  private _count = 0;
+  private _timer: ReturnType<typeof setTimeout> | null = null;
+
+  constructor(
+    public readonly limit: number = 100,
+    public readonly windowMs: number = 1_000,
+  ) {}
+
+  isRateLimited(): boolean {
+    if (this._count >= this.limit) return true;
+    this._count++;
+    if (!this._timer) {
+      this._timer = setTimeout(() => {
+        this._count = 0;
+        this._timer = null;
+      }, this.windowMs);
+    }
+    return false;
+  }
+
+  reset(): void {
+    if (this._timer) { clearTimeout(this._timer); this._timer = null; }
+    this._count = 0;
+  }
+}
+
+const _bucket = new TokenBucket();
 
 function isRateLimited(): boolean {
-  if (_bucketCount >= RATE_LIMIT) return true;
-  _bucketCount++;
-  if (!_bucketTimer) {
-    _bucketTimer = setTimeout(() => {
-      _bucketCount = 0;
-      _bucketTimer = null;
-    }, RATE_WINDOW_MS);
-  }
-  return false;
+  return _bucket.isRateLimited();
 }
 
 // ── Sourcemap resolution timeout ──────────────────────────────────────────────

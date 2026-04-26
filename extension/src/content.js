@@ -324,6 +324,23 @@
         } catch { /* ignore */ }
 
         const reqBody = init && init.body;
+
+        // Extract request headers from init.headers or input.headers (Request object)
+        var requestHeaders = undefined;
+        try {
+          var rawHeaders = (init && init.headers) || (input && typeof input === 'object' && input.headers);
+          if (rawHeaders) {
+            requestHeaders = {};
+            if (typeof Headers !== 'undefined' && rawHeaders instanceof Headers) {
+              rawHeaders.forEach(function(v, k) { requestHeaders[k] = v.slice(0, 200); });
+            } else if (Array.isArray(rawHeaders)) {
+              rawHeaders.forEach(function(pair) { if (pair.length >= 2) requestHeaders[pair[0]] = String(pair[1]).slice(0, 200); });
+            } else if (typeof rawHeaders === 'object') {
+              for (var hk in rawHeaders) { if (rawHeaders.hasOwnProperty(hk)) requestHeaders[hk] = String(rawHeaders[hk]).slice(0, 200); }
+            }
+          }
+        } catch { /* ignore */ }
+
         post({
           type: 'network',
           method: method,
@@ -334,6 +351,7 @@
           requestBody: reqBody
             ? (typeof reqBody === 'string' ? reqBody.slice(0, 500) : '[non-string body]')
             : undefined,
+          requestHeaders: requestHeaders,
           responseBody: responseBody,
           timestamp: Date.now(),
         });

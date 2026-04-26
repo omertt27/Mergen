@@ -79,10 +79,22 @@ export interface SessionSignal {
   suggestedTool: 'quick_check' | 'explain_warning' | 'session_summary';
 }
 
+/** Auth-related localStorage keys checked by signal detectors and causal engine. */
+export const AUTH_KEYS: readonly string[] = ['token', 'userToken', 'accessToken', 'authToken', 'jwt', 'user', 'session'];
+
+/** Regex matching auth-related URLs. */
+export const AUTH_URL_RE = /login|auth|signin|token/i;
+
 /** Minimum confidence for a signal to be surfaced. Below this the signal is noise. */
 const MIN_SIGNAL_CONFIDENCE = 0.45;
 
 // ── BufferStore interface ──────────────────────────────────────────────────────
+
+export interface BufferCounters {
+  errors: number;
+  warnings: number;
+  networkErrors: number;
+}
 
 export interface BufferStore {
   push(event: BrowserEvent): void;
@@ -91,30 +103,98 @@ export interface BufferStore {
   getContext(limit?: number, since?: number): ContextSnapshot[];
   /** Lightweight pattern scan — no credit cost. Used by /health and quick_check. */
   getSignals(): SessionSignal[];
+  /** O(1) counters for health endpoint — no iteration needed. */
+  getCounters(): BufferCounters;
   clear(): void;
   size(): number;
+}
+
+// ── Plan-aware read limit ─────────────────────────────────────────────────────
+// Free plan defines bufferSize: 50 but the ring buffer always stores 200.
+// We enforce the plan limit at read time so paid upgrades take effect instantly.
+// The getter is injected by index.ts after license init to avoid circular imports.
+let _getEffectiveBufferSize: () => number = () => MAX_BUFFER_SIZE;
+
+export function setBufferSizeGetter(fn: () => number): void {
+  _getEffectiveBufferSize = fn;
 }
 
 // ── O(1) ring-buffer implementation ───────────────────────────────────────────
 // Uses a fixed-size pre-allocated array with head + count pointers.
 // push() is always O(1) — no Array.shift() / splice().
 
-const MAX_SIZE = 200;
+const MAX_BUFFER_SIZE = 200;
+const MAX_SIZE = MAX_BUFFER_SIZE;
 
 class RingBuffer implements BufferStore {
   private readonly _ring = new Array<BrowserEvent | undefined>(MAX_SIZE).fill(undefined);
   private _head = 0; // index of the oldest slot
   private _count = 0; // number of occupied slots
 
+  // O(1) running counters — updated on push() and clear()
+  private _errors = 0;
+  private _warnings = 0;
+  private _networkErrors = 0;
+
+  private _incrementCounters(event: BrowserEvent): void {
+    if (event.type === 'console') {
+      if (event.level === 'error') this._errors++;
+      else if (event.level === 'warn') this._warnings++;
+    } else if (event.type === 'network' && (event.status >= 400 || event.status === 0 || event.error)) {
+      this._networkErrors++;
+    }
+  }
+
+  private _decrementCounters(event: BrowserEvent): void {
+    if (event.type === 'console') {
+      if (event.level === 'error') this._errors--;
+      else if (event.level === 'warn') this._warnings--;
+    } else if (event.type === 'network' && (event.status >= 400 || event.status === 0 || event.error)) {
+      this._networkErrors--;
+    }
+  }
+
   push(event: BrowserEvent): void {
-    const slot = (this._head + this._count) % MAX_SIZE;
-    this._ring[slot] = event;
     if (this._count < MAX_SIZE) {
+      // Buffer has space — append normally
+      const slot = (this._head + this._count) % MAX_SIZE;
+      this._ring[slot] = event;
       this._count++;
-    } else {
-      // Buffer full: overwrite the oldest slot and advance head
+      this._incrementCounters(event);
+      return;
+    }
+
+    // Buffer full — priority eviction: prefer evicting console.log over
+    // warnings/errors/network events so important signals survive longer.
+    const isHighPriority = event.type !== 'console' || event.level !== 'log';
+    let evictIdx = this._head; // default: evict oldest
+
+    if (isHighPriority) {
+      // Scan from oldest for the first low-priority (console.log) event to evict
+      for (let i = 0; i < this._count; i++) {
+        const idx = (this._head + i) % MAX_SIZE;
+        const candidate = this._ring[idx];
+        if (candidate?.type === 'console' && candidate.level === 'log') {
+          evictIdx = idx;
+          break;
+        }
+      }
+    }
+
+    const evicted = this._ring[evictIdx];
+    if (evicted) this._decrementCounters(evicted);
+
+    this._ring[evictIdx] = event;
+    this._incrementCounters(event);
+
+    // If we evicted the head slot, advance head
+    if (evictIdx === this._head) {
       this._head = (this._head + 1) % MAX_SIZE;
     }
+  }
+
+  getCounters(): BufferCounters {
+    return { errors: this._errors, warnings: this._warnings, networkErrors: this._networkErrors };
   }
 
   private *_iterate(): Iterable<BrowserEvent> {
@@ -124,6 +204,7 @@ class RingBuffer implements BufferStore {
   }
 
   getLogs(limit = 50, level?: LogLevel, since?: number): ConsoleEvent[] {
+    const cap = Math.min(limit, _getEffectiveBufferSize());
     const results: ConsoleEvent[] = [];
     for (const e of this._iterate()) {
       if (e.type !== 'console') continue;
@@ -131,10 +212,11 @@ class RingBuffer implements BufferStore {
       if (since !== undefined && e.timestamp < since) continue;
       results.push(e);
     }
-    return results.slice(-limit);
+    return results.slice(-cap);
   }
 
   getNetwork(limit = 50, statusFilter?: number, since?: number): NetworkEvent[] {
+    const cap = Math.min(limit, _getEffectiveBufferSize());
     const results: NetworkEvent[] = [];
     for (const e of this._iterate()) {
       if (e.type !== 'network') continue;
@@ -142,23 +224,27 @@ class RingBuffer implements BufferStore {
       if (since !== undefined && e.timestamp < since) continue;
       results.push(e);
     }
-    return results.slice(-limit);
+    return results.slice(-cap);
   }
 
   getContext(limit = 10, since?: number): ContextSnapshot[] {
+    const cap = Math.min(limit, _getEffectiveBufferSize());
     const results: ContextSnapshot[] = [];
     for (const e of this._iterate()) {
       if (e.type !== 'context') continue;
       if (since !== undefined && e.timestamp < since) continue;
       results.push(e);
     }
-    return results.slice(-limit);
+    return results.slice(-cap);
   }
 
   clear(): void {
     this._ring.fill(undefined);
     this._head = 0;
     this._count = 0;
+    this._errors = 0;
+    this._warnings = 0;
+    this._networkErrors = 0;
   }
 
   getSignals(): SessionSignal[] {
@@ -177,8 +263,6 @@ class RingBuffer implements BufferStore {
     // Cross-correlation: POST auth/login/signin → 200, but token keys absent/null
     // in the most recent storage snapshot. This is the #1 real-world conversion
     // bug — surfaces it before it ever throws an error.
-    const AUTH_URL_RE = /login|auth|signin|token/i;
-    const AUTH_KEYS   = ['token', 'userToken', 'accessToken', 'authToken', 'jwt', 'user', 'session'];
     const authOk = network.filter((n) => AUTH_URL_RE.test(n.url) && n.status === 200);
     if (authOk.length > 0 && latestCtx) {
       const missingKeys = AUTH_KEYS.filter(

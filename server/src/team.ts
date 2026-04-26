@@ -21,7 +21,7 @@ import os from 'os';
 import crypto from 'crypto';
 import { Router, type Request, type Response } from 'express';
 import type { BrowserEvent } from './buffer.js';
-import { store } from './buffer.js';
+import { store, BrowserEventSchema } from './buffer.js';
 import { getActivePlanId } from './license.js';
 import { DATA_DIR, TEAM_FILE } from './paths.js';  // P4.1
 import logger from './logger.js';
@@ -40,6 +40,15 @@ interface SseClient {
   id: string;
   res: Response;
   memberName: string;
+}
+
+// ── Safe token comparison ─────────────────────────────────────────────────
+// timingSafeEqual throws RangeError if buffers differ in length.
+function safeTokenCompare(a: string, b: string): boolean {
+  const aBuf = Buffer.from(a);
+  const bBuf = Buffer.from(b);
+  if (aBuf.length !== bBuf.length) return false;
+  return crypto.timingSafeEqual(aBuf, bBuf);
 }
 
 // ── In-memory state ───────────────────────────────────────────────────────────
@@ -185,7 +194,7 @@ teamRouter.get('/team/stream', (req: Request, res: Response): void => {
   }
 
   const token = (req.headers['x-mergen-team-token'] as string) ?? (req.query.token as string);
-  if (!token || !crypto.timingSafeEqual(Buffer.from(token), Buffer.from(_team.token))) {
+  if (!token || !safeTokenCompare(token, _team.token)) {
     res.status(401).json({ error: 'invalid team token' });
     return;
   }
@@ -247,7 +256,7 @@ teamRouter.post('/team/push', async (req: Request, res: Response): Promise<void>
   }
 
   const token = req.headers['x-mergen-team-token'] as string;
-  if (!token || !crypto.timingSafeEqual(Buffer.from(token), Buffer.from(_team.token))) {
+  if (!token || !safeTokenCompare(token, _team.token)) {
     res.status(401).json({ error: 'invalid team token' });
     return;
   }
@@ -260,13 +269,23 @@ teamRouter.post('/team/push', async (req: Request, res: Response): Promise<void>
     return;
   }
 
-  // Inject into local buffer (tagged with peer origin) and broadcast
-  const tagged = events.map((e) => ({ ...e, _peer: from }));
-  for (const e of tagged) {
-    try { store.push(e as BrowserEvent); } catch { /* schema mismatch — skip */ }
+  // Validate each event with Zod before injecting into the buffer
+  const validated: BrowserEvent[] = [];
+  for (const raw of events) {
+    const result = BrowserEventSchema.safeParse(raw);
+    if (result.success) validated.push(result.data);
   }
-  broadcastToTeam(events, from);
 
-  logger.info({ from, count: events.length }, 'team events received');
-  res.json({ ok: true, ingested: events.length });
+  if (validated.length === 0) {
+    res.status(400).json({ error: 'no valid events in payload' });
+    return;
+  }
+
+  for (const e of validated) {
+    store.push(e);
+  }
+  broadcastToTeam(validated, from);
+
+  logger.info({ from, count: validated.length, dropped: events.length - validated.length }, 'team events received');
+  res.json({ ok: true, ingested: validated.length });
 });

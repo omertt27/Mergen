@@ -15,7 +15,6 @@
  */
 
 import fs from 'fs/promises';
-import { lemonSqueezySetup } from '@lemonsqueezy/lemonsqueezy.js';
 import { getActivePlanId, getLicenseState } from './license.js';
 import { getPlan } from './plans.js';
 import { DATA_DIR, USAGE_FILE } from './paths.js';
@@ -108,8 +107,7 @@ export async function initUsage(): Promise<void> {
   await loadUsage();
   logger.info({ used: _usage.used, month: _usage.month }, 'usage loaded');
 
-  const apiKey = process.env.LS_API_KEY;
-  if (apiKey) lemonSqueezySetup({ apiKey });
+  // lemonSqueezySetup is called once in main() — no need to call it here
 
   // Flush any overage that wasn't reported before last shutdown
   if (_usage.overagePending > 0) {
