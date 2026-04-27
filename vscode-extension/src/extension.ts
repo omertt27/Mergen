@@ -32,6 +32,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('mergen.sendFeedback', () =>
       vscode.env.openExternal(vscode.Uri.parse(FEEDBACK_URL)),
     ),
+    vscode.commands.registerCommand('mergen.openCalibration', () => openCalibration()),
   );
 
   // ── First-run: open the walkthrough automatically ──────────────────────────
@@ -57,6 +58,106 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export function deactivate(): void {
   // nothing — webview lifecycle is managed by VS Code
+}
+
+// ── Detector Health quick-pick ───────────────────────────────────────────────
+//
+// Power users live in the Command Palette. `Mergen: Show Detector Accuracy`
+// fetches /calibration and renders every detector as a row in a quick-pick:
+//
+//   $(check) auth_token_not_persisted    82% · 23/28 correct
+//   $(warning) schema_drift                48% · 12/25 correct  ▼ 14% (7d)
+//   $(circle-outline) dom_mismatch         new · 0/3 rated
+//
+// Selecting a row opens the README anchor for that detector tag (if it
+// exists), otherwise the panel. This makes the "is Mergen telling me the
+// truth?" question answerable in two keystrokes — Cmd-Shift-P, "merg cal".
+
+interface PerDetector {
+  tag: string;
+  predictions: number;
+  verdicts: number;
+  accuracy: number;
+  trusted: boolean;
+  shouldInterrupt: boolean;
+  accuracy7d: number | null;
+  trendDelta: number | null;
+}
+
+async function openCalibration(): Promise<void> {
+  const cfg = vscode.workspace.getConfiguration('mergen');
+  const port = cfg.get<number>('serverPort', 3000);
+  let payload: { perDetector?: PerDetector[]; overallAccuracy?: number | null; trustedDetectors?: number; totalDetectors?: number } | null = null;
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/calibration`, { signal: AbortSignal.timeout(2000) });
+    if (r.ok) payload = await r.json();
+  } catch { /* server down — handled below */ }
+
+  if (!payload) {
+    const action = await vscode.window.showWarningMessage(
+      'Mergen: server not reachable on :' + port + '. Start it to view detector accuracy.',
+      'Start Local Server',
+    );
+    if (action === 'Start Local Server') {
+      await vscode.commands.executeCommand('mergen.startServer');
+    }
+    return;
+  }
+
+  const list = payload.perDetector ?? [];
+  if (list.length === 0) {
+    vscode.window.showInformationMessage(
+      'Mergen: no detectors have fired yet. Use the app for a bit, then come back — the scoreboard fills itself.',
+    );
+    return;
+  }
+
+  // Trusted-first, accuracy-desc — same order as the panel's Detector Health card.
+  const sorted = [...list].sort((a, b) => {
+    if (a.trusted !== b.trusted) return a.trusted ? -1 : 1;
+    if (b.accuracy !== a.accuracy) return b.accuracy - a.accuracy;
+    return b.verdicts - a.verdicts;
+  });
+
+  const items: vscode.QuickPickItem[] = sorted.map((s) => {
+    let icon: string, label: string;
+    if (!s.trusted) {
+      icon = '$(circle-outline)';
+      label = `new · ${s.verdicts}/${s.predictions} rated`;
+    } else {
+      const pct = Math.round(s.accuracy * 100);
+      icon = pct >= 75 ? '$(check)' : pct >= 50 ? '$(warning)' : '$(error)';
+      label = `${pct}% · ${Math.round(s.accuracy * s.verdicts)}/${s.verdicts} correct`;
+    }
+    let trend = '';
+    if (typeof s.trendDelta === 'number' && s.trendDelta !== 0) {
+      const delta = Math.round(s.trendDelta * 100);
+      trend = delta > 0 ? `  ▲ ${delta}% (7d)` : `  ▼ ${Math.abs(delta)}% (7d)`;
+    }
+    return {
+      label: `${icon} ${s.tag}`,
+      description: label + trend,
+      detail: s.shouldInterrupt
+        ? 'Trusted enough to interrupt your flow.'
+        : s.trusted
+          ? 'Trusted but quiet — won\'t grab attention.'
+          : 'Not trusted yet — needs more verdicts.',
+    };
+  });
+
+  const overall = payload.overallAccuracy != null
+    ? `Overall: ${Math.round(payload.overallAccuracy * 100)}% across ${payload.trustedDetectors}/${payload.totalDetectors} trusted detectors`
+    : `${payload.totalDetectors ?? list.length} detector(s) · awaiting verdicts`;
+
+  const picked = await vscode.window.showQuickPick(items, {
+    title: `Mergen — Detector Accuracy   (${overall})`,
+    placeHolder: 'Pick a detector to open the panel for details',
+    matchOnDescription: true,
+    matchOnDetail: true,
+  });
+  if (picked) {
+    await vscode.commands.executeCommand('mergen.openPanel');
+  }
 }
 
 // ── Server boot helpers ──────────────────────────────────────────────────────

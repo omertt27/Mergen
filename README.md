@@ -6,10 +6,11 @@
 
 **The 30 seconds between a bug appearing in your browser and the fix landing in your editor — and nothing in between leaves your laptop.**
 
-[![Tests](https://img.shields.io/badge/tests-120%20passing-brightgreen)](./server)
+[![Tests](https://img.shields.io/badge/tests-142%20passing-brightgreen)](./server)
 [![License](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 [![MCP](https://img.shields.io/badge/Model%20Context%20Protocol-stdio-black)](https://modelcontextprotocol.io)
 [![Local-only](https://img.shields.io/badge/data-127.0.0.1%20only-success)](#privacy)
+[![Calibrated](https://img.shields.io/badge/hypotheses-calibrated-7c3aed)](./docs/HONESTY.md)
 
 [**Setup →**](./SETUP.md) · [**Architecture →**](./ARCHITECTURE.md) · [**Pricing →**](#pricing)
 
@@ -21,9 +22,11 @@
 
 Mergen is the runtime-observability layer your AI assistant has been missing.
 
-A browser extension streams `console.*`, `fetch`/`xhr`, and DOM state to a local Node server on `127.0.0.1`. The server correlates them into a **causal chain**, ranks **hypotheses** by confidence, and exposes the result as **MCP tools** that Copilot Chat, Cursor, Claude Code, Windsurf, and ChatGPT Desktop can call directly.
+A browser extension streams `console.*`, `fetch`/`xhr`, and DOM state to a local Node server on `127.0.0.1`. The server correlates them into a **causal chain**, ranks **hypotheses by their actual track record** — not just model confidence — and exposes the result as **MCP tools** that Copilot Chat, Cursor, Claude Code, Windsurf, and ChatGPT Desktop can call directly.
 
 Mergen is **continuous**, not crash-triggered. Every page refresh, hot-reload, network burst, and idle background tick produces a fresh diagnosis — so when your code finally throws, your AI already has the stack trace, the failing request, the response body, the DOM snapshot, **and a baseline of what the page looked like 30 seconds ago when it was still fine**.
+
+Mergen is also **calibrated**. Every hypothesis we surface carries a stable id; one click in the panel ("✓ Yes / ◐ Sort of / ✕ No") teaches the engine which detectors are worth trusting. Detectors below 50% empirical accuracy are demoted; below 20% they're suppressed entirely. The status bar only interrupts you when the firing detector has earned the right (≥60% accuracy, ≥5 verdicts). You don't get "we generate hypotheses" — you get **"we track which hypotheses are actually correct."** See [`docs/HONESTY.md`](./docs/HONESTY.md).
 
 ```mermaid
 flowchart LR
@@ -68,7 +71,7 @@ Mergen sits in the gap nobody else does:
   - `get_status` · `get_recent_logs` · `get_network_activity` · `get_dom_context` · `clear_buffer` *(free)*
   - `analyze_runtime` — the magic: full causal chain, source-mapped, with ranked hypotheses *(paid)*
 - **CLI** — `mergen status`, `mergen doctor`, `mergen guard` *(pre-commit)*, `mergen start/stop/clear`
-- **HTTP API** — `/diagnose`, `/last-pack`, `/history`, `/timeline` *(text-based session replay)*, `/checkpoint` for non-MCP integrations
+- **HTTP API** — `/diagnose`, `/last-pack`, `/history`, `/timeline` *(text-based session replay)*, `/checkpoint`, `/feedback` + `/calibration` + `/calibration/export` *(audit-friendly CSV)* for non-MCP integrations
 - **Continuous-watch loop** — background watcher rebuilds the Context Pack on every pageload, HMR, network burst, and 15 s idle tick. North-Star metric: *analyses per developer per day*, exposed on `/usage`.
 
 ---

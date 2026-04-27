@@ -18,7 +18,7 @@ import { billingRouter } from './billing.js';
 import { teamRouter, initTeam, getTeamState, isTeamEnabled } from './team.js';
 import { getPlan } from './plans.js';
 import { hypothesisHistory } from './hypothesis-history.js';
-import { recordVerdict, getStats } from './calibration.js';
+import { recordVerdict, getStats, exportCsv } from './calibration.js';
 import { initTelemetry, getTelemetryState, setTelemetryEnabled, maybeSendTelemetry } from './telemetry.js';
 import { startWatcher } from './watcher.js';
 import { lemonSqueezySetup } from '@lemonsqueezy/lemonsqueezy.js';
@@ -369,6 +369,21 @@ async function main(): Promise<void> {
       totalDetectors: stats.length,
       perDetector: stats,
     });
+  });
+
+  // GET /calibration/export — full verdict ring as RFC-4180 CSV. Powers
+  // `mergen doctor` audit bundles and lets teams pipe Mergen's track
+  // record into their own dashboards. Privacy-safe by construction:
+  // the calibration ring only ever stored tag + confidence + verdict +
+  // ≤140-char user note (see calibration.ts header for the contract).
+  app.get('/calibration/export', (_req, res) => {
+    const csv = exportCsv();
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="mergen-calibration-${new Date().toISOString().slice(0, 10)}.csv"`,
+    );
+    res.send(csv);
   });
 
   // GET /timeline — interleaved console + network + context events as a flat,

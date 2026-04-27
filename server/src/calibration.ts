@@ -317,6 +317,48 @@ function demote(c: ConfidenceLevel): ConfidenceLevel {
   }
 }
 
+/**
+ * Read-only snapshot of the raw record ring. Used by /calibration/export
+ * so auditors (and `mergen doctor`) can dump a complete CSV of every
+ * prediction + verdict the engine ever produced.
+ *
+ * Privacy contract (see file header): we only ever stored tag, confidence,
+ * verdict, timestamps, and an optional ≤140-char user note. No URLs, no
+ * stacks, no identifiers — so this is always safe to share verbatim.
+ */
+export function getRecords(): readonly PredictionRecord[] {
+  load();
+  return _records;
+}
+
+/**
+ * Render the raw verdict ring as RFC-4180 CSV. Header row first, then one
+ * row per prediction. Empty strings for missing optional fields. Notes are
+ * quoted and any embedded `"` is doubled per spec.
+ *
+ * We keep this in the same module as the records themselves so the CSV
+ * schema and the in-memory schema can never drift.
+ */
+export function exportCsv(): string {
+  load();
+  const header = 'pid,tag,confidence,predictedAt,verdict,verdictAt,note';
+  const escape = (v: string): string => {
+    // Quote if it contains comma, quote, newline, or carriage return.
+    if (/[",\r\n]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
+    return v;
+  };
+  const rows = _records.map((r) => [
+    r.pid,
+    r.tag,
+    r.confidence,
+    new Date(r.predictedAt).toISOString(),
+    r.verdict ?? '',
+    r.verdictAt ? new Date(r.verdictAt).toISOString() : '',
+    r.note ?? '',
+  ].map((c) => escape(String(c))).join(','));
+  return [header, ...rows].join('\n') + (rows.length > 0 ? '\n' : '');
+}
+
 /** Test-only reset. Never call from production paths. */
 export function _resetForTesting(): void {
   _records = [];

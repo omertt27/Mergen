@@ -16,6 +16,7 @@ import {
   recordVerdict,
   applyCalibration,
   getStats,
+  exportCsv,
   _resetForTesting,
 } from '../calibration.js';
 import type { Hypothesis } from '../causal.js';
@@ -107,5 +108,39 @@ describe('calibration', () => {
     const out = applyCalibration([fakeHyp('half', 'HIGH')]);
     expect(out).toHaveLength(1);
     expect(out[0].confidence).toBe('HIGH');
+  });
+});
+
+describe('calibration: CSV export', () => {
+  it('emits a header-only CSV when no records exist', () => {
+    const csv = exportCsv();
+    expect(csv).toBe('pid,tag,confidence,predictedAt,verdict,verdictAt,note');
+  });
+
+  it('emits one row per prediction with ISO timestamps and trailing newline', () => {
+    const tagged = recordPrediction([fakeHyp('a'), fakeHyp('b')]);
+    recordVerdict(tagged[0].pid, 'correct');
+
+    const csv = exportCsv();
+    const lines = csv.split('\n');
+    // header + 2 data rows + trailing empty (because of final '\n')
+    expect(lines).toHaveLength(4);
+    expect(lines[0]).toBe('pid,tag,confidence,predictedAt,verdict,verdictAt,note');
+    expect(lines[1]).toMatch(
+      new RegExp(`^${tagged[0].pid},a,HIGH,\\d{4}-\\d{2}-\\d{2}T.*Z,correct,\\d{4}-\\d{2}-\\d{2}T.*Z,$`),
+    );
+    expect(lines[2]).toMatch(new RegExp(`^${tagged[1].pid},b,HIGH,.*,,,$`));
+    expect(lines[3]).toBe('');
+  });
+
+  it('quotes notes containing commas, quotes, and newlines per RFC-4180', () => {
+    const tagged = recordPrediction([fakeHyp('q')]);
+    recordVerdict(tagged[0].pid, 'wrong', 'has, "quote" and\nnewline');
+
+    const csv = exportCsv();
+    // The note must be wrapped in quotes and inner " doubled. We check
+    // the raw csv (not split on \n — the embedded newline lives *inside*
+    // the quoted field, which is exactly what RFC-4180 lets us do).
+    expect(csv).toContain(',"has, ""quote"" and\nnewline"\n');
   });
 });
