@@ -220,10 +220,33 @@
         url: window.location.href,
         timestamp: now,
       });
-      // Also snapshot storage/DOM so state is always captured around each save
-      postContext('warn'); // reuse 'warn' trigger (already accepted by the schema)
+      // Also snapshot storage/DOM so state is always captured around each save.
+      // The 'hmr' trigger flips Mergen's hypothesis engine into post-save
+      // baseline mode (see hypothesis-history.RebuildReason).
+      postContext('hmr');
     } catch { /* never break the page */ }
   }
+
+  // ── Pageload checkpoint ─────────────────────────────────────────────────────
+  // Fire a 'pageload' context snapshot after the document fully loads (and
+  // again on bfcache restore via pageshow). This is the primary trigger that
+  // makes Mergen continuous: every refresh produces a baseline diagnosis,
+  // not just every crash.
+  function firePageload() {
+    try { postContext('pageload'); } catch { /* never break */ }
+  }
+  try {
+    if (document.readyState === 'complete') {
+      // Defer one tick so the network panel sees the initial fetches first.
+      setTimeout(firePageload, 50);
+    } else {
+      window.addEventListener('load', function () { setTimeout(firePageload, 50); }, { once: true });
+    }
+    // bfcache restore (Safari/Chrome back/forward) — counts as a fresh view.
+    window.addEventListener('pageshow', function (ev) {
+      if (ev && ev.persisted) firePageload();
+    });
+  } catch { /* ignore */ }
 
   try {
     // Vite

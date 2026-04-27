@@ -29,6 +29,9 @@ const creditWrap   = document.getElementById('credit-wrap');
 const creditCount  = document.getElementById('credit-count');
 const creditFill   = document.getElementById('credit-fill');
 const creditOverage = document.getElementById('credit-overage');
+const signalsWrap  = document.getElementById('signals-wrap');
+const signalsList  = document.getElementById('signals-list');
+const signalsCount = document.getElementById('signals-count');
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -38,6 +41,66 @@ function setStatus(state, label) {
   statusPill.className = `status-pill ${state}`;
   statusText.textContent = label;
   statusPill.querySelector('.dot').className = state === 'checking' ? 'dot pulse' : 'dot';
+}
+
+// ── Live signals (B3) ────────────────────────────────────────────────────────
+// Render the buffer's session signals (computed server-side from the ring
+// buffer) so the dev sees actionable patterns BEFORE crashes — this is the
+// core "always-on engagement" surface in the popup.
+
+function confidenceBand(c) {
+  if (c >= 0.80) return 'high';
+  if (c >= 0.55) return 'medium';
+  return 'low';
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[ch]);
+}
+
+function renderSignals(signals) {
+  if (!signals || signals.length === 0) {
+    signalsWrap.classList.remove('has-signals');
+    signalsList.innerHTML = '';
+    signalsCount.textContent = '';
+    return;
+  }
+  signalsWrap.classList.add('has-signals');
+  signalsCount.textContent = signals.length === 1 ? '1 finding' : `${signals.length} findings`;
+
+  signalsList.innerHTML = signals.slice(0, 4).map((s) => {
+    const band = confidenceBand(s.confidence ?? 0);
+    const pct  = Math.round((s.confidence ?? 0) * 100);
+    const tool = s.suggestedTool || 'analyze_runtime';
+    return `
+      <div class="signal ${band}">
+        <div class="signal-msg">${escapeHtml(s.message)}</div>
+        <div class="signal-action">→ ${escapeHtml(s.action)}</div>
+        <button class="signal-cta" data-tool="${escapeHtml(tool)}">
+          Run ${escapeHtml(tool)} (${pct}% confidence)
+        </button>
+      </div>
+    `;
+  }).join('');
+
+  // Wire CTAs — copy the tool invocation to the clipboard so the dev can
+  // paste it into Cursor / Claude / Copilot Chat instantly.
+  for (const btn of signalsList.querySelectorAll('.signal-cta')) {
+    btn.addEventListener('click', async () => {
+      const tool = btn.getAttribute('data-tool');
+      const text = `Run ${tool} on the current Mergen buffer and explain the root cause.`;
+      try {
+        await navigator.clipboard.writeText(text);
+        const original = btn.textContent;
+        btn.textContent = '✓ Copied — paste into your AI chat';
+        setTimeout(() => { btn.textContent = original; }, 2200);
+      } catch {
+        btn.textContent = `Paste in chat: ${tool}`;
+      }
+    });
+  }
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────
@@ -78,6 +141,7 @@ async function refresh(port) {
     statErrors.textContent = statWarns.textContent = statNet.textContent = '—';
     btnClear.disabled = true;
     creditWrap.style.display = 'none';
+    renderSignals([]);
     return;
   }
 
@@ -86,6 +150,9 @@ async function refresh(port) {
   statWarns.textContent  = health.warnings ?? 0;
   statNet.textContent    = health.networkErrors ?? 0;
   btnClear.disabled = false;
+
+  // Surface live signals from /health (already computed by the server)
+  renderSignals(health.signals ?? []);
 
   // Team sync indicator
   const teamSync = health.teamSync;

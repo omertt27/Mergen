@@ -248,27 +248,31 @@ export async function buildCausalChain(
   chain.sort((a, b) => a.ts - b.ts);
 
   // ── Run hypothesis detectors ──────────────────────────────────────────────
+  // We always run detectors — even when no error has fired. Error-required
+  // detectors return null on baselines; silent-failure detectors (slow API,
+  // empty response) fire only on baselines or when an error is also present.
+  // This is what makes the watcher loop continuously useful.
   const hypotheses: Hypothesis[] = [];
 
-  if (errorBlocks.length > 0) {
-    const input: DetectorInput = {
-      primaryErr: errorBlocks[0],
-      stateAtError,
-      correlatedNetwork,
-      chain,
-    };
+  const input: DetectorInput = {
+    primaryErr: errorBlocks[0] ?? null,
+    stateAtError,
+    correlatedNetwork,
+    chain,
+  };
 
-    for (const detector of ALL_DETECTORS) {
-      try {
-        const result = detector(input);
-        if (result) hypotheses.push(result);
-      } catch (err) {
-        logger.warn({ err, detector: detector.name }, 'hypothesis detector threw');
-      }
+  for (const detector of ALL_DETECTORS) {
+    try {
+      const result = detector(input);
+      if (result) hypotheses.push(result);
+    } catch (err) {
+      logger.warn({ err, detector: detector.name }, 'hypothesis detector threw');
     }
+  }
 
-    hypotheses.sort((a, b) => b.confidenceScore - a.confidenceScore);
+  hypotheses.sort((a, b) => b.confidenceScore - a.confidenceScore);
 
+  if (errorBlocks.length > 0) {
     const topTag = hypotheses[0]?.tag;
     if (topTag === 'auth_token_not_persisted' || topTag === 'token_overwrite_race') {
       const idx = hypotheses.findIndex((h) => h.tag === 'null_storage_key');

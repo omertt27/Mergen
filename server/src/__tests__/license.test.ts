@@ -31,8 +31,16 @@ describe('getPlan', () => {
     expect(getPlan('team').analyzeCreditsPerMonth).toBe(Infinity);
   });
 
-  it('free plan has 0 analyze credits', () => {
-    expect(getPlan('free').analyzeCreditsPerMonth).toBe(0);
+  it('free plan grants a small monthly analyze allowance (B1: feel-the-magic credits)', () => {
+    // Free is intentionally non-zero so new users can render at least one
+    // Context Pack and feel the Hypothesis Engine. Don't regress this to 0.
+    const credits = getPlan('free').analyzeCreditsPerMonth;
+    expect(credits).toBeGreaterThan(0);
+    expect(credits).toBeLessThanOrEqual(20); // safety cap so paid tiers aren't cannibalised
+  });
+
+  it('free plan never charges overage', () => {
+    expect(getPlan('free').overageCentsPerCredit).toBe(0);
   });
 });
 

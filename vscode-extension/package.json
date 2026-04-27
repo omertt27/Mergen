@@ -1,10 +1,20 @@
 {
   "name": "mergen",
-  "displayName": "Mergen — Browser Observability",
-  "description": "Live browser logs, network events and AI root-cause analysis, right inside VS Code.",
+  "displayName": "Mergen — Local-First Runtime Debugging for AI",
+  "description": "AI-native browser observability. Captures console, network, and DOM on 127.0.0.1 and exposes them as MCP tools to Copilot, Cursor, Claude & Windsurf — so the 30 seconds between a bug and a fix stay inside your laptop.",
   "version": "1.0.0",
   "publisher": "mergen",
   "license": "MIT",
+  "homepage": "https://github.com/your-org/mergen#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/mergen.git",
+    "directory": "vscode-extension"
+  },
+  "bugs": {
+    "url": "https://github.com/your-org/mergen/issues"
+  },
+  "qna": "https://github.com/your-org/mergen/discussions",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -13,13 +23,38 @@
     "Other"
   ],
   "keywords": [
-    "debug",
     "mcp",
-    "ai",
+    "model context protocol",
+    "ai debugging",
+    "copilot",
+    "cursor",
+    "claude",
     "browser",
-    "logs"
+    "console",
+    "network",
+    "runtime",
+    "observability",
+    "local-first",
+    "privacy"
   ],
   "icon": "icons/icon128.png",
+  "galleryBanner": {
+    "color": "#0b1117",
+    "theme": "dark"
+  },
+  "badges": [
+    {
+      "url": "https://img.shields.io/badge/data-127.0.0.1%20only-success",
+      "href": "https://github.com/your-org/mergen#privacy",
+      "description": "All data stays on your machine"
+    },
+    {
+      "url": "https://img.shields.io/badge/MCP-stdio-black",
+      "href": "https://modelcontextprotocol.io",
+      "description": "Talks to your AI host via the Model Context Protocol"
+    }
+  ],
+  "pricing": "Free",
   "activationEvents": [
     "onStartupFinished"
   ],
@@ -58,6 +93,18 @@
         "command": "mergen.refresh",
         "title": "Mergen: Refresh",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "mergen.startServer",
+        "title": "Mergen: Start Local Server"
+      },
+      {
+        "command": "mergen.installExtension",
+        "title": "Mergen: Open Browser-Extension Install Guide"
+      },
+      {
+        "command": "mergen.sendFeedback",
+        "title": "Mergen: Send Feedback"
       }
     ],
     "menus": {
@@ -86,6 +133,16 @@
           "type": "number",
           "default": 2000,
           "description": "How often (ms) the sidebar polls the server for new events."
+        },
+        "mergen.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the Mergen server's `dist/index.js` (or a directory containing it). Leave blank to autodetect from the workspace, ~/.mergen, or a global `mergen` install."
+        },
+        "mergen.autoStartServer": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-start the local Mergen server on activation if it isn't already running."
         }
       }
     },
@@ -99,16 +156,52 @@
           ]
         }
       }
-    }
+    },
+    "walkthroughs": [
+      {
+        "id": "mergen.getStarted",
+        "title": "Get Started with Mergen",
+        "description": "Three steps to local-first runtime debugging for your AI assistant.",
+        "steps": [
+          {
+            "id": "mergen.start.server",
+            "title": "Start the local Mergen server",
+            "description": "The server lives on 127.0.0.1 and forwards browser events to your AI host via MCP. Nothing leaves your machine.\n[Start Local Server](command:mergen.startServer)",
+            "media": { "markdown": "media/walkthrough-server.md" },
+            "completionEvents": ["onCommand:mergen.startServer"]
+          },
+          {
+            "id": "mergen.install.extension",
+            "title": "Install the browser extension",
+            "description": "Load the Mergen extension in Chrome or Edge so it can stream console, network, and DOM to the local server.\n[Open Install Guide](command:mergen.installExtension)",
+            "media": { "markdown": "media/walkthrough-extension.md" },
+            "completionEvents": ["onCommand:mergen.installExtension"]
+          },
+          {
+            "id": "mergen.open.panel",
+            "title": "Open the Mergen panel",
+            "description": "Refresh a tab in your browser. The Mergen sidebar should light up with a baseline diagnosis within 2 seconds.\n[Open Mergen Panel](command:mergen.openPanel)",
+            "media": { "markdown": "media/walkthrough-panel.md" },
+            "completionEvents": ["onCommand:mergen.openPanel", "onView:mergen.panel"]
+          }
+        ]
+      }
+    ]
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/copy-webview.mjs",
     "watch": "tsc -p tsconfig.json --watch",
-    "package": "vsce package --no-dependencies"
+    "package": "vsce package --no-dependencies",
+    "publish:vscode": "vsce publish --no-dependencies",
+    "publish:openvsx": "ovsx publish --no-dependencies",
+    "publish:all": "npm run build && npm run package && npm run publish:vscode && npm run publish:openvsx",
+    "preflight": "node scripts/preflight.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.11.5",
     "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.1",
+    "ovsx": "^0.10.1",
     "typescript": "^5.3.3"
   }
 }

@@ -210,7 +210,7 @@ export function registerTools(server: McpServer): void {
 
       if (snap.planId === 'free') {
         lines.push(``);
-        lines.push(`> **Upgrade to unlock analyze_runtime:**`);
+        lines.push(`> **Upgrade for more analyze_runtime credits:**`);
         for (const plan of Object.values(PLANS)) {
           if (plan.id === 'free') continue;
           const price = plan.priceUsdCents === 0 ? 'pay-as-you-go ($0.05/call)' : `$${(plan.priceUsdCents / 100).toFixed(0)}/mo`;
@@ -481,7 +481,7 @@ export function registerTools(server: McpServer): void {
         'with a single root-cause summary, causal path, and fix hint. ' +
         'Use it whenever the user asks why something is wrong, why a component is behaving unexpectedly, ' +
         'or what happened before an error. ' +
-        'Costs 1 credit per call. Free plan: unavailable. Solo Standard: 500/mo. Solo Pro/Team: unlimited.',
+        'Costs 1 credit per call. Free plan: 10 credits/mo included. Solo Standard: 500/mo. Solo Pro/Team: unlimited.',
       inputSchema: {
         focus: z.enum(['errors', 'network', 'all']).optional()
           .describe('Limit analysis scope (default: all)'),

@@ -811,6 +811,61 @@
       text-align: center;
       padding: 6px 16px;
     }
+
+    /* ── Live signals (B3) ───────────────────────────────────────────── */
+    #signals-wrap {
+      display: none;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface3);
+    }
+    #signals-wrap.has-signals { display: block; }
+    .signals-title {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .5px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .signal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--text-muted);
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+      margin-bottom: 6px;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    .signal:last-child { margin-bottom: 0; }
+    .signal.high   { border-left-color: var(--red);    background: rgba(248,113,113,.06); }
+    .signal.medium { border-left-color: var(--yellow); background: rgba(251,191,36,.06); }
+    .signal.low    { border-left-color: var(--accent); background: var(--accent-glow); }
+    .signal-msg { color: var(--text); margin-bottom: 4px; }
+    .signal-action { color: var(--text-muted); font-size: 10px; }
+    .signal-cta {
+      display: inline-block;
+      margin-top: 6px;
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--accent);
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 0;
+    }
+    .signal-cta:hover { text-decoration: underline; }
+    .signals-empty {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-align: center;
+      padding: 8px 0;
+      font-style: italic;
+    }
   </style>
 </head>
 <body>
@@ -872,6 +927,15 @@
   <div id="credit-wrap">
     <div id="credit-label"></div>
     <div class="credit-bar"><div id="credit-fill"></div></div>
+  </div>
+
+  <!-- Live signals — surfaces causal patterns BEFORE crashes (B3) -->
+  <div id="signals-wrap">
+    <div class="signals-title">
+      <span>🔍 Live Signals</span>
+      <span id="signals-count" style="color: var(--text);"></span>
+    </div>
+    <div id="signals-list"></div>
   </div>
 
   <!-- Upgrade CTA (free plan or >80% usage) -->

@@ -31,7 +31,7 @@ export const NetworkEventSchema = z.object({
 
 export const ContextSnapshotSchema = z.object({
   type: z.literal('context'),
-  trigger: z.enum(['error', 'warn']),
+  trigger: z.enum(['error', 'warn', 'pageload', 'hmr', 'baseline', 'manual']),
   timestamp: z.number(),
   url: z.string(),
   title: z.string(),

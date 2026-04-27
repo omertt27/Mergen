@@ -40,9 +40,14 @@ export const PLANS: Record<PlanId, Plan> = {
     id: 'free',
     name: 'Free',
     priceUsdCents: 0,
-    bufferSize: 50,           // only 50 events visible to the AI
-    analyzeCreditsPerMonth: 0, // no deep analysis
-    overageCentsPerCredit: 0,
+    bufferSize: 50,            // only 50 events visible to the AI
+    // 10 free analyze_runtime calls per month — the "feel the magic" allowance.
+    // Without this, the free plan delivers only raw logs (already in DevTools)
+    // and conversion is structurally blocked. 10/month is enough to taste the
+    // Hypothesis Engine without cannibalising paid tiers (typical solo dev
+    // usage is ~30/mo per our internal estimates).
+    analyzeCreditsPerMonth: 10,
+    overageCentsPerCredit: 0,  // free tier never bills — hard cap at 10
     teamSync: false,
     lsVariantId: null,
   },

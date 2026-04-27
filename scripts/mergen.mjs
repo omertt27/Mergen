@@ -146,6 +146,154 @@ if (cmd === 'start') {
   postEmpty('/clear', port);
   console.log(green('✓') + ' Buffer cleared.');
 
+} else if (cmd === 'doctor') {
+  // ── A5: end-to-end health check ──────────────────────────────────────────
+  // Shows pass/fail for each link in the chain so the user can see exactly
+  // where onboarding is stuck. Exits 0 if everything is green, 1 if any
+  // critical step (server or extension) is failing.
+  console.log('');
+  console.log(bold('Mergen Doctor') + dim(' — checking your install…'));
+  console.log('');
+
+  const checks = [];
+  function pass(label, detail) { checks.push({ ok: true,  label, detail }); }
+  function fail(label, detail) { checks.push({ ok: false, label, detail }); }
+  function warn(label, detail) { checks.push({ ok: null,  label, detail }); }
+
+  // 1. Build artifact present
+  if (fs.existsSync(SERVER_DIST)) pass('Server build artifact', SERVER_DIST);
+  else fail('Server build artifact', `missing — run: cd server && npm install && npm run build`);
+
+  // 2. Server reachable
+  const port = findPort();
+  if (port) pass('Server running', `http://127.0.0.1:${port}`);
+  else fail('Server running', 'no server on 3000–3010 — run: mergen start');
+
+  // 3. Extension talking to server (recent buffer activity)
+  let bufferSeen = 0;
+  if (port) {
+    try {
+      const h = fetchJson('/health', port);
+      bufferSeen = h.buffered ?? 0;
+      if (bufferSeen > 0) pass('Browser extension connected', `${bufferSeen} events in buffer`);
+      else warn('Browser extension connected', 'no events yet — open a tab with the extension loaded and reload the page');
+    } catch (e) {
+      fail('Browser extension connected', String(e.message ?? e));
+    }
+  }
+
+  // 4. License / plan
+  if (port) {
+    try {
+      const lic = fetchJson('/license', port);
+      const planName = lic.plan?.name ?? 'Free';
+      const planId   = lic.plan?.id   ?? 'free';
+      pass('License plan', `${planName}` + (planId === 'free' ? dim('  (run: mergen activate <key> to upgrade)') : ''));
+    } catch { warn('License plan', 'license module unreachable'); }
+  }
+
+  // 5. MCP registrations — look for known config files
+  const home = os.homedir();
+  const mcpHosts = [
+    { name: 'Claude Code',  path: path.join(home, '.claude.json') },
+    { name: 'Cursor',       path: path.join(home, '.cursor', 'mcp.json') },
+    { name: 'Windsurf',     path: path.join(home, '.codeium', 'windsurf', 'mcp_config.json') },
+    { name: 'VS Code user', path: path.join(home, 'Library', 'Application Support', 'Code', 'User', 'mcp.json') },
+  ];
+  let registeredHosts = 0;
+  for (const host of mcpHosts) {
+    try {
+      const raw = fs.readFileSync(host.path, 'utf8');
+      if (raw.includes('mergen')) registeredHosts++;
+    } catch { /* missing file = host not installed */ }
+  }
+  if (registeredHosts > 0) pass('MCP registered', `${registeredHosts} host(s) — run: mergen status to verify`);
+  else warn('MCP registered', 'no host found — run: node scripts/setup.mjs');
+
+  // ── Render ──
+  for (const c of checks) {
+    const icon = c.ok === true ? green('✓') : c.ok === false ? red('✗') : yellow('!');
+    console.log(`  ${icon}  ${bold(c.label)}`);
+    if (c.detail) console.log(`     ${dim(c.detail)}`);
+  }
+  console.log('');
+
+  const failed = checks.filter(c => c.ok === false).length;
+  const warned = checks.filter(c => c.ok === null).length;
+  if (failed === 0 && warned === 0) {
+    console.log(green('All checks passed.') + dim('  Your install is healthy.'));
+  } else if (failed === 0) {
+    console.log(yellow(`${warned} warning(s).`) + dim('  Mergen will work but some features are inactive.'));
+  } else {
+    console.log(red(`${failed} failure(s), ${warned} warning(s).`) + dim('  Fix the failures above to start using Mergen.'));
+  }
+  console.log('');
+  process.exit(failed === 0 ? 0 : 1);
+
+} else if (cmd === 'guard') {
+  // ── Pre-commit guardrail ────────────────────────────────────────────────
+  // The continuous-watch pivot makes a new question possible:
+  //   "Are there *unresolved* runtime anomalies right now?"
+  // If yes, block the commit (or warn with --warn) so devs don't ship code
+  // on top of a broken baseline. Wire into a Husky/lefthook pre-commit hook:
+  //
+  //     mergen guard --min-confidence MEDIUM
+  //
+  // Exits 0 when clean, 1 when anomalies of the given severity exist.
+  // Always exits 0 if the server isn't running — devs without Mergen
+  // installed locally should never have their commits blocked.
+  const warnMode = args.includes('--warn');
+  const minIdx = args.indexOf('--min-confidence');
+  const minConf = (minIdx > -1 ? args[minIdx + 1] : 'HIGH') || 'HIGH';
+  const RANK = { LOW: 1, MEDIUM: 2, HIGH: 3 };
+  const threshold = RANK[String(minConf).toUpperCase()] ?? 3;
+
+  const port = findPort();
+  if (!port) {
+    console.log(dim('mergen: server not running — guard skipped (commit allowed).'));
+    process.exit(0);
+  }
+
+  let pack;
+  try {
+    pack = fetchJson('/last-pack', port);
+  } catch (e) {
+    console.log(dim('mergen: could not reach /last-pack — guard skipped: ' + e.message));
+    process.exit(0);
+  }
+
+  if (!pack || !pack.hasPack || !pack.topHypothesis) {
+    console.log(green('✓') + ' mergen guard: no pending runtime anomalies.');
+    process.exit(0);
+  }
+
+  const top = pack.topHypothesis;
+  const rank = RANK[top.confidence] ?? 0;
+  if (rank < threshold) {
+    console.log(green('✓') + ` mergen guard: top hypothesis is ${top.confidence} — below threshold ${minConf.toUpperCase()}.`);
+    process.exit(0);
+  }
+
+  const banner = warnMode ? yellow('⚠ mergen guard') : red('✗ mergen guard');
+  console.log('');
+  console.log(banner + dim(' — unresolved runtime anomaly detected'));
+  console.log('');
+  console.log('  ' + bold(top.confidence) + '  ' + top.summary);
+  if (Array.isArray(top.causalPath) && top.causalPath.length > 0) {
+    console.log('');
+    console.log('  ' + dim('Causal path:'));
+    for (const step of top.causalPath.slice(0, 4)) console.log('    ' + dim('· ') + step);
+  }
+  if (top.fixHint) {
+    console.log('');
+    console.log('  ' + bold('Fix:') + ' ' + top.fixHint);
+  }
+  console.log('');
+  console.log(dim('  Inspect:  mergen status'));
+  console.log(dim('  Override: git commit --no-verify'));
+  console.log('');
+  process.exit(warnMode ? 0 : 1);
+
 } else {
   console.log(`
 ${bold('mergen')} — Mergen MCP server CLI
@@ -154,7 +302,12 @@ ${bold('Commands:')}
   ${blue('mergen start')}    Start the MCP server in the background
   ${blue('mergen stop')}     Stop the background server
   ${blue('mergen status')}   Show plan, credits, and buffer stats
+  ${blue('mergen doctor')}   End-to-end install health check
   ${blue('mergen clear')}    Clear the event buffer
+  ${blue('mergen guard')}    Pre-commit: fail if a HIGH-confidence runtime
+                  anomaly is unresolved. Flags:
+                    --warn                 do not fail, just print
+                    --min-confidence LOW|MEDIUM|HIGH  (default HIGH)
 
 ${bold('Environment:')}
   LS_API_KEY              LemonSqueezy API key

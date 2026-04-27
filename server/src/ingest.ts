@@ -1,6 +1,8 @@
 import { Request, Response, Router } from 'express';
-import { store, BrowserEventSchema } from './buffer.js';
+import { store, BrowserEventSchema, type BrowserEvent } from './buffer.js';
 import { resolveStackTrace } from './sourcemap.js';
+import { hypothesisHistory } from './hypothesis-history.js';
+import { redact } from './redact.js';
 import logger from './logger.js';
 
 export const ingestRouter = Router();
@@ -48,6 +50,72 @@ function isRateLimited(): boolean {
 // P2.1: Guard against hung disk scans blocking the event loop indefinitely.
 const SOURCEMAP_TIMEOUT_MS = 2_000;
 
+// ── Per-field body cap (D1 — buffer-bloat hardening) ─────────────────────────
+// The Express body limit is 1MB, but a single 800KB JSON response body would
+// crowd out ~100 useful events. We cap each request/response body at 8KB
+// before the event reaches the ring buffer. Truncated payloads keep a marker
+// so the LLM knows the data was clipped and doesn't reason on partial JSON
+// as if it were complete.
+const MAX_BODY_BYTES = 8 * 1024;
+const TRUNC_MARKER = '[…truncated by mergen]';
+
+function clampBody(body: unknown): unknown {
+  if (body == null) return body;
+  if (typeof body === 'string') {
+    return body.length > MAX_BODY_BYTES
+      ? body.slice(0, MAX_BODY_BYTES) + ` ${TRUNC_MARKER} (+${body.length - MAX_BODY_BYTES} bytes)`
+      : body;
+  }
+  // Objects/arrays: stringify, measure, slice. We return a string in the
+  // truncated case (the schema accepts unknown), which keeps downstream code
+  // single-path.
+  let s: string;
+  try { s = JSON.stringify(body); } catch { return TRUNC_MARKER; }
+  if (s.length <= MAX_BODY_BYTES) return body;
+  return s.slice(0, MAX_BODY_BYTES) + ` ${TRUNC_MARKER} (+${s.length - MAX_BODY_BYTES} bytes)`;
+}
+
+function clampNetworkBodies(event: BrowserEvent): BrowserEvent {
+  if (event.type !== 'network') return event;
+  return {
+    ...event,
+    requestBody: clampBody(event.requestBody),
+    responseBody: clampBody(event.responseBody),
+  };
+}
+
+// ── PII redaction (D2) ────────────────────────────────────────────────────────
+// Always-on. Scrubs JWTs / Bearer tokens / emails / cards from string fields,
+// and replaces sensitive object keys (Authorization, Cookie, password, …)
+// with [REDACTED] before the event hits the ring buffer.
+function redactEvent(event: BrowserEvent): BrowserEvent {
+  if (event.type === 'network') {
+    return {
+      ...event,
+      url: typeof event.url === 'string' ? (redact(event.url) as string) : event.url,
+      requestBody: redact(event.requestBody),
+      responseBody: redact(event.responseBody),
+      requestHeaders: event.requestHeaders
+        ? (redact(event.requestHeaders) as Record<string, string>)
+        : event.requestHeaders,
+      responseHeaders: event.responseHeaders
+        ? (redact(event.responseHeaders) as Record<string, string>)
+        : event.responseHeaders,
+    };
+  }
+  if (event.type === 'console') {
+    return { ...event, args: (redact(event.args) as unknown[]) };
+  }
+  if (event.type === 'context') {
+    return {
+      ...event,
+      localStorage: redact(event.localStorage) as Record<string, string>,
+      sessionStorage: redact(event.sessionStorage) as Record<string, string>,
+    };
+  }
+  return event;
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
     promise,
@@ -74,10 +142,56 @@ ingestRouter.post('/ingest', (req: Request, res: Response): void => {
     return;
   }
 
-  const event = result.data;
+  const event = redactEvent(clampNetworkBodies(result.data));
 
   // Respond immediately so the extension is never blocked on sourcemap I/O
   res.status(204).end();
+
+  // ── Continuous diagnostic triggers ────────────────────────────────────────
+  // The original product fired the causal engine ONLY on console.error.
+  // That made Mergen a fire alarm. We now fire on every meaningful change so
+  // it becomes a continuous watcher — see hypothesis-history.RebuildReason.
+  //
+  //   • console.error                → 'error'
+  //   • context.trigger === 'pageload' → 'pageload' (baseline analysis)
+  //   • context.trigger === 'hmr'      → 'hmr'      (post-save analysis)
+  //   • network failure                → checked via burst detector below
+  //   • slow request (> 500 ms)        → checked via burst detector below
+  const isError =
+    event.type === 'console' && event.level === 'error';
+  const isPageload =
+    event.type === 'context' && event.trigger === 'pageload';
+  const isHmr =
+    event.type === 'context' && event.trigger === 'hmr';
+  const isFailedNet =
+    event.type === 'network' && (event.status >= 400 || event.status === 0 || !!event.error);
+  const isSlowNet =
+    event.type === 'network' && event.duration > 500;
+
+  // Burst detection: count failures / slow requests in the last 10 s window.
+  // Fires once per burst — the debounce in hypothesis-history collapses
+  // multiple notifications inside the 2 s window into a single rebuild.
+  const burstReason = (() => {
+    if (isFailedNet) {
+      const window = store.getNetwork(50, undefined, Date.now() - 10_000);
+      const fails = window.filter(n => n.status >= 400 || n.status === 0 || !!n.error).length;
+      if (fails >= 3) return 'net_burst' as const;
+    }
+    if (isSlowNet) {
+      const window = store.getNetwork(50, undefined, Date.now() - 10_000);
+      const slow = window.filter(n => n.duration > 500).length;
+      if (slow >= 3) return 'slow_burst' as const;
+    }
+    return null;
+  });
+
+  const triggerActivity = (): void => {
+    if (isError) { hypothesisHistory.notifyError(); return; }
+    if (isPageload) { hypothesisHistory.notifyActivity('pageload'); return; }
+    if (isHmr)      { hypothesisHistory.notifyActivity('hmr'); return; }
+    const burst = burstReason();
+    if (burst)      { hypothesisHistory.notifyActivity(burst); return; }
+  };
 
   if (event.type === 'console' && typeof event.stack === 'string') {
     withTimeout(resolveStackTrace(event.stack), SOURCEMAP_TIMEOUT_MS)
@@ -85,8 +199,13 @@ ingestRouter.post('/ingest', (req: Request, res: Response): void => {
       .catch((err) => {
         logger.warn({ err }, 'sourcemap resolution failed or timed out, storing raw event');
         store.push(event);
-      });
+      })
+      .finally(triggerActivity);
   } else {
     store.push(event);
+    triggerActivity();
   }
 });
+
+// Exported for unit tests.
+export { clampBody, clampNetworkBodies, MAX_BODY_BYTES };

@@ -19,7 +19,10 @@ import type {
 export const MIN_HYPOTHESIS_SCORE = 0.25;
 
 export interface DetectorInput {
-  primaryErr: ErrorBlock;
+  /** The primary error block, if there is one. Baseline runs (pageload,
+   *  periodic, burst) pass `null` here — only detectors that explicitly
+   *  handle the no-error case (e.g. detectSlowApiSilent) should fire. */
+  primaryErr: ErrorBlock | null;
   stateAtError: StateBlock | null;
   correlatedNetwork: CorrelatedNetworkCall[];
   chain: CausalEvent[];
@@ -34,6 +37,7 @@ export function scoreToConfidence(score: number): ConfidenceLevel {
 
 // ── Detector A: auth token not persisted after successful login ─────────────
 export function detectAuthTokenNotPersisted(d: DetectorInput): Hypothesis | null {
+  if (!d.primaryErr) return null;
   if (!d.stateAtError) return null;
   const authCalls = d.correlatedNetwork.filter(
     (n) => AUTH_URL_RE.test(n.url) && n.status === 200,
@@ -77,6 +81,7 @@ export function detectAuthTokenNotPersisted(d: DetectorInput): Hypothesis | null
 
 // ── Detector B: token overwrite / race condition ────────────────────────────
 export function detectTokenOverwrite(d: DetectorInput): Hypothesis | null {
+  if (!d.primaryErr) return null;
   if (!d.stateAtError) return null;
   const authCalls = d.correlatedNetwork.filter(
     (n) => AUTH_URL_RE.test(n.url),
@@ -122,6 +127,7 @@ export function detectTokenOverwrite(d: DetectorInput): Hypothesis | null {
 
 // ── Detector C: failed network call -> uninitialised state -> crash ──────────
 export function detectFailedRequestCausedCrash(d: DetectorInput): Hypothesis | null {
+  if (!d.primaryErr) return null;
   const failedCalls = d.correlatedNetwork.filter(
     (n) => n.status >= 400 || n.status === 0 || !!n.error,
   );
@@ -163,6 +169,7 @@ export function detectFailedRequestCausedCrash(d: DetectorInput): Hypothesis | n
 
 // ── Detector D: null/empty localStorage key (no auth context) ───────────────
 export function detectNullStorageKey(d: DetectorInput): Hypothesis | null {
+  if (!d.primaryErr) return null;
   if (!d.stateAtError) return null;
   const ls = d.stateAtError.localStorage;
   const nullKeys = Object.entries(ls)
@@ -200,8 +207,10 @@ export function detectNullStorageKey(d: DetectorInput): Hypothesis | null {
 
 // ── Detector E: warning immediately before error ────────────────────────────
 export function detectWarningBeforeError(d: DetectorInput): Hypothesis | null {
+  if (!d.primaryErr) return null;
+  const primaryErr = d.primaryErr;
   const warnsBeforeError = d.chain
-    .filter((ev) => ev.kind === 'warn' && ev.ts < d.primaryErr.timestamp)
+    .filter((ev) => ev.kind === 'warn' && ev.ts < primaryErr.timestamp)
     .slice(-1);
   if (warnsBeforeError.length === 0) return null;
 
@@ -217,7 +226,7 @@ export function detectWarningBeforeError(d: DetectorInput): Hypothesis | null {
     confidenceScore: score,
     evidence: [
       `Warning at ${w.isoTs}: "${w.summary}".`,
-      `Crash fired ${d.primaryErr.timestamp - w.ts}ms later.`,
+      `Crash fired ${primaryErr.timestamp - w.ts}ms later.`,
     ],
     causalPath: [
       `Warning: "${w.summary}"`,
@@ -235,4 +244,93 @@ export const ALL_DETECTORS = [
   detectFailedRequestCausedCrash,
   detectNullStorageKey,
   detectWarningBeforeError,
+  detectSlowApiSilent,
+  detectEmptyResponseSilent,
 ] as const;
+
+// ── Detector F: slow API endpoint (silent failure — no error fired) ─────────
+// Fires when one or more 2xx requests took > 500 ms but nothing crashed.
+// This is the "I tell you something is wrong before you notice" detector —
+// it lets the watcher surface a hypothesis even when the page didn't error.
+export function detectSlowApiSilent(d: DetectorInput): Hypothesis | null {
+  const slow = d.correlatedNetwork
+    .filter((n) => n.status >= 200 && n.status < 400 && n.durationMs > 500)
+    .sort((a, b) => b.durationMs - a.durationMs);
+  if (slow.length === 0) return null;
+
+  const worst = slow[0];
+  // Confidence is intentionally moderate — a slow request is suggestive,
+  // not damning. Multiple slow calls bump the score.
+  let score = 0.30 + Math.min(0.20, (slow.length - 1) * 0.05);
+  if (worst.durationMs > 1500) score += 0.10;
+  const confidence = scoreToConfidence(score);
+  if (confidence === 'INSUFFICIENT') return null;
+
+  return {
+    tag: 'slow_api_silent',
+    summary: `\`${worst.method} ${worst.url}\` took ${worst.durationMs}ms — UI may feel stuck even though no error fired.`,
+    confidence,
+    confidenceScore: score,
+    evidence: [
+      `${slow.length} slow 2xx request(s) detected (> 500ms).`,
+      `Slowest: \`${worst.method} ${worst.url}\` at ${worst.durationMs}ms.`,
+    ],
+    causalPath: [
+      `${worst.method} ${worst.url} succeeded but took ${worst.durationMs}ms`,
+      `User-perceived latency exceeds the 500ms "feels-instant" threshold`,
+      `Likely cascade: blocking await, sequential fetches, or unindexed query`,
+    ],
+    fixHint: `Profile \`${worst.url}\` server-side; if it depends on prior fetches, parallelise with \`Promise.all\` or move the work to a streaming endpoint.`,
+  };
+}
+
+// ── Detector G: empty/null 2xx response (silent failure) ────────────────────
+// 2xx responses whose body is null, "", "[]", "{}", or `null` — the API
+// "succeeded" but returned no data. Common cause of blank UI with no error.
+export function detectEmptyResponseSilent(d: DetectorInput): Hypothesis | null {
+  function isEmpty(body: unknown): boolean {
+    if (body == null) return true;
+    if (typeof body === 'string') {
+      const t = body.trim();
+      return t === '' || t === 'null' || t === '[]' || t === '{}';
+    }
+    if (Array.isArray(body)) return body.length === 0;
+    if (typeof body === 'object') return Object.keys(body as object).length === 0;
+    return false;
+  }
+
+  const empties = d.correlatedNetwork.filter(
+    (n) => n.status >= 200 && n.status < 300 && isEmpty(n.responseBody),
+  );
+  if (empties.length === 0) return null;
+
+  const call = empties[empties.length - 1];
+  let score = 0.30;
+  if (empties.length > 1) score += 0.10;
+  // Higher confidence if any error or warning followed within 5s — the empty
+  // response is the most likely upstream cause.
+  const followed = d.chain.some(
+    (ev) => (ev.kind === 'error' || ev.kind === 'warn') && ev.ts > call.msBeforeError!
+  );
+  if (followed) score += 0.20;
+  const confidence = scoreToConfidence(score);
+  if (confidence === 'INSUFFICIENT') return null;
+
+  return {
+    tag: 'empty_response_silent',
+    summary: `\`${call.method} ${call.url}\` returned 2xx but the response body was empty — UI rendering depends on data that doesn't exist.`,
+    confidence,
+    confidenceScore: score,
+    evidence: [
+      `\`${call.method} ${call.url}\` → ${call.status} ${call.statusText} with empty body.`,
+      ...(empties.length > 1 ? [`${empties.length - 1} other empty 2xx response(s) in window.`] : []),
+      ...(followed ? [`A warning or error fired *after* this response — likely the symptom.`] : []),
+    ],
+    causalPath: [
+      `${call.method} ${call.url} → ${call.status} (empty body)`,
+      `Component renders against an empty array / null object`,
+      `User sees blank UI; no JS error is thrown so DevTools is silent`,
+    ],
+    fixHint: `Add an empty-state branch to the component consuming \`${call.url}\`; on the server, verify the query returns rows and the serializer isn't dropping them.`,
+  };
+}

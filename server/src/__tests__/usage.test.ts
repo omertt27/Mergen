@@ -34,7 +34,7 @@ vi.mock('../license.js', () => ({
 vi.mock('../plans.js', () => ({
   getPlan: vi.fn((id?: string) => {
     const plans: Record<string, { id: string; analyzeCreditsPerMonth: number; overageCentsPerCredit: number }> = {
-      free:          { id: 'free',          analyzeCreditsPerMonth: 0,        overageCentsPerCredit: 0 },
+      free:          { id: 'free',          analyzeCreditsPerMonth: 10,       overageCentsPerCredit: 0 },
       solo_standard: { id: 'solo_standard', analyzeCreditsPerMonth: 50,       overageCentsPerCredit: 5 },
       solo_pro:      { id: 'solo_pro',      analyzeCreditsPerMonth: Infinity,  overageCentsPerCredit: 0 },
       pay_as_you_go: { id: 'pay_as_you_go', analyzeCreditsPerMonth: 0,        overageCentsPerCredit: 5 },
@@ -85,11 +85,28 @@ beforeEach(() => {
 // ── Free plan ─────────────────────────────────────────────────────────────────
 
 describe('free plan', () => {
-  it('blocks consume and returns a helpful reason', async () => {
+  it('grants the free monthly allowance, then blocks with an upgrade reason', async () => {
     vi.mocked(getActivePlanId).mockReturnValue('free');
-    const result = await consumeCredit();
-    expect(result.allowed).toBe(false);
-    expect(result.reason).toMatch(/paid plan/);
+
+    // First 10 calls succeed (matches the mock's analyzeCreditsPerMonth: 10)
+    for (let i = 0; i < 10; i++) {
+      const r = await consumeCredit();
+      expect(r.allowed).toBe(true);
+    }
+
+    // 11th call is blocked — free never bills overage
+    const blocked = await consumeCredit();
+    expect(blocked.allowed).toBe(false);
+    expect(blocked.reason).toMatch(/Monthly limit/);
+    expect(blocked.reason).toMatch(/Upgrade/i);
+  });
+
+  it('surfaces an upgrade nudge on the last free credit', async () => {
+    vi.mocked(getActivePlanId).mockReturnValue('free');
+    _resetForTesting({ used: 9 } as never);
+    const r = await consumeCredit(); // the 10th and last
+    expect(r.allowed).toBe(true);
+    expect(r.notice).toMatch(/Upgrade|free/i);
   });
 });
 
@@ -200,7 +217,7 @@ describe('concurrent consumeCredit (mutex)', () => {
     const { getPlan } = await import('../plans.js');
     vi.mocked(getPlan).mockImplementation((id?: string) => {
       const plans: Record<string, { id: string; analyzeCreditsPerMonth: number; overageCentsPerCredit: number }> = {
-        free:          { id: 'free',          analyzeCreditsPerMonth: 0,        overageCentsPerCredit: 0 },
+        free:          { id: 'free',          analyzeCreditsPerMonth: 10,       overageCentsPerCredit: 0 },
         solo_standard: { id: 'solo_standard', analyzeCreditsPerMonth: 50,       overageCentsPerCredit: 5 },
         solo_pro:      { id: 'solo_pro',      analyzeCreditsPerMonth: Infinity,  overageCentsPerCredit: 0 },
         pay_as_you_go: { id: 'pay_as_you_go', analyzeCreditsPerMonth: 0,        overageCentsPerCredit: 5 },

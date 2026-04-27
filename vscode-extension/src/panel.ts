@@ -33,6 +33,40 @@ interface UsageSnapshot {
   overageCentsPerCredit: number;
   estimatedOverageCents: number;
   toolCallCounts?: Record<string, number>;
+  /** Watcher KPI — automatic causal-chain rebuilds today / 7-day avg. */
+  analysesToday?: number;
+  analysesAvgPerDay7d?: number;
+}
+
+interface Hypothesis {
+  tag: string;
+  summary: string;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT';
+  confidenceScore: number;
+  evidence: string[];
+  causalPath: string[];
+  fixHint: string | null;
+}
+
+interface LastPack {
+  hasPack: boolean;
+  builtAt?: number;
+  builtAtIso?: string;
+  triggerMessage?: string;
+  /** New: why the pack was built — pageload, hmr, error, periodic, … */
+  reason?: string;
+  topHypothesis?: Hypothesis | null;
+  contextPack?: string;
+  hypothesesCount?: number;
+  errorsCount?: number;
+}
+
+interface HistoryEntry {
+  builtAt: number;
+  builtAtIso: string;
+  triggerMessage: string;
+  reason?: string;
+  topHypothesis: Hypothesis | null;
 }
 
 interface ServerState {
@@ -40,12 +74,17 @@ interface ServerState {
   port: number;
   health: HealthResponse | null;
   usage: UsageSnapshot | null;
+  lastPack: LastPack | null;
+  history: HistoryEntry[];
   error: string | null;
 }
 
 export class MergenPanel implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
-  private _state: ServerState = { connected: false, port: 3000, health: null, usage: null, error: null };
+  private _state: ServerState = {
+    connected: false, port: 3000, health: null, usage: null,
+    lastPack: null, history: [], error: null,
+  };
   private _pollTimer?: ReturnType<typeof setTimeout>;
   private _statusBar: vscode.StatusBarItem;
 
@@ -79,10 +118,38 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     webviewView.webview.html = this._getHtml();
 
     // Handle messages from the webview
-    webviewView.webview.onDidReceiveMessage(async (msg: { type: string; tool?: string }) => {
+    webviewView.webview.onDidReceiveMessage(async (msg: { type: string; tool?: string; text?: string; command?: string }) => {
       if (msg.type === 'clear') await this.clearBuffer();
       if (msg.type === 'refresh') await this.refresh();
       if (msg.type === 'ready') await this._poll();
+      if (msg.type === 'runCommand' && msg.command) {
+        // Whitelist of commands the webview can trigger. This is the bridge
+        // that makes the disconnected card actionable for Marketplace users.
+        const ALLOWED = new Set([
+          'mergen.startServer',
+          'mergen.installExtension',
+          'mergen.sendFeedback',
+          'mergen.openPanel',
+          'mergen.refresh',
+          'mergen.clearBuffer',
+        ]);
+        if (ALLOWED.has(msg.command)) {
+          await vscode.commands.executeCommand(msg.command);
+        }
+      }
+      if (msg.type === 'copyPack' && msg.text) {
+        await vscode.env.clipboard.writeText(msg.text);
+        vscode.window.showInformationMessage('Mergen: Context Pack copied to clipboard.');
+      }
+      if (msg.type === 'sendToChat' && msg.text) {
+        await vscode.commands.executeCommand(
+          'workbench.action.chat.open',
+          { query: msg.text },
+        ).then(undefined, async () => {
+          await vscode.env.clipboard.writeText(msg.text!);
+          vscode.window.showInformationMessage('Mergen: Context Pack copied — paste into your AI chat.');
+        });
+      }
       if (msg.type === 'runTool' && msg.tool) {
         // Open the AI chat panel with the tool name pre-filled (Cursor / Copilot Chat).
         // The tool name is already on the clipboard; user just needs to hit Enter.
@@ -147,21 +214,47 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     if (this._pollTimer) { clearTimeout(this._pollTimer); this._pollTimer = undefined; }
   }
 
+  private async _fetchAll(port: number, timeoutMs: number): Promise<{
+    health: HealthResponse;
+    usage: UsageSnapshot;
+    lastPack: LastPack;
+    history: HistoryEntry[];
+  } | null> {
+    try {
+      const opt = { signal: AbortSignal.timeout(timeoutMs) };
+      const [health, usage, lastPack, history] = await Promise.all([
+        fetch(`http://127.0.0.1:${port}/health`,    opt).then(r => r.json() as Promise<HealthResponse>),
+        fetch(`http://127.0.0.1:${port}/usage`,     opt).then(r => r.json() as Promise<UsageSnapshot>),
+        fetch(`http://127.0.0.1:${port}/last-pack`, opt).then(r => r.json() as Promise<LastPack>)
+          .catch(() => ({ hasPack: false } as LastPack)),
+        fetch(`http://127.0.0.1:${port}/history`,   opt).then(r => r.json() as Promise<{ entries: HistoryEntry[] }>)
+          .then(d => d.entries ?? []).catch(() => []),
+      ]);
+      return { health, usage, lastPack, history };
+    } catch {
+      return null;
+    }
+  }
+
   private async _poll(): Promise<void> {
     const port = this._getPort();
-    try {
-      const [healthRes, usageRes] = await Promise.all([
-        fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(2000) }),
-        fetch(`http://127.0.0.1:${port}/usage`,  { signal: AbortSignal.timeout(2000) }),
-      ]);
-      const health = await healthRes.json() as HealthResponse;
-      const usage  = await usageRes.json()  as UsageSnapshot;
-      this._state = { connected: true, port, health, usage, error: null };
-    } catch {
-      // Try adjacent ports (3001–3010)
+    const result = await this._fetchAll(port, 2000);
+    if (result) {
+      this._state = {
+        connected: true, port,
+        health: result.health, usage: result.usage,
+        lastPack: result.lastPack, history: result.history,
+        error: null,
+      };
+    } else {
       const found = await this._discoverPort(port);
       if (!found) {
-        this._state = { connected: false, port, health: null, usage: null, error: 'Server not running on port ' + port };
+        this._state = {
+          connected: false, port,
+          health: null, usage: null,
+          lastPack: null, history: [],
+          error: 'Server not running on port ' + port,
+        };
       }
     }
     this._send({ type: 'state', state: this._state });
@@ -169,19 +262,17 @@ export class MergenPanel implements vscode.WebviewViewProvider {
 
   private async _discoverPort(basePort: number): Promise<boolean> {
     for (let p = basePort + 1; p <= basePort + 10; p++) {
-      try {
-        const res = await fetch(`http://127.0.0.1:${p}/health`, { signal: AbortSignal.timeout(500) });
-        if (res.ok) {
-          const [health, usageRes] = await Promise.all([
-            res.json() as Promise<HealthResponse>,
-            fetch(`http://127.0.0.1:${p}/usage`, { signal: AbortSignal.timeout(500) }).then(r => r.json() as Promise<UsageSnapshot>),
-          ]);
-          this._state = { connected: true, port: p, health, usage: usageRes, error: null };
-          // Update config so next poll uses the right port
-          await vscode.workspace.getConfiguration('mergen').update('serverPort', p, vscode.ConfigurationTarget.Workspace);
-          return true;
-        }
-      } catch { /* try next */ }
+      const result = await this._fetchAll(p, 500);
+      if (result) {
+        this._state = {
+          connected: true, port: p,
+          health: result.health, usage: result.usage,
+          lastPack: result.lastPack, history: result.history,
+          error: null,
+        };
+        await vscode.workspace.getConfiguration('mergen').update('serverPort', p, vscode.ConfigurationTarget.Workspace);
+        return true;
+      }
     }
     return false;
   }
@@ -486,6 +577,116 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     white-space: nowrap;
   }
   .signal-run:hover { opacity: .85; }
+
+  /* ── Context Pack card (B2) ── */
+  .pack-time {
+    font-size: 9px;
+    font-weight: 500;
+    color: var(--vscode-descriptionForeground);
+    margin-left: 6px;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .pack-trigger {
+    font-size: 11px;
+    color: var(--vscode-foreground);
+    background: var(--vscode-sideBar-background);
+    border-left: 2px solid var(--vscode-charts-red);
+    padding: 4px 8px;
+    border-radius: 0 3px 3px 0;
+    margin-bottom: 8px;
+    font-family: var(--vscode-editor-font-family);
+    word-break: break-word;
+  }
+  .hyp { margin-bottom: 8px; }
+  .hyp-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
+  }
+  .hyp-tag {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--vscode-charts-blue);
+  }
+  .hyp-conf {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: var(--vscode-badge-background);
+    color: var(--vscode-badge-foreground);
+  }
+  .hyp-conf.high   { background: var(--vscode-charts-green); color: #fff; }
+  .hyp-conf.medium { background: var(--vscode-charts-yellow); color: #000; }
+  .hyp-conf.low    { background: var(--vscode-charts-orange); color: #fff; }
+  .hyp-summary {
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--vscode-foreground);
+  }
+  .hyp-fix {
+    margin-top: 6px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--vscode-foreground);
+    background: rgba(127,127,127,.08);
+    border-radius: 3px;
+    padding: 5px 8px;
+    font-family: var(--vscode-editor-font-family);
+  }
+  .pack-meta {
+    font-size: 10px;
+    color: var(--vscode-descriptionForeground);
+    margin-top: 4px;
+  }
+
+  /* ── History card (C1) ── */
+  .history-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--vscode-widget-border, rgba(127,127,127,.1));
+    font-size: 11px;
+  }
+  .history-item:last-child { border-bottom: none; }
+  .history-reason {
+    flex-shrink: 0;
+    font-size: 9px;
+    font-weight: 600;
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: rgba(120, 160, 220, 0.15);
+    color: var(--vscode-textLink-foreground);
+    text-transform: lowercase;
+  }
+  .history-tag {
+    flex-shrink: 0;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: var(--vscode-badge-background);
+    color: var(--vscode-badge-foreground);
+    text-transform: uppercase;
+  }
+  .history-msg {
+    flex: 1;
+    min-width: 0;
+    color: var(--vscode-foreground);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .history-time {
+    flex-shrink: 0;
+    font-size: 10px;
+    color: var(--vscode-descriptionForeground);
+  }
 </style>
 </head>
 <body>
@@ -502,9 +703,20 @@ export class MergenPanel implements vscode.WebviewViewProvider {
 <!-- Disconnected state -->
 <div class="disconnected" id="disconnected" style="display:none">
   <div class="icon">⚡</div>
-  <div>Server not running.</div>
-  <div style="margin-top:6px">Start it with:</div>
-  <code>cd server &amp;&amp; npm start</code>
+  <div><b>Mergen server isn't running.</b></div>
+  <div style="margin-top:8px; opacity:0.85">
+    Start it with one click — Mergen will look for the server in your
+    workspace, in <code>~/.mergen</code>, or wherever you've set
+    <code>mergen.serverPath</code>.
+  </div>
+  <div style="margin-top:12px; display:flex; gap:6px; flex-wrap:wrap; justify-content:center">
+    <button class="signal-run" onclick="runCmd('mergen.startServer')">▶ Start local server</button>
+    <button class="signal-run" onclick="runCmd('mergen.installExtension')">📥 Install guide</button>
+    <button class="signal-run" onclick="runCmd('mergen.sendFeedback')">💬 Send feedback</button>
+  </div>
+  <div style="margin-top:10px; font-size:11px; opacity:0.65">
+    Or in a terminal: <code>cd server &amp;&amp; npm start</code>
+  </div>
 </div>
 
 <!-- Buffer stats -->
@@ -534,6 +746,33 @@ export class MergenPanel implements vscode.WebviewViewProvider {
 <div class="card" id="card-signals" style="display:none">
   <div class="card-title">Detected Patterns</div>
   <div id="signals-list"></div>
+</div>
+
+<!-- Live Context Pack (B2) -->
+<div class="card" id="card-pack" style="display:none">
+  <div class="card-title">Context Pack <span id="pack-time" class="pack-time"></span></div>
+  <div class="pack-trigger" id="pack-trigger"></div>
+  <div class="hyp" id="pack-hyp" style="display:none">
+    <div class="hyp-head">
+      <span class="hyp-tag" id="hyp-tag">—</span>
+      <span class="hyp-conf" id="hyp-conf">—</span>
+    </div>
+    <div class="hyp-summary" id="hyp-summary"></div>
+    <div class="hyp-fix" id="hyp-fix" style="display:none"></div>
+  </div>
+  <div class="pack-meta">
+    <span id="pack-counts">—</span>
+  </div>
+  <div class="btn-row" style="margin-top:8px">
+    <button class="primary" id="pack-send">→ Send to AI Chat</button>
+    <button id="pack-copy">⧉ Copy Pack</button>
+  </div>
+</div>
+
+<!-- Hypothesis history (C1) -->
+<div class="card" id="card-history" style="display:none">
+  <div class="card-title">Recent Diagnoses</div>
+  <div id="history-list"></div>
 </div>
 
 <!-- Credits -->
@@ -593,6 +832,10 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     <span class="row-label">Buffer</span>
     <span class="row-value" id="server-buffered">—</span>
   </div>
+  <div class="row" title="Automatic causal-chain rebuilds — Mergen's continuous-watch metric">
+    <span class="row-label">Analyses today</span>
+    <span class="row-value" id="server-analyses">—</span>
+  </div>
 </div>
 
 <script>
@@ -610,6 +853,34 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     const cmd = toolName + '()';
     navigator.clipboard?.writeText(cmd).catch(() => {});
     vscode.postMessage({ type: 'runTool', tool: toolName });
+  }
+
+  // Generic VS Code command runner — used by the disconnected card and the
+  // walkthrough buttons. Whitelisted on the host side.
+  function runCmd(commandId) {
+    vscode.postMessage({ type: 'runCommand', command: commandId });
+  }
+
+  // Cached Context Pack text for the Send/Copy buttons.
+  let _currentPackText = '';
+  document.getElementById('pack-send').addEventListener('click', () => {
+    if (!_currentPackText) return;
+    vscode.postMessage({
+      type: 'sendToChat',
+      text: 'Diagnose this runtime issue using the attached Context Pack:\n\n' + _currentPackText,
+    });
+  });
+  document.getElementById('pack-copy').addEventListener('click', () => {
+    if (!_currentPackText) return;
+    vscode.postMessage({ type: 'copyPack', text: _currentPackText });
+  });
+
+  function fmtRel(ms) {
+    const diff = Date.now() - ms;
+    if (diff < 60_000)    return Math.max(1, Math.floor(diff / 1000)) + 's ago';
+    if (diff < 3_600_000) return Math.floor(diff / 60_000) + 'm ago';
+    if (diff < 86_400_000)return Math.floor(diff / 3_600_000) + 'h ago';
+    return Math.floor(diff / 86_400_000) + 'd ago';
   }
 
   // Signal ready to start polling
@@ -681,10 +952,70 @@ export class MergenPanel implements vscode.WebviewViewProvider {
       signalsCard.style.display = 'none';
     }
 
+    // Context Pack card (B2)
+    const pack = state.lastPack;
+    const packCard = document.getElementById('card-pack');
+    if (pack && pack.hasPack) {
+      packCard.style.display = 'block';
+      _currentPackText = pack.contextPack || '';
+      document.getElementById('pack-time').textContent  = pack.builtAt ? fmtRel(pack.builtAt) : '';
+      document.getElementById('pack-trigger').textContent = (pack.reason ? '[' + pack.reason + '] ' : '') + (pack.triggerMessage || '(unknown)');
+      document.getElementById('pack-counts').textContent  =
+        (pack.hypothesesCount || 0) + ' hypothesis' + ((pack.hypothesesCount || 0) === 1 ? '' : 'es') +
+        ' · ' + (pack.errorsCount || 0) + ' error' + ((pack.errorsCount || 0) === 1 ? '' : 's');
+      const hyp = pack.topHypothesis;
+      const hypBox = document.getElementById('pack-hyp');
+      if (hyp) {
+        hypBox.style.display = 'block';
+        document.getElementById('hyp-tag').textContent     = hyp.tag || '—';
+        document.getElementById('hyp-summary').textContent = hyp.summary || '';
+        const conf = (hyp.confidence || '').toLowerCase();
+        const confEl = document.getElementById('hyp-conf');
+        confEl.textContent = (hyp.confidence || '—') + ' ' + Math.round((hyp.confidenceScore || 0) * 100) + '%';
+        confEl.className   = 'hyp-conf ' + conf;
+        const fixEl = document.getElementById('hyp-fix');
+        if (hyp.fixHint) {
+          fixEl.style.display = 'block';
+          fixEl.textContent   = '💡 ' + hyp.fixHint;
+        } else {
+          fixEl.style.display = 'none';
+        }
+      } else {
+        hypBox.style.display = 'none';
+      }
+    } else {
+      packCard.style.display = 'none';
+      _currentPackText = '';
+    }
+
+    // History card (C1)
+    const entries = state.history || [];
+    const histCard = document.getElementById('card-history');
+    const histList = document.getElementById('history-list');
+    if (entries.length > 0) {
+      histCard.style.display = 'block';
+      histList.innerHTML = entries.slice(0, 10).map(e => {
+        const tag = e.topHypothesis?.tag || 'baseline';
+        const reason = e.reason ? '<span class="history-reason">' + escHtml(e.reason) + '</span>' : '';
+        return '<div class="history-item">' +
+          reason +
+          '<span class="history-tag">' + escHtml(tag) + '</span>' +
+          '<span class="history-msg" title="' + escHtml(e.triggerMessage) + '">' + escHtml(e.triggerMessage) + '</span>' +
+          '<span class="history-time">' + fmtRel(e.builtAt) + '</span>' +
+        '</div>';
+      }).join('');
+    } else {
+      histCard.style.display = 'none';
+    }
+
     // Server info
     document.getElementById('server-port').textContent     = state.port;
     document.getElementById('server-version').textContent  = h.version;
     document.getElementById('server-buffered').textContent = h.buffered + ' events';
+    const analysesToday = u.analysesToday ?? 0;
+    const avg = u.analysesAvgPerDay7d ?? 0;
+    document.getElementById('server-analyses').textContent =
+      analysesToday + (avg ? '  (7d avg: ' + avg + ')' : '');
 
     // Usage
     document.getElementById('usage-month').textContent  = u.month;

@@ -12,3 +12,4 @@ export const DATA_DIR     = path.join(os.homedir(), '.mergen');
 export const LICENSE_FILE = path.join(DATA_DIR, 'license.json');
 export const USAGE_FILE   = path.join(DATA_DIR, 'usage.json');
 export const TEAM_FILE    = path.join(DATA_DIR, 'team.json');
+export const TELEMETRY_FILE = path.join(DATA_DIR, 'telemetry.json');

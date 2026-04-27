@@ -1,6 +1,6 @@
 # Mergen — Setup Guide
 
-> **Mergen** is a local browser observability bridge. It captures `console.*` events, network calls, and DOM state from your browser, and exposes them as MCP tools so your AI assistant can diagnose runtime bugs without leaving your editor.
+> **Local-first runtime debugging for AI assistants.** Mergen captures `console.*`, network, and DOM state from your browser on `127.0.0.1`, redacts PII at the edge, and exposes them as MCP tools — so the 30 seconds between a bug appearing in your browser and the fix landing in your editor stay inside your laptop.
 
 ---
 
@@ -205,6 +205,9 @@ node scripts/mergen.mjs stop
 
 # Clear the event buffer
 node scripts/mergen.mjs clear
+
+# End-to-end install health check (server, extension, MCP registration)
+node scripts/mergen.mjs doctor
 ```
 
 **Tip:** Add an alias to your shell profile:
@@ -315,6 +318,67 @@ dotenv -- node dist/index.js
 | `get_dom_context` | Free | DOM + storage snapshots at error time |
 | `clear_buffer` | Free | Clear the in-memory event buffer |
 | `analyze_runtime` | **Paid** | Full causal chain + source-mapped Context Pack |
+
+---
+
+## HTTP API (advanced / non-MCP integrations)
+
+The server also exposes a small HTTP API on the same port for tools that
+don't speak MCP (CI bots, shell scripts, custom dashboards).
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/health` | GET | Liveness + buffer counters + live signals (used by VS Code panel) |
+| `/usage`  | GET | Credit usage snapshot |
+| `/license`| GET / POST / DELETE | View / activate / deactivate license key |
+| `/clear`  | POST | Empty the ring buffer |
+| `/checkpoint` | POST | Inject a named milestone into the timeline (`{ "label": "after login impl" }`) |
+| `/diagnose` | GET | Returns the current Context Pack + a ready-to-fire OpenAI chat-completion request body. Pipe straight into `scripts/diagnose.mjs` to get a one-shot diagnosis without any IDE. |
+| `/last-pack` | GET | Most recent auto-built Context Pack (free; powers the VS Code panel's Context Pack card). |
+| `/history` | GET | Last N hypothesis runs (newest first) — `?limit=10` by default. |
+| `/telemetry` | GET / POST | View or set opt-in anonymous telemetry. **Disabled by default.** POST `{ "enabled": true }` to opt in. See "Telemetry" below. |
+
+Quick demo of `/diagnose`:
+
+```bash
+OPENAI_API_KEY=sk-... \
+  curl -s http://127.0.0.1:3000/diagnose | node scripts/diagnose.mjs
+```
+
+---
+
+## Telemetry (opt-in, anonymous)
+
+Mergen ships with telemetry **disabled by default**. When enabled it sends
+at most one event per 24h containing only:
+
+- An anonymous `installId` (random UUID generated locally on first run)
+- The active plan id (`free` / `solo_standard` / …)
+- Counts of which MCP tools were invoked
+- Server version and Node major version
+- Number of buffered events (count, not contents)
+
+It **never** sends source code, log lines, network bodies, Context Packs,
+license keys, emails, file paths, or repo names.
+
+Enable from the shell:
+
+```bash
+# Persistent (writes ~/.mergen/telemetry.json):
+curl -s -X POST http://127.0.0.1:3000/telemetry \
+  -H 'Content-Type: application/json' -d '{"enabled":true}'
+
+# One-shot (env var, no disk write):
+MERGEN_TELEMETRY=1 npm --prefix server start
+```
+
+Even when opted in, nothing leaves the machine unless `MERGEN_TELEMETRY_URL`
+is configured. To opt out at any time:
+
+```bash
+curl -s -X POST http://127.0.0.1:3000/telemetry \
+  -H 'Content-Type: application/json' -d '{"enabled":false}'
+```
 
 ---
 

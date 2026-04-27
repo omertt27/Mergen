@@ -13,6 +13,9 @@ import { initUsage, getUsageSnapshot, flushOverageOnShutdown } from './usage.js'
 import { billingRouter } from './billing.js';
 import { teamRouter, initTeam, getTeamState, isTeamEnabled } from './team.js';
 import { getPlan } from './plans.js';
+import { hypothesisHistory } from './hypothesis-history.js';
+import { initTelemetry, getTelemetryState, setTelemetryEnabled, maybeSendTelemetry } from './telemetry.js';
+import { startWatcher } from './watcher.js';
 import { lemonSqueezySetup } from '@lemonsqueezy/lemonsqueezy.js';
 import net from 'net';
 import type { Server as HttpServer } from 'http';
@@ -52,6 +55,7 @@ async function main(): Promise<void> {
   await initLicense();
   await initUsage();
   await initTeam();
+  await initTelemetry();
 
   // Wire plan-aware buffer size limit (free plan = 50 events visible)
   setBufferSizeGetter(() => getPlan(getActivePlanId()).bufferSize);
@@ -99,6 +103,7 @@ async function main(): Promise<void> {
   app.post('/clear', (_req, res) => {
     const was = store.size();
     store.clear();
+    hypothesisHistory.clear();
     res.json({ ok: true, cleared: was });
   });
 
@@ -260,6 +265,125 @@ async function main(): Promise<void> {
     res.json({ ...getUsageSnapshot(), toolCallCounts });
   });
 
+  // ── Hypothesis history (B2 + C1) ───────────────────────────────────────────
+  // Both endpoints are FREE — they read the in-memory cache populated by
+  // ingest.ts. No analyze_runtime credit is consumed. This is the surface
+  // the VS Code panel uses to render the live Context Pack and history list.
+
+  // GET /last-pack — full Context Pack of the most recent diagnosis
+  app.get('/last-pack', (_req, res) => {
+    const latest = hypothesisHistory.latest();
+    if (!latest) {
+      res.json({ ok: true, hasPack: false });
+      return;
+    }
+    res.json({
+      ok: true,
+      hasPack: true,
+      builtAt: latest.builtAt,
+      builtAtIso: latest.builtAtIso,
+      triggerMessage: latest.triggerMessage,
+      reason: latest.reason,
+      topHypothesis: latest.topHypothesis,
+      contextPack: latest.chain.contextPack,
+      hypothesesCount: latest.chain.hypotheses.length,
+      errorsCount: latest.chain.errors.length,
+    });
+  });
+
+  // GET /history — list of recent diagnoses (lightweight, no contextPack)
+  app.get('/history', (req, res) => {
+    const limit = Math.min(20, Math.max(1, Number(req.query.limit ?? 10)));
+    res.json({ ok: true, entries: hypothesisHistory.list(limit) });
+  });
+
+  // GET /timeline — interleaved console + network + context events as a flat,
+  // chronological stream. This is Mergen's text-based answer to LogRocket's
+  // session replay: scrubbable, greppable, AI-readable, and 100 KB instead
+  // of 100 MB. Powers a future "scrub the last N seconds" view in the panel.
+  //
+  //   ?seconds=60   — return only events from the last N seconds (default 60)
+  //   ?limit=200    — cap the number of returned events (default 200)
+  app.get('/timeline', (req, res) => {
+    const seconds = Math.min(600, Math.max(1, Number(req.query.seconds ?? 60)));
+    const limit   = Math.min(500, Math.max(1, Number(req.query.limit ?? 200)));
+    const since   = Date.now() - seconds * 1000;
+
+    const logs    = store.getLogs(limit, undefined, since);
+    const network = store.getNetwork(limit, undefined, since);
+    const ctx     = store.getContext(20, since);
+
+    type Row = {
+      ts: number;
+      isoTs: string;
+      kind: 'log' | 'warn' | 'error' | 'request' | 'context';
+      summary: string;
+    };
+
+    const rows: Row[] = [];
+    for (const e of logs) {
+      const summary = e.args
+        .map((a) => (typeof a === 'string' ? a : JSON.stringify(a)))
+        .join(' ').slice(0, 200);
+      rows.push({
+        ts: e.timestamp,
+        isoTs: new Date(e.timestamp).toISOString(),
+        kind: e.level,
+        summary,
+      });
+    }
+    for (const n of network) {
+      const isFail = n.status >= 400 || n.status === 0 || !!n.error;
+      const label = n.status === 0 ? `network error (${n.error ?? '—'})` : `${n.status} ${n.statusText}`;
+      rows.push({
+        ts: n.timestamp,
+        isoTs: new Date(n.timestamp).toISOString(),
+        kind: 'request',
+        summary: `${n.method} ${n.url} → ${label} (${n.duration}ms)${isFail ? ' ⚠' : ''}`,
+      });
+    }
+    for (const c of ctx) {
+      rows.push({
+        ts: c.timestamp,
+        isoTs: new Date(c.timestamp).toISOString(),
+        kind: 'context',
+        summary: `[${c.trigger}] ${c.url}`,
+      });
+    }
+    rows.sort((a, b) => a.ts - b.ts);
+
+    res.json({
+      ok: true,
+      windowSeconds: seconds,
+      count: rows.length,
+      rows: rows.slice(-limit),
+    });
+  });
+
+  // ── Telemetry endpoints (D6) ───────────────────────────────────────────────
+  // GET /telemetry — current opt-in state and anonymous installId.
+  app.get('/telemetry', (_req, res) => {
+    const t = getTelemetryState();
+    res.json({
+      ok: true,
+      enabled: t.enabled,
+      installId: t.installId,
+      lastSentAt: t.lastSentAt,
+      endpointConfigured: Boolean(process.env.MERGEN_TELEMETRY_URL),
+    });
+  });
+
+  // POST /telemetry { enabled: boolean } — opt in or out.
+  app.post('/telemetry', async (req, res) => {
+    const { enabled } = (req.body ?? {}) as { enabled?: boolean };
+    if (typeof enabled !== 'boolean') {
+      res.status(400).json({ error: 'enabled (boolean) is required' });
+      return;
+    }
+    await setTelemetryEnabled(enabled);
+    res.json({ ok: true, enabled });
+  });
+
   // ── Team sync routes ───────────────────────────────────────────────────────
   app.use(teamRouter);
 
@@ -297,6 +421,25 @@ async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await mcp.connect(transport);
   logger.info('MCP server ready (stdio transport)');
+
+  // ── Telemetry tick (D6) — opt-in, throttled to once per 24h, silent on err.
+  const telemetryTick = (): void => {
+    void maybeSendTelemetry({
+      serverVersion: SERVER_VERSION,
+      nodeVersion: process.versions.node.split('.')[0],
+      planId: getActivePlanId(),
+      toolCallCounts,
+      bufferedEvents: store.size(),
+    });
+  };
+  setTimeout(telemetryTick, 60_000).unref();           // first try after 1 min
+  setInterval(telemetryTick, 60 * 60 * 1000).unref();  // hourly retry (throttle is in maybeSendTelemetry)
+
+  // ── Continuous diagnostic loop (the "watcher" pivot) ──────────────────────
+  // Ticks every 15 s by default; rebuilds the Context Pack when the buffer
+  // has changed since the last tick. This is what makes Mergen *continuous*
+  // rather than error-triggered. Disable with MERGEN_WATCH=0.
+  startWatcher();
 
   // ── Graceful shutdown ─────────────────────────────────────────────────────
   function shutdown(signal: string): void {

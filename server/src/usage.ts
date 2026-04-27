@@ -38,6 +38,13 @@ interface UsageState {
   overageReported: number;
   /** overage credits accumulated but not yet sent to LS */
   overagePending: number;
+  /**
+   * Rolling daily counters of *automatic* causal-chain rebuilds — the
+   * "watcher" pivot's North-Star metric: analyses per developer per day.
+   * This is intentionally separate from `used` (which counts paid MCP
+   * tool calls only). Map of "YYYY-MM-DD" → count, capped to last 30 days.
+   */
+  analysesByDay?: Record<string, number>;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -45,6 +52,19 @@ interface UsageState {
 // #7 — declared before first use
 function currentMonth(): string {
   return new Date().toISOString().slice(0, 7); // "2026-04"
+}
+
+function currentDay(): string {
+  return new Date().toISOString().slice(0, 10); // "2026-04-15"
+}
+
+/** Trim analysesByDay to the last `keep` days so it can never grow unbounded. */
+function trimAnalysesByDay(map: Record<string, number>, keep = 30): Record<string, number> {
+  const days = Object.keys(map).sort(); // ISO dates sort lexically
+  if (days.length <= keep) return map;
+  const out: Record<string, number> = {};
+  for (const d of days.slice(-keep)) out[d] = map[d];
+  return out;
 }
 
 let _sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
@@ -157,6 +177,19 @@ export function getUsageSnapshot() {
     overageConfirmedCredits: _usage.overageReported,
     overageCentsPerCredit: plan.overageCentsPerCredit,
     estimatedOverageCents: overage * plan.overageCentsPerCredit,
+    // ── Watcher KPI: analyses per developer per day ──
+    // Counts *automatic* causal-chain rebuilds (pageload / hmr / burst /
+    // periodic / error). This is the "did Mergen actually run today?"
+    // engagement metric — not a billing input.
+    analysesByDay: _usage.analysesByDay ?? {},
+    analysesToday: (_usage.analysesByDay ?? {})[currentDay()] ?? 0,
+    analysesAvgPerDay7d: (() => {
+      const map = _usage.analysesByDay ?? {};
+      const days = Object.keys(map).sort().slice(-7);
+      if (days.length === 0) return 0;
+      const sum = days.reduce((a, d) => a + (map[d] ?? 0), 0);
+      return Math.round((sum / days.length) * 10) / 10;
+    })(),
   };
 }
 
@@ -275,12 +308,10 @@ export async function consumeCredit(): Promise<{ allowed: boolean; reason?: stri
 
     const plan = getPlan(getActivePlanId());
 
-    if (plan.id === 'free') {
-      return {
-        allowed: false,
-        reason: 'analyze_runtime requires a paid plan — visit the pricing page to upgrade',
-      };
-    }
+    // B1: free plan now grants a small monthly allowance (the "feel-the-magic"
+    // credits). Fall through into the standard included-credit path below;
+    // since free has overageCentsPerCredit === 0, the final clause hard-caps
+    // at the included quota with a friendly upgrade message — no billing.
 
     const included = plan.analyzeCreditsPerMonth;
 
@@ -297,15 +328,21 @@ export async function consumeCredit(): Promise<{ allowed: boolean; reason?: stri
       _usage.used++;
       await saveUsage();
 
-      // Pain #2 — warn when approaching the quota wall
+      // Pain #2 — warn when approaching the quota wall.
+      // Free plan never bills overage — show an upgrade nudge instead.
       const remaining = included - _usage.used;
       const threshold = Math.min(10, Math.max(5, Math.floor(included * 0.2)));
-      const notice =
-        remaining <= threshold && remaining > 0
-          ? `⚠ You have ${remaining} of ${included} analyze_runtime credits left this month (resets ${nextResetAt().slice(0, 10)}).`
-          : remaining === 0
-            ? `⚠ That was your last included credit. Additional calls are billed at $${(plan.overageCentsPerCredit / 100).toFixed(2)} each.`
-            : undefined;
+      const isFree = plan.id === 'free';
+      let notice: string | undefined;
+      if (remaining === 0) {
+        notice = isFree
+          ? `🎁 That was your last free analyze_runtime credit this month. Upgrade for more — your next 10 reset on ${nextResetAt().slice(0, 10)}.`
+          : `⚠ That was your last included credit. Additional calls are billed at $${(plan.overageCentsPerCredit / 100).toFixed(2)} each.`;
+      } else if (remaining <= threshold) {
+        notice = isFree
+          ? `🎁 You have ${remaining} of ${included} free analyze_runtime credits left this month.`
+          : `⚠ You have ${remaining} of ${included} analyze_runtime credits left this month (resets ${nextResetAt().slice(0, 10)}).`;
+      }
 
       return { allowed: true, notice };
     }
@@ -336,7 +373,9 @@ export async function consumeCredit(): Promise<{ allowed: boolean; reason?: stri
       allowed: false,
       reason:
         `Monthly limit of ${included} analyze_runtime credits reached. ` +
-        `Upgrade to Solo Pro or Team for unlimited calls.`,
+        (plan.id === 'free'
+          ? `Upgrade to a paid plan for more credits, or wait for the monthly reset on ${nextResetAt().slice(0, 10)}.`
+          : `Upgrade to Solo Pro or Team for unlimited calls.`),
     };
   });
 }
@@ -352,6 +391,24 @@ export async function flushOverageOnShutdown(): Promise<void> {
 // ── Test helpers ──────────────────────────────────────────────────────────────
 
 /**
+ * Increment today's "analyses" counter and persist (debounced via the
+ * lock — never racy, never blocks). Called by hypothesis-history every
+ * time a causal chain is rebuilt. *Not* a billable event — see UsageState.
+ */
+export function recordAnalysis(): void {
+  void withLock(async () => {
+    const day = currentDay();
+    const map = _usage.analysesByDay ?? {};
+    map[day] = (map[day] ?? 0) + 1;
+    _usage.analysesByDay = trimAnalysesByDay(map);
+    // Persist on every 5th increment to amortise disk I/O on hot loops.
+    if ((map[day] % 5) === 0) {
+      try { await saveUsage(); } catch (err) { logger.warn({ err }, 'recordAnalysis save failed'); }
+    }
+  });
+}
+
+/**
  * Reset all module-level state. ONLY for use in unit tests.
  * Tree-shaken in production builds when not imported.
  */
@@ -364,6 +421,7 @@ export function _resetForTesting(overrides: Partial<UsageState> = {}): void {
     used: 0,
     overageReported: 0,
     overagePending: 0,
+    analysesByDay: {},
     ...overrides,
   };
 }
