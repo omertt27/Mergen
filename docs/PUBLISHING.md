@@ -24,10 +24,38 @@ editor pulls from which is what stops us from accidentally shipping to
 | **code-server**        | **Open VSX**              | Self-hosted browser VS Code.               |
 | **GitHub Codespaces**  | Microsoft Marketplace     | Bundled with VS Code.                      |
 | **JetBrains IDEs**     | JetBrains Plugin Repo     | Different format — **v1.1**, not v1.       |
+| **Claude Desktop**     | npm (`mergen-server`)     | Configured via `claude_desktop_config.json`. |
+| **Continue / Cline / Zed** | npm (`mergen-server`) | Generic MCP stdio host — same `npx` install. |
 
 > **The bottom line:** publishing only to the MS Marketplace cuts us off
 > from Cursor and Windsurf — exactly the AI-IDE users we want most.
-> **Open VSX is Tier-1, not Tier-2.**
+> **Open VSX is Tier-1, not Tier-2.** And the npm package is what
+> every non-VS Code AI host (Claude Desktop, Cline, Continue, Zed)
+> actually installs — see `mcp/` for the marketplace manifests that
+> wrap it.
+
+---
+
+## The MCP marketplaces (parallel surface)
+
+VS Code + Open VSX cover the *IDE extension*. The MCP marketplaces below
+list the *server* — they're how users who already have an AI host shop
+for tools. All of them install the same `mergen-server` npm package, so
+**there is one binary to maintain, ten places it shows up.**
+
+| Marketplace            | Manifest in repo            | Submission                                    |
+| ---------------------- | --------------------------- | --------------------------------------------- |
+| **Smithery**           | `mcp/smithery.json`         | `smithery.ai` → New Server → upload manifest  |
+| **Glama**              | `mcp/glama.json`            | PR to `punkpeye/glama-mcp-registry`           |
+| **mcp.so**             | `mcp/mcp-so.yaml`           | PR to `chatmcp/mcp-directory`                 |
+| **PulseMCP**           | `mcp/pulsemcp.json`         | Submit form on pulsemcp.com                   |
+| **Cursor Directory**   | `mcp/cursor-directory.json` | PR to `pontusab/cursor.directory`             |
+| **Anthropic catalog**  | `mcp/claude-desktop.json`   | PR to `modelcontextprotocol/servers`          |
+| **awesome-mcp-servers**| (one-line README entry)     | PR to `punkpeye/awesome-mcp-servers`          |
+
+See [`mcp/README.md`](../mcp/README.md) for the full submission playbook
+and [`mcp/install-buttons.md`](../mcp/install-buttons.md) for the
+one-click install badges to paste at the top of `README.md`.
 
 ---
 
@@ -63,7 +91,7 @@ From `vscode-extension/`:
 
 ```bash
 npm run preflight        # sanity-check before anything moves
-npm run publish:all      # build → package → vsce publish → ovsx publish
+npm run publish:all      # build → package → vsce publish → ovsx publish → npm publish (mergen-server)
 ```
 
 The pre-flight script (`scripts/preflight.mjs`) refuses to ship if it
@@ -72,7 +100,7 @@ finds:
 - Unset `publisher`, `repository`, `homepage`, `bugs`
 - Missing `LICENSE`, `README.md`, `CHANGELOG.md`, `dist/extension.js`
 - Walkthrough media files referenced in `package.json` that don't exist
-- The literal string `your-org` anywhere in `package.json` or `README.md`
+- The literal string `omertt27` anywhere in `package.json` or `README.md`
 - Missing `VSCE_PAT` / `OVSX_PAT` (warning only — `vsce login` works too)
 
 If you only want to push to one registry:
@@ -80,6 +108,7 @@ If you only want to push to one registry:
 ```bash
 npm run publish:vscode   # Microsoft Marketplace only
 npm run publish:openvsx  # Open VSX only (Cursor / Windsurf / VSCodium / Gitpod)
+npm run publish:npm      # npm only — Claude Desktop / Cline / Continue / Zed / MCP marketplaces
 ```
 
 ---
@@ -113,7 +142,7 @@ plugin needs a Kotlin shim around the MCP server and a separate
 JetBrains review cycle is real (1–2 weeks) and we want the messaging
 proven first.
 
-Track this in [#jetbrains-plugin](https://github.com/your-org/mergen/labels/jetbrains).
+Track this in [#jetbrains-plugin](https://github.com/omertt27/Mergen/labels/jetbrains).
 
 ---
 

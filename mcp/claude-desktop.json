@@ -1,0 +1,9 @@
+{
+  "_comment": "Drop this object under `mcpServers` in ~/Library/Application Support/Claude/claude_desktop_config.json (macOS) or %APPDATA%/Claude/claude_desktop_config.json (Windows). Also: paste this snippet into the README of https://github.com/modelcontextprotocol/servers when adding Mergen to the Community Servers list.",
+  "mcpServers": {
+    "mergen": {
+      "command": "npx",
+      "args": ["-y", "mergen-server"]
+    }
+  }
+}

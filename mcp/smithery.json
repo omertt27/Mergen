@@ -1,0 +1,45 @@
+{
+  "qualifiedName": "mergen",
+  "displayName": "Mergen — Local-First Runtime Debugging",
+  "description": "Captures browser console, network, and DOM on 127.0.0.1 and exposes them as MCP tools. Causally correlated, source-mapped, PII-redacted. Nothing leaves your laptop.",
+  "homepage": "https://github.com/omertt27/Mergen",
+  "license": "MIT",
+  "icon": "https://raw.githubusercontent.com/omertt27/Mergen/main/extension/icons/icon128.png",
+  "categories": ["debugging", "developer-tools", "browser", "observability"],
+  "keywords": ["browser", "console", "network", "dom", "debugging", "local-first", "privacy", "source-maps"],
+  "runtime": "node",
+  "transport": "stdio",
+  "startCommand": {
+    "type": "stdio",
+    "command": "npx",
+    "args": ["-y", "mergen-server"]
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "MERGEN_PORT": {
+        "type": "string",
+        "default": "3000",
+        "description": "Loopback port the local HTTP ingestion server binds to (3000–3010 are auto-tried)."
+      }
+    }
+  },
+  "tools": [
+    { "name": "get_status",           "description": "Health, buffer occupancy, and analyses-per-day counter." },
+    { "name": "get_recent_logs",      "description": "Last N console events (level, message, source, ts)." },
+    { "name": "get_network_activity", "description": "Last N fetch/XHR events with timing + status." },
+    { "name": "get_dom_context",      "description": "Snapshot of the active tab's DOM + framework hints." },
+    { "name": "clear_buffer",         "description": "Drop the rolling buffer (privacy / fresh-repro)." },
+    { "name": "analyze_runtime",      "description": "Causal Context Pack: ranked hypotheses + source-mapped evidence." }
+  ],
+  "examples": [
+    {
+      "title": "Why did this page just throw?",
+      "prompt": "Use analyze_runtime to find the root cause of the most recent error on the active tab."
+    },
+    {
+      "title": "Show me the slow request",
+      "prompt": "Call get_network_activity and rank by duration; identify retries or 5xx clusters."
+    }
+  ]
+}

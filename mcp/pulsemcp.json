@@ -1,0 +1,41 @@
+{
+  "name": "mergen",
+  "title": "Mergen — Local-First Runtime Debugging",
+  "shortDescription": "Browser → 127.0.0.1 → MCP. Causal Context Packs for your AI assistant.",
+  "longDescription": "Mergen is a local-first MCP server that captures console events, fetch/XHR traffic, and DOM snapshots from your active browser tab and exposes them as MCP tools. The bundled VS Code extension and Chrome/Edge extension stream events to a 127.0.0.1 server — nothing leaves your laptop. The killer tool is `analyze_runtime`, which returns a causally correlated Context Pack with ranked hypotheses and source-mapped evidence so your AI host can fix the bug instead of asking you to paste a stack trace.",
+  "homepage": "https://github.com/omertt27/Mergen",
+  "repository": "https://github.com/omertt27/Mergen",
+  "license": "MIT",
+  "author": { "name": "omertt27", "url": "https://github.com/omertt27" },
+  "icon": "https://raw.githubusercontent.com/omertt27/Mergen/main/extension/icons/icon128.png",
+  "categories": ["developer-tools", "debugging", "browser"],
+  "tags": ["browser", "console", "network", "dom", "causal", "source-maps", "local-first", "privacy"],
+  "transport": "stdio",
+  "install": {
+    "claudeDesktop": {
+      "mergen": {
+        "command": "npx",
+        "args": ["-y", "mergen-server"]
+      }
+    },
+    "cursor": {
+      "mergen": {
+        "command": "npx",
+        "args": ["-y", "mergen-server"]
+      }
+    },
+    "vscode": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "mergen-server"]
+    }
+  },
+  "tools": [
+    { "name": "get_status",           "summary": "Health + buffer + analyses-per-day." },
+    { "name": "get_recent_logs",      "summary": "Last N console events." },
+    { "name": "get_network_activity", "summary": "Last N fetch/XHR events." },
+    { "name": "get_dom_context",      "summary": "DOM snapshot + framework hints." },
+    { "name": "clear_buffer",         "summary": "Drop the rolling buffer." },
+    { "name": "analyze_runtime",      "summary": "Causal Context Pack with ranked hypotheses." }
+  ]
+}

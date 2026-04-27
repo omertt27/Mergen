@@ -42,7 +42,7 @@ Black background, white type:
 mergen
 local-first runtime debugging for AI
 
-→ github.com/your-org/mergen
+→ github.com/omertt27/Mergen
 ```
 
 ---

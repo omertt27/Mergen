@@ -18,12 +18,12 @@ Mergen is **continuous**, not crash-triggered. Every page refresh, hot-reload, n
 - **`mergen.guard` pre-commit hook** — block commits when an unresolved HIGH-confidence runtime anomaly is in the buffer
 - **Walkthrough** — three concrete steps from install to first diagnosis
 
-This extension is the **VS Code surface** for the open-source [Mergen](https://github.com/your-org/mergen) project. It needs:
+This extension is the **VS Code surface** for the open-source [Mergen](https://github.com/omertt27/Mergen) project. It needs:
 
 1. The local **Mergen server** (`server/dist/index.js`). The extension's *Start Local Server* command will find it in your workspace, in `~/.mergen`, or wherever you point `mergen.serverPath`.
 2. The **Mergen browser extension** (Chrome / Edge MV3, loaded unpacked from `extension/`).
 
-Both ship in the [Mergen repo](https://github.com/your-org/mergen). Run `git clone` once, then everything else is one click.
+Both ship in the [Mergen repo](https://github.com/omertt27/Mergen). Run `git clone` once, then everything else is one click.
 
 ---
 
@@ -67,6 +67,6 @@ This extension is brand new. If you install it and something is unclear,
 please run **Mergen: Send Feedback** — every report from the first 50
 installs goes straight into onboarding fixes.
 
-[Source · Issues · Discussions](https://github.com/your-org/mergen)
+[Source · Issues · Discussions](https://github.com/omertt27/Mergen)
 
 MIT licensed. The bridge is free forever.

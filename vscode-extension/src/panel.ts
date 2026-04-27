@@ -38,6 +38,21 @@ interface UsageSnapshot {
   analysesAvgPerDay7d?: number;
 }
 
+/** Per-detector accuracy snapshot returned alongside each hypothesis.
+ *  Mirrors `TagStats` in `server/src/calibration.ts`. We keep this loose
+ *  (all fields optional) so older servers without calibration still render. */
+interface CalibrationStats {
+  tag: string;
+  predictions: number;
+  verdicts: number;
+  accuracy: number;
+  trusted: boolean;
+  shouldInterrupt: boolean;
+  accuracy7d: number | null;
+  trendDelta: number | null;
+  commonFailureModes?: Array<{ note: string; count: number }>;
+}
+
 interface Hypothesis {
   tag: string;
   summary: string;
@@ -46,6 +61,10 @@ interface Hypothesis {
   evidence: string[];
   causalPath: string[];
   fixHint: string | null;
+  /** Stable id for /feedback. Required for the verdict buttons to work. */
+  pid?: string;
+  /** Empirical accuracy of this detector — drives the inline badge. */
+  calibration?: CalibrationStats | null;
 }
 
 interface LastPack {
@@ -56,6 +75,7 @@ interface LastPack {
   /** New: why the pack was built — pageload, hmr, error, periodic, … */
   reason?: string;
   topHypothesis?: Hypothesis | null;
+  hypotheses?: Hypothesis[];
   contextPack?: string;
   hypothesesCount?: number;
   errorsCount?: number;
@@ -69,6 +89,14 @@ interface HistoryEntry {
   topHypothesis: Hypothesis | null;
 }
 
+interface CalibrationOverview {
+  ok: boolean;
+  overallAccuracy: number | null;
+  trustedDetectors: number;
+  totalDetectors: number;
+  perDetector: CalibrationStats[];
+}
+
 interface ServerState {
   connected: boolean;
   port: number;
@@ -76,6 +104,7 @@ interface ServerState {
   usage: UsageSnapshot | null;
   lastPack: LastPack | null;
   history: HistoryEntry[];
+  calibration: CalibrationOverview | null;
   error: string | null;
 }
 
@@ -83,7 +112,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private _state: ServerState = {
     connected: false, port: 3000, health: null, usage: null,
-    lastPack: null, history: [], error: null,
+    lastPack: null, history: [], calibration: null, error: null,
   };
   private _pollTimer?: ReturnType<typeof setTimeout>;
   private _statusBar: vscode.StatusBarItem;
@@ -118,10 +147,28 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     webviewView.webview.html = this._getHtml();
 
     // Handle messages from the webview
-    webviewView.webview.onDidReceiveMessage(async (msg: { type: string; tool?: string; text?: string; command?: string }) => {
+    webviewView.webview.onDidReceiveMessage(async (msg: { type: string; tool?: string; text?: string; command?: string; pid?: string; verdict?: string }) => {
       if (msg.type === 'clear') await this.clearBuffer();
       if (msg.type === 'refresh') await this.refresh();
       if (msg.type === 'ready') await this._poll();
+      if (msg.type === 'feedback' && msg.pid && msg.verdict) {
+        // For 'wrong' / 'partial' verdicts, give the user a single-line
+        // input to explain *why* it was wrong. Skipping (Esc) is fine — the
+        // verdict is still recorded; the note just isn't. Notes are folded
+        // into the detector's `commonFailureModes` so the next time the
+        // same detector fires we can show "often incorrect when:" hints.
+        let note: string | undefined;
+        if (msg.verdict === 'wrong' || msg.verdict === 'partial') {
+          note = await vscode.window.showInputBox({
+            prompt: msg.verdict === 'wrong'
+              ? 'Why was this diagnosis wrong? (one line — optional)'
+              : 'What did the diagnosis miss? (one line — optional)',
+            placeHolder: 'e.g. API returned 200 but body was empty',
+            ignoreFocusOut: false,
+          });
+        }
+        await this.sendFeedback(msg.pid, msg.verdict, note);
+      }
       if (msg.type === 'runCommand' && msg.command) {
         // Whitelist of commands the webview can trigger. This is the bridge
         // that makes the disconnected card actionable for Marketplace users.
@@ -191,6 +238,41 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     await this._poll();
   }
 
+  /**
+   * POST a verdict to /feedback. This is the *active* half of the calibration
+   * loop: every click here re-trains the trust score for the detector that
+   * issued the prediction. We re-poll immediately so the badge updates in
+   * place ("0/0" → "1/1 correct") — instant feedback that the click
+   * actually changed something is what makes the loop feel real.
+   *
+   * `note` is an optional one-line explanation captured for `wrong` /
+   * `partial` verdicts only. It feeds the panel's "Often incorrect when:"
+   * hint, turning silent failures into a visible track record.
+   */
+  async sendFeedback(pid: string, verdict: string, note?: string): Promise<void> {
+    const port = this._getPort();
+    try {
+      const r = await fetch(`http://127.0.0.1:${port}/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(note ? { pid, verdict, note } : { pid, verdict }),
+        signal: AbortSignal.timeout(3000),
+      });
+      if (!r.ok) {
+        const txt = await r.text().catch(() => '');
+        vscode.window.showWarningMessage(`Mergen: feedback rejected (${r.status}) ${txt}`);
+        return;
+      }
+      // Light, non-modal confirmation. We avoid a popup per click — the
+      // badge update is the real confirmation.
+      this._statusBar.text = '$(check) Mergen — thanks';
+      setTimeout(() => this._poll(), 250);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      vscode.window.showWarningMessage(`Mergen: could not send feedback — ${msg}`);
+    }
+  }
+
   // ── Polling ─────────────────────────────────────────────────────────────────
 
   private _getPort(): number {
@@ -219,18 +301,21 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     usage: UsageSnapshot;
     lastPack: LastPack;
     history: HistoryEntry[];
+    calibration: CalibrationOverview | null;
   } | null> {
     try {
       const opt = { signal: AbortSignal.timeout(timeoutMs) };
-      const [health, usage, lastPack, history] = await Promise.all([
+      const [health, usage, lastPack, history, calibration] = await Promise.all([
         fetch(`http://127.0.0.1:${port}/health`,    opt).then(r => r.json() as Promise<HealthResponse>),
         fetch(`http://127.0.0.1:${port}/usage`,     opt).then(r => r.json() as Promise<UsageSnapshot>),
         fetch(`http://127.0.0.1:${port}/last-pack`, opt).then(r => r.json() as Promise<LastPack>)
           .catch(() => ({ hasPack: false } as LastPack)),
         fetch(`http://127.0.0.1:${port}/history`,   opt).then(r => r.json() as Promise<{ entries: HistoryEntry[] }>)
           .then(d => d.entries ?? []).catch(() => []),
+        fetch(`http://127.0.0.1:${port}/calibration`, opt).then(r => r.json() as Promise<CalibrationOverview>)
+          .catch(() => null),
       ]);
-      return { health, usage, lastPack, history };
+      return { health, usage, lastPack, history, calibration };
     } catch {
       return null;
     }
@@ -244,6 +329,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
         connected: true, port,
         health: result.health, usage: result.usage,
         lastPack: result.lastPack, history: result.history,
+        calibration: result.calibration,
         error: null,
       };
     } else {
@@ -253,6 +339,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
           connected: false, port,
           health: null, usage: null,
           lastPack: null, history: [],
+          calibration: null,
           error: 'Server not running on port ' + port,
         };
       }
@@ -268,6 +355,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
           connected: true, port: p,
           health: result.health, usage: result.usage,
           lastPack: result.lastPack, history: result.history,
+          calibration: result.calibration,
           error: null,
         };
         await vscode.workspace.getConfiguration('mergen').update('serverPort', p, vscode.ConfigurationTarget.Workspace);
@@ -302,6 +390,14 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     const warns    = h.warnings;
     const netErrs  = h.networkErrors;
 
+    // Calibration gate: a "trusted" detector with sub-60% accuracy should
+    // NOT be allowed to grab user attention. We still surface it in the
+    // panel — but the status bar stays calm. This is the difference between
+    // "we have an opinion" and "we will interrupt your flow with it".
+    const top = state.lastPack?.topHypothesis ?? null;
+    const cal = top?.calibration ?? null;
+    const hypothesisCanInterrupt = !cal || !cal.trusted || cal.shouldInterrupt;
+
     // Choose the most prominent indicator to surface in the status bar.
     // The goal: developer glances at the bar and knows immediately whether
     // something needs attention — even mid-flow, before anything crashes.
@@ -309,16 +405,22 @@ export class MergenPanel implements vscode.WebviewViewProvider {
       this._statusBar.text = `$(error) Mergen ${errors} err`;
       this._statusBar.tooltip = `Mergen — ${errors} error(s) in buffer. Click to open panel.`;
       this._statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
-    } else if (signals.length > 0) {
+    } else if (signals.length > 0 && hypothesisCanInterrupt) {
       // Highest-confidence signal drives the message
-      const top = signals[0];
-      const confPct = Math.round(top.confidence * 100);
+      const topSig = signals[0];
+      const confPct = Math.round(topSig.confidence * 100);
       this._statusBar.text = `$(warning) Mergen ${signals.length} signal${signals.length > 1 ? 's' : ''}`;
-      this._statusBar.tooltip = `Mergen — ${top.message} (${confPct}% confidence). Click to open panel.`;
+      this._statusBar.tooltip = `Mergen — ${topSig.message} (${confPct}% confidence). Click to open panel.`;
       this._statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
     } else if (warns > 0 || netErrs > 0) {
       this._statusBar.text = `$(bell) Mergen`;
       this._statusBar.tooltip = `Mergen — ${warns} warning(s), ${netErrs} net error(s). Click to open panel.`;
+      this._statusBar.backgroundColor = undefined;
+    } else if (signals.length > 0) {
+      // We have signals but the top hypothesis hasn't earned interrupt-rights
+      // yet. Show a quiet indicator so the panel still feels "live".
+      this._statusBar.text = `$(eye) Mergen`;
+      this._statusBar.tooltip = `Mergen — ${signals.length} low-confidence signal(s). Click to review.`;
       this._statusBar.backgroundColor = undefined;
     } else {
       this._statusBar.text = '$(check) Mergen';
@@ -613,16 +715,22 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     color: var(--vscode-charts-blue);
   }
   .hyp-conf {
-    font-size: 10px;
-    font-weight: 600;
-    padding: 1px 6px;
+    /* Demoted: model belief is now secondary to empirical accuracy. The
+       big number on the row is the calibration badge below; this just
+       tells you which signal *we* thought was strongest. */
+    font-size: 9px;
+    font-weight: 500;
+    padding: 1px 5px;
     border-radius: 3px;
-    background: var(--vscode-badge-background);
-    color: var(--vscode-badge-foreground);
+    background: transparent;
+    color: var(--vscode-descriptionForeground);
+    border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.25));
+    text-transform: lowercase;
+    letter-spacing: .02em;
   }
-  .hyp-conf.high   { background: var(--vscode-charts-green); color: #fff; }
-  .hyp-conf.medium { background: var(--vscode-charts-yellow); color: #000; }
-  .hyp-conf.low    { background: var(--vscode-charts-orange); color: #fff; }
+  .hyp-conf.high   { color: var(--vscode-charts-green); border-color: var(--vscode-charts-green); }
+  .hyp-conf.medium { color: var(--vscode-charts-yellow); border-color: var(--vscode-charts-yellow); }
+  .hyp-conf.low    { color: var(--vscode-charts-orange); border-color: var(--vscode-charts-orange); }
   .hyp-summary {
     font-size: 11px;
     line-height: 1.5;
@@ -637,6 +745,112 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     border-radius: 3px;
     padding: 5px 8px;
     font-family: var(--vscode-editor-font-family);
+  }
+
+  /* ── Calibration / accountability row ──
+     Shows the empirical accuracy of the detector that produced this
+     hypothesis, plus three feedback buttons. The badge colour mirrors the
+     trust state: green when the detector has earned interrupt-rights,
+     amber when it's trusted-but-mediocre, grey when n is too small.
+     Accuracy is the *primary* number — confidence is intentionally
+     downgraded to a secondary 9px tag, because what matters is what's
+     actually been right, not what we *believe* might be right. */
+  .calib {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    font-size: 10px;
+    flex-wrap: wrap;
+  }
+  .calib-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border-radius: 3px;
+    font-weight: 700;
+    font-size: 11px;       /* larger than confidence — promoted */
+    background: rgba(127,127,127,.18);
+    color: var(--vscode-descriptionForeground);
+  }
+  .calib-badge.good   { background: var(--vscode-charts-green); color: #fff; }
+  .calib-badge.mid    { background: var(--vscode-charts-yellow); color: #000; }
+  .calib-badge.poor   { background: var(--vscode-charts-red); color: #fff; }
+  .calib-trend {
+    color: var(--vscode-descriptionForeground);
+    font-weight: 500;
+  }
+  .calib-trend.up   { color: var(--vscode-charts-green); }
+  .calib-trend.down { color: var(--vscode-charts-red); }
+  .calib-spacer { flex: 1; min-width: 6px; }
+  /* "Often incorrect when:" hint — shown for any detector below the trust
+     threshold whose users have explained their wrong verdicts. This is
+     the system's own admission of its blind spots. */
+  .calib-failmodes {
+    width: 100%;
+    margin-top: 4px;
+    font-size: 10px;
+    color: var(--vscode-descriptionForeground);
+    background: rgba(255, 200, 0, 0.06);
+    border-left: 2px solid var(--vscode-charts-yellow);
+    border-radius: 0 3px 3px 0;
+    padding: 4px 8px;
+    line-height: 1.45;
+  }
+  .calib-failmodes b { color: var(--vscode-foreground); font-weight: 600; }
+  .calib-failmodes ul { margin: 2px 0 0 14px; padding: 0; }
+  .calib-failmodes li { margin: 1px 0; }
+
+  /* ── Detector health row (global calibration table) ── */
+  .det-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--vscode-widget-border, rgba(127,127,127,.1));
+    font-size: 11px;
+  }
+  .det-row:last-child { border-bottom: none; }
+  .det-tag {
+    flex: 1;
+    min-width: 0;
+    color: var(--vscode-foreground);
+    font-family: var(--vscode-editor-font-family);
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .det-n {
+    flex-shrink: 0;
+    font-size: 10px;
+    color: var(--vscode-descriptionForeground);
+    min-width: 36px;
+    text-align: right;
+  }
+  .feedback-btns {
+    display: inline-flex;
+    gap: 4px;
+  }
+  .fb-btn {
+    padding: 1px 6px;
+    border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.3));
+    border-radius: 3px;
+    background: transparent;
+    color: var(--vscode-descriptionForeground);
+    cursor: pointer;
+    font-size: 10px;
+    font-family: inherit;
+    line-height: 1.3;
+  }
+  .fb-btn:hover { background: rgba(127,127,127,.15); }
+  .fb-btn.fb-correct:hover { border-color: var(--vscode-charts-green); color: var(--vscode-charts-green); }
+  .fb-btn.fb-wrong:hover   { border-color: var(--vscode-charts-red);   color: var(--vscode-charts-red); }
+  .fb-btn.fb-partial:hover { border-color: var(--vscode-charts-yellow); color: var(--vscode-charts-yellow); }
+  .fb-prompt {
+    font-size: 10px;
+    color: var(--vscode-descriptionForeground);
   }
   .pack-meta {
     font-size: 10px;
@@ -759,6 +973,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     </div>
     <div class="hyp-summary" id="hyp-summary"></div>
     <div class="hyp-fix" id="hyp-fix" style="display:none"></div>
+    <div class="calib" id="hyp-calib" style="display:none"></div>
   </div>
   <div class="pack-meta">
     <span id="pack-counts">—</span>
@@ -815,6 +1030,15 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     <span class="row-label">Resets</span>
     <span class="row-value" id="usage-resets">—</span>
   </div>
+</div>
+
+<!-- Detector health (the global calibration view) -->
+<div class="card" id="card-detectors" style="display:none">
+  <div class="card-title">
+    Detector Health
+    <span class="pack-time" id="detector-summary"></span>
+  </div>
+  <div id="detector-list"></div>
 </div>
 
 <!-- Server info -->
@@ -881,6 +1105,79 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     if (diff < 3_600_000) return Math.floor(diff / 60_000) + 'm ago';
     if (diff < 86_400_000)return Math.floor(diff / 3_600_000) + 'h ago';
     return Math.floor(diff / 86_400_000) + 'd ago';
+  }
+
+  // Render the calibration strip + feedback buttons for a hypothesis.
+  // Two halves: a left-side "track record" badge (so users can verify our
+  // claim before they trust it) and a right-side three-button verdict row
+  // (so they can teach the engine in one click). Both are essential —
+  // showing the badge without a way to challenge it is just marketing.
+  function renderCalibrationHtml(hyp) {
+    const cal = hyp && hyp.calibration;
+    const pid = hyp && hyp.pid;
+    let badgeHtml = '';
+    if (cal) {
+      if (!cal.trusted) {
+        badgeHtml =
+          '<span class="calib-badge" title="Need ≥5 verdicts before this score is trusted.">' +
+          'New detector · ' + cal.verdicts + '/' + cal.predictions + ' rated' +
+          '</span>';
+      } else {
+        const pct = Math.round(cal.accuracy * 100);
+        const cls = pct >= 75 ? 'good' : pct >= 50 ? 'mid' : 'poor';
+        const correct = Math.round(cal.accuracy * cal.verdicts);
+        badgeHtml =
+          '<span class="calib-badge ' + cls + '" title="Empirical accuracy across ' + cal.verdicts + ' user verdicts.">' +
+          pct + '% · ' + correct + '/' + cal.verdicts + ' correct' +
+          '</span>';
+        if (typeof cal.trendDelta === 'number') {
+          const delta = Math.round(cal.trendDelta * 100);
+          if (delta !== 0) {
+            const arrow = delta > 0 ? '▲' : '▼';
+            const trendCls = delta > 0 ? 'up' : 'down';
+            badgeHtml +=
+              '<span class="calib-trend ' + trendCls + '" title="7-day trend vs older verdicts.">' +
+              arrow + ' ' + Math.abs(delta) + '% (7d)' +
+              '</span>';
+          }
+        }
+      }
+    } else {
+      badgeHtml = '<span class="calib-badge" title="No verdicts recorded yet.">Unrated</span>';
+    }
+    let buttonsHtml = '';
+    if (pid) {
+      // We use single-quoted attributes so JSON.stringify(pid) (which emits
+      // double quotes) doesn't terminate the attribute. Verdict literals
+      // are intentionally inlined as JS strings — no user input here.
+      buttonsHtml =
+        '<span class="fb-prompt">Was this right?</span>' +
+        '<span class="feedback-btns">' +
+          "<button class='fb-btn fb-correct' title='Yes — diagnosis was correct' onclick='sendFeedback(" + JSON.stringify(pid) + ",\"correct\")'>✓ Yes</button>" +
+          "<button class='fb-btn fb-partial' title='Partially right' onclick='sendFeedback(" + JSON.stringify(pid) + ",\"partial\")'>◐ Sort of</button>" +
+          "<button class='fb-btn fb-wrong'   title='No — wrong diagnosis' onclick='sendFeedback(" + JSON.stringify(pid) + ",\"wrong\")'>✕ No</button>" +
+        '</span>';
+    }
+    // Failure-mode hint: surfaces the top user-supplied "why was this wrong"
+    // notes for this detector. Only meaningful when accuracy is poor enough
+    // that we should warn — and only when we actually have notes to show.
+    let failHtml = '';
+    if (cal && cal.commonFailureModes && cal.commonFailureModes.length > 0 && cal.accuracy < 0.75) {
+      const items = cal.commonFailureModes
+        .slice(0, 3)
+        .map(m => '<li>' + escHtml(m.note) + (m.count > 1 ? ' <span style="opacity:.6">(×' + m.count + ')</span>' : '') + '</li>')
+        .join('');
+      failHtml =
+        '<div class="calib-failmodes">' +
+          '<b>Often incorrect when:</b>' +
+          '<ul>' + items + '</ul>' +
+        '</div>';
+    }
+    return badgeHtml + '<span class="calib-spacer"></span>' + buttonsHtml + failHtml;
+  }
+
+  function sendFeedback(pid, verdict) {
+    vscode.postMessage({ type: 'feedback', pid: pid, verdict: verdict });
   }
 
   // Signal ready to start polling
@@ -971,7 +1268,10 @@ export class MergenPanel implements vscode.WebviewViewProvider {
         document.getElementById('hyp-summary').textContent = hyp.summary || '';
         const conf = (hyp.confidence || '').toLowerCase();
         const confEl = document.getElementById('hyp-conf');
-        confEl.textContent = (hyp.confidence || '—') + ' ' + Math.round((hyp.confidenceScore || 0) * 100) + '%';
+        // Visually demoted — prefixed "belief:" so users mentally distinguish
+        // it from the headline accuracy badge below. Belief is what the
+        // model thinks; accuracy is what's actually been true.
+        confEl.textContent = 'belief: ' + (hyp.confidence || '—').toLowerCase();
         confEl.className   = 'hyp-conf ' + conf;
         const fixEl = document.getElementById('hyp-fix');
         if (hyp.fixHint) {
@@ -980,6 +1280,12 @@ export class MergenPanel implements vscode.WebviewViewProvider {
         } else {
           fixEl.style.display = 'none';
         }
+        // Calibration strip — accuracy badge + verdict buttons. Always
+        // shown for any hypothesis (even unrated ones), so users learn
+        // from day one that they can challenge what we say.
+        const calEl = document.getElementById('hyp-calib');
+        calEl.innerHTML     = renderCalibrationHtml(hyp);
+        calEl.style.display = 'flex';
       } else {
         hypBox.style.display = 'none';
       }
@@ -997,15 +1303,71 @@ export class MergenPanel implements vscode.WebviewViewProvider {
       histList.innerHTML = entries.slice(0, 10).map(e => {
         const tag = e.topHypothesis?.tag || 'baseline';
         const reason = e.reason ? '<span class="history-reason">' + escHtml(e.reason) + '</span>' : '';
+        const cal = e.topHypothesis?.calibration;
+        // Tiny accuracy chip on each row — same source of truth as the
+        // big badge on the active hypothesis card. Surfaces "this detector
+        // has a 78% track record" everywhere it's relevant.
+        let chip = '';
+        if (cal && cal.trusted) {
+          const pct = Math.round(cal.accuracy * 100);
+          const cls = pct >= 75 ? 'good' : pct >= 50 ? 'mid' : 'poor';
+          chip = '<span class="calib-badge ' + cls + '" style="font-size:9px; padding:0 4px" title="Detector accuracy across ' + cal.verdicts + ' verdicts">' + pct + '%</span>';
+        }
         return '<div class="history-item">' +
           reason +
           '<span class="history-tag">' + escHtml(tag) + '</span>' +
+          chip +
           '<span class="history-msg" title="' + escHtml(e.triggerMessage) + '">' + escHtml(e.triggerMessage) + '</span>' +
           '<span class="history-time">' + fmtRel(e.builtAt) + '</span>' +
         '</div>';
       }).join('');
     } else {
       histCard.style.display = 'none';
+    }
+
+    // Detector Health (global calibration view) — sorted accuracy-desc.
+    // This is the system's own scoreboard: every detector that has fired,
+    // its track record, and its trust state. Infra engineers will look
+    // here first to decide whether the engine is worth wiring in.
+    const cal = state.calibration;
+    const detCard = document.getElementById('card-detectors');
+    const detList = document.getElementById('detector-list');
+    if (cal && Array.isArray(cal.perDetector) && cal.perDetector.length > 0) {
+      detCard.style.display = 'block';
+      const overallTxt = cal.overallAccuracy !== null
+        ? 'overall ' + Math.round(cal.overallAccuracy * 100) + '% · ' + cal.trustedDetectors + '/' + cal.totalDetectors + ' trusted'
+        : cal.totalDetectors + ' detector' + (cal.totalDetectors === 1 ? '' : 's') + ' · awaiting verdicts';
+      document.getElementById('detector-summary').textContent = overallTxt;
+      const sorted = [...cal.perDetector].sort((a, b) => {
+        // Trusted first, then accuracy desc, then sample-size desc.
+        if (a.trusted !== b.trusted) return a.trusted ? -1 : 1;
+        if (b.accuracy !== a.accuracy) return b.accuracy - a.accuracy;
+        return b.verdicts - a.verdicts;
+      });
+      detList.innerHTML = sorted.map(s => {
+        let badge;
+        if (!s.trusted) {
+          badge = '<span class="calib-badge" title="Need ≥5 verdicts before trusted.">new</span>';
+        } else {
+          const pct = Math.round(s.accuracy * 100);
+          const cls = pct >= 75 ? 'good' : pct >= 50 ? 'mid' : 'poor';
+          badge = '<span class="calib-badge ' + cls + '">' + pct + '%</span>';
+        }
+        let trend = '';
+        if (typeof s.trendDelta === 'number' && s.trendDelta !== 0) {
+          const delta = Math.round(s.trendDelta * 100);
+          const arrow = delta > 0 ? '▲' : '▼';
+          const trendCls = delta > 0 ? 'up' : 'down';
+          trend = '<span class="calib-trend ' + trendCls + '">' + arrow + Math.abs(delta) + '%</span>';
+        }
+        return '<div class="det-row">' +
+          badge + trend +
+          '<span class="det-tag" title="' + escHtml(s.tag) + '">' + escHtml(s.tag) + '</span>' +
+          '<span class="det-n">' + s.verdicts + '/' + s.predictions + '</span>' +
+        '</div>';
+      }).join('');
+    } else {
+      detCard.style.display = 'none';
     }
 
     // Server info

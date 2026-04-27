@@ -1,0 +1,23 @@
+{
+  "_comment": "Submit as a PR to https://github.com/pontusab/cursor.directory (or current canonical Cursor directory repo).",
+  "name": "mergen",
+  "displayName": "Mergen",
+  "description": "Local-first runtime debugging. Streams browser console, network, and DOM to your AI assistant via MCP. Causally correlated, source-mapped, never leaves 127.0.0.1.",
+  "homepage": "https://github.com/omertt27/Mergen",
+  "repository": "https://github.com/omertt27/Mergen",
+  "license": "MIT",
+  "tags": ["debugging", "browser", "observability", "local-first"],
+  "mcp": {
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "mergen-server"]
+  },
+  "tools": [
+    "get_status",
+    "get_recent_logs",
+    "get_network_activity",
+    "get_dom_context",
+    "clear_buffer",
+    "analyze_runtime"
+  ]
+}

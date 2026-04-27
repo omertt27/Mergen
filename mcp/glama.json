@@ -1,0 +1,29 @@
+{
+  "name": "mergen",
+  "displayName": "Mergen",
+  "description": "Local-first runtime debugging for AI. Streams browser console, network, and DOM to your AI assistant via MCP. Causally correlated, source-mapped, PII-redacted, never leaves 127.0.0.1.",
+  "author": "omertt27",
+  "repository": "https://github.com/omertt27/Mergen",
+  "homepage": "https://github.com/omertt27/Mergen",
+  "license": "MIT",
+  "icon": "https://raw.githubusercontent.com/omertt27/Mergen/main/extension/icons/icon128.png",
+  "categories": ["Developer Tools", "Debugging", "Browser Automation"],
+  "tags": ["browser", "debugging", "local-first", "privacy", "source-maps", "causal"],
+  "language": "typescript",
+  "transport": "stdio",
+  "install": {
+    "command": "npx",
+    "args": ["-y", "mergen-server"]
+  },
+  "tools": [
+    "get_status",
+    "get_recent_logs",
+    "get_network_activity",
+    "get_dom_context",
+    "clear_buffer",
+    "analyze_runtime"
+  ],
+  "verification": {
+    "tested_with": ["claude-desktop", "cursor", "continue", "windsurf", "vscode-copilot", "cline"]
+  }
+}

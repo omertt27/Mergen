@@ -36,7 +36,7 @@
 
 ```bash
 # Clone the repo
-git clone https://github.com/your-org/mergen.git
+git clone https://github.com/omertt27/Mergen.git
 cd mergen/server
 
 # Install dependencies and build

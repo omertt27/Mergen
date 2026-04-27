@@ -1,3 +1,7 @@
+#!/usr/bin/env node
+// ↑ Shebang lets `npx -y mergen-server` and any direct `bin` invocation
+//   run this file without an explicit `node`. Required for every MCP
+//   marketplace's one-line install command.
 import express from 'express';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -14,6 +18,7 @@ import { billingRouter } from './billing.js';
 import { teamRouter, initTeam, getTeamState, isTeamEnabled } from './team.js';
 import { getPlan } from './plans.js';
 import { hypothesisHistory } from './hypothesis-history.js';
+import { recordVerdict, getStats } from './calibration.js';
 import { initTelemetry, getTelemetryState, setTelemetryEnabled, maybeSendTelemetry } from './telemetry.js';
 import { startWatcher } from './watcher.js';
 import { lemonSqueezySetup } from '@lemonsqueezy/lemonsqueezy.js';
@@ -271,12 +276,20 @@ async function main(): Promise<void> {
   // the VS Code panel uses to render the live Context Pack and history list.
 
   // GET /last-pack — full Context Pack of the most recent diagnosis
+  //
+  // Calibration enrichment: every hypothesis carries its detector's empirical
+  // accuracy (and 7-day trend) so the panel can render a "73% — 11/15 correct"
+  // badge inline. This is the *visible* half of the accountability loop:
+  // users see the track record before they're asked to trust the verdict.
   app.get('/last-pack', (_req, res) => {
     const latest = hypothesisHistory.latest();
     if (!latest) {
       res.json({ ok: true, hasPack: false });
       return;
     }
+    const statsByTag = new Map(getStats().map((s) => [s.tag, s]));
+    const enrich = (h: typeof latest.topHypothesis) =>
+      h ? { ...h, calibration: statsByTag.get(h.tag) ?? null } : h;
     res.json({
       ok: true,
       hasPack: true,
@@ -284,7 +297,8 @@ async function main(): Promise<void> {
       builtAtIso: latest.builtAtIso,
       triggerMessage: latest.triggerMessage,
       reason: latest.reason,
-      topHypothesis: latest.topHypothesis,
+      topHypothesis: enrich(latest.topHypothesis),
+      hypotheses: latest.chain.hypotheses.map((h) => enrich(h)),
       contextPack: latest.chain.contextPack,
       hypothesesCount: latest.chain.hypotheses.length,
       errorsCount: latest.chain.errors.length,
@@ -292,9 +306,69 @@ async function main(): Promise<void> {
   });
 
   // GET /history — list of recent diagnoses (lightweight, no contextPack)
+  // Each entry's `topHypothesis` is enriched with its detector calibration so
+  // the history list can show accuracy badges without an extra round-trip.
   app.get('/history', (req, res) => {
     const limit = Math.min(20, Math.max(1, Number(req.query.limit ?? 10)));
-    res.json({ ok: true, entries: hypothesisHistory.list(limit) });
+    const statsByTag = new Map(getStats().map((s) => [s.tag, s]));
+    const entries = hypothesisHistory.list(limit).map((e) => ({
+      ...e,
+      topHypothesis: e.topHypothesis
+        ? { ...e.topHypothesis, calibration: statsByTag.get(e.topHypothesis.tag) ?? null }
+        : null,
+    }));
+    res.json({ ok: true, entries });
+  });
+
+  // ── Feedback / Calibration ─────────────────────────────────────────────────
+  // The accountability layer. See server/src/calibration.ts for rationale.
+  //
+  // POST /feedback { pid, verdict: 'correct' | 'wrong' | 'partial' }
+  //   Tells the engine whether the hypothesis with the given prediction id
+  //   was actually right. The next time the same detector fires its score
+  //   is adjusted by its empirical accuracy. After 5 verdicts a detector is
+  //   "trusted"; below 50% accuracy it is demoted, below 20% suppressed.
+  //
+  // GET /calibration
+  //   Per-detector accuracy snapshot. The VS Code panel uses this to render
+  //   "Detector accuracy: 7/8 correct (88%)" badges next to each hypothesis,
+  //   so users see *why* a result is HIGH and not just *that* it is.
+  //
+  // Both endpoints are FREE — trust is binary: either users can verify our
+  // claims or they correctly stop using us.
+  app.post('/feedback', (req, res) => {
+    const { pid, verdict, note } = (req.body ?? {}) as { pid?: string; verdict?: string; note?: string };
+    if (!pid || typeof pid !== 'string') {
+      res.status(400).json({ ok: false, error: 'pid (string) is required' });
+      return;
+    }
+    if (verdict !== 'correct' && verdict !== 'wrong' && verdict !== 'partial') {
+      res.status(400).json({ ok: false, error: "verdict must be 'correct' | 'wrong' | 'partial'" });
+      return;
+    }
+    const cleanNote = typeof note === 'string' && note.trim() ? note : undefined;
+    const found = recordVerdict(pid, verdict, cleanNote);
+    if (!found) {
+      res.status(404).json({ ok: false, error: `unknown pid: ${pid}` });
+      return;
+    }
+    res.json({ ok: true });
+  });
+
+  app.get('/calibration', (_req, res) => {
+    const stats = getStats();
+    const trusted = stats.filter((s) => s.trusted);
+    const totalVerdicts = trusted.reduce((sum, s) => sum + s.verdicts, 0);
+    const overall = totalVerdicts > 0
+      ? trusted.reduce((sum, s) => sum + s.accuracy * s.verdicts, 0) / totalVerdicts
+      : null;
+    res.json({
+      ok: true,
+      overallAccuracy: overall,            // null until ≥ 5 verdicts on any tag
+      trustedDetectors: trusted.length,
+      totalDetectors: stats.length,
+      perDetector: stats,
+    });
   });
 
   // GET /timeline — interleaved console + network + context events as a flat,

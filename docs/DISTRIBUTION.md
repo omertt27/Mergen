@@ -56,7 +56,7 @@ Pre-flight checklist:
 - [x] Disconnected card has one-click **Start server** / **Install guide**
 - [x] `Mergen: Send Feedback` command linking to GitHub Discussions
 - [ ] 60-second demo GIF added to `vscode-extension/README.md` top
-- [ ] `your-org` placeholders replaced with the real org slug
+- [ ] `omertt27` placeholders replaced with the real org slug
 - [ ] `vsce login mergen` (one-time, requires Azure DevOps PAT)
 
 ```bash
@@ -125,7 +125,7 @@ Submission JSON:
   "displayName": "Mergen",
   "description": "Local-first runtime debugging. Streams browser console, network, and DOM to your AI assistant via MCP. Causally correlated, source-mapped, and never leaves 127.0.0.1.",
   "homepage": "https://mergen.dev",
-  "repository": "https://github.com/your-org/mergen",
+  "repository": "https://github.com/omertt27/Mergen",
   "license": "MIT",
   "tags": ["debugging", "browser", "observability", "local-first"],
   "command": "node",
@@ -150,7 +150,7 @@ Submission JSON:
 Open a PR adding Mergen to the **Community Servers** section of the README:
 
 ```markdown
-- **[Mergen](https://github.com/your-org/mergen)** — Local-first browser observability for AI debugging. Streams console, network, and DOM from Chrome/Edge to a 127.0.0.1 server, then exposes a causally-correlated Context Pack via `analyze_runtime`. PII-redacted, no cloud dependency.
+- **[Mergen](https://github.com/omertt27/Mergen)** — Local-first browser observability for AI debugging. Streams console, network, and DOM from Chrome/Edge to a 127.0.0.1 server, then exposes a causally-correlated Context Pack via `analyze_runtime`. PII-redacted, no cloud dependency.
 ```
 
 Also submit to https://modelcontextprotocol.io/examples once it accepts community contributions.
@@ -164,7 +164,7 @@ Also submit to https://modelcontextprotocol.io/examples once it accepts communit
 PR adding under the **🛠️ Developer Tools** or **🐛 Debugging** section:
 
 ```markdown
-- **[Mergen](https://github.com/your-org/mergen)** — Local-first runtime debugging for AI. Browser → 127.0.0.1 → MCP. Causal chain, ranked hypotheses, source-mapped Context Packs.
+- **[Mergen](https://github.com/omertt27/Mergen)** — Local-first runtime debugging for AI. Browser → 127.0.0.1 → MCP. Causal chain, ranked hypotheses, source-mapped Context Packs.
 ```
 
 ---

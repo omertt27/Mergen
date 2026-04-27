@@ -1,9 +1,53 @@
 {
   "name": "mergen-server",
   "version": "1.0.0",
-  "description": "Mergen MCP Server — local browser observability bridge",
+  "description": "Mergen MCP Server — local-first browser observability bridge for AI assistants (Cursor, Claude Desktop, Copilot, Continue, Windsurf, Cline). Streams console, network, DOM from 127.0.0.1, returns causally-correlated Context Packs.",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "mergen-server": "dist/index.js"
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "!dist/**/__tests__/**",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "debugging",
+    "browser",
+    "console",
+    "network",
+    "dom",
+    "local-first",
+    "privacy",
+    "cursor",
+    "claude",
+    "copilot",
+    "windsurf",
+    "continue"
+  ],
+  "homepage": "https://github.com/omertt27/Mergen#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/omertt27/Mergen.git",
+    "directory": "server"
+  },
+  "bugs": {
+    "url": "https://github.com/omertt27/Mergen/issues"
+  },
+  "license": "MIT",
+  "author": "omertt27",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc && node scripts/build-cli.mjs",
     "build:server": "tsc",

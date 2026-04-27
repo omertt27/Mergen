@@ -57,6 +57,33 @@ for (const rel of REQUIRED) {
 const repoLicense = fs.existsSync(path.join(ROOT, 'LICENSE')) || fs.existsSync(path.join(ROOT, '..', 'LICENSE'));
 check('LICENSE present (here or repo root)', repoLicense, 'add a LICENSE file at the repo root');
 
+// ── 2b. MCP server (npm package) ─────────────────────────────────────────────
+// `publish:all` also runs `npm publish` on ../server. If that package is
+// malformed we'd ship a broken `npx -y mergen-server`, which would break
+// every MCP marketplace listing in `mcp/` simultaneously.
+const SERVER = path.resolve(ROOT, '..', 'server');
+const serverPkgPath = path.join(SERVER, 'package.json');
+if (fs.existsSync(serverPkgPath)) {
+  const sp = JSON.parse(fs.readFileSync(serverPkgPath, 'utf8'));
+  check('server: name is "mergen-server"',  sp.name === 'mergen-server', 'rename in server/package.json');
+  check('server: bin entry present',        !!sp.bin?.['mergen-server'], 'add { bin: { "mergen-server": "dist/index.js" } }');
+  check('server: dist/index.js built',      fs.existsSync(path.join(SERVER, 'dist', 'index.js')), 'cd server && npm run build');
+  if (fs.existsSync(path.join(SERVER, 'dist', 'index.js'))) {
+    const head = fs.readFileSync(path.join(SERVER, 'dist', 'index.js'), 'utf8').slice(0, 32);
+    check('server: dist/index.js has shebang', head.startsWith('#!'), 'add `#!/usr/bin/env node` at the top of server/src/index.ts');
+    const mode = fs.statSync(path.join(SERVER, 'dist', 'index.js')).mode & 0o111;
+    check('server: dist/index.js is executable', mode !== 0, 'cd server && npm run build (build-cli.mjs chmods +x)');
+  }
+} else {
+  check('server/package.json present', false, 'expected ../server/package.json — repo layout changed?');
+}
+
+// ── 2c. MCP marketplace manifests ────────────────────────────────────────────
+const MCP = path.resolve(ROOT, '..', 'mcp');
+for (const f of ['smithery.json', 'glama.json', 'pulsemcp.json', 'cursor-directory.json', 'claude-desktop.json', 'mcp-so.yaml', 'install-buttons.md', 'README.md']) {
+  check(`mcp/${f} present`, fs.existsSync(path.join(MCP, f)), 'see mcp/README.md');
+}
+
 // ── 3. Walkthrough media files referenced exist ──────────────────────────────
 const wt = pkg.contributes?.walkthroughs ?? [];
 for (const w of wt) {
@@ -84,6 +111,10 @@ warn('VSCE_PAT env var present (Microsoft Marketplace)',
 warn('OVSX_PAT env var present (Open VSX / Eclipse)',
      !!process.env.OVSX_PAT,
      'export OVSX_PAT=<open-vsx token>  — get it at https://open-vsx.org/user-settings/tokens');
+warn('npm logged in (for `npm publish` of mergen-server)',
+     // We can't read ~/.npmrc reliably across CI; this is just a nudge.
+     !!process.env.NPM_TOKEN || fs.existsSync(path.join(process.env.HOME ?? '', '.npmrc')),
+     'run `npm login` once, or export NPM_TOKEN — needed for the MCP marketplace install command');
 
 // ── 6. Version not already published ────────────────────────────────────────
 warn('version > 0.0.0', pkg.version && pkg.version !== '0.0.0', 'bump version before publishing');
@@ -114,5 +145,6 @@ if (warns.length > 0) {
 console.log(green('Ready to publish.'));
 console.log(dim('  Microsoft Marketplace: npm run publish:vscode'));
 console.log(dim('  Open VSX:              npm run publish:openvsx'));
-console.log(dim('  Both at once:          npm run publish:all'));
+console.log(dim('  npm (mergen-server):   npm run publish:npm'));
+console.log(dim('  All three at once:     npm run publish:all'));
 console.log('');

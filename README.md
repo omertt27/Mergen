@@ -121,7 +121,7 @@ Restraint is a feature.
 ## Install in 60 seconds
 
 ```bash
-git clone https://github.com/your-org/mergen.git
+git clone https://github.com/omertt27/Mergen.git
 cd mergen/server && npm install && npm run build && npm start
 ```
 

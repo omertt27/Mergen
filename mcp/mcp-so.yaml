@@ -1,0 +1,40 @@
+---
+# Submit as a PR to https://github.com/chatmcp/mcp-directory
+name: mergen
+title: "Mergen — Local-First Runtime Debugging for AI"
+description: "Browser console + network + DOM → 127.0.0.1 → MCP. Causal hypotheses, source-mapped, PII-redacted."
+author: omertt27
+repository: https://github.com/omertt27/Mergen
+homepage: https://github.com/omertt27/Mergen
+license: MIT
+language: typescript
+runtime: node
+icon: https://raw.githubusercontent.com/omertt27/Mergen/main/extension/icons/icon128.png
+tags:
+  - debugging
+  - browser
+  - local-first
+  - privacy
+  - source-maps
+categories:
+  - developer-tools
+  - browser-automation
+install:
+  npm: mergen-server
+  command: npx -y mergen-server
+tools:
+  - get_status
+  - get_recent_logs
+  - get_network_activity
+  - get_dom_context
+  - clear_buffer
+  - analyze_runtime
+clients:
+  - claude-desktop
+  - cursor
+  - vscode
+  - continue
+  - windsurf
+  - cline
+  - zed
+---

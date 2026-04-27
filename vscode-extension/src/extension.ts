@@ -6,8 +6,8 @@ import * as net from 'net';
 import { spawn } from 'child_process';
 import { MergenPanel } from './panel.js';
 
-const FEEDBACK_URL = 'https://github.com/your-org/mergen/discussions/new?category=feedback';
-const INSTALL_GUIDE_URL = 'https://github.com/your-org/mergen#install-in-60-seconds';
+const FEEDBACK_URL = 'https://github.com/omertt27/Mergen/discussions/new?category=feedback';
+const INSTALL_GUIDE_URL = 'https://github.com/omertt27/Mergen#install-in-60-seconds';
 
 export function activate(context: vscode.ExtensionContext): void {
   // Register the sidebar webview provider

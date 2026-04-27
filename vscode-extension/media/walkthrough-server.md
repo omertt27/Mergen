@@ -11,4 +11,4 @@ If you cloned the Mergen repo, the **Start Local Server** button will find
 `mergen.serverPath` in Settings to the absolute path.
 
 If the server fails to start, see the
-[60-second install guide](https://github.com/your-org/mergen#install-in-60-seconds).
+[60-second install guide](https://github.com/omertt27/Mergen#install-in-60-seconds).

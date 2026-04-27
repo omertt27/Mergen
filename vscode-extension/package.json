@@ -5,16 +5,16 @@
   "version": "1.0.0",
   "publisher": "mergen",
   "license": "MIT",
-  "homepage": "https://github.com/your-org/mergen#readme",
+  "homepage": "https://github.com/omertt27/Mergen#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-org/mergen.git",
+    "url": "https://github.com/omertt27/Mergen.git",
     "directory": "vscode-extension"
   },
   "bugs": {
-    "url": "https://github.com/your-org/mergen/issues"
+    "url": "https://github.com/omertt27/Mergen/issues"
   },
-  "qna": "https://github.com/your-org/mergen/discussions",
+  "qna": "https://github.com/omertt27/Mergen/discussions",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -45,7 +45,7 @@
   "badges": [
     {
       "url": "https://img.shields.io/badge/data-127.0.0.1%20only-success",
-      "href": "https://github.com/your-org/mergen#privacy",
+      "href": "https://github.com/omertt27/Mergen#privacy",
       "description": "All data stays on your machine"
     },
     {
@@ -194,7 +194,8 @@
     "package": "vsce package --no-dependencies",
     "publish:vscode": "vsce publish --no-dependencies",
     "publish:openvsx": "ovsx publish --no-dependencies",
-    "publish:all": "npm run build && npm run package && npm run publish:vscode && npm run publish:openvsx",
+    "publish:npm": "cd ../server && npm run build && npm publish --access public",
+    "publish:all": "npm run build && npm run package && npm run publish:vscode && npm run publish:openvsx && npm run publish:npm",
     "preflight": "node scripts/preflight.mjs"
   },
   "devDependencies": {

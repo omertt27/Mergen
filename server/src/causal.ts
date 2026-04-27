@@ -13,6 +13,7 @@ import {
   ALL_DETECTORS,
   type DetectorInput,
 } from './detectors.js';
+import { applyCalibration, recordPrediction, getStats } from './calibration.js';
 import logger from './logger.js';
 
 // ── Types (re-exported so existing imports keep working) ─────────────────────
@@ -78,6 +79,11 @@ export interface Hypothesis {
   evidence: string[];
   causalPath: string[];
   fixHint: string | null;
+  /** Stable prediction id assigned by calibration.recordPrediction.
+   *  Lets the user POST /feedback {pid, verdict} to teach the engine
+   *  which detectors are actually trustworthy. Optional because tests
+   *  and old call sites may construct hypotheses directly. */
+  pid?: string;
 }
 
 export interface CausalChain {
@@ -279,6 +285,46 @@ export async function buildCausalChain(
       if (idx > 0) hypotheses.splice(idx, 1);
     }
   }
+
+  // ── Calibration: demote / suppress detectors with poor track records ─────
+  // Then tag survivors with stable prediction ids so the user can later
+  // tell us which ones were actually right. This is the self-discipline
+  // loop — see calibration.ts for the rationale.
+  const calibrated = applyCalibration(hypotheses);
+  const tagged = recordPrediction(calibrated);
+
+  // ── Re-rank by  confidence × historical accuracy ─────────────────────────
+  // The model's *belief* (confidenceScore) is one signal; its *track record*
+  // (empirical accuracy) is another. A MEDIUM-confidence detector that's
+  // right 85% of the time should outrank a HIGH-confidence detector that's
+  // right 40% of the time — that's the difference between guessing and
+  // knowing. Untrusted detectors (n < 5 verdicts) get a neutral 1.0
+  // multiplier so they aren't punished for being new.
+  const statsByTag = new Map(getStats().map((s) => [s.tag, s]));
+  const NEUTRAL = 1.0;
+  const ranked = tagged
+    .map((h) => {
+      const s = statsByTag.get(h.tag);
+      // Multiplier ∈ [0.4, 1.3]:
+      //   trusted + accurate  → boost  (e.g. 0.85 acc → 1.15× score)
+      //   trusted + mediocre  → neutral
+      //   trusted + bad       → cut    (already partly handled by demote)
+      //   untrusted           → 1.0    (no opinion until we have data)
+      const mult = s && s.trusted ? 0.5 + s.accuracy * 0.8 : NEUTRAL;
+      return {
+        h,
+        rankScore: h.confidenceScore * mult,
+        accuracy: s && s.trusted ? s.accuracy : null,
+      };
+    })
+    // Stable: ties broken by raw confidence so behaviour matches the old
+    // ordering when no calibration data exists at all.
+    .sort((a, b) => b.rankScore - a.rankScore || b.h.confidenceScore - a.h.confidenceScore)
+    .map((x) => x.h);
+
+  // Replace the original list in-place so downstream consumers see it.
+  hypotheses.length = 0;
+  hypotheses.push(...ranked);
 
   // ── Format the Context Pack string ────────────────────────────────────────
   const partialChain = {
