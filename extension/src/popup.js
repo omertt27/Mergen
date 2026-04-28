@@ -17,6 +17,7 @@ const portSaved    = document.getElementById('port-saved');
 const muteToggle   = document.getElementById('mute-toggle');
 const toggleSub    = document.getElementById('toggle-sub');
 const mutedBanner  = document.getElementById('muted-banner');
+const noCsBanner   = document.getElementById('no-cs-banner');
 const btnClear     = document.getElementById('btn-clear');
 const btnReconnect = document.getElementById('btn-reconnect');
 const welcomeLink  = document.getElementById('welcome-link');
@@ -268,11 +269,35 @@ upgradeLink.addEventListener('click', (e) => {
   chrome.tabs.create({ url: chrome.runtime.getURL('pricing.html') });
 });
 
+// ── Content-script ping ───────────────────────────────────────────────────────
+// If the tab was open before the extension was installed/reloaded, the content
+// script was never injected — console.log patches never ran. Detect this and
+// show a one-click "reload tab" banner so the user knows why logs are missing.
+
+async function checkContentScript() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) return;
+    // chrome:// and extension pages can't receive messages — skip silently.
+    if (!tab.url || tab.url.startsWith('chrome') || tab.url.startsWith('chrome-extension')) return;
+    const response = await chrome.tabs.sendMessage(tab.id, { type: 'MERGEN_PING' })
+      .catch(() => null);
+    if (!response) {
+      noCsBanner.style.display = 'block';
+      noCsBanner.addEventListener('click', () => {
+        chrome.tabs.reload(tab.id);
+        window.close();
+      }, { once: true });
+    }
+  } catch { /* ignore — non-injectable page */ }
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 (async () => {
   const port = await loadSettings();
   await loadMuteState();
   await refresh(port);
+  await checkContentScript();
 })();
 

@@ -10,6 +10,15 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "build: vscode-extension",
+      "type": "shell",
+      "command": "npm run build",
+      "options": { "cwd": "${workspaceFolder}/vscode-extension" },
+      "group": "build",
+      "problemMatcher": ["$tsc"],
+      "presentation": { "reveal": "silent" }
+    },
+    {
       "label": "mergen: checkpoint on save",
       "type": "shell",
       "command": "curl -sf -X POST http://127.0.0.1:3000/checkpoint -H 'Content-Type: application/json' -d '{\"label\":\"save: ${fileBasename}\"}' | node -e \"let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{ try{ const r=JSON.parse(d); if(r.topSignal) console.log('Mergen: '+r.topSignal.message); } catch{} });\"",

@@ -17,16 +17,27 @@
     return `http://127.0.0.1:${currentPort}/ingest`;
   }
 
-  // Load port from storage on startup
+  // Load port AND muted state from storage on startup so existing tabs
+  // pick up the right state after extension reload without needing a message.
   try {
     chrome.storage.local.get('mergenPort', ({ mergenPort }) => {
       if (mergenPort) currentPort = mergenPort;
     });
   } catch { /* ignore — storage not available on some pages */ }
 
+  try {
+    chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+      if (!tab) return;
+      chrome.storage.session.get(`muted_${tab.id}`).then((r) => {
+        if (r[`muted_${tab.id}`] === true) muted = true;
+      }).catch(() => {});
+    }).catch(() => {});
+  } catch { /* ignore */ }
+
   // Listen for messages from background/popup
   try {
-    chrome.runtime.onMessage.addListener((msg) => {
+    chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+      if (msg.type === 'MERGEN_PING') { sendResponse({ ok: true }); return; }
       if (msg.type === 'MERGEN_PORT_CHANGED' && msg.port) currentPort = msg.port;
       if (msg.type === 'MERGEN_MUTE') muted = msg.muted;
     });
