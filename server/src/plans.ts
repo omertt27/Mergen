@@ -1,13 +1,30 @@
 /**
  * plans.ts — Mergen pricing plan definitions
  *
- * Plans:
- *   free     – local bridge only, capped buffer, no analyze_runtime
- *   solo     – $19/mo Standard | $39/mo Pro (analyze credits included)
- *   team     – $49/seat/mo (shared context, unlimited credits)
+ * Open-core model:
+ *   The client tooling (browser extension, VS Code extension, CLI bridge)
+ *   is MIT-licensed and free forever. The Hypothesis Engine (analyze_runtime,
+ *   calibration ranking, causal chain) is the paid surface — it's the only
+ *   part that costs us money (LLM inference) and the only part where data
+ *   quality > distribution volume.
  *
- * Usage-based:
- *   pay_as_you_go – $0.05 / analyze_runtime call, no subscription
+ * Plans:
+ *   free            – full buffer (200 events), all local tools, 25 analyze/mo
+ *   solo_standard   – $19/mo: 500 analyze credits + overage
+ *   solo_pro        – $39/mo: unlimited analyze
+ *   team            – $49/seat/mo: shared context, unlimited
+ *   pay_as_you_go   – $0.05 / analyze_runtime call, no subscription
+ *
+ * Free tier design rationale:
+ *   200-event buffer: real dev sessions routinely exceed 50 events in one
+ *   page load. Capping at 50 means the free tier is broken for the exact
+ *   users we want to impress. 200 is the same as paid — the moat is the
+ *   Hypothesis Engine, not the buffer size.
+ *
+ *   25 analyze credits: enough to see the value (≈1/day on a heavy debug
+ *   week) without cannibalising Solo Standard (≈20/day capacity).
+ *   Critically: free users who hit the limit become paid users, not
+ *   churned users — they've already seen the diagnosis work.
  */
 
 export type PlanId = 'free' | 'solo_standard' | 'solo_pro' | 'team' | 'pay_as_you_go';
@@ -40,14 +57,13 @@ export const PLANS: Record<PlanId, Plan> = {
     id: 'free',
     name: 'Free',
     priceUsdCents: 0,
-    bufferSize: 50,            // only 50 events visible to the AI
-    // 10 free analyze_runtime calls per month — the "feel the magic" allowance.
-    // Without this, the free plan delivers only raw logs (already in DevTools)
-    // and conversion is structurally blocked. 10/month is enough to taste the
-    // Hypothesis Engine without cannibalising paid tiers (typical solo dev
-    // usage is ~30/mo per our internal estimates).
-    analyzeCreditsPerMonth: 10,
-    overageCentsPerCredit: 0,  // free tier never bills — hard cap at 10
+    bufferSize: 200,           // same as paid — the moat is the Engine, not the buffer
+    // 25 free analyze_runtime calls/month — enough to feel the value on a real
+    // debug session (~1/day during an intense week) without replacing paid tiers.
+    // Free users who exhaust 25 calls have seen it work; they convert. Free users
+    // who never hit the limit were never going to pay anyway.
+    analyzeCreditsPerMonth: 25,
+    overageCentsPerCredit: 0,  // hard cap at 25 — never surprise-bills free users
     teamSync: false,
     lsVariantId: null,
   },

@@ -97,15 +97,25 @@ For enterprises: this is the only runtime-debug tool you can run inside an air-g
 
 ## Pricing
 
+**Open core.** The client tooling is MIT and free forever. You pay only when the Hypothesis Engine does the reasoning for you.
+
 | Plan          | Price        | `analyze_runtime` per month | Buffer | Team sync |
 | ------------- | ------------ | --------------------------- | ------ | --------- |
-| **Free**      | $0           | **10 / month** *(feel the magic)* | 50 events | — |
+| **Free**      | $0           | **25 / month**              | 200 events | — |
 | Solo Standard | $19 / mo     | 500 (then $0.05 each)       | 200    | — |
 | Solo Pro      | $39 / mo     | **Unlimited**               | 200    | — |
 | Team          | $49 / seat   | Unlimited                   | 200    | ✅        |
-| Pay-as-you-go | $0 + $0.05 / call | metered                | 200    | — |
+| Pay-as-you-go | $0.05 / call | Metered, no subscription    | 200    | — |
 
-The free tier ships **ten real diagnoses per month**, not infinite raw logs. Other tools brag about throughput. We brag about *answers*.
+**What's always free:**
+- The full 200-event ring buffer
+- All local MCP tools (`get_status`, `get_recent_logs`, `get_network_activity`, `get_dom_context`, `get_dom_context`, `clear_buffer`)
+- The VS Code panel, status bar, and calibration dashboard
+- The browser extension and all capture
+- The CLI (`mergen status`, `mergen doctor`, `mergen guard`)
+- Self-hosting — run everything yourself, forever, no key required
+
+**What's paid:** `analyze_runtime` — the call that turns raw telemetry into a ranked, source-mapped causal chain with fix hints. That's the only thing that costs us money (LLM inference), and it's the only thing we charge for.
 
 ---
 
@@ -168,7 +178,9 @@ See [`docs/PUBLISHING.md`](./docs/PUBLISHING.md) for the editor-to-registry map 
 
 ## License
 
-MIT. The bridge is free forever. The Hypothesis Engine + Team Sync pay the bills.
+**Client tooling (browser extension, VS Code extension, CLI) — MIT. Free forever.**
+
+The server's Hypothesis Engine and Team Sync are closed-source and fund ongoing development. You can self-host the full stack from this repo; the paid surface is `analyze_runtime` — the one call that touches an LLM.
 
 ---
 

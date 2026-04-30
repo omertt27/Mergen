@@ -21,7 +21,7 @@
     {
       "label": "mergen: checkpoint on save",
       "type": "shell",
-      "command": "curl -sf -X POST http://127.0.0.1:3000/checkpoint -H 'Content-Type: application/json' -d '{\"label\":\"save: ${fileBasename}\"}' | node -e \"let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{ try{ const r=JSON.parse(d); if(r.topSignal) console.log('Mergen: '+r.topSignal.message); } catch{} });\"",
+      "command": "node -e \"const h=require('http'); function tryPort(p,cb){h.get('http://127.0.0.1:'+p+'/checkpoint',{method:'GET'},r=>{cb(p)}).on('error',()=>p<3010?tryPort(p+1,cb):cb(null));} const req=require('http'); function post(p){if(!p){console.log('Mergen: server not found on 3000-3010');return;} const data=JSON.stringify({label:'save: ${fileBasename}'}); const o={hostname:'127.0.0.1',port:p,path:'/checkpoint',method:'POST',headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(data)}}; const r=req.request(o,res=>{let d='';res.on('data',c=>d+=c);res.on('end',()=>{try{const j=JSON.parse(d);if(j.topSignal)console.log('Mergen: '+j.topSignal.message);}catch{}});}); r.on('error',()=>{}); r.write(data); r.end();} function find(p){h.get({hostname:'127.0.0.1',port:p,path:'/health',timeout:500},r=>{post(p);}).on('error',()=>p<3010?find(p+1):console.log('Mergen: server not found'));} find(3000);\"",
       "isBackground": false,
       "problemMatcher": [],
       "presentation": {
@@ -37,7 +37,7 @@
     {
       "label": "mergen: session summary",
       "type": "shell",
-      "command": "curl -sf http://127.0.0.1:3000/health | node -e \"let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{ try{ const h=JSON.parse(d); console.log('Mergen: '+h.errors+' errors, '+h.warnings+' warns, '+h.networkErrors+' net errors, '+(h.signals||[]).length+' patterns'); (h.signals||[]).forEach(s=>console.log('  · '+s.message)); } catch{} });\"",
+      "command": "node -e \"const h=require('http'); function find(p){h.get({hostname:'127.0.0.1',port:p,path:'/health',timeout:500},res=>{let d='';res.on('data',c=>d+=c);res.on('end',()=>{try{const j=JSON.parse(d);console.log('Mergen: '+j.errors+' errors, '+j.warnings+' warns, '+j.networkErrors+' net errors, '+(j.signals||[]).length+' patterns');(j.signals||[]).forEach(s=>console.log('  · '+s.message));}catch{console.log('Mergen: parse error');}});}).on('error',()=>p<3010?find(p+1):console.log('Mergen: server not found on 3000-3010'));} find(3000);\"",
       "isBackground": false,
       "problemMatcher": [],
       "presentation": {
