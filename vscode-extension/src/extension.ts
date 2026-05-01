@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as net from 'net';
+import * as http from 'http';
 import { spawn } from 'child_process';
 import { MergenPanel } from './panel.js';
 
@@ -89,8 +90,17 @@ async function openCalibration(): Promise<void> {
   const port = cfg.get<number>('serverPort', 3000);
   let payload: { perDetector?: PerDetector[]; overallAccuracy?: number | null; trustedDetectors?: number; totalDetectors?: number } | null = null;
   try {
-    const r = await fetch(`http://127.0.0.1:${port}/calibration`, { signal: AbortSignal.timeout(2000) });
-    if (r.ok) payload = await r.json();
+    payload = await new Promise((resolve, reject) => {
+      const req = http.get(
+        { hostname: '127.0.0.1', port, path: '/calibration', timeout: 2000 },
+        (res) => {
+          let d = ''; res.on('data', (c: string) => d += c);
+          res.on('end', () => { try { resolve(JSON.parse(d)); } catch(e) { reject(e); } });
+        },
+      );
+      req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+      req.on('error', reject);
+    });
   } catch { /* server down — handled below */ }
 
   if (!payload) {
@@ -199,10 +209,14 @@ function resolveServerEntry(): string | null {
 }
 
 async function isServerRunning(port: number, timeoutMs = 600): Promise<boolean> {
-  try {
-    const r = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(timeoutMs) });
-    return r.ok;
-  } catch { return false; }
+  return new Promise((resolve) => {
+    const req = http.get(
+      { hostname: '127.0.0.1', port, path: '/health', timeout: timeoutMs },
+      (res) => { resolve(res.statusCode === 200); res.resume(); },
+    );
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+    req.on('error', () => resolve(false));
+  });
 }
 
 async function isPortOpen(port: number, timeoutMs = 300): Promise<boolean> {

@@ -1,4 +1,56 @@
 import * as vscode from 'vscode';
+import * as http from 'http';
+
+/** Node http.get wrapper that replaces fetch() for VS Code extension host compatibility.
+ *  VS Code's Electron Node does not expose the global fetch / AbortSignal.timeout. */
+function httpGet(url: string, timeoutMs: number): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const req = http.get(url, { timeout: timeoutMs }, (res) => {
+      let data = '';
+      res.on('data', (chunk: string) => { data += chunk; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); }
+        catch (e) { reject(e); }
+      });
+    });
+    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+    req.on('error', reject);
+  });
+}
+
+/** POST helper using Node http module — fetch() not available in VS Code extension host. */
+function httpPost(url: string, body: unknown, timeoutMs: number): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const payload = body ? JSON.stringify(body) : '';
+    const parsed = new URL(url);
+    const options: http.RequestOptions = {
+      hostname: parsed.hostname,
+      port: parsed.port,
+      path: parsed.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload),
+      },
+      timeout: timeoutMs,
+    };
+    const req = http.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk: string) => { data += chunk; });
+      res.on('end', () => {
+        if (res.statusCode && res.statusCode >= 400) {
+          reject(Object.assign(new Error(`HTTP ${res.statusCode}`), { statusCode: res.statusCode, body: data }));
+        } else {
+          try { resolve(JSON.parse(data)); } catch { resolve(data); }
+        }
+      });
+    });
+    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+    req.on('error', reject);
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
 
 interface SessionSignal {
   kind: string;
@@ -149,8 +201,13 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     // Handle messages from the webview
     webviewView.webview.onDidReceiveMessage(async (msg: { type: string; tool?: string; text?: string; command?: string; pid?: string; verdict?: string }) => {
       if (msg.type === 'clear') await this.clearBuffer();
-      if (msg.type === 'refresh') await this.refresh();
-      if (msg.type === 'ready') await this._poll();
+      if (msg.type === 'refresh') await this.refresh();            if (msg.type === 'ready') {
+                // Immediately send current state so the webview hides the loading
+                // spinner without waiting for the async poll to complete.
+                console.log('[Mergen] ready received, sending state:', JSON.stringify(this._state).slice(0, 200));
+                this._send({ type: 'state', state: this._state });
+                void this._poll();
+            }
       if (msg.type === 'feedback' && msg.pid && msg.verdict) {
         // For 'wrong' / 'partial' verdicts, give the user a single-line
         // input to explain *why* it was wrong. Skipping (Esc) is fine — the
@@ -227,7 +284,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   async clearBuffer(): Promise<void> {
     const port = this._getPort();
     try {
-      await fetch(`http://127.0.0.1:${port}/clear`, { method: 'POST', signal: AbortSignal.timeout(3000) });
+      await httpPost(`http://127.0.0.1:${port}/clear`, null, 3000);
       await this._poll();
     } catch {
       // server not running — panel will show disconnected state
@@ -252,24 +309,22 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   async sendFeedback(pid: string, verdict: string, note?: string): Promise<void> {
     const port = this._getPort();
     try {
-      const r = await fetch(`http://127.0.0.1:${port}/feedback`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(note ? { pid, verdict, note } : { pid, verdict }),
-        signal: AbortSignal.timeout(3000),
-      });
-      if (!r.ok) {
-        const txt = await r.text().catch(() => '');
-        vscode.window.showWarningMessage(`Mergen: feedback rejected (${r.status}) ${txt}`);
-        return;
-      }
+      await httpPost(
+        `http://127.0.0.1:${port}/feedback`,
+        note ? { pid, verdict, note } : { pid, verdict },
+        3000,
+      );
       // Light, non-modal confirmation. We avoid a popup per click — the
       // badge update is the real confirmation.
       this._statusBar.text = '$(check) Mergen — thanks';
       setTimeout(() => this._poll(), 250);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      vscode.window.showWarningMessage(`Mergen: could not send feedback — ${msg}`);
+      const e = err as { statusCode?: number; body?: string } & Error;
+      if (e.statusCode) {
+        vscode.window.showWarningMessage(`Mergen: feedback rejected (${e.statusCode}) ${e.body ?? ''}`);
+      } else {
+        vscode.window.showWarningMessage(`Mergen: could not send feedback — ${e.message ?? String(err)}`);
+      }
     }
   }
 
@@ -304,15 +359,14 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     calibration: CalibrationOverview | null;
   } | null> {
     try {
-      const opt = { signal: AbortSignal.timeout(timeoutMs) };
+      const base = `http://127.0.0.1:${port}`;
       const [health, usage, lastPack, history, calibration] = await Promise.all([
-        fetch(`http://127.0.0.1:${port}/health`,    opt).then(r => r.json() as Promise<HealthResponse>),
-        fetch(`http://127.0.0.1:${port}/usage`,     opt).then(r => r.json() as Promise<UsageSnapshot>),
-        fetch(`http://127.0.0.1:${port}/last-pack`, opt).then(r => r.json() as Promise<LastPack>)
-          .catch(() => ({ hasPack: false } as LastPack)),
-        fetch(`http://127.0.0.1:${port}/history`,   opt).then(r => r.json() as Promise<{ entries: HistoryEntry[] }>)
-          .then(d => d.entries ?? []).catch(() => []),
-        fetch(`http://127.0.0.1:${port}/calibration`, opt).then(r => r.json() as Promise<CalibrationOverview>)
+        httpGet(`${base}/health`,    timeoutMs) as Promise<HealthResponse>,
+        httpGet(`${base}/usage`,     timeoutMs) as Promise<UsageSnapshot>,
+        httpGet(`${base}/last-pack`, timeoutMs).catch(() => ({ hasPack: false } as LastPack)) as Promise<LastPack>,
+        (httpGet(`${base}/history`,  timeoutMs) as Promise<{ entries: HistoryEntry[] }>)
+          .then(d => d.entries ?? []).catch(() => [] as HistoryEntry[]),
+        (httpGet(`${base}/calibration`, timeoutMs) as Promise<CalibrationOverview>)
           .catch(() => null),
       ]);
       return { health, usage, lastPack, history, calibration };
@@ -323,7 +377,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
 
   private async _poll(): Promise<void> {
     const port = this._getPort();
-    const result = await this._fetchAll(port, 2000);
+    const result = await this._fetchAll(port, 1500);
     if (result) {
       this._state = {
         connected: true, port,
@@ -366,6 +420,8 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   }
 
   private _send(msg: unknown): void {
+    const hasView = !!this._view;
+    console.log('[Mergen] _send called, hasView:', hasView, JSON.stringify(msg).slice(0, 150));
     this._view?.webview.postMessage(msg);
     // Keep the status bar in sync on every state update so it's always live
     // even when the panel is hidden — this is the always-on engagement hook.
@@ -566,6 +622,22 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     display: none;
   }
   .notice.visible { display: block; }
+
+  /* ── Loading placeholder ── */
+  .loading {
+    text-align: center;
+    padding: 32px 12px;
+    color: var(--vscode-descriptionForeground);
+    font-size: 12px;
+    opacity: 0.7;
+  }
+  .loading-spinner {
+    font-size: 22px;
+    display: block;
+    margin-bottom: 10px;
+    animation: spin 1.2s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
   /* ── Disconnected state ── */
   .disconnected {
@@ -914,6 +986,12 @@ export class MergenPanel implements vscode.WebviewViewProvider {
 <!-- Low-credit notice -->
 <div class="notice" id="notice"></div>
 
+<!-- Loading state (shown until first render) -->
+<div class="loading" id="loading">
+  <span class="loading-spinner">⟳</span>
+  Connecting to Mergen server…
+</div>
+
 <!-- Disconnected state -->
 <div class="disconnected" id="disconnected" style="display:none">
   <div class="icon">⚡</div>
@@ -1073,9 +1151,10 @@ export class MergenPanel implements vscode.WebviewViewProvider {
 
   // One-click: copy the MCP tool call to clipboard so the user can paste it
   // into any AI chat (Cursor, Copilot Chat, Claude, etc.) immediately.
+  // We route through the extension host (postMessage) rather than calling
+  // navigator.clipboard directly — the webview sandbox blocks clipboard
+  // access without the clipboardWrite permission, so direct calls fail silently.
   function copyTool(toolName) {
-    const cmd = toolName + '()';
-    navigator.clipboard?.writeText(cmd).catch(() => {});
     vscode.postMessage({ type: 'runTool', tool: toolName });
   }
 
@@ -1101,10 +1180,10 @@ export class MergenPanel implements vscode.WebviewViewProvider {
 
   function fmtRel(ms) {
     const diff = Date.now() - ms;
-    if (diff < 60_000)    return Math.max(1, Math.floor(diff / 1000)) + 's ago';
-    if (diff < 3_600_000) return Math.floor(diff / 60_000) + 'm ago';
-    if (diff < 86_400_000)return Math.floor(diff / 3_600_000) + 'h ago';
-    return Math.floor(diff / 86_400_000) + 'd ago';
+    if (diff < 60000)    return Math.max(1, Math.floor(diff / 1000)) + 's ago';
+    if (diff < 3600000)  return Math.floor(diff / 60000) + 'm ago';
+    if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+    return Math.floor(diff / 86400000) + 'd ago';
   }
 
   // Render the calibration strip + feedback buttons for a hypothesis.
@@ -1180,14 +1259,23 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     vscode.postMessage({ type: 'feedback', pid: pid, verdict: verdict });
   }
 
-  // Signal ready to start polling
-  send('ready');
-
+  // Register the message listener BEFORE sending 'ready', so we never
+  // miss the host's immediate state reply.
   window.addEventListener('message', ({ data }) => {
+    console.log('[Mergen webview] message received', JSON.stringify(data).slice(0, 200));
     if (data.type === 'state') render(data.state);
   });
 
+  console.log('[Mergen webview] listener registered, sending ready');
+  // Signal ready to start polling — host will reply with current state immediately.
+  send('ready');
+  console.log('[Mergen webview] ready sent');
+
   function render(state) {
+    // Hide the loading spinner on the very first render
+    const loadingEl = document.getElementById('loading');
+    if (loadingEl) loadingEl.style.display = 'none';
+
     const connected = state.connected;
     document.getElementById('dot').className       = 'dot' + (connected ? ' ok' : '');
     document.getElementById('disconnected').style.display  = connected ? 'none' : 'block';
@@ -1426,7 +1514,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   function fmtDate(iso) {
     try {
       return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
-    } catch { return iso; }
+    } catch (_) { return iso; }
   }
 </script>
 </body>
