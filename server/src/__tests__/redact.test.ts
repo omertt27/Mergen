@@ -2,7 +2,7 @@
  * redact.test.ts — D2: PII redaction at ingest.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { redact, reloadRedactKeys } from '../redact.js';
+import { redact, reloadRedactKeys } from '../sensor/redact.js';
 
 beforeEach(() => {
   delete process.env.MERGEN_REDACT_KEYS;

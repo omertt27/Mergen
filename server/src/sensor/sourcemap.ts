@@ -4,6 +4,18 @@ import { SourceMapConsumer } from 'source-map';
 import { LRUCache } from 'lru-cache';
 import fg from 'fast-glob';
 
+// ── Exported type ─────────────────────────────────────────────────────────────
+// Defined here (sensor layer) so sourcemap.ts is self-contained.
+// causal.ts imports this from here rather than defining it itself.
+export interface SourceFrame {
+  fn: string;
+  file: string;
+  line: number;
+  column: number;
+  snippet: string;
+  rawResolved: string;
+}
+
 // LRU cache: absolute .map path → parsed consumer (max 20 entries).
 // Evicted consumers have their WASM memory freed via destroy().
 const consumerCache = new LRUCache<string, SourceMapConsumer>({
@@ -135,9 +147,9 @@ export async function resolveStackTrace(stack: string): Promise<string> {
  */
 export async function resolveFrameAndStack(
   stack: string,
-): Promise<{ primaryFrame: import('./causal.js').SourceFrame | null; resolvedStack: string }> {
+): Promise<{ primaryFrame: SourceFrame | null; resolvedStack: string }> {
   const lines = stack.split('\n');
-  let primaryFrame: import('./causal.js').SourceFrame | null = null;
+  let primaryFrame: SourceFrame | null = null;
 
   const resolvedLines = await Promise.all(
     lines.map(async (line) => {
@@ -230,7 +242,7 @@ export async function resolveFrameAndStack(
  */
 export async function resolveFirstFrame(
   stack: string,
-): Promise<import('./causal.js').SourceFrame | null> {
+): Promise<SourceFrame | null> {
   const lines = stack.split('\n');
   for (const line of lines) {
     const match = FRAME_RE.exec(line);

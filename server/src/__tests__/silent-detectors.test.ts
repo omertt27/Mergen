@@ -6,8 +6,8 @@
  * containing only successful network events.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { buildCausalChain } from '../causal.js';
-import { store } from '../buffer.js';
+import { buildCausalChain } from '../intelligence/causal.js';
+import { store } from '../sensor/buffer.js';
 
 beforeEach(() => store.clear());
 

@@ -2,8 +2,8 @@
  * hypothesis-history.test.ts — B2/C1: caching of causal chain results.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { hypothesisHistory } from '../hypothesis-history.js';
-import { store } from '../buffer.js';
+import { hypothesisHistory } from '../intelligence/hypothesis-history.js';
+import { store } from '../sensor/buffer.js';
 
 beforeEach(() => {
   store.clear();

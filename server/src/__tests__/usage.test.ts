@@ -66,14 +66,14 @@ function mockFetchThrow() {
 }
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
-import { getActivePlanId } from '../license.js';
+import { getActivePlanId } from '../intelligence/license.js';
 import {
   consumeCredit,
   flushOverageOnShutdown,
   getUsageSnapshot,
   _resetForTesting,
   _setSleepForTesting,
-} from '../usage.js';
+} from '../intelligence/usage.js';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -152,7 +152,7 @@ describe('solo_standard quota', () => {
 
   it('blocks when quota is exhausted and no overage plan', async () => {
     // Override plan to have no overage for this test only
-    const { getPlan } = await import('../plans.js');
+    const { getPlan } = await import('../intelligence/plans.js');
     vi.mocked(getPlan).mockReturnValueOnce({ id: 'solo_standard', analyzeCreditsPerMonth: 50, overageCentsPerCredit: 0 } as never);
     vi.mocked(getPlan).mockReturnValueOnce({ id: 'solo_standard', analyzeCreditsPerMonth: 1, overageCentsPerCredit: 0 } as never);
     _resetForTesting({ month: new Date().toISOString().slice(0, 7), used: 0, overageReported: 0, overagePending: 0 });
@@ -214,7 +214,7 @@ describe('overage (pay_as_you_go) — PAYG formula', () => {
 describe('concurrent consumeCredit (mutex)', () => {
   beforeEach(async () => {
     // Ensure the plan mock returns solo_standard with proper quota
-    const { getPlan } = await import('../plans.js');
+    const { getPlan } = await import('../intelligence/plans.js');
     vi.mocked(getPlan).mockImplementation((id?: string) => {
       const plans: Record<string, { id: string; analyzeCreditsPerMonth: number; overageCentsPerCredit: number }> = {
         free:          { id: 'free',          analyzeCreditsPerMonth: 10,       overageCentsPerCredit: 0 },

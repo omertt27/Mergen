@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { TokenBucket } from '../ingest.js';
+import { TokenBucket } from '../sensor/ingest.js';
 
 describe('TokenBucket (real implementation)', () => {
   beforeEach(() => { vi.useFakeTimers(); });

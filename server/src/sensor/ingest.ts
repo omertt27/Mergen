@@ -1,9 +1,20 @@
 import { Request, Response, Router } from 'express';
 import { store, BrowserEventSchema, type BrowserEvent } from './buffer.js';
 import { resolveStackTrace } from './sourcemap.js';
-import { hypothesisHistory } from './hypothesis-history.js';
 import { redact } from './redact.js';
 import logger from './logger.js';
+
+// ── Diagnostic activity hooks ─────────────────────────────────────────────────
+// The intelligence layer registers these at startup so the sensor layer
+// stays free of closed-source imports.
+export type ActivityNotifier = {
+  notifyError(): void;
+  notifyActivity(reason: string): void;
+};
+let _notifier: ActivityNotifier | null = null;
+export function registerActivityNotifier(n: ActivityNotifier): void {
+  _notifier = n;
+}
 
 export const ingestRouter = Router();
 
@@ -186,11 +197,12 @@ ingestRouter.post('/ingest', (req: Request, res: Response): void => {
   });
 
   const triggerActivity = (): void => {
-    if (isError) { hypothesisHistory.notifyError(); return; }
-    if (isPageload) { hypothesisHistory.notifyActivity('pageload'); return; }
-    if (isHmr)      { hypothesisHistory.notifyActivity('hmr'); return; }
+    if (!_notifier) return;
+    if (isError) { _notifier.notifyError(); return; }
+    if (isPageload) { _notifier.notifyActivity('pageload'); return; }
+    if (isHmr)      { _notifier.notifyActivity('hmr'); return; }
     const burst = burstReason();
-    if (burst)      { hypothesisHistory.notifyActivity(burst); return; }
+    if (burst)      { _notifier.notifyActivity(burst); return; }
   };
 
   if (event.type === 'console' && typeof event.stack === 'string') {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveStackTrace } from '../sourcemap.js';
+import { resolveStackTrace } from '../sensor/sourcemap.js';
 
 describe('resolveStackTrace', () => {
   it('returns non-frame lines unchanged', async () => {

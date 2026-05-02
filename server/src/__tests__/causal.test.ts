@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { buildCausalChain } from '../causal.js';
-import type { ConsoleEvent, NetworkEvent, ContextSnapshot } from '../buffer.js';
+import { buildCausalChain } from '../intelligence/causal.js';
+import type { ConsoleEvent, NetworkEvent, ContextSnapshot } from '../sensor/buffer.js';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 

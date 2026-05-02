@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BrowserEventSchema } from '../buffer.js';
+import { BrowserEventSchema } from '../sensor/buffer.js';
 
 describe('BrowserEventSchema validation', () => {
   it('accepts a valid console event', () => {

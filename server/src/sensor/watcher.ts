@@ -22,8 +22,15 @@
  */
 
 import { store } from './buffer.js';
-import { hypothesisHistory } from './hypothesis-history.js';
 import logger from './logger.js';
+
+// ── Diagnostic hook ───────────────────────────────────────────────────────────
+// The intelligence layer registers this at startup so the watcher stays
+// free of closed-source imports.
+let _onActivity: ((reason: string) => void) | null = null;
+export function registerWatcherNotifier(fn: (reason: string) => void): void {
+  _onActivity = fn;
+}
 
 const DEFAULT_INTERVAL_MS = 15_000;
 
@@ -47,7 +54,7 @@ export function startWatcher(): void {
       if (size === _lastSeenSize) return;
       _lastSeenSize = size;
       _ticks++;
-      hypothesisHistory.notifyActivity('periodic');
+      _onActivity?.('periodic');
     } catch (err) {
       logger.warn({ err }, 'background watcher tick failed (non-fatal)');
     }

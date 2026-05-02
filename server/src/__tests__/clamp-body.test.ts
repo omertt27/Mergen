@@ -2,8 +2,8 @@
  * clamp-body.test.ts — guards against buffer-bloat under chatty APIs (D1).
  */
 import { describe, it, expect } from 'vitest';
-import { clampBody, clampNetworkBodies, MAX_BODY_BYTES } from '../ingest.js';
-import type { BrowserEvent } from '../buffer.js';
+import { clampBody, clampNetworkBodies, MAX_BODY_BYTES } from '../sensor/ingest.js';
+import type { BrowserEvent } from '../sensor/buffer.js';
 
 describe('clampBody', () => {
   it('passes through small strings unchanged', () => {

@@ -7,9 +7,9 @@
  *   3. MERGEN_WATCH=0 disables it cleanly.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { startWatcher, stopWatcher, _getWatcherTickCount } from '../watcher.js';
-import { store } from '../buffer.js';
-import { hypothesisHistory } from '../hypothesis-history.js';
+import { startWatcher, stopWatcher, _getWatcherTickCount } from '../sensor/watcher.js';
+import { store } from '../sensor/buffer.js';
+import { hypothesisHistory } from '../intelligence/hypothesis-history.js';
 
 describe('watcher', () => {
   beforeEach(() => {

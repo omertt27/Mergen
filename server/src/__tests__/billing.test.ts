@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import crypto from 'crypto';
-import { planFromVariantId } from '../license.js';
+import { planFromVariantId } from '../intelligence/license.js';
 
 // ── Signature verification ────────────────────────────────────────────────────
 

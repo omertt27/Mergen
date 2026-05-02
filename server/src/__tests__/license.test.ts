@@ -6,9 +6,9 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { getPlan, PLANS } from '../plans.js';
-import { planFromVariantId } from '../license.js';
-import { getLicenseState, getActivePlanId } from '../license.js';
+import { getPlan, PLANS } from '../intelligence/plans.js';
+import { planFromVariantId } from '../intelligence/license.js';
+import { getLicenseState, getActivePlanId } from '../intelligence/license.js';
 
 describe('getPlan', () => {
   it('returns the free plan for undefined input', () => {

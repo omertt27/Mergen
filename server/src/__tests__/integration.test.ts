@@ -6,8 +6,8 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { store, BrowserEventSchema } from '../buffer.js';
-import type { ConsoleEvent, NetworkEvent, ContextSnapshot } from '../buffer.js';
+import { store, BrowserEventSchema } from '../sensor/buffer.js';
+import type { ConsoleEvent, NetworkEvent, ContextSnapshot } from '../sensor/buffer.js';
 
 describe('ingest → buffer → tool pipeline', () => {
   beforeEach(() => {

@@ -3,3 +3,21 @@ dist/
 *.log
 .env
 .DS_Store
+
+# ── Intelligence layer — closed source ────────────────────────────────────────
+# Sensor layer (sensor/) is open. These files are the moat: causal chain
+# construction, hypothesis ranking, calibration feedback loop, detectors,
+# prompt engineering, and all commercial/billing logic.
+server/src/intelligence/causal.ts
+server/src/intelligence/calibration.ts
+server/src/intelligence/hypothesis-history.ts
+server/src/intelligence/detectors.ts
+server/src/intelligence/format-context-pack.ts
+server/src/intelligence/prompts.ts
+server/src/intelligence/plans.ts
+server/src/intelligence/billing.ts
+server/src/intelligence/usage.ts
+server/src/intelligence/license.ts
+server/src/intelligence/team.ts
+server/src/intelligence/telemetry.ts
+server/src/intelligence/tools.ts

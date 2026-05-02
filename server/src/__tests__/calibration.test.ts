@@ -18,8 +18,8 @@ import {
   getStats,
   exportCsv,
   _resetForTesting,
-} from '../calibration.js';
-import type { Hypothesis } from '../causal.js';
+} from '../intelligence/calibration.js';
+import type { Hypothesis } from '../intelligence/causal.js';
 
 function fakeHyp(tag: string, confidence: Hypothesis['confidence'] = 'HIGH'): Hypothesis {
   return {

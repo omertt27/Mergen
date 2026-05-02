@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { store, BufferStore } from '../buffer.js';
-import type { ConsoleEvent, NetworkEvent, ContextSnapshot } from '../buffer.js';
+import { store, BufferStore } from '../sensor/buffer.js';
+import type { ConsoleEvent, NetworkEvent, ContextSnapshot } from '../sensor/buffer.js';
 
 const makeConsole = (level: 'log' | 'warn' | 'error', ts = Date.now()): ConsoleEvent => ({
   type: 'console', level, args: [`msg-${level}`], url: 'http://localhost/', timestamp: ts,

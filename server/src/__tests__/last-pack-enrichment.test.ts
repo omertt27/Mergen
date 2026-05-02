@@ -12,16 +12,16 @@
  * panel.ts:renderCalibrationHtml() and the Detector Health card depend on.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { hypothesisHistory } from '../hypothesis-history.js';
-import { store } from '../buffer.js';
-import { buildCausalChain } from '../causal.js';
+import { hypothesisHistory } from '../intelligence/hypothesis-history.js';
+import { store } from '../sensor/buffer.js';
+import { buildCausalChain } from '../intelligence/causal.js';
 import {
   recordPrediction,
   recordVerdict,
   getStats,
   _resetForTesting as resetCalibration,
-} from '../calibration.js';
-import type { Hypothesis } from '../causal.js';
+} from '../intelligence/calibration.js';
+import type { Hypothesis } from '../intelligence/causal.js';
 
 const NOW = Date.now();
 

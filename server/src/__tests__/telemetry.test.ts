@@ -41,7 +41,7 @@ describe('telemetry', () => {
   });
 
   it('is disabled by default and assigns a stable installId', async () => {
-    const t = await import('../telemetry.js');
+    const t = await import('../intelligence/telemetry.js');
     await t.initTelemetry();
     const s1 = t.getTelemetryState();
     expect(s1.enabled).toBe(false);
@@ -49,14 +49,14 @@ describe('telemetry', () => {
 
     // Re-init: installId persists.
     vi.resetModules();
-    const t2 = await import('../telemetry.js');
+    const t2 = await import('../intelligence/telemetry.js');
     await t2.initTelemetry();
     expect(t2.getTelemetryState().installId).toBe(s1.installId);
   });
 
   it('respects MERGEN_TELEMETRY=1 env override', async () => {
     process.env.MERGEN_TELEMETRY = '1';
-    const t = await import('../telemetry.js');
+    const t = await import('../intelligence/telemetry.js');
     await t.initTelemetry();
     expect(t.getTelemetryState().enabled).toBe(true);
   });
@@ -66,7 +66,7 @@ describe('telemetry', () => {
     vi.stubGlobal('fetch', fetchMock);
     process.env.MERGEN_TELEMETRY_URL = 'https://example.invalid/t';
 
-    const t = await import('../telemetry.js');
+    const t = await import('../intelligence/telemetry.js');
     await t.initTelemetry();
 
     const sent = await t.maybeSendTelemetry({
@@ -81,7 +81,7 @@ describe('telemetry', () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
 
-    const t = await import('../telemetry.js');
+    const t = await import('../intelligence/telemetry.js');
     await t.initTelemetry();
     await t.setTelemetryEnabled(true);
 
@@ -98,7 +98,7 @@ describe('telemetry', () => {
     vi.stubGlobal('fetch', fetchMock);
     process.env.MERGEN_TELEMETRY_URL = 'https://example.invalid/t';
 
-    const t = await import('../telemetry.js');
+    const t = await import('../intelligence/telemetry.js');
     await t.initTelemetry();
     await t.setTelemetryEnabled(true);
 
