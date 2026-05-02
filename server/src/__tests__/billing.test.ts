@@ -54,9 +54,10 @@ describe('billing webhook signature', () => {
 describe('planFromVariantId', () => {
   it('returns free for undefined variant', () => {
     // When LS_VARIANT_* env vars are not set, all lsVariantIds are null.
-    // planFromVariantId should fall back to solo_standard (not crash).
+    // planFromVariantId should fall back to solo_starter (not crash).
     const result = planFromVariantId(undefined);
-    expect(['free', 'solo_standard', 'solo_pro', 'team', 'pay_as_you_go']).toContain(result);
+    const validIds = ['free', 'solo_starter', 'solo_pro', 'solo_power', 'team', 'team_pro', 'pay_as_you_go'];
+    expect(validIds).toContain(result);
   });
 
   it('returns a valid PlanId string for any input', () => {

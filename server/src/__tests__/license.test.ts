@@ -26,17 +26,18 @@ describe('getPlan', () => {
     }
   });
 
-  it('unlimited plans have analyzeCreditsPerMonth === Infinity', () => {
-    expect(getPlan('solo_pro').analyzeCreditsPerMonth).toBe(Infinity);
-    expect(getPlan('team').analyzeCreditsPerMonth).toBe(Infinity);
+  it('all plans have finite analyzeCreditsPerMonth', () => {
+    for (const plan of Object.values(PLANS)) {
+      expect(Number.isFinite(plan.analyzeCreditsPerMonth)).toBe(true);
+    }
   });
 
-  it('free plan grants a small monthly analyze allowance (B1: feel-the-magic credits)', () => {
-    // Free is intentionally non-zero so new users can render at least one
-    // Context Pack and feel the Hypothesis Engine. Don't regress this to 0.
+  it('free plan grants a meaningful monthly analyze allowance (feel-the-magic credits)', () => {
+    // Free must be non-zero so new users can experience the Hypothesis Engine.
+    // Upper bound is generous — the moat is quality, not credit scarcity.
     const credits = getPlan('free').analyzeCreditsPerMonth;
     expect(credits).toBeGreaterThan(0);
-    expect(credits).toBeLessThanOrEqual(20); // safety cap so paid tiers aren't cannibalised
+    expect(credits).toBeLessThanOrEqual(200); // don't accidentally cannibalise paid tiers
   });
 
   it('free plan never charges overage', () => {

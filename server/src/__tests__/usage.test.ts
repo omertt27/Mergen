@@ -25,31 +25,32 @@ vi.mock('@lemonsqueezy/lemonsqueezy.js', () => ({
 // ── Mock license ──────────────────────────────────────────────────────────────
 const mockLicenseState: { value: { lsSubscriptionItemId?: string } | null } = { value: null };
 
-vi.mock('../license.js', () => ({
-  getActivePlanId: vi.fn(() => 'solo_standard'),
+vi.mock('../intelligence/license.js', () => ({
+  getActivePlanId: vi.fn(() => 'solo_starter'),
   getLicenseState: vi.fn(() => mockLicenseState.value),
 }));
 
 // ── Mock plans ────────────────────────────────────────────────────────────────
-vi.mock('../plans.js', () => ({
+vi.mock('../intelligence/plans.js', () => ({
   getPlan: vi.fn((id?: string) => {
     const plans: Record<string, { id: string; analyzeCreditsPerMonth: number; overageCentsPerCredit: number }> = {
-      free:          { id: 'free',          analyzeCreditsPerMonth: 10,       overageCentsPerCredit: 0 },
-      solo_standard: { id: 'solo_standard', analyzeCreditsPerMonth: 50,       overageCentsPerCredit: 5 },
-      solo_pro:      { id: 'solo_pro',      analyzeCreditsPerMonth: Infinity,  overageCentsPerCredit: 0 },
-      pay_as_you_go: { id: 'pay_as_you_go', analyzeCreditsPerMonth: 0,        overageCentsPerCredit: 5 },
+      free:          { id: 'free',          analyzeCreditsPerMonth: 10,  overageCentsPerCredit: 0 },
+      solo_starter:  { id: 'solo_starter',  analyzeCreditsPerMonth: 50,  overageCentsPerCredit: 3 },
+      solo_pro:      { id: 'solo_pro',      analyzeCreditsPerMonth: 200, overageCentsPerCredit: 2 },
+      solo_power:    { id: 'solo_power',    analyzeCreditsPerMonth: 500, overageCentsPerCredit: 1 },
+      pay_as_you_go: { id: 'pay_as_you_go', analyzeCreditsPerMonth: 0,   overageCentsPerCredit: 5 },
     };
     return plans[id ?? ''] ?? plans['free'];
   }),
 }));
 
 // ── Mock logger ───────────────────────────────────────────────────────────────
-vi.mock('../logger.js', () => ({
+vi.mock('../sensor/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
 // ── Mock paths ────────────────────────────────────────────────────────────────
-vi.mock('../paths.js', () => ({
+vi.mock('../sensor/paths.js', () => ({
   DATA_DIR: '/tmp/.mergen-test',
   USAGE_FILE: '/tmp/.mergen-test/usage.json',
 }));
@@ -110,10 +111,10 @@ describe('free plan', () => {
   });
 });
 
-// ── Unlimited plan (solo_pro) ─────────────────────────────────────────────────
+// ── High-quota plan (solo_pro) ────────────────────────────────────────────────
 
-describe('unlimited plan (solo_pro)', () => {
-  it('always allows and increments used', async () => {
+describe('high-quota plan (solo_pro)', () => {
+  it('allows calls and increments used', async () => {
     vi.mocked(getActivePlanId).mockReturnValue('solo_pro');
     const r1 = await consumeCredit();
     const r2 = await consumeCredit();
@@ -122,29 +123,27 @@ describe('unlimited plan (solo_pro)', () => {
     expect(getUsageSnapshot().used).toBe(2);
   });
 
-  it('snapshot returns null for included and remaining', () => {
+  it('snapshot returns numeric included and remaining', () => {
     vi.mocked(getActivePlanId).mockReturnValue('solo_pro');
     const snap = getUsageSnapshot();
-    expect(snap.included).toBeNull();
-    expect(snap.remaining).toBeNull();
+    expect(typeof snap.included).toBe('number');
+    expect(snap.remaining).toBeGreaterThanOrEqual(0);
     expect(snap.overage).toBe(0);
   });
 
-  it('batches disk writes — only persists every 10 calls', async () => {
+  it('persists to disk on each credit consumed', async () => {
     const fs = await import('fs/promises');
     vi.mocked(getActivePlanId).mockReturnValue('solo_pro');
-    for (let i = 0; i < 9; i++) await consumeCredit();
-    expect(vi.mocked(fs.default.writeFile).mock.calls.length).toBe(0);
-    await consumeCredit(); // 10th
-    expect(vi.mocked(fs.default.writeFile).mock.calls.length).toBeGreaterThanOrEqual(1);
+    for (let i = 0; i < 5; i++) await consumeCredit();
+    expect(vi.mocked(fs.default.writeFile).mock.calls.length).toBe(5);
   });
 });
 
-// ── Included quota (solo_standard) ───────────────────────────────────────────
+// ── Included quota (solo_starter) ────────────────────────────────────────────
 
-describe('solo_standard quota', () => {
+describe('solo_starter quota', () => {
   it('allows calls within quota', async () => {
-    vi.mocked(getActivePlanId).mockReturnValue('solo_standard');
+    vi.mocked(getActivePlanId).mockReturnValue('solo_starter');
     const result = await consumeCredit();
     expect(result.allowed).toBe(true);
     expect(getUsageSnapshot().used).toBe(1);
@@ -153,8 +152,8 @@ describe('solo_standard quota', () => {
   it('blocks when quota is exhausted and no overage plan', async () => {
     // Override plan to have no overage for this test only
     const { getPlan } = await import('../intelligence/plans.js');
-    vi.mocked(getPlan).mockReturnValueOnce({ id: 'solo_standard', analyzeCreditsPerMonth: 50, overageCentsPerCredit: 0 } as never);
-    vi.mocked(getPlan).mockReturnValueOnce({ id: 'solo_standard', analyzeCreditsPerMonth: 1, overageCentsPerCredit: 0 } as never);
+    vi.mocked(getPlan).mockReturnValueOnce({ id: 'solo_starter', analyzeCreditsPerMonth: 50, overageCentsPerCredit: 0 } as never);
+    vi.mocked(getPlan).mockReturnValueOnce({ id: 'solo_starter', analyzeCreditsPerMonth: 1, overageCentsPerCredit: 0 } as never);
     _resetForTesting({ month: new Date().toISOString().slice(0, 7), used: 0, overageReported: 0, overagePending: 0 });
     await consumeCredit(); // use the 1 included credit
     const result = await consumeCredit();
@@ -163,7 +162,7 @@ describe('solo_standard quota', () => {
   });
 
   it('snapshot remaining decrements correctly', async () => {
-    vi.mocked(getActivePlanId).mockReturnValue('solo_standard');
+    vi.mocked(getActivePlanId).mockReturnValue('solo_starter');
     _resetForTesting({ used: 20 } as never);
     const snap = getUsageSnapshot();
     expect(snap.remaining).toBe(30);
@@ -171,11 +170,11 @@ describe('solo_standard quota', () => {
   });
 });
 
-// ── Overage — solo_standard ───────────────────────────────────────────────────
+// ── Overage — solo_starter ────────────────────────────────────────────────────
 
-describe('overage (solo_standard)', () => {
+describe('overage (solo_starter)', () => {
   beforeEach(() => {
-    vi.mocked(getActivePlanId).mockReturnValue('solo_standard');
+    vi.mocked(getActivePlanId).mockReturnValue('solo_starter');
     _resetForTesting({ month: new Date().toISOString().slice(0, 7), used: 50, overageReported: 0, overagePending: 0 });
     mockLicenseState.value = { lsSubscriptionItemId: 'item_123' };
   });
@@ -192,7 +191,7 @@ describe('overage (solo_standard)', () => {
     _resetForTesting({ month: new Date().toISOString().slice(0, 7), used: 55, overageReported: 0, overagePending: 5 });
     const snap = getUsageSnapshot();
     expect(snap.overage).toBe(5);
-    expect(snap.estimatedOverageCents).toBe(25); // 5 * 5 cents
+    expect(snap.estimatedOverageCents).toBe(15); // 5 * 3 cents (solo_starter rate)
   });
 });
 
@@ -204,7 +203,7 @@ describe('overage (pay_as_you_go) — PAYG formula', () => {
     _resetForTesting({ month: new Date().toISOString().slice(0, 7), used: 7, overageReported: 0, overagePending: 7 });
     const snap = getUsageSnapshot();
     expect(snap.overage).toBe(7);
-    expect(snap.included).toBe(0);
+    expect(snap.included).toBeNull();
     expect(snap.estimatedOverageCents).toBe(35); // 7 * 5 cents
   });
 });
@@ -217,17 +216,17 @@ describe('concurrent consumeCredit (mutex)', () => {
     const { getPlan } = await import('../intelligence/plans.js');
     vi.mocked(getPlan).mockImplementation((id?: string) => {
       const plans: Record<string, { id: string; analyzeCreditsPerMonth: number; overageCentsPerCredit: number }> = {
-        free:          { id: 'free',          analyzeCreditsPerMonth: 10,       overageCentsPerCredit: 0 },
-        solo_standard: { id: 'solo_standard', analyzeCreditsPerMonth: 50,       overageCentsPerCredit: 5 },
-        solo_pro:      { id: 'solo_pro',      analyzeCreditsPerMonth: Infinity,  overageCentsPerCredit: 0 },
-        pay_as_you_go: { id: 'pay_as_you_go', analyzeCreditsPerMonth: 0,        overageCentsPerCredit: 5 },
+        free:          { id: 'free',          analyzeCreditsPerMonth: 10,  overageCentsPerCredit: 0 },
+        solo_starter:  { id: 'solo_starter',  analyzeCreditsPerMonth: 50,  overageCentsPerCredit: 3 },
+        solo_pro:      { id: 'solo_pro',      analyzeCreditsPerMonth: 200, overageCentsPerCredit: 2 },
+        pay_as_you_go: { id: 'pay_as_you_go', analyzeCreditsPerMonth: 0,   overageCentsPerCredit: 5 },
       };
       return (plans[id ?? ''] ?? plans['free']) as never;
     });
   });
 
   it('does not double-count credits under concurrent calls', async () => {
-    vi.mocked(getActivePlanId).mockReturnValue('solo_standard');
+    vi.mocked(getActivePlanId).mockReturnValue('solo_starter');
     // Fire 10 concurrent calls
     await Promise.all(Array.from({ length: 10 }, () => consumeCredit()));
     expect(getUsageSnapshot().used).toBe(10);
@@ -238,7 +237,7 @@ describe('concurrent consumeCredit (mutex)', () => {
 
 describe('month rollover', () => {
   it('resets used to 0 when month changes', async () => {
-    vi.mocked(getActivePlanId).mockReturnValue('solo_standard');
+    vi.mocked(getActivePlanId).mockReturnValue('solo_starter');
     _resetForTesting({ month: '2026-03', used: 40, overageReported: 0, overagePending: 0 });
     const result = await consumeCredit();
     expect(result.allowed).toBe(true);
@@ -247,7 +246,7 @@ describe('month rollover', () => {
   });
 
   it('flushes overagePending before rollover reset', async () => {
-    vi.mocked(getActivePlanId).mockReturnValue('solo_standard');
+    vi.mocked(getActivePlanId).mockReturnValue('solo_starter');
     mockFetchOk();
     mockLicenseState.value = { lsSubscriptionItemId: 'item_abc' };
     _resetForTesting({ month: '2026-03', used: 55, overageReported: 0, overagePending: 5 });

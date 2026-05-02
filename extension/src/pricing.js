@@ -5,9 +5,11 @@
   const BASE = `http://127.0.0.1:${mergenPort}`;
 
   const LS_URLS = {
-    solo_standard: 'https://mergen.lemonsqueezy.com/buy/solo-standard',
+    solo_starter:  'https://mergen.lemonsqueezy.com/buy/solo-starter',
     solo_pro:      'https://mergen.lemonsqueezy.com/buy/solo-pro',
+    solo_power:    'https://mergen.lemonsqueezy.com/buy/solo-power',
     team:          'https://mergen.lemonsqueezy.com/buy/team',
+    team_pro:      'https://mergen.lemonsqueezy.com/buy/team-pro',
     pay_as_you_go: 'https://mergen.lemonsqueezy.com/buy/payg',
   };
 
@@ -59,7 +61,7 @@
         }
       }
 
-      if (currentPlanId === 'team') {
+      if (currentPlanId === 'team' || currentPlanId === 'team_pro') {
         document.getElementById('team-section').style.display = 'block';
         loadTeamState();
       }
@@ -69,7 +71,13 @@
   function markCurrentPlan(planId) {
     document.querySelectorAll('.cta-btn[data-plan]').forEach((btn) => {
       const plan = btn.dataset.plan;
-      const labels = { solo_standard: 'Get Standard →', solo_pro: 'Get Pro →', team: 'Get Team →' };
+      const labels = {
+        solo_starter: 'Get Starter →',
+        solo_pro:     'Get Pro →',
+        solo_power:   'Get Power →',
+        team:         'Get Team →',
+        team_pro:     'Get Team Pro →',
+      };
       btn.textContent = labels[plan] ?? 'Get plan →';
       btn.className = 'cta-btn cta-paid';
     });
@@ -125,7 +133,7 @@
       keyResult.style.display = 'block';
       keyInput.value = '';
       markCurrentPlan(data.plan);
-      if (data.plan === 'team') {
+      if (data.plan === 'team' || data.plan === 'team_pro') {
         document.getElementById('team-section').style.display = 'block';
         loadTeamState();
       }

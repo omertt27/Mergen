@@ -425,79 +425,130 @@
     <button class="deactivate-btn" id="deactivate-btn">Remove license</button>
   </div>
 
-  <!-- Plan cards -->
-  <div class="plans">
+  <!-- Plan cards — Solo -->
+  <div style="margin-bottom:12px">
+    <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-bottom:14px">Individual</div>
+    <div class="plans" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">
 
-    <!-- Free -->
-    <div class="plan-card" id="card-free">
-      <div class="plan-name">Free</div>
-      <div class="plan-price"><sup>$</sup>0<span class="period">/mo</span></div>
-      <div class="plan-sub">Forever free, no card required</div>
-      <hr class="divider" />
-      <ul class="features">
-        <li class="yes"><i class="icon">✓</i> Full 200-event buffer</li>
-        <li class="yes"><i class="icon">✓</i> All local MCP tools</li>
-        <li class="yes"><i class="icon">✓</i> Console + network capture</li>
-        <li class="yes"><i class="icon">✓</i> VS Code panel + calibration</li>
-        <li class="yes"><i class="icon">✓</i> 25 analyze_runtime / month</li>
-        <li class="no"><i class="icon">✗</i> Team sync</li>
-      </ul>
-      <span class="cta-btn cta-free" id="cta-free">Current plan</span>
+      <!-- Free -->
+      <div class="plan-card" id="card-free">
+        <div class="plan-name">Free</div>
+        <div class="plan-price"><sup>$</sup>0<span class="period">/mo</span></div>
+        <div class="plan-sub">Forever free, no card required</div>
+        <hr class="divider" />
+        <ul class="features">
+          <li class="yes"><i class="icon">✓</i> Full 200-event buffer</li>
+          <li class="yes"><i class="icon">✓</i> All local MCP tools</li>
+          <li class="yes"><i class="icon">✓</i> Console + network capture</li>
+          <li class="yes"><i class="icon">✓</i> VS Code panel + calibration</li>
+          <li class="yes"><i class="icon">✓</i> 100 analyze_runtime / month</li>
+          <li class="yes"><i class="icon">✓</i> Burst cap: 10 / hour</li>
+          <li class="no"><i class="icon">✗</i> Overage calls</li>
+          <li class="no"><i class="icon">✗</i> Team sync</li>
+        </ul>
+        <span class="cta-btn cta-free" id="cta-free">Current plan</span>
+      </div>
+
+      <!-- Solo Starter -->
+      <div class="plan-card" id="card-solo_starter">
+        <div class="plan-name">Solo Starter</div>
+        <div class="plan-price"><sup>$</sup><span class="price-val" data-monthly="15" data-annual="12">15</span><span class="period">/mo</span></div>
+        <div class="plan-sub">Billed <span class="billing-period">monthly</span></div>
+        <hr class="divider" />
+        <ul class="features">
+          <li class="yes"><i class="icon">✓</i> Everything in Free</li>
+          <li class="yes"><i class="icon">✓</i> 500 analyze_runtime / month</li>
+          <li class="yes"><i class="icon">✓</i> No burst limit</li>
+          <li class="yes"><i class="icon">✓</i> $0.03 / extra call</li>
+          <li class="no"><i class="icon">✗</i> Team sync</li>
+        </ul>
+        <a class="cta-btn cta-paid" id="cta-solo_starter" href="#" data-plan="solo_starter">Get Starter →</a>
+      </div>
+
+      <!-- Solo Pro -->
+      <div class="plan-card popular" id="card-solo_pro">
+        <div class="popular-badge">✦ MOST POPULAR</div>
+        <div class="plan-name">Solo Pro</div>
+        <div class="plan-price"><sup>$</sup><span class="price-val" data-monthly="29" data-annual="23">29</span><span class="period">/mo</span></div>
+        <div class="plan-sub">Billed <span class="billing-period">monthly</span></div>
+        <hr class="divider" />
+        <ul class="features">
+          <li class="yes"><i class="icon">✓</i> Everything in Starter</li>
+          <li class="yes"><i class="icon">✓</i> 2 000 analyze_runtime / month</li>
+          <li class="yes"><i class="icon">✓</i> $0.015 / extra call</li>
+          <li class="yes"><i class="icon">✓</i> Priority responses</li>
+          <li class="no"><i class="icon">✗</i> Team sync</li>
+        </ul>
+        <a class="cta-btn cta-paid" id="cta-solo_pro" href="#" data-plan="solo_pro">Get Pro →</a>
+      </div>
+
+      <!-- Solo Power -->
+      <div class="plan-card" id="card-solo_power">
+        <div class="plan-name">Solo Power</div>
+        <div class="plan-price"><sup>$</sup><span class="price-val" data-monthly="49" data-annual="39">49</span><span class="period">/mo</span></div>
+        <div class="plan-sub">Billed <span class="billing-period">monthly</span></div>
+        <hr class="divider" />
+        <ul class="features">
+          <li class="yes"><i class="icon">✓</i> Everything in Pro</li>
+          <li class="yes"><i class="icon">✓</i> 5 000 analyze_runtime / month</li>
+          <li class="yes"><i class="icon">✓</i> $0.01 / extra call</li>
+          <li class="yes"><i class="icon">✓</i> Lowest per-call rate</li>
+          <li class="no"><i class="icon">✗</i> Team sync</li>
+        </ul>
+        <a class="cta-btn cta-paid" id="cta-solo_power" href="#" data-plan="solo_power">Get Power →</a>
+      </div>
+
     </div>
+  </div>
 
-    <!-- Solo Standard -->
-    <div class="plan-card" id="card-solo_standard">
-      <div class="plan-name">Solo Standard</div>
-      <div class="plan-price"><sup>$</sup><span class="price-val" data-monthly="19" data-annual="15">19</span><span class="period">/mo</span></div>
-      <div class="plan-sub">Billed <span class="billing-period">monthly</span></div>
-      <hr class="divider" />
-      <ul class="features">
-        <li class="yes"><i class="icon">✓</i> Everything in Free</li>
-        <li class="yes"><i class="icon">✓</i> Full 200-event buffer</li>
-        <li class="yes"><i class="icon">✓</i> 500 analyze_runtime credits/mo</li>
-        <li class="yes"><i class="icon">✓</i> $0.05 per extra call</li>
-        <li class="no"><i class="icon">✗</i> Team sync</li>
-      </ul>
-      <a class="cta-btn cta-paid" id="cta-solo_standard" href="#" data-plan="solo_standard">Get Standard →</a>
+  <!-- Plan cards — Team -->
+  <div style="margin-bottom:52px">
+    <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-bottom:14px">Team</div>
+    <div class="plans" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">
+
+      <!-- Team -->
+      <div class="plan-card" id="card-team">
+        <div class="plan-name">Team</div>
+        <div class="plan-price"><sup>$</sup><span class="price-val" data-monthly="39" data-annual="31">39</span><span class="period">/seat/mo</span></div>
+        <div class="plan-sub">Billed <span class="billing-period">monthly</span></div>
+        <hr class="divider" />
+        <ul class="features">
+          <li class="yes"><i class="icon">✓</i> 3 000 credits / seat, pooled</li>
+          <li class="yes"><i class="icon">✓</i> $0.015 / extra call</li>
+          <li class="yes"><i class="icon">✓</i> Shared calibration</li>
+          <li class="yes"><i class="icon">✓</i> See teammates' crashes</li>
+          <li class="yes"><i class="icon">✓</i> Shared team context</li>
+          <li class="no"><i class="icon">✗</i> Org-level insights</li>
+          <li class="soon"><i class="icon">⏳</i> SSO (coming soon)</li>
+        </ul>
+        <a class="cta-btn cta-paid" id="cta-team" href="#" data-plan="team">Get Team →</a>
+      </div>
+
+      <!-- Team Pro -->
+      <div class="plan-card popular" id="card-team_pro">
+        <div class="popular-badge">✦ TEAM INTELLIGENCE</div>
+        <div class="plan-name">Team Pro</div>
+        <div class="plan-price"><sup>$</sup><span class="price-val" data-monthly="59" data-annual="47">59</span><span class="period">/seat/mo</span></div>
+        <div class="plan-sub">Billed <span class="billing-period">monthly</span></div>
+        <hr class="divider" />
+        <ul class="features">
+          <li class="yes"><i class="icon">✓</i> Everything in Team</li>
+          <li class="yes"><i class="icon">✓</i> 8 000 credits / seat, pooled</li>
+          <li class="yes"><i class="icon">✓</i> $0.01 / extra call</li>
+          <li class="yes"><i class="icon">✓</i> Detector accuracy stats</li>
+          <li class="yes"><i class="icon">✓</i> Bug pattern history</li>
+          <li class="yes"><i class="icon">✓</i> Collaboration + insight reports</li>
+          <li class="soon"><i class="icon">⏳</i> SSO (coming soon)</li>
+        </ul>
+        <a class="cta-btn cta-paid" id="cta-team_pro" href="#" data-plan="team_pro">Get Team Pro →</a>
+      </div>
+
     </div>
-
-    <!-- Solo Pro -->
-    <div class="plan-card popular" id="card-solo_pro">
-      <div class="popular-badge">✦ MOST POPULAR</div>
-      <div class="plan-name">Solo Pro</div>
-      <div class="plan-price"><sup>$</sup><span class="price-val" data-monthly="39" data-annual="31">39</span><span class="period">/mo</span></div>
-      <div class="plan-sub">Billed <span class="billing-period">monthly</span></div>
-      <hr class="divider" />
-      <ul class="features">
-        <li class="yes"><i class="icon">✓</i> Everything in Standard</li>
-        <li class="yes"><i class="icon">✓</i> Unlimited analyze_runtime</li>
-        <li class="yes"><i class="icon">✓</i> Priority support</li>
-        <li class="no"><i class="icon">✗</i> Team sync</li>
-      </ul>
-      <a class="cta-btn cta-paid" id="cta-solo_pro" href="#" data-plan="solo_pro">Get Pro →</a>
-    </div>
-
-    <!-- Team -->
-    <div class="plan-card" id="card-team">
-      <div class="plan-name">Team</div>
-      <div class="plan-price"><sup>$</sup><span class="price-val" data-monthly="49" data-annual="39">49</span><span class="period">/seat/mo</span></div>
-      <div class="plan-sub">Billed <span class="billing-period">monthly</span></div>
-      <hr class="divider" />
-      <ul class="features">
-        <li class="yes"><i class="icon">✓</i> Everything in Pro</li>
-        <li class="yes"><i class="icon">✓</i> Shared team context</li>
-        <li class="yes"><i class="icon">✓</i> See teammates' crashes</li>
-        <li class="yes"><i class="icon">✓</i> Unlimited analyze_runtime</li>
-        <li class="soon"><i class="icon">⏳</i> SSO (coming soon)</li>
-      </ul>
-      <a class="cta-btn cta-paid" id="cta-team" href="#" data-plan="team">Get Team →</a>
-    </div>
-
   </div>
 
   <!-- PAYG callout -->
   <div class="payg-callout">
-    <p>Just need occasional deep analysis? <strong>Pay-as-you-go</strong> — $0.05 per <code>analyze_runtime</code> call with no subscription. Credits are charged via LemonSqueezy at the end of each month.</p>
+    <p>Just need occasional deep analysis? <strong>Pay-as-you-go</strong> — $0.05 per <code>analyze_runtime</code> call, no subscription needed. Charged via LemonSqueezy at end of month. Heavy users find a subscription more economical.</p>
     <a class="payg-btn" id="payg-link" href="#">Set up PAYG →</a>
   </div>
 
@@ -569,12 +620,22 @@
 
     <details class="faq-item">
       <summary>What happens when I hit my monthly credit limit?</summary>
-      <p>On Solo Standard, additional calls cost $0.05 each and are not blocked — they're billed at month-end via LemonSqueezy usage-based billing. On the Free plan, analyze_runtime is capped at 25 calls/month (hard cap, no surprise charges). Upgrade to Solo Pro or Team for unlimited calls.</p>
+      <p>On any paid plan, additional calls beyond the included amount are never blocked — they're billed at the plan's overage rate at month-end via LemonSqueezy usage-based billing. On the Free plan, analyze_runtime is hard-capped at 100 calls/month (no surprise charges). Upgrade to a higher tier to reduce your per-call overage cost.</p>
+    </details>
+
+    <details class="faq-item">
+      <summary>Why no "Unlimited" plans?</summary>
+      <p>Dev usage isn't linear — a normal day might mean 5–10 calls, a deep debugging session can mean 50+. Unlimited plans would cap your flexibility: either we'd price them high enough to cover the worst-case cost (bad for most users) or we'd absorb infra explosions when people sprint. Hybrid pricing adapts to your actual usage while staying predictable.</p>
     </details>
 
     <details class="faq-item">
       <summary>How does overage billing work technically?</summary>
       <p>When you exceed your included credits, Mergen queues the count locally and reports it to LemonSqueezy's usage-records API in batches (every 5 seconds of activity). Pending counts survive server restarts and are flushed on next startup. You can always see the current overage count in the popup or at <code>/usage</code>.</p>
+    </details>
+
+    <details class="faq-item">
+      <summary>What is "shared calibration" on team plans?</summary>
+      <p>Mergen tracks how accurate each error detector and hypothesis is for your codebase over time. On Team plans, this calibration data is shared across the team — so if one teammate marks a hypothesis as correct or wrong, everyone benefits from the updated ranking. On Team Pro you also get org-level reports: detector accuracy rates, recurring bug patterns across the team, and weekly insight summaries.</p>
     </details>
 
     <details class="faq-item">
