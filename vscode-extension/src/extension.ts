@@ -11,6 +11,7 @@ const FEEDBACK_URL = 'https://github.com/omertt27/Mergen/discussions/new?categor
 const INSTALL_GUIDE_URL = 'https://github.com/omertt27/Mergen#install-in-60-seconds';
 
 export function activate(context: vscode.ExtensionContext): void {
+  console.log('[Mergen] activate() called');
   // Register the sidebar webview provider
   const provider = new MergenPanel(context);
   context.subscriptions.push(

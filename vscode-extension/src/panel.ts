@@ -161,6 +161,15 @@ interface ServerState {
   error: string | null;
 }
 
+function getNonce(): string {
+  let text = '';
+  const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  for (let i = 0; i < 32; i++) {
+    text += possible.charAt(Math.floor(Math.random() * possible.length));
+  }
+  return text;
+}
+
 export class MergenPanel implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private _state: ServerState = {
@@ -197,7 +206,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
       localResourceRoots: [this._context.extensionUri],
     };
 
-    webviewView.webview.html = this._getHtml();
+    webviewView.webview.html = this._getHtml(webviewView.webview);
 
     // Handle messages from the webview
     webviewView.webview.onDidReceiveMessage(async (msg: { type: string; tool?: string; text?: string; command?: string; pid?: string; verdict?: string }) => {
@@ -273,6 +282,11 @@ export class MergenPanel implements vscode.WebviewViewProvider {
         });
       }
     });
+
+    // Push the current state immediately so the webview never gets stuck on the
+    // loading screen while waiting for the first HTTP poll to complete.
+    // VS Code queues postMessage calls and delivers them once the webview is ready.
+    this._send({ type: 'state', state: this._state });
 
     // Start polling
     this._startPolling();
@@ -488,13 +502,14 @@ export class MergenPanel implements vscode.WebviewViewProvider {
 
   // ── HTML ─────────────────────────────────────────────────────────────────────
 
-  private _getHtml(): string {
+  private _getHtml(_webview: vscode.Webview): string {
+    const nonce = getNonce();
     return /* html */`<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
 <title>Mergen</title>
 <style>
   :root {
@@ -990,7 +1005,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
 <!-- Loading state (shown until first render) -->
 <div class="loading" id="loading">
   <span class="loading-spinner">⟳</span>
-  Connecting to Mergen server…
+  Loading Mergen v2…
 </div>
 
 <!-- Disconnected state -->
@@ -1141,7 +1156,9 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   </div>
 </div>
 
-<script>
+<script nonce="${nonce}">
+  document.getElementById('loading').textContent = 'Script started…';
+  try {
   const vscode = acquireVsCodeApi();
 
   function send(type) { vscode.postMessage({ type }); }
@@ -1262,15 +1279,20 @@ export class MergenPanel implements vscode.WebviewViewProvider {
 
   // Register the message listener BEFORE sending 'ready', so we never
   // miss the host's immediate state reply.
+  let _rendered = false;
   window.addEventListener('message', ({ data }) => {
     console.log('[Mergen webview] message received', JSON.stringify(data).slice(0, 200));
-    if (data.type === 'state') render(data.state);
+    if (data.type === 'state') { _rendered = true; render(data.state); }
   });
 
   console.log('[Mergen webview] listener registered, sending ready');
   // Signal ready to start polling — host will reply with current state immediately.
   send('ready');
   console.log('[Mergen webview] ready sent');
+
+  // Fallback: if no state is received within 3 s (e.g. race condition on first load),
+  // re-send 'ready' so the host pushes state again.
+  setTimeout(() => { if (!_rendered) { console.log('[Mergen webview] retry ready'); send('ready'); } }, 3000);
 
   function render(state) {
     // Hide the loading spinner on the very first render
@@ -1517,6 +1539,8 @@ export class MergenPanel implements vscode.WebviewViewProvider {
       return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
     } catch (_) { return iso; }
   }
+  document.getElementById('loading').textContent = 'Script complete, ready sent.';
+  } catch(e) { document.getElementById('loading').textContent = 'SCRIPT ERROR: ' + e.message; }
 </script>
 </body>
 </html>`;

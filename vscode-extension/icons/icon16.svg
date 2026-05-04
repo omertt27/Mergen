@@ -1,9 +1,3 @@
-<!--
-  Activity-bar glyph. VS Code re-colours this with `currentColor`, so it
-  must be monochrome — no fills, no gradients. We mirror the wordmark "M"
-  used in the Marketplace tile so the brand reads consistently between the
-  store listing and the sidebar.
--->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor">
   <path d="M 3 13
            L 3 3
