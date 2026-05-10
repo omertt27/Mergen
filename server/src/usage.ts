@@ -1,0 +1,432 @@
+/**
+ * usage.ts — Monthly analyze_runtime credit tracking, persisted to disk.
+ *
+ * Credits reset on the 1st of every calendar month (UTC).
+ * State file: ~/.mergen/usage.json
+ *
+ * Pay-as-you-go / overage flow:
+ *   When a credit is consumed beyond the included quota (or on PAYG), a usage
+ *   record is reported to LemonSqueezy via their usage-based billing API.
+ *   LemonSqueezy charges the customer at their next billing cycle.
+ *
+ *   The subscription item ID is stored in ~/.mergen/license.json under
+ *   `lsSubscriptionItemId` — populated by the billing webhook handler when a
+ *   subscription_created / order_created event arrives.
+ */
+
+import fs from 'fs/promises';
+import { getActivePlanId, getLicenseState } from './license.js';
+import { getPlan } from './plans.js';
+import { DATA_DIR, USAGE_FILE } from './paths.js';
+import logger from './logger.js';
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const FLUSH_DEBOUNCE_MS  = 5_000;  // batch overage calls into one API request
+const FETCH_TIMEOUT_MS   = 8_000;  // LS API request timeout
+const FLUSH_MAX_RETRIES  = 3;      // exponential back-off attempts
+const FLUSH_RETRY_BASE_MS = 2_000; // 2 s → 4 s → 8 s
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface UsageState {
+  /** "YYYY-MM" */
+  month: string;
+  /** credits consumed this month (included + overage) */
+  used: number;
+  /** overage credits already reported to LS */
+  overageReported: number;
+  /** overage credits accumulated but not yet sent to LS */
+  overagePending: number;
+  /**
+   * Rolling daily counters of *automatic* causal-chain rebuilds — the
+   * "watcher" pivot's North-Star metric: analyses per developer per day.
+   * This is intentionally separate from `used` (which counts paid MCP
+   * tool calls only). Map of "YYYY-MM-DD" → count, capped to last 30 days.
+   */
+  analysesByDay?: Record<string, number>;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+// #7 — declared before first use
+function currentMonth(): string {
+  return new Date().toISOString().slice(0, 7); // "2026-04"
+}
+
+function currentDay(): string {
+  return new Date().toISOString().slice(0, 10); // "2026-04-15"
+}
+
+/** Trim analysesByDay to the last `keep` days so it can never grow unbounded. */
+function trimAnalysesByDay(map: Record<string, number>, keep = 30): Record<string, number> {
+  const days = Object.keys(map).sort(); // ISO dates sort lexically
+  if (days.length <= keep) return map;
+  const out: Record<string, number> = {};
+  for (const d of days.slice(-keep)) out[d] = map[d];
+  return out;
+}
+
+let _sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
+
+function sleep(ms: number): Promise<void> { return _sleep(ms); }
+
+// ── In-memory state ───────────────────────────────────────────────────────────
+
+let _usage: UsageState = {
+  month: currentMonth(),
+  used: 0,
+  overageReported: 0,
+  overagePending: 0,
+};
+
+// #1 — mutex: serialise all read-modify-write operations
+let _lock: Promise<void> = Promise.resolve();
+
+function withLock<T>(fn: () => Promise<T>): Promise<T> {
+  const next = _lock.then(fn);
+  // Keep _lock as a void chain so a rejection in fn doesn't stall future calls
+  _lock = next.then(() => undefined, () => undefined);
+  return next;
+}
+
+// ── Persistence ───────────────────────────────────────────────────────────────
+
+async function loadUsage(): Promise<void> {
+  try {
+    const raw = await fs.readFile(USAGE_FILE, 'utf8');
+    const parsed: UsageState = JSON.parse(raw);
+    if (parsed.month === currentMonth()) {
+      _usage = {
+        month: parsed.month,
+        used: parsed.used,
+        overageReported: parsed.overageReported ?? 0,
+        overagePending: parsed.overagePending ?? 0,
+      };
+    } else {
+      // #2 — flush pending overage BEFORE wiping the previous month's state
+      if (parsed.overagePending > 0) {
+        _usage = { ...parsed };
+        logger.info({ pending: parsed.overagePending }, 'flushing overage from previous month before rollover');
+        await flushOverageWithRetry();
+      }
+      _usage = { month: currentMonth(), used: 0, overageReported: 0, overagePending: 0 };
+      await saveUsage();
+    }
+  } catch {
+    _usage = { month: currentMonth(), used: 0, overageReported: 0, overagePending: 0 };
+  }
+}
+
+async function saveUsage(): Promise<void> {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.writeFile(USAGE_FILE, JSON.stringify(_usage, null, 2), 'utf8');
+}
+
+export async function initUsage(): Promise<void> {
+  await loadUsage();
+  logger.info({ used: _usage.used, month: _usage.month }, 'usage loaded');
+
+  // lemonSqueezySetup is called once in main() — no need to call it here
+
+  // Flush any overage that wasn't reported before last shutdown
+  if (_usage.overagePending > 0) {
+    logger.info({ pending: _usage.overagePending }, 'flushing pending overage on startup');
+    await flushOverageWithRetry();
+  }
+}
+
+// ── Snapshot ──────────────────────────────────────────────────────────────────
+
+/** ISO timestamp of the next monthly reset (1st of next month, 00:00 UTC). */
+function nextResetAt(): string {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString();
+}
+
+export function getUsageSnapshot() {
+  const plan = getPlan(getActivePlanId());
+  const included = plan.analyzeCreditsPerMonth;
+  const remaining = included === Infinity ? Infinity : Math.max(0, included - _usage.used);
+  // #3 — correct overage formula for all plans including PAYG (included === 0)
+  const overage = included === Infinity ? 0 : Math.max(0, _usage.used - included);
+
+  // Low-credit threshold: warn when ≤ 20% of quota remains (min 5, max 10)
+  const lowCreditThreshold =
+    included !== Infinity && included > 0
+      ? Math.min(10, Math.max(5, Math.floor(included * 0.2)))
+      : null;
+  const lowCredits =
+    lowCreditThreshold !== null &&
+    remaining !== Infinity &&
+    (remaining as number) <= lowCreditThreshold;
+
+  return {
+    planId: plan.id,
+    planName: plan.name,
+    month: _usage.month,
+    resetsAt: nextResetAt(),                            // pain #5 — expose reset time
+    used: _usage.used,
+    included: included === Infinity ? null : included,
+    remaining: remaining === Infinity ? null : remaining,
+    lowCredits,                                         // pain #2 — low-credit flag
+    overage,
+    // pain #6 — rename to a user-friendly label; keep internal key for compat
+    billingStatus: _usage.overagePending > 0 ? 'pending' : 'confirmed' as 'pending' | 'confirmed',
+    overagePendingCredits: _usage.overagePending,       // pain #6 — clear label
+    overageConfirmedCredits: _usage.overageReported,
+    overageCentsPerCredit: plan.overageCentsPerCredit,
+    estimatedOverageCents: overage * plan.overageCentsPerCredit,
+    // ── Watcher KPI: analyses per developer per day ──
+    // Counts *automatic* causal-chain rebuilds (pageload / hmr / burst /
+    // periodic / error). This is the "did Mergen actually run today?"
+    // engagement metric — not a billing input.
+    analysesByDay: _usage.analysesByDay ?? {},
+    analysesToday: (_usage.analysesByDay ?? {})[currentDay()] ?? 0,
+    analysesAvgPerDay7d: (() => {
+      const map = _usage.analysesByDay ?? {};
+      const days = Object.keys(map).sort().slice(-7);
+      if (days.length === 0) return 0;
+      const sum = days.reduce((a, d) => a + (map[d] ?? 0), 0);
+      return Math.round((sum / days.length) * 10) / 10;
+    })(),
+  };
+}
+
+// ── LemonSqueezy usage reporting ──────────────────────────────────────────────
+
+/**
+ * Send one usage-record POST to LS. Returns true on success.
+ */
+async function postOverage(qty: number, subscriptionItemId: string, apiKey: string): Promise<boolean> {
+  const res = await fetch('https://api.lemonsqueezy.com/v1/usage-records', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/vnd.api+json',
+      Accept: 'application/vnd.api+json',
+    },
+    body: JSON.stringify({
+      data: {
+        type: 'usage-records',
+        attributes: { quantity: qty, action: 'increment' },
+        relationships: {
+          'subscription-item': {
+            data: { type: 'subscription-items', id: String(subscriptionItemId) },
+          },
+        },
+      },
+    }),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    logger.error({ status: res.status, body }, 'LS usage record creation failed');
+    return false;
+  }
+  return true;
+}
+
+/**
+ * #4 — Report pending overage with exponential back-off (up to FLUSH_MAX_RETRIES).
+ */
+async function flushOverageWithRetry(): Promise<void> {
+  const qty = _usage.overagePending;
+  if (qty <= 0) return;
+
+  // #8 — use typed LicenseState; no cast gymnastics needed
+  const licState = getLicenseState();
+  const subscriptionItemId = licState?.lsSubscriptionItemId;
+
+  if (!subscriptionItemId) {
+    logger.warn({ qty }, 'overageFlush skipped — no lsSubscriptionItemId; will retry on next startup');
+    return;
+  }
+
+  const apiKey = process.env.LS_API_KEY;
+  if (!apiKey) {
+    logger.warn('overageFlush skipped — LS_API_KEY not set');
+    return;
+  }
+
+  for (let attempt = 1; attempt <= FLUSH_MAX_RETRIES; attempt++) {
+    try {
+      const ok = await postOverage(qty, subscriptionItemId, apiKey);
+      if (ok) {
+        _usage.overageReported += qty;
+        _usage.overagePending = 0;
+        await saveUsage();
+        logger.info({ qty, totalReported: _usage.overageReported }, 'overage reported to LemonSqueezy ✓');
+        return;
+      }
+    } catch (err) {
+      logger.warn({ err, qty, attempt }, 'overage report request threw — will retry');
+    }
+
+    if (attempt < FLUSH_MAX_RETRIES) {
+      const delay = FLUSH_RETRY_BASE_MS * 2 ** (attempt - 1); // 2 s, 4 s, 8 s
+      logger.info({ delay, attempt }, 'retrying overage flush…');
+      await sleep(delay);
+    }
+  }
+
+  logger.warn({ qty }, 'overage flush exhausted retries — will retry on next startup');
+}
+
+// Debounced flush — batch rapid calls into a single API request
+let _flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleFlush(): void {
+  if (_flushTimer) return;
+  _flushTimer = setTimeout(() => {
+    _flushTimer = null;
+    // #5 — catch errors so they don't become unhandled rejections
+    flushOverageWithRetry().catch(err =>
+      logger.error({ err }, 'scheduled overage flush failed'),
+    );
+  }, FLUSH_DEBOUNCE_MS);
+}
+
+// ── Credit consumption ────────────────────────────────────────────────────────
+
+/**
+ * Attempt to consume one credit.
+ * Returns { allowed: true, notice? } or { allowed: false, reason: string }.
+ * `notice` carries one-time informational messages surfaced to the user.
+ */
+export async function consumeCredit(): Promise<{ allowed: boolean; reason?: string; notice?: string }> {
+  return withLock(async () => {
+    // Refresh month boundary
+    if (_usage.month !== currentMonth()) {
+      // #2 — flush pending overage before resetting the counter
+      if (_usage.overagePending > 0) {
+        await flushOverageWithRetry();
+      }
+      _usage = { month: currentMonth(), used: 0, overageReported: 0, overagePending: 0 };
+    }
+
+    const plan = getPlan(getActivePlanId());
+
+    // B1: free plan now grants a small monthly allowance (the "feel-the-magic"
+    // credits). Fall through into the standard included-credit path below;
+    // since free has overageCentsPerCredit === 0, the final clause hard-caps
+    // at the included quota with a friendly upgrade message — no billing.
+
+    const included = plan.analyzeCreditsPerMonth;
+
+    // Unlimited plans (solo_pro, team)
+    if (included === Infinity) {
+      _usage.used++;
+      // #6 — batch writes for unlimited plans; persist every 10 calls
+      if (_usage.used % 10 === 0) await saveUsage();
+      return { allowed: true };
+    }
+
+    // Has remaining included credits
+    if (_usage.used < included) {
+      _usage.used++;
+      await saveUsage();
+
+      // Pain #2 — warn when approaching the quota wall.
+      // Free plan never bills overage — show an upgrade nudge instead.
+      const remaining = included - _usage.used;
+      const threshold = Math.min(10, Math.max(5, Math.floor(included * 0.2)));
+      const isFree = plan.id === 'free';
+      let notice: string | undefined;
+      if (remaining === 0) {
+        notice = isFree
+          ? `🎁 That was your last free analyze_runtime credit this month. Upgrade for more — your next 10 reset on ${nextResetAt().slice(0, 10)}.`
+          : `⚠ That was your last included credit. Additional calls are billed at $${(plan.overageCentsPerCredit / 100).toFixed(2)} each.`;
+      } else if (remaining <= threshold) {
+        notice = isFree
+          ? `🎁 You have ${remaining} of ${included} free analyze_runtime credits left this month.`
+          : `⚠ You have ${remaining} of ${included} analyze_runtime credits left this month (resets ${nextResetAt().slice(0, 10)}).`;
+      }
+
+      return { allowed: true, notice };
+    }
+
+    // Pay-as-you-go / solo_standard overage — report to LemonSqueezy
+    if (plan.overageCentsPerCredit > 0) {
+      const isFirstOverage = _usage.overagePending === 0 && _usage.overageReported === 0;
+      _usage.used++;
+      _usage.overagePending++;
+      await saveUsage();
+
+      // Pain #3 — one-time consent notice on first overage call
+      const overageCount = _usage.used - included;
+      const notice = isFirstOverage
+        ? `💳 You've used all ${included} included credits. You are now in overage — each call costs $${(plan.overageCentsPerCredit / 100).toFixed(2)} and will be billed at your next cycle.`
+        : undefined;
+
+      logger.info(
+        { overageCall: overageCount, pending: _usage.overagePending },
+        'overage credit consumed — queued for LS reporting',
+      );
+
+      scheduleFlush();
+      return { allowed: true, notice };
+    }
+
+    return {
+      allowed: false,
+      reason:
+        `Monthly limit of ${included} analyze_runtime credits reached. ` +
+        (plan.id === 'free'
+          ? `Upgrade to a paid plan for more credits, or wait for the monthly reset on ${nextResetAt().slice(0, 10)}.`
+          : `Upgrade to Solo Pro or Team for unlimited calls.`),
+    };
+  });
+}
+
+/**
+ * Force-flush any pending overage records. Called on graceful shutdown.
+ */
+export async function flushOverageOnShutdown(): Promise<void> {
+  if (_flushTimer) { clearTimeout(_flushTimer); _flushTimer = null; }
+  await flushOverageWithRetry();
+}
+
+// ── Test helpers ──────────────────────────────────────────────────────────────
+
+/**
+ * Increment today's "analyses" counter and persist (debounced via the
+ * lock — never racy, never blocks). Called by hypothesis-history every
+ * time a causal chain is rebuilt. *Not* a billable event — see UsageState.
+ */
+export function recordAnalysis(): void {
+  void withLock(async () => {
+    const day = currentDay();
+    const map = _usage.analysesByDay ?? {};
+    map[day] = (map[day] ?? 0) + 1;
+    _usage.analysesByDay = trimAnalysesByDay(map);
+    // Persist on every 5th increment to amortise disk I/O on hot loops.
+    if ((map[day] % 5) === 0) {
+      try { await saveUsage(); } catch (err) { logger.warn({ err }, 'recordAnalysis save failed'); }
+    }
+  });
+}
+
+/**
+ * Reset all module-level state. ONLY for use in unit tests.
+ * Tree-shaken in production builds when not imported.
+ */
+export function _resetForTesting(overrides: Partial<UsageState> = {}): void {
+  if (_flushTimer) { clearTimeout(_flushTimer); _flushTimer = null; }
+  _lock = Promise.resolve();
+  _sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms)); // restore real sleep
+  _usage = {
+    month: currentMonth(),
+    used: 0,
+    overageReported: 0,
+    overagePending: 0,
+    analysesByDay: {},
+    ...overrides,
+  };
+}
+
+/** Override the sleep implementation. ONLY for use in unit tests. */
+export function _setSleepForTesting(fn: (ms: number) => Promise<void>): void {
+  _sleep = fn;
+}
