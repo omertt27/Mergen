@@ -13,3 +13,6 @@ export const LICENSE_FILE = path.join(DATA_DIR, 'license.json');
 export const USAGE_FILE   = path.join(DATA_DIR, 'usage.json');
 export const TEAM_FILE    = path.join(DATA_DIR, 'team.json');
 export const TELEMETRY_FILE = path.join(DATA_DIR, 'telemetry.json');
+/** Shared secret written on first start; read by the VS Code extension
+ *  to authenticate requests to mutating endpoints. */
+export const SECRET_FILE  = path.join(DATA_DIR, 'secret');
