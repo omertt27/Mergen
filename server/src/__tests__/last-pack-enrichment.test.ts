@@ -90,7 +90,7 @@ describe('last-pack + calibration enrichment (panel contract)', () => {
     };
     const [tagged] = recordPrediction([fake]);
     expect(tagged.pid).toBeTruthy();
-    expect(recordVerdict(tagged.pid, 'correct')).toBe(true);
+    expect(recordVerdict(tagged.pid, 'correct')).toMatchObject({ found: true });
 
     const tagStats = getStats().find((s) => s.tag === 'fake_for_test');
     expect(tagStats).toBeDefined();
