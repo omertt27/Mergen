@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  mergen:
+    build: .
+    image: mergen/server:latest
+    container_name: mergen-server
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NO_UPDATE_NOTIFIER=1
+    volumes:
+      # Persist data directory
+      - mergen-data:/app/.mergen
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r=>r.ok?process.exit(0):process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - mergen-network
+
+volumes:
+  mergen-data:
+    driver: local
+
+networks:
+  mergen-network:
+    driver: bridge

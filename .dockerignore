@@ -1,0 +1,43 @@
+# Git
+.git
+.gitignore
+.github
+
+# Node
+**/node_modules
+**/.npm
+**/npm-debug.log
+
+# Build artifacts
+**/dist
+**/*.tsbuildinfo
+
+# Tests
+**/__tests__
+**/*.test.*
+**/*.spec.*
+**/coverage
+**/.vitest
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+.DS_Store
+
+# Documentation (except essential)
+*.md
+!README.md
+
+# Server development
+server/src
+server/tsconfig.json
+
+# Extension store assets
+extension/store-assets
+
+# Misc
+.env*
+*.log
+.cache

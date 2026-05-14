@@ -33,35 +33,58 @@ One server. Every AI IDE. Zero cloud.
 
 ---
 
-## Quick start (3 steps)
+## ⚡ Quick Install (2 minutes)
+
+**New simplified installation:**
+
+```bash
+# 1. Install and configure server (auto-detects your IDE)
+npx mergen-server@latest setup
+
+# 2. Install browser extension
+# Chrome Web Store: https://chrome.google.com/webstore (when published)
+# Or manual: Load unpacked from extension/ folder
+```
+
+✅ **Done!** Ask your AI: *"Get recent logs"*
+
+See [QUICKSTART.md](QUICKSTART.md) for detailed walkthrough or [INSTALL.md](INSTALL.md) for alternative methods (Docker, Homebrew, binaries).
+
+---
+
+## Alternative: Install from Source
+
+For development or if you prefer building from source:
 
 ### Step 1 — Build and run the server
 
 ```bash
-cd server
+git clone https://github.com/omertt27/Mergen.git
+cd Mergen/server
 npm install
 npm run build
 npm start
 ```
 
-Expected output on stderr:
+Expected output:
 ```
 {"msg":"HTTP ingest listening on http://127.0.0.1:3000"}
 {"msg":"MCP server ready (stdio transport)"}
 ```
 
-Port 3000–3010 are tried in order; the first available one is used.
-
 ### Step 2 — Register with your IDE
 
-Run the interactive setup script from the repo root:
+Run the interactive setup script:
 
 ```bash
 node scripts/setup.mjs
 ```
 
-Pick your IDE when prompted. The script writes the correct config to the
-correct location for each IDE. Or follow the manual steps below.
+Or use the CLI if you installed via npm:
+
+```bash
+npx mergen-server setup
+```
 
 ### Step 3 — Load the Chrome extension
 
