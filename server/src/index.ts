@@ -35,6 +35,7 @@ import { registerTools, toolCallCounts } from './intelligence/tools.js';
 import { SYSTEM_PROMPT } from './intelligence/prompts.js';
 
 import { createApp } from './app.js';
+import { checkForUpdates, formatUpdateMessage } from './update-checker.js';
 
 const _require = createRequire(import.meta.url);
 const { version: SERVER_VERSION } = _require('../package.json') as { version: string };
@@ -105,6 +106,15 @@ async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await mcp.connect(transport);
   logger.info('MCP server ready (stdio transport)');
+
+  // ── Update check (once per 24 h) ──────────────────────────────────────────
+  checkForUpdates(SERVER_VERSION).then((latestVersion) => {
+    if (latestVersion) {
+      console.error(formatUpdateMessage(SERVER_VERSION, latestVersion));
+    }
+  }).catch(() => {
+    // Silently ignore update check failures
+  });
 
   // ── Telemetry tick (opt-in, throttled to once per 24 h) ───────────────────
   const telemetryTick = (): void => {

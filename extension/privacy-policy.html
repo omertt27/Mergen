@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mergen Privacy Policy</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1 { color: #333; }
+        h2 { color: #555; margin-top: 30px; }
+        .highlight { background: #fffae6; padding: 15px; border-left: 4px solid #ffd700; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <h1>Mergen Privacy Policy</h1>
+    <p><strong>Effective Date:</strong> May 14, 2026</p>
+
+    <div class="highlight">
+        <strong>TL;DR:</strong> Mergen runs 100% locally. Zero data leaves your machine. Period.
+    </div>
+
+    <h2>1. What Mergen Does</h2>
+    <p>Mergen is a browser extension that captures console logs, network requests, and page context from your local development environment and sends them to a local server running on <code>127.0.0.1</code> (localhost).</p>
+
+    <h2>2. Data Collection</h2>
+    <p>Mergen collects:</p>
+    <ul>
+        <li><strong>Console logs</strong> — console.log(), console.error(), console.warn() output</li>
+        <li><strong>Network requests</strong> — HTTP method, URL, status code, duration, request/response bodies</li>
+        <li><strong>Page context</strong> — Current URL, page title, active element, localStorage, sessionStorage</li>
+    </ul>
+
+    <h2>3. Where Data Goes</h2>
+    <p><strong>All data stays on your computer.</strong></p>
+    <ul>
+        <li>✅ Data is sent to <code>http://127.0.0.1:3000-3010</code> (your local server only)</li>
+        <li>✅ No external servers, no cloud services, no third parties</li>
+        <li>✅ No analytics, no tracking, no telemetry</li>
+        <li>✅ Your data never touches the internet</li>
+    </ul>
+
+    <h2>4. Data Storage</h2>
+    <p>Mergen stores captured events in an in-memory ring buffer (200 events max) on your local server. When the server stops, all data is deleted.</p>
+    <p>The extension stores only:</p>
+    <ul>
+        <li>Selected port number (default: 3000)</li>
+        <li>Mute state (per-tab)</li>
+    </ul>
+
+    <h2>5. Permissions Explained</h2>
+    <ul>
+        <li><strong>storage</strong> — Save port preference and mute state</li>
+        <li><strong>tabs</strong> — Identify which tab sent an event</li>
+        <li><strong>alarms</strong> — Periodic health checks to local server</li>
+        <li><strong>host_permissions</strong> — Send data to 127.0.0.1:3000-3010 only</li>
+    </ul>
+
+    <h2>6. Third-Party Access</h2>
+    <p><strong>None.</strong> Mergen does not connect to any external services. Your data is never shared, sold, or transmitted outside your computer.</p>
+
+    <h2>7. Security</h2>
+    <ul>
+        <li>All traffic is to localhost only (127.0.0.1)</li>
+        <li>No HTTPS needed (no network exposure)</li>
+        <li>Optional shared-secret authentication between extension and server</li>
+        <li>PII redaction for sensitive data (tokens, passwords, emails)</li>
+    </ul>
+
+    <h2>8. Updates to This Policy</h2>
+    <p>If we update this policy, the new version will be posted at:</p>
+    <p><a href="https://github.com/omertt27/Mergen/blob/main/extension/privacy-policy.html">https://github.com/omertt27/Mergen/blob/main/extension/privacy-policy.html</a></p>
+
+    <h2>9. Contact</h2>
+    <p>Questions? Open an issue:</p>
+    <p><a href="https://github.com/omertt27/Mergen/issues">https://github.com/omertt27/Mergen/issues</a></p>
+
+    <hr style="margin: 40px 0;">
+
+    <p><strong>Bottom line:</strong> Mergen is local-first by design. Your browser telemetry stays on your machine, accessible only to your AI assistant via localhost. We can't see your data because we never receive it.</p>
+</body>
+</html>

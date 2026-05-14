@@ -21,6 +21,7 @@ import { createSensorRouter } from './routes/sensor.js';
 import { createLicenseRouter } from './routes/license.js';
 import { createCalibrationRouter } from './routes/calibration.js';
 import { createTelemetryRouter } from './routes/telemetry.js';
+import { createSetupRouter } from './routes/setup-ui.js';
 
 /** Paths that require the x-mergen-secret header on non-GET requests. */
 const MUTATING_PATHS = ['/feedback', '/license', '/clear', '/checkpoint', '/telemetry'];
@@ -63,6 +64,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string }):
   });
 
   // ── Route modules ─────────────────────────────────────────────────────────
+  app.use(createSetupRouter()); // Setup wizard UI
   app.use(createSensorRouter(serverVersion));
   app.use(createLicenseRouter());
   app.use(createCalibrationRouter());

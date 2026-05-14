@@ -12,7 +12,7 @@
 [![Local-only](https://img.shields.io/badge/data-127.0.0.1%20only-success)](#privacy)
 [![Calibrated](https://img.shields.io/badge/hypotheses-calibrated-7c3aed)](./docs/HONESTY.md)
 
-[**Setup →**](./SETUP.md) · [**Architecture →**](./ARCHITECTURE.md) · [**Pricing →**](#pricing)
+[**Quick Start →**](./QUICKSTART.md) · [**Install Guide →**](./INSTALL.md) · [**Architecture →**](./ARCHITECTURE.md) · [**Pricing →**](#pricing)
 
 </div>
 
@@ -131,22 +131,50 @@ Restraint is a feature.
 
 ---
 
-## Install in 60 seconds
+## ⚡ Install (2 minutes)
+
+**New simplified installation:**
+
+```bash
+# 1. Install and configure server (auto-detects your IDE)
+npx mergen-server@latest setup
+
+# 2. Install browser extension
+# Chrome Web Store (when published) or load unpacked from extension/
+
+# 3. Ask your AI: "Get recent logs"
+```
+
+✅ **Done!** See [QUICKSTART.md](QUICKSTART.md) for walkthrough.
+
+**Other methods:** [Docker](INSTALL.md#docker) · [Homebrew](INSTALL.md#homebrew) · [Binaries](INSTALL.md#binaries) · [From Source](INSTALL.md#from-source)
+
+---
+
+## Alternative: Install from Source
+
+For development:
 
 ```bash
 git clone https://github.com/omertt27/Mergen.git
-cd mergen/server && npm install && npm run build && npm start
+cd Mergen/server
+npm install && npm run build
+npm start
 ```
 
-Then add to `.vscode/mcp.json`:
+Configure IDE:
 
-```jsonc
+```bash
+# Auto-configure
+node scripts/setup.mjs
+
+# Or manually add to .vscode/mcp.json:
 {
   "servers": {
     "mergen": {
       "type": "stdio",
       "command": "node",
-      "args": ["${workspaceFolder}/../server/dist/index.js"]
+      "args": ["${workspaceFolder}/server/dist/index.js"]
     }
   }
 }

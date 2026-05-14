@@ -272,7 +272,7 @@ describe('E2E System Tests', () => {
       });
 
       expect(response.status).toBe(400);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.error).toBe('malformed JSON');
     });
 
@@ -338,7 +338,7 @@ describe('E2E System Tests', () => {
       });
 
       expect(response.status).toBe(401);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.error).toBe('unauthorized');
     });
 
@@ -452,7 +452,7 @@ describe('E2E System Tests', () => {
       const response = await fetch(`${baseURL}/health`);
       expect(response.ok).toBe(true);
 
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data).toHaveProperty('status');
       expect(data.status).toBe('ok');
     });

@@ -5,7 +5,7 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "mergen-server": "dist/index.js"
+    "mergen-server": "dist/cli.js"
   },
   "files": [
     "dist/**/*.js",
