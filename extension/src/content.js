@@ -40,6 +40,25 @@
       if (msg.type === 'MERGEN_PING') { sendResponse({ ok: true }); return; }
       if (msg.type === 'MERGEN_PORT_CHANGED' && msg.port) currentPort = msg.port;
       if (msg.type === 'MERGEN_MUTE') muted = msg.muted;
+
+      // Component tree capture request
+      if (msg.type === 'MERGEN_CAPTURE_COMPONENT_TREE') {
+        try {
+          const maxDepth = msg.maxDepth || 5;
+          const reactTree = captureReactComponentTree(maxDepth);
+          const vueTree = captureVueComponentTree(maxDepth);
+
+          sendResponse({
+            ok: true,
+            reactTree: reactTree,
+            vueTree: vueTree,
+            timestamp: Date.now(),
+          });
+        } catch (err) {
+          sendResponse({ ok: false, error: String(err) });
+        }
+        return true; // Keep channel open for async response
+      }
     });
   } catch { /* ignore */ }
 
@@ -187,9 +206,210 @@
     return undefined;
   }
 
+  // ── React component tree serialization ───────────────────────────────────────
+
+  function serializeReactFiber(fiber, maxDepth, currentDepth) {
+    if (!fiber || currentDepth >= maxDepth) return null;
+
+    try {
+      const node = {
+        name: 'Unknown',
+        type: fiber.type ? (typeof fiber.type === 'string' ? fiber.type : fiber.type.name || 'Anonymous') : 'Unknown',
+        props: null,
+        state: null,
+        hooks: null,
+        children: [],
+      };
+
+      // Extract component name
+      if (fiber.type && typeof fiber.type === 'function') {
+        node.name = fiber.type.name || 'Anonymous';
+      } else if (typeof fiber.type === 'string') {
+        node.name = fiber.type;
+      }
+
+      // Extract props (limit to 500 chars per prop)
+      if (fiber.memoizedProps && typeof fiber.memoizedProps === 'object') {
+        node.props = {};
+        const propKeys = Object.keys(fiber.memoizedProps).slice(0, 10);
+        for (const key of propKeys) {
+          if (key === 'children') continue;
+          try {
+            const val = fiber.memoizedProps[key];
+            const serialized = typeof val === 'string' ? val : JSON.stringify(val);
+            node.props[key] = serialized.length > 500 ? serialized.slice(0, 500) + '...' : serialized;
+          } catch {
+            node.props[key] = '[unserializable]';
+          }
+        }
+      }
+
+      // Extract state (class components)
+      if (fiber.memoizedState && typeof fiber.memoizedState === 'object' && !Array.isArray(fiber.memoizedState)) {
+        try {
+          node.state = {};
+          const stateKeys = Object.keys(fiber.memoizedState).slice(0, 10);
+          for (const key of stateKeys) {
+            const val = fiber.memoizedState[key];
+            const serialized = typeof val === 'string' ? val : JSON.stringify(val);
+            node.state[key] = serialized.length > 500 ? serialized.slice(0, 500) + '...' : serialized;
+          }
+        } catch {
+          node.state = '[unserializable]';
+        }
+      }
+
+      // Extract hooks (function components)
+      if (fiber.memoizedState && fiber.tag === 0) {
+        try {
+          node.hooks = [];
+          let hook = fiber.memoizedState;
+          let hookIndex = 0;
+          while (hook && hookIndex < 10) {
+            try {
+              const hookVal = typeof hook.memoizedState === 'string'
+                ? hook.memoizedState
+                : JSON.stringify(hook.memoizedState);
+              node.hooks.push({
+                index: hookIndex,
+                value: hookVal.length > 200 ? hookVal.slice(0, 200) + '...' : hookVal,
+              });
+            } catch {
+              node.hooks.push({ index: hookIndex, value: '[unserializable]' });
+            }
+            hook = hook.next;
+            hookIndex++;
+          }
+        } catch { /* ignore */ }
+      }
+
+      // Traverse children
+      let child = fiber.child;
+      let childCount = 0;
+      while (child && childCount < 5) {
+        const childNode = serializeReactFiber(child, maxDepth, currentDepth + 1);
+        if (childNode) node.children.push(childNode);
+        child = child.sibling;
+        childCount++;
+      }
+
+      return node;
+    } catch {
+      return null;
+    }
+  }
+
+  function captureReactComponentTree(maxDepth) {
+    try {
+      const root = document.querySelector('#root,[data-reactroot],[data-react-root]');
+      if (!root) return null;
+
+      const fiberKey = Object.keys(root).find(function(k) {
+        return k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance');
+      });
+
+      if (!fiberKey) return null;
+
+      const fiber = root[fiberKey];
+      return serializeReactFiber(fiber, maxDepth || 5, 0);
+    } catch {
+      return null;
+    }
+  }
+
+  // ── Vue component tree serialization ─────────────────────────────────────────
+
+  function serializeVueComponent(vm, maxDepth, currentDepth) {
+    if (!vm || currentDepth >= maxDepth) return null;
+
+    try {
+      const node = {
+        name: 'Unknown',
+        props: null,
+        data: null,
+        computed: null,
+        children: [],
+      };
+
+      // Vue 2
+      if (vm.$options) {
+        node.name = vm.$options.name || vm.$options._componentTag || 'Anonymous';
+
+        // Props
+        if (vm.$props && typeof vm.$props === 'object') {
+          node.props = {};
+          const propKeys = Object.keys(vm.$props).slice(0, 10);
+          for (const key of propKeys) {
+            try {
+              const val = vm.$props[key];
+              const serialized = typeof val === 'string' ? val : JSON.stringify(val);
+              node.props[key] = serialized.length > 500 ? serialized.slice(0, 500) + '...' : serialized;
+            } catch {
+              node.props[key] = '[unserializable]';
+            }
+          }
+        }
+
+        // Data
+        if (vm.$data && typeof vm.$data === 'object') {
+          node.data = {};
+          const dataKeys = Object.keys(vm.$data).slice(0, 10);
+          for (const key of dataKeys) {
+            if (key.startsWith('_')) continue;
+            try {
+              const val = vm.$data[key];
+              const serialized = typeof val === 'string' ? val : JSON.stringify(val);
+              node.data[key] = serialized.length > 500 ? serialized.slice(0, 500) + '...' : serialized;
+            } catch {
+              node.data[key] = '[unserializable]';
+            }
+          }
+        }
+
+        // Children
+        if (vm.$children && Array.isArray(vm.$children)) {
+          const childCount = Math.min(vm.$children.length, 5);
+          for (let i = 0; i < childCount; i++) {
+            const childNode = serializeVueComponent(vm.$children[i], maxDepth, currentDepth + 1);
+            if (childNode) node.children.push(childNode);
+          }
+        }
+      }
+
+      return node;
+    } catch {
+      return null;
+    }
+  }
+
+  function captureVueComponentTree(maxDepth) {
+    try {
+      const root = document.querySelector('#app,[data-v-app]');
+      if (!root) return null;
+
+      // Vue 2
+      if (root.__vue__) {
+        return serializeVueComponent(root.__vue__, maxDepth || 5, 0);
+      }
+
+      // Vue 3 (simplified)
+      if (root.__vueParentComponent) {
+        return {
+          name: root.__vueParentComponent.type?.name || 'App',
+          framework: 'Vue3',
+          note: 'Vue 3 detailed tree capture coming soon',
+        };
+      }
+
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   function postContext(trigger) {
     try {
-      post({
+      const contextData = {
         type: 'context',
         trigger: trigger,
         timestamp: Date.now(),
@@ -199,7 +419,36 @@
         component: detectComponent(),
         localStorage: captureStorage(window.localStorage),
         sessionStorage: captureStorage(window.sessionStorage),
-      });
+      };
+
+      // Layer 1: Enhanced instrumentation
+      if (window.__mergenLayers) {
+        try {
+          const componentTree = window.__mergenLayers.getComponentTree();
+          if (componentTree) contextData.componentTree = componentTree;
+
+          const stateDiff = window.__mergenLayers.captureStateDiff();
+          if (stateDiff) contextData.stateDiff = stateDiff;
+
+          const perfTrace = window.__mergenLayers.getRecentPerformanceTrace();
+          if (perfTrace && perfTrace.length > 0) contextData.performanceTrace = perfTrace;
+        } catch { /* enhanced instrumentation failed — continue with basic */ }
+      }
+
+      // Built-in component tree capture (fallback if layers not loaded)
+      if (!contextData.componentTree && trigger === 'error') {
+        try {
+          const reactTree = captureReactComponentTree(3);
+          const vueTree = captureVueComponentTree(3);
+          if (reactTree) {
+            contextData.componentTree = { framework: 'React', tree: reactTree };
+          } else if (vueTree) {
+            contextData.componentTree = { framework: 'Vue', tree: vueTree };
+          }
+        } catch { /* ignore */ }
+      }
+
+      post(contextData);
     } catch { /* never break the page */ }
   }
 
@@ -443,5 +692,186 @@
       return _origSend.apply(this, arguments);
     };
   } catch { /* XHR patch failed — page continues normally */ }
+
+  // ── WebSocket interception ───────────────────────────────────────────────────
+
+  try {
+    const _OrigWebSocket = window.WebSocket;
+    const MAX_FRAMES_PER_CONNECTION = 50;
+    const FRAME_RATE_LIMIT_MS = 100; // Max 10 frames/sec per connection
+
+    window.WebSocket = function MergenWebSocket(url, protocols) {
+      const ws = protocols
+        ? new _OrigWebSocket(url, protocols)
+        : new _OrigWebSocket(url);
+
+      const connectionId = Math.random().toString(36).slice(2, 11);
+      const frames = [];
+      let lastFrameTime = 0;
+
+      function captureFrame(direction, data) {
+        try {
+          const now = Date.now();
+          // Rate-limit frame capture
+          if (now - lastFrameTime < FRAME_RATE_LIMIT_MS && frames.length > 0) {
+            return;
+          }
+          lastFrameTime = now;
+
+          let parsedData = data;
+          if (typeof data === 'string') {
+            try {
+              parsedData = JSON.parse(data);
+            } catch { /* not JSON, keep as string */ }
+          }
+
+          const frame = {
+            direction: direction,
+            data: typeof parsedData === 'string'
+              ? parsedData.slice(0, 500)
+              : JSON.stringify(parsedData).slice(0, 500),
+            timestamp: now,
+          };
+
+          frames.push(frame);
+
+          // Keep only last MAX_FRAMES_PER_CONNECTION
+          if (frames.length > MAX_FRAMES_PER_CONNECTION) {
+            frames.shift();
+          }
+        } catch { /* never break */ }
+      }
+
+      ws.addEventListener('open', function(event) {
+        try {
+          post({
+            type: 'websocket',
+            connectionId: connectionId,
+            url: url,
+            status: 'open',
+            timestamp: Date.now(),
+          });
+        } catch { /* ignore */ }
+      });
+
+      ws.addEventListener('message', function(event) {
+        try {
+          captureFrame('received', event.data);
+        } catch { /* ignore */ }
+      });
+
+      ws.addEventListener('close', function(event) {
+        try {
+          post({
+            type: 'websocket',
+            connectionId: connectionId,
+            url: url,
+            status: 'closed',
+            code: event.code,
+            reason: event.reason,
+            frames: frames,
+            timestamp: Date.now(),
+          });
+        } catch { /* ignore */ }
+      });
+
+      ws.addEventListener('error', function(event) {
+        try {
+          post({
+            type: 'websocket',
+            connectionId: connectionId,
+            url: url,
+            status: 'error',
+            error: 'WebSocket error',
+            frames: frames,
+            timestamp: Date.now(),
+          });
+        } catch { /* ignore */ }
+      });
+
+      // Intercept send to capture outgoing frames
+      const _origSend = ws.send;
+      ws.send = function mergenSend(data) {
+        try {
+          captureFrame('sent', data);
+        } catch { /* ignore */ }
+        return _origSend.call(ws, data);
+      };
+
+      return ws;
+    };
+
+    // Copy static properties
+    window.WebSocket.CONNECTING = _OrigWebSocket.CONNECTING;
+    window.WebSocket.OPEN = _OrigWebSocket.OPEN;
+    window.WebSocket.CLOSING = _OrigWebSocket.CLOSING;
+    window.WebSocket.CLOSED = _OrigWebSocket.CLOSED;
+  } catch { /* WebSocket patch failed — page continues normally */ }
+
+  // ── EventSource (Server-Sent Events) interception ────────────────────────────
+
+  try {
+    const _OrigEventSource = window.EventSource;
+    const MAX_SSE_MESSAGES = 50;
+
+    window.EventSource = function MergenEventSource(url, config) {
+      const es = new _OrigEventSource(url, config);
+      const connectionId = Math.random().toString(36).slice(2, 11);
+      const messages = [];
+
+      es.addEventListener('open', function() {
+        try {
+          post({
+            type: 'sse',
+            connectionId: connectionId,
+            url: url,
+            status: 'open',
+            timestamp: Date.now(),
+          });
+        } catch { /* ignore */ }
+      });
+
+      es.addEventListener('message', function(event) {
+        try {
+          let parsedData = event.data;
+          try {
+            parsedData = JSON.parse(event.data);
+          } catch { /* not JSON */ }
+
+          const message = {
+            data: typeof parsedData === 'string'
+              ? parsedData.slice(0, 500)
+              : JSON.stringify(parsedData).slice(0, 500),
+            timestamp: Date.now(),
+          };
+
+          messages.push(message);
+          if (messages.length > MAX_SSE_MESSAGES) {
+            messages.shift();
+          }
+        } catch { /* ignore */ }
+      });
+
+      es.addEventListener('error', function() {
+        try {
+          post({
+            type: 'sse',
+            connectionId: connectionId,
+            url: url,
+            status: 'error',
+            messages: messages,
+            timestamp: Date.now(),
+          });
+        } catch { /* ignore */ }
+      });
+
+      return es;
+    };
+
+    // Copy static properties
+    window.EventSource.CONNECTING = _OrigEventSource.CONNECTING;
+    window.EventSource.OPEN = _OrigEventSource.OPEN;
+    window.EventSource.CLOSED = _OrigEventSource.CLOSED;
+  } catch { /* EventSource patch failed — page continues normally */ }
 
 })();

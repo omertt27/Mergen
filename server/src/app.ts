@@ -22,6 +22,7 @@ import { createLicenseRouter } from './routes/license.js';
 import { createCalibrationRouter } from './routes/calibration.js';
 import { createTelemetryRouter } from './routes/telemetry.js';
 import { createSetupRouter } from './routes/setup-ui.js';
+import { layersRouter } from './routes/layers.js';
 
 /** Paths that require the x-mergen-secret header on non-GET requests. */
 const MUTATING_PATHS = ['/feedback', '/license', '/clear', '/checkpoint', '/telemetry'];
@@ -71,6 +72,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string }):
   app.use(createTelemetryRouter());
   app.use(teamRouter);
   app.use(ingestRouter);
+  app.use(layersRouter); // Layer 2-4 routes
 
   // ── Malformed JSON handler ────────────────────────────────────────────────
   app.use(

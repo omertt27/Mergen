@@ -39,17 +39,56 @@ export const ContextSnapshotSchema = z.object({
   component: z.string().optional(),
   localStorage: z.record(z.string()).default({}),
   sessionStorage: z.record(z.string()).default({}),
+  // Layer 1 extensions (optional, backward-compatible)
+  componentTree: z.unknown().optional(),
+  stateDiff: z.unknown().optional(),
+  performanceTrace: z.array(z.unknown()).optional(),
+});
+
+export const WebSocketFrameSchema = z.object({
+  direction: z.enum(['sent', 'received']),
+  data: z.string(),
+  timestamp: z.number(),
+});
+
+export const WebSocketEventSchema = z.object({
+  type: z.literal('websocket'),
+  connectionId: z.string(),
+  url: z.string(),
+  status: z.enum(['open', 'closed', 'error']),
+  code: z.number().optional(),
+  reason: z.string().optional(),
+  error: z.string().optional(),
+  frames: z.array(WebSocketFrameSchema).optional().default([]),
+  timestamp: z.number(),
+});
+
+export const SSEEventSchema = z.object({
+  type: z.literal('sse'),
+  connectionId: z.string(),
+  url: z.string(),
+  status: z.enum(['open', 'error']),
+  messages: z.array(z.object({
+    data: z.string(),
+    timestamp: z.number(),
+  })).optional().default([]),
+  timestamp: z.number(),
 });
 
 export const BrowserEventSchema = z.discriminatedUnion('type', [
   ConsoleEventSchema,
   NetworkEventSchema,
   ContextSnapshotSchema,
+  WebSocketEventSchema,
+  SSEEventSchema,
 ]);
 
 export type ConsoleEvent = z.infer<typeof ConsoleEventSchema>;
 export type NetworkEvent = z.infer<typeof NetworkEventSchema>;
 export type ContextSnapshot = z.infer<typeof ContextSnapshotSchema>;
+export type WebSocketEvent = z.infer<typeof WebSocketEventSchema>;
+export type SSEEvent = z.infer<typeof SSEEventSchema>;
+export type WebSocketFrame = z.infer<typeof WebSocketFrameSchema>;
 export type BrowserEvent = z.infer<typeof BrowserEventSchema>;
 
 // ── Session signal ────────────────────────────────────────────────────────────
@@ -96,15 +135,24 @@ export interface BufferCounters {
   networkErrors: number;
 }
 
+export interface LocalStorageDiff {
+  full: Record<string, string>;
+  changed: Set<string>;
+}
+
 export interface BufferStore {
   push(event: BrowserEvent): void;
   getLogs(limit?: number, level?: LogLevel, since?: number): ConsoleEvent[];
   getNetwork(limit?: number, statusFilter?: number, since?: number): NetworkEvent[];
   getContext(limit?: number, since?: number): ContextSnapshot[];
+  getWebSockets(limit?: number, connectionUrl?: string, since?: number): WebSocketEvent[];
+  getSSE(limit?: number, connectionUrl?: string, since?: number): SSEEvent[];
   /** Lightweight pattern scan — no credit cost. Used by /health and quick_check. */
   getSignals(): SessionSignal[];
   /** O(1) counters for health endpoint — no iteration needed. */
   getCounters(): BufferCounters;
+  /** Returns localStorage with changed keys since last snapshot for this URL */
+  getLocalStorageDiff(current: Record<string, string>, url: string): LocalStorageDiff;
   clear(): void;
   size(): number;
 }
@@ -135,6 +183,9 @@ class RingBuffer implements BufferStore {
   private _errors = 0;
   private _warnings = 0;
   private _networkErrors = 0;
+
+  // Track last localStorage snapshot per URL for diffing
+  private readonly _lastLocalStorageByUrl = new Map<string, Record<string, string>>();
 
   private _incrementCounters(event: BrowserEvent): void {
     if (event.type === 'console') {
@@ -238,6 +289,30 @@ class RingBuffer implements BufferStore {
     return results.slice(-cap);
   }
 
+  getWebSockets(limit = 50, connectionUrl?: string, since?: number): WebSocketEvent[] {
+    const cap = Math.min(limit, _getEffectiveBufferSize());
+    const results: WebSocketEvent[] = [];
+    for (const e of this._iterate()) {
+      if (e.type !== 'websocket') continue;
+      if (connectionUrl && !e.url.includes(connectionUrl)) continue;
+      if (since !== undefined && e.timestamp < since) continue;
+      results.push(e);
+    }
+    return results.slice(-cap);
+  }
+
+  getSSE(limit = 50, connectionUrl?: string, since?: number): SSEEvent[] {
+    const cap = Math.min(limit, _getEffectiveBufferSize());
+    const results: SSEEvent[] = [];
+    for (const e of this._iterate()) {
+      if (e.type !== 'sse') continue;
+      if (connectionUrl && !e.url.includes(connectionUrl)) continue;
+      if (since !== undefined && e.timestamp < since) continue;
+      results.push(e);
+    }
+    return results.slice(-cap);
+  }
+
   clear(): void {
     this._ring.fill(undefined);
     this._head = 0;
@@ -245,6 +320,31 @@ class RingBuffer implements BufferStore {
     this._errors = 0;
     this._warnings = 0;
     this._networkErrors = 0;
+    this._lastLocalStorageByUrl.clear();
+  }
+
+  getLocalStorageDiff(current: Record<string, string>, url: string): LocalStorageDiff {
+    const prev = this._lastLocalStorageByUrl.get(url) || {};
+    const changed = new Set<string>();
+
+    // Find changed or new keys
+    for (const [key, val] of Object.entries(current)) {
+      if (prev[key] !== val) {
+        changed.add(key);
+      }
+    }
+
+    // Find deleted keys
+    for (const key of Object.keys(prev)) {
+      if (!(key in current)) {
+        changed.add(key);
+      }
+    }
+
+    // Update tracking
+    this._lastLocalStorageByUrl.set(url, { ...current });
+
+    return { full: current, changed };
   }
 
   getSignals(): SessionSignal[] {

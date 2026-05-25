@@ -3,6 +3,9 @@ import { store, BrowserEventSchema, type BrowserEvent } from './buffer.js';
 import { resolveStackTrace } from './sourcemap.js';
 import { redact } from './redact.js';
 import logger from './logger.js';
+import { layer2Store } from './layer2-store.js';
+import { layer3Store } from './layer3-store.js';
+import { layer4Store } from './layer4-store.js';
 
 // ── Diagnostic activity hooks ─────────────────────────────────────────────────
 // The intelligence layer registers these at startup so the sensor layer
@@ -204,6 +207,23 @@ ingestRouter.post('/ingest', (req: Request, res: Response): void => {
     const burst = burstReason();
     if (burst)      { _notifier.notifyActivity(burst); return; }
   };
+
+  // Layer 2: Index events for replay
+  const eventId = layer2Store.indexEvent(event);
+
+  // Layer 3: Check breakpoints and mocks
+  const breakpoint = layer3Store.checkBreakpoint(event);
+  if (breakpoint) {
+    logger.info({ breakpoint: breakpoint.id, eventId }, 'Breakpoint hit');
+  }
+
+  // Layer 4: Record errors for history
+  if (event.type === 'console' && event.level === 'error') {
+    const message = event.args
+      .map((a) => (typeof a === 'string' ? a : JSON.stringify(a)))
+      .join(' ');
+    layer4Store.recordError(message, event.stack);
+  }
 
   if (event.type === 'console' && typeof event.stack === 'string') {
     withTimeout(resolveStackTrace(event.stack), SOURCEMAP_TIMEOUT_MS)

@@ -1,7 +1,7 @@
 {
   "name": "mergen-server",
-  "version": "1.0.0",
-  "description": "Mergen MCP Server — local-first browser observability bridge for AI assistants (Cursor, Claude Desktop, Copilot, Continue, Windsurf, Cline). Streams console, network, DOM from 127.0.0.1, returns causally-correlated Context Packs.",
+  "version": "1.4.0",
+  "description": "Mergen MCP Server — local-first browser observability bridge for AI assistants (Cursor, Claude Desktop, Copilot, Continue, Windsurf, Cline). Streams console, network, WebSocket, React/Vue component trees from 127.0.0.1, returns causally-correlated Context Packs.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
