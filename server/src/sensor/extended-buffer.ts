@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 // ── Layer 1: Better Context — Extended event schemas ──────────────────────────
 
-export const ComponentTreeNodeSchema = z.object({
+export const ComponentTreeNodeSchema: z.ZodType<any> = z.object({
   name: z.string(),
   type: z.string(), // 'React' | 'Vue' | 'Vue3'
   props: z.record(z.unknown()).optional(),
