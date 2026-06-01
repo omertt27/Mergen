@@ -16,3 +16,6 @@ export const TELEMETRY_FILE = path.join(DATA_DIR, 'telemetry.json');
 /** Shared secret written on first start; read by the VS Code extension
  *  to authenticate requests to mutating endpoints. */
 export const SECRET_FILE  = path.join(DATA_DIR, 'secret');
+
+/** SQLite database for 1-hour event history (beyond the 200-event ring buffer). */
+export const HISTORY_DB   = path.join(DATA_DIR, 'history.db');

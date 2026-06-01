@@ -10,6 +10,7 @@
  */
 import { Router } from 'express';
 import { store } from '../sensor/buffer.js';
+import { historyStore } from '../sensor/sqlite-store.js';
 import { buildCausalChain } from '../intelligence/causal.js';
 import { hypothesisHistory } from '../intelligence/hypothesis-history.js';
 import { getStats } from '../intelligence/calibration.js';
@@ -43,6 +44,7 @@ export function createSensorRouter(serverVersion: string): Router {
   router.post('/clear', (_req, res) => {
     const was = store.size();
     store.clear();
+    historyStore.clear();
     hypothesisHistory.clear();
     res.json({ ok: true, cleared: was });
   });
@@ -220,6 +222,19 @@ export function createSensorRouter(serverVersion: string): Router {
     rows.sort((a, b) => a.ts - b.ts);
 
     res.json({ ok: true, windowSeconds: seconds, count: rows.length, rows: rows.slice(-limit) });
+  });
+
+  // ── Replay — historical events from SQLite (last 1 hour) ─────────────────
+  // Complements the 200-event ring buffer for long sessions.
+  //   GET /replay?since=<unix-ms>&limit=<n>&level=<error|warn|log>&type=<console|network|context>
+  router.get('/replay', (req, res) => {
+    const since  = Number(req.query['since'])  || 0;
+    const limit  = Math.min(Number(req.query['limit'])  || 500, 2_000);
+    const level  = typeof req.query['level'] === 'string' ? req.query['level'] : undefined;
+    const type   = typeof req.query['type']  === 'string' ? req.query['type']  : undefined;
+
+    const events = historyStore.query({ since, limit, level, type });
+    res.json({ ok: true, count: events.length, events });
   });
 
   return router;

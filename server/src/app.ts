@@ -23,6 +23,7 @@ import { createCalibrationRouter } from './routes/calibration.js';
 import { createTelemetryRouter } from './routes/telemetry.js';
 import { createSetupRouter } from './routes/setup-ui.js';
 import { layersRouter } from './routes/layers.js';
+import { sentryRouter } from './routes/sentry.js';
 
 /** Paths that require the x-mergen-secret header on non-GET requests. */
 const MUTATING_PATHS = ['/feedback', '/license', '/clear', '/checkpoint', '/telemetry'];
@@ -33,6 +34,9 @@ export function createApp(opts: { serverVersion: string; localSecret: string }):
 
   // ── Billing webhook — raw body for HMAC, MUST precede express.json() ──────
   app.use(billingRouter);
+
+  // ── Sentry webhook — raw body for HMAC, MUST precede express.json() ───────
+  app.use(sentryRouter);
 
   app.use(express.json({ strict: true, limit: '1mb' }));
 

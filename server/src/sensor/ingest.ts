@@ -6,6 +6,7 @@ import logger from './logger.js';
 import { layer2Store } from './layer2-store.js';
 import { layer3Store } from './layer3-store.js';
 import { layer4Store } from './layer4-store.js';
+import { historyStore } from './sqlite-store.js';
 
 // ── Diagnostic activity hooks ─────────────────────────────────────────────────
 // The intelligence layer registers these at startup so the sensor layer
@@ -227,14 +228,20 @@ ingestRouter.post('/ingest', (req: Request, res: Response): void => {
 
   if (event.type === 'console' && typeof event.stack === 'string') {
     withTimeout(resolveStackTrace(event.stack), SOURCEMAP_TIMEOUT_MS)
-      .then((resolved) => store.push({ ...event, stack: resolved }))
+      .then((resolved) => {
+        const resolved_event = { ...event, stack: resolved };
+        store.push(resolved_event);
+        historyStore.push(resolved_event);
+      })
       .catch((err) => {
         logger.warn({ err }, 'sourcemap resolution failed or timed out, storing raw event');
         store.push(event);
+        historyStore.push(event);
       })
       .finally(triggerActivity);
   } else {
     store.push(event);
+    historyStore.push(event);
     triggerActivity();
   }
 });

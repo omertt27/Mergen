@@ -141,6 +141,84 @@ async function testCommand(): Promise<void> {
   }
 }
 
+async function ciCommand(): Promise<void> {
+  const serverPath = resolve(__dirname, 'index.js');
+
+  if (!existsSync(serverPath)) {
+    error('Server binary not found. Run: npm run build');
+    process.exit(1);
+  }
+
+  console.log('🤖 Mergen CI health check\n');
+
+  const proc = spawn('node', [serverPath], {
+    stdio: 'pipe',
+    env: { ...process.env, NODE_ENV: 'production', HTTP_PORT: '3099' },
+  });
+
+  const BASE = 'http://127.0.0.1:3099';
+  let serverReady = false;
+
+  // Collect stderr for error reporting
+  const stderrLines: string[] = [];
+  proc.stderr.on('data', (d: Buffer) => {
+    stderrLines.push(d.toString().trim());
+    if (d.toString().includes('HTTP ingest listening')) {
+      serverReady = true;
+    }
+  });
+
+  // Wait up to 10s for server to start
+  const startDeadline = Date.now() + 10_000;
+  while (!serverReady && Date.now() < startDeadline) {
+    await sleep(200);
+  }
+
+  if (!serverReady) {
+    error('Server did not start within 10s');
+    console.error(stderrLines.join('\n'));
+    proc.kill();
+    process.exit(1);
+  }
+
+  let exitCode = 0;
+
+  try {
+    // 1. Health check
+    process.stdout.write('Health endpoint... ');
+    const health = await fetch(`${BASE}/health`);
+    if (!health.ok) throw new Error(`/health returned ${health.status}`);
+    const hd = await health.json() as { status: string };
+    if (hd.status !== 'ok') throw new Error(`status=${hd.status}`);
+    console.log('✓');
+
+    // 2. Ingest a test event
+    process.stdout.write('Event ingestion... ');
+    const ingest = await fetch(`${BASE}/ingest`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'console',
+        level: 'log',
+        args: ['mergen-ci-probe'],
+        url: 'http://ci.test',
+        timestamp: Date.now(),
+      }),
+    });
+    if (!ingest.ok) throw new Error(`/ingest returned ${ingest.status}`);
+    console.log('✓');
+
+    success('All CI checks passed');
+  } catch (err) {
+    error(err instanceof Error ? err.message : String(err));
+    exitCode = 1;
+  } finally {
+    proc.kill();
+  }
+
+  process.exit(exitCode);
+}
+
 async function startCommand(): Promise<void> {
   const serverPath = resolve(__dirname, 'index.js');
 
@@ -418,6 +496,10 @@ async function main(): Promise<void> {
       await startCommand();
       break;
 
+    case 'ci':
+      await ciCommand();
+      break;
+
     case 'version':
     case '--version':
     case '-v':
@@ -435,6 +517,7 @@ Usage:
   mergen-server setup       Interactive setup wizard
   mergen-server test        Validate installation
   mergen-server start       Start the server
+  mergen-server ci          CI smoke test (exit 0 = healthy, exit 1 = failed)
   mergen-server --version   Show version
   mergen-server --help      Show this help
 
@@ -442,6 +525,7 @@ Examples:
   npx mergen-server setup
   mergen-server start &
   mergen-server test
+  mergen-server ci          # Use in GitHub Actions / CI pipelines
 
 Documentation: https://github.com/omertt27/Mergen
       `);

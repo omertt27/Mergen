@@ -24,6 +24,7 @@ import { lemonSqueezySetup } from '@lemonsqueezy/lemonsqueezy.js';
 import logger from './sensor/logger.js';
 import { DATA_DIR, SECRET_FILE } from './sensor/paths.js';
 import { setBufferSizeGetter, store } from './sensor/buffer.js';
+import { historyStore } from './sensor/sqlite-store.js';
 import { startWatcher } from './sensor/watcher.js';
 
 import { initLicense, getActivePlanId } from './intelligence/license.js';
@@ -88,6 +89,7 @@ async function main(): Promise<void> {
   await initUsage();
   await initTeam();
   await initTelemetry();
+  await historyStore.init();
   setBufferSizeGetter(() => getPlan(getActivePlanId()).bufferSize);
 
   // ── HTTP server ────────────────────────────────────────────────────────────
