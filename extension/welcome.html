@@ -11,10 +11,12 @@
       --border: #2d2d4e;
       --accent: #a78bfa;
       --accent-dim: #7c3aed;
+      --accent-glow: rgba(167,139,250,0.12);
       --text: #e2e8f0;
       --text-muted: #94a3b8;
       --green: #4ade80;
       --red: #f87171;
+      --yellow: #fbbf24;
       --code-bg: #12121f;
     }
 
@@ -131,6 +133,98 @@
       overflow-x: auto;
     }
 
+    .alt-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 12px;
+      margin-bottom: 4px;
+      display: block;
+      font-style: italic;
+    }
+
+    /* ── Inline server check ── */
+    .inline-check {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .check-btn-sm {
+      background: var(--accent-glow);
+      color: var(--accent);
+      border: 1px solid rgba(167,139,250,.3);
+      border-radius: 6px;
+      padding: 5px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background .15s;
+      white-space: nowrap;
+    }
+    .check-btn-sm:hover { background: rgba(167,139,250,.22); }
+
+    .inline-result {
+      font-size: 12px;
+      font-weight: 600;
+      display: none;
+    }
+    .inline-result.ok   { color: var(--green); }
+    .inline-result.fail { color: var(--red); }
+
+    /* ── IDE tabs (Step 2) ── */
+    .ide-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+      margin-bottom: 12px;
+    }
+
+    .ide-tab {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 12px;
+      cursor: pointer;
+      transition: all .15s;
+      font-family: inherit;
+    }
+    .ide-tab.active {
+      background: var(--accent-glow);
+      color: var(--accent);
+      border-color: rgba(167,139,250,.4);
+    }
+    .ide-tab:hover:not(.active) {
+      background: rgba(255,255,255,.04);
+      color: var(--text);
+    }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    .setup-cmd {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin-top: 8px;
+    }
+    .setup-cmd pre {
+      margin: 0;
+      border: none;
+      background: none;
+      padding: 0;
+      flex: 1;
+    }
+
     /* ── Status check ── */
     .status-check {
       margin-top: 32px;
@@ -166,8 +260,8 @@
       cursor: pointer;
       white-space: nowrap;
       transition: opacity 0.15s;
+      font-family: inherit;
     }
-
     #check-btn:hover { opacity: 0.88; }
 
     #check-result {
@@ -176,8 +270,7 @@
       font-weight: 600;
       display: none;
     }
-
-    #check-result.ok { color: var(--green); }
+    #check-result.ok   { color: var(--green); }
     #check-result.fail { color: var(--red); }
 
     /* ── Footer ── */
@@ -197,62 +290,113 @@
       <img src="icons/icon128.png" alt="Mergen" />
       <div class="hero-text">
         <h1>Welcome to Mergen</h1>
-        <p>Live browser telemetry for your AI debugger — zero configuration.</p>
+        <p>Stream live browser telemetry into any AI IDE — everything stays on localhost.</p>
       </div>
     </div>
 
     <!-- Steps -->
     <div class="steps">
 
+      <!-- Step 1: Start the server -->
       <div class="step">
         <div class="step-num">1</div>
         <div class="step-body">
           <h3>Start the Mergen server</h3>
-          <p>In your terminal, inside the <code>server/</code> directory:</p>
-          <pre>npm run build && npm start</pre>
-          <p style="margin-top:8px">The server listens on <code>http://127.0.0.1:3000</code> by default. If port 3000 is busy it will try 3001–3010 automatically — check the terminal output.</p>
+          <p>Quickest way — installs and auto-configures your IDE:</p>
+          <pre>npx mergen-server@latest setup</pre>
+          <span class="alt-label">Or, if you cloned the repo, run inside <code>server/</code>:</span>
+          <pre>npm run build &amp;&amp; npm start</pre>
+          <p style="margin-top:10px">The server listens on <code>http://127.0.0.1:3000</code> by default. If port 3000 is busy it will try 3001–3010 — check the terminal output.</p>
+          <div class="inline-check">
+            <button class="check-btn-sm" id="step1-check-btn">Check server</button>
+            <span class="inline-result" id="step1-result"></span>
+          </div>
         </div>
       </div>
 
+      <!-- Step 2: Connect your AI IDE -->
       <div class="step">
         <div class="step-num">2</div>
         <div class="step-body">
-          <h3>Connect your MCP client</h3>
-          <p>Add the Mergen server to your MCP client config (e.g. Claude Desktop, Cursor). Use <strong>stdio</strong> transport:</p>
-          <pre>{
+          <h3>Connect your AI IDE</h3>
+          <p>Select your IDE for the exact setup command:</p>
+          <div class="ide-tabs">
+            <button class="ide-tab active" data-target="tab-claude">Claude Code</button>
+            <button class="ide-tab" data-target="tab-cursor">Cursor</button>
+            <button class="ide-tab" data-target="tab-windsurf">Windsurf</button>
+            <button class="ide-tab" data-target="tab-vscode">VS Code</button>
+          </div>
+
+          <div class="tab-panel active" id="tab-claude">
+            <p>Run in your terminal from the Mergen repo root:</p>
+            <pre>claude mcp add mergen --transport stdio -- node "$(pwd)/server/dist/index.js"</pre>
+            <p style="margin-top:8px">Verify: <code>claude mcp list</code> — you should see <strong>mergen</strong> listed.</p>
+          </div>
+
+          <div class="tab-panel" id="tab-cursor">
+            <p>Auto-setup (writes to <code>.cursor/mcp.json</code> or <code>~/.cursor/mcp.json</code>):</p>
+            <pre>npx mergen-server@latest setup</pre>
+            <span class="alt-label">Or manually edit <code>.cursor/mcp.json</code>:</span>
+            <pre>{
   "mergen": {
     "command": "node",
-    "args": ["/path/to/mergen/server/dist/index.js"]
+    "args": ["/absolute/path/to/Mergen/server/dist/index.js"]
   }
 }</pre>
+            <p style="margin-top:8px">Then: <strong>Settings → Tools → MCP</strong> — confirm "mergen" is listed.</p>
+          </div>
+
+          <div class="tab-panel" id="tab-windsurf">
+            <p>Auto-setup (writes to <code>~/.codeium/windsurf/mcp_config.json</code>):</p>
+            <pre>npx mergen-server@latest setup</pre>
+            <span class="alt-label">Or manually edit <code>~/.codeium/windsurf/mcp_config.json</code>:</span>
+            <pre>{
+  "mcpServers": {
+    "mergen": {
+      "command": "node",
+      "args": ["/absolute/path/to/Mergen/server/dist/index.js"]
+    }
+  }
+}</pre>
+            <p style="margin-top:8px">Restart Windsurf, then open <strong>Cascade → MCP Servers</strong> to confirm.</p>
+          </div>
+
+          <div class="tab-panel" id="tab-vscode">
+            <p><code>.vscode/mcp.json</code> is already committed to the Mergen repo — no config needed if you opened the Mergen project in VS Code.</p>
+            <p style="margin-top:8px">For other projects (global user-level config):</p>
+            <pre>npx mergen-server@latest setup</pre>
+            <p style="margin-top:8px">Requirements: VS Code 1.99+, GitHub Copilot extension, Agent mode enabled. Open Copilot Chat → switch to <strong>Agent mode</strong> → click <strong>tools</strong> — Mergen tools should appear.</p>
+          </div>
         </div>
       </div>
 
+      <!-- Step 3 -->
       <div class="step">
         <div class="step-num">3</div>
         <div class="step-body">
           <h3>Browse — Mergen records everything</h3>
-          <p>Open any webpage. Console logs, errors, warnings, and network requests (fetch + XHR) are automatically captured and sent to the local server buffer.</p>
+          <p>Open any webpage you're developing. Console logs, errors, warnings, and network requests (fetch + XHR) are automatically captured and forwarded to the local server buffer.</p>
         </div>
       </div>
 
+      <!-- Step 4 -->
       <div class="step">
         <div class="step-num">4</div>
         <div class="step-body">
-          <h3>Ask your AI debugger</h3>
-          <p>In your MCP-connected client, ask something like:</p>
+          <h3>Ask your AI</h3>
+          <p>In your MCP-connected IDE, ask something like:</p>
           <pre>What errors are happening in my browser right now?</pre>
-          <p style="margin-top:8px">Mergen will interpret the telemetry — errors first, then warnings, then a summary.</p>
+          <p style="margin-top:8px">Mergen surfaces errors first, then warnings, then a summary with suggested fixes.</p>
         </div>
       </div>
 
     </div>
 
-    <!-- Live status check -->
+    <!-- Full connection check -->
     <div class="status-check">
       <div>
-        <strong>Check server connection</strong>
-        <p>Make sure the server is running before you start debugging.</p>
+        <strong>Verify the full connection</strong>
+        <p>Checks that the server is running and has received at least one event.</p>
         <div id="check-result"></div>
       </div>
       <button id="check-btn">Check Now</button>

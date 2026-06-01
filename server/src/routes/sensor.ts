@@ -15,7 +15,7 @@ import { buildCausalChain } from '../intelligence/causal.js';
 import { hypothesisHistory } from '../intelligence/hypothesis-history.js';
 import { getStats } from '../intelligence/calibration.js';
 import { getUsageSnapshot } from '../intelligence/usage.js';
-import { toolCallCounts } from '../intelligence/tools.js';
+import { toolCallCounts, lastMcpCallAt } from '../intelligence/tools.js';
 import { getTeamState, isTeamEnabled } from '../intelligence/team.js';
 
 export function createSensorRouter(serverVersion: string): Router {
@@ -31,6 +31,9 @@ export function createSensorRouter(serverVersion: string): Router {
       errors: counters.errors,
       warnings: counters.warnings,
       networkErrors: counters.networkErrors,
+      lastEventAt: store.lastEventAt(),
+      clearedAt: store.clearedAt(),
+      mcpLastCallAt: lastMcpCallAt,
       signals: store.getSignals(),
       name: 'mergen',
       version: serverVersion,

@@ -5,34 +5,46 @@
 const DEFAULT_PORT = 3000;
 
 // ── DOM refs ────────────────────────────────────────────────────────────────
-const statusPill   = document.getElementById('status-pill');
-const statusText   = document.getElementById('status-text');
-const serverUrl    = document.getElementById('server-url');
-const statErrors   = document.getElementById('stat-errors');
-const statWarns    = document.getElementById('stat-warns');
-const statNet      = document.getElementById('stat-net');
-const portInput    = document.getElementById('port-input');
-const portSave     = document.getElementById('port-save');
-const portSaved    = document.getElementById('port-saved');
-const muteToggle   = document.getElementById('mute-toggle');
-const toggleSub    = document.getElementById('toggle-sub');
-const mutedBanner  = document.getElementById('muted-banner');
-const noCsBanner   = document.getElementById('no-cs-banner');
-const btnClear     = document.getElementById('btn-clear');
-const btnReconnect = document.getElementById('btn-reconnect');
-const welcomeLink  = document.getElementById('welcome-link');
-const pricingLink  = document.getElementById('pricing-link');
-const planBadge    = document.getElementById('plan-badge');
-const teamDot      = document.getElementById('team-dot');
-const teamBadge    = document.getElementById('team-badge');
-const upgradeLink  = document.getElementById('upgrade-link');
-const creditWrap   = document.getElementById('credit-wrap');
-const creditCount  = document.getElementById('credit-count');
-const creditFill   = document.getElementById('credit-fill');
+const statusPill    = document.getElementById('status-pill');
+const statusText    = document.getElementById('status-text');
+const serverUrl     = document.getElementById('server-url');
+const mcpSub        = document.getElementById('mcp-sub');
+const statErrors    = document.getElementById('stat-errors');
+const statWarns     = document.getElementById('stat-warns');
+const statNet       = document.getElementById('stat-net');
+const statsGrid     = document.getElementById('stats-grid');
+const activityRow   = document.getElementById('activity-row');
+const lastEventText = document.getElementById('last-event-text');
+const disconnectHint = document.getElementById('disconnect-hint');
+const portInput     = document.getElementById('port-input');
+const portSave      = document.getElementById('port-save');
+const portSaved     = document.getElementById('port-saved');
+const portRow       = document.getElementById('port-row');
+const muteToggle    = document.getElementById('mute-toggle');
+const toggleSub     = document.getElementById('toggle-sub');
+const mutedBanner   = document.getElementById('muted-banner');
+const noCsBanner    = document.getElementById('no-cs-banner');
+const btnClear      = document.getElementById('btn-clear');
+const btnReconnect  = document.getElementById('btn-reconnect');
+const btnGear       = document.getElementById('btn-gear');
+const welcomeLink   = document.getElementById('welcome-link');
+const pricingLink   = document.getElementById('pricing-link');
+const planBadge     = document.getElementById('plan-badge');
+const teamDot       = document.getElementById('team-dot');
+const teamBadge     = document.getElementById('team-badge');
+const upgradeLink   = document.getElementById('upgrade-link');
+const creditWrap    = document.getElementById('credit-wrap');
+const creditCount   = document.getElementById('credit-count');
+const creditFill    = document.getElementById('credit-fill');
 const creditOverage = document.getElementById('credit-overage');
-const signalsWrap  = document.getElementById('signals-wrap');
-const signalsList  = document.getElementById('signals-list');
-const signalsCount = document.getElementById('signals-count');
+const signalsWrap   = document.getElementById('signals-wrap');
+const signalsList   = document.getElementById('signals-list');
+const signalsCount  = document.getElementById('signals-count');
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let _prevBuffered = -1;
+let _clearConfirmPending = false;
+let _clearConfirmTimer = null;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -44,10 +56,33 @@ function setStatus(state, label) {
   statusPill.querySelector('.dot').className = state === 'checking' ? 'dot pulse' : 'dot';
 }
 
-// ── Live signals (B3) ────────────────────────────────────────────────────────
-// Render the buffer's session signals (computed server-side from the ring
-// buffer) so the dev sees actionable patterns BEFORE crashes — this is the
-// core "always-on engagement" surface in the popup.
+function timeAgo(ts) {
+  const sec = Math.floor((Date.now() - ts) / 1000);
+  if (sec < 5)  return 'just now';
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  return `${hr}h ago`;
+}
+
+function updateMcpStatus(lastCallAt) {
+  if (!lastCallAt) {
+    mcpSub.textContent = 'MCP: not configured — run setup';
+    mcpSub.className = 'mcp-sub unconfigured';
+    return;
+  }
+  const sec = Math.floor((Date.now() - lastCallAt) / 1000);
+  if (sec < 300) {
+    mcpSub.textContent = `MCP: active (${timeAgo(lastCallAt)})`;
+    mcpSub.className = 'mcp-sub active';
+  } else {
+    mcpSub.textContent = `MCP: last used ${timeAgo(lastCallAt)}`;
+    mcpSub.className = 'mcp-sub';
+  }
+}
+
+// ── Live signals ─────────────────────────────────────────────────────────────
 
 function confidenceBand(c) {
   if (c >= 0.80) return 'high';
@@ -86,8 +121,6 @@ function renderSignals(signals) {
     `;
   }).join('');
 
-  // Wire CTAs — copy the tool invocation to the clipboard so the dev can
-  // paste it into Cursor / Claude / Copilot Chat instantly.
   for (const btn of signalsList.querySelectorAll('.signal-cta')) {
     btn.addEventListener('click', async () => {
       const tool = btn.getAttribute('data-tool');
@@ -143,8 +176,16 @@ async function refresh(port) {
     btnClear.disabled = true;
     creditWrap.style.display = 'none';
     renderSignals([]);
+    disconnectHint.style.display = 'block';
+    activityRow.style.display = 'none';
+    mcpSub.textContent = 'MCP: —';
+    mcpSub.className = 'mcp-sub';
+    _prevBuffered = -1;
     return;
   }
+
+  disconnectHint.style.display = 'none';
+  activityRow.style.display = 'flex';
 
   setStatus('connected', 'Connected');
   statErrors.textContent = health.errors ?? 0;
@@ -152,7 +193,26 @@ async function refresh(port) {
   statNet.textContent    = health.networkErrors ?? 0;
   btnClear.disabled = false;
 
-  // Surface live signals from /health (already computed by the server)
+  // Flash stats row when new events arrive since last poll
+  const newBuffered = health.buffered ?? 0;
+  if (_prevBuffered >= 0 && newBuffered > _prevBuffered) {
+    statsGrid.classList.remove('flash');
+    void statsGrid.offsetWidth; // force reflow to restart CSS animation
+    statsGrid.classList.add('flash');
+  }
+  _prevBuffered = newBuffered;
+
+  // Activity row: show when the last event was captured
+  if (health.lastEventAt) {
+    lastEventText.textContent = `Last event: ${timeAgo(health.lastEventAt)}`;
+  } else {
+    lastEventText.textContent = 'No events captured yet — open a browser tab and browse';
+  }
+
+  // MCP dual-status indicator
+  updateMcpStatus(health.mcpLastCallAt ?? null);
+
+  // Live signals
   renderSignals(health.signals ?? []);
 
   // Team sync indicator
@@ -180,11 +240,9 @@ async function refresh(port) {
     planBadge.textContent = planName;
     planBadge.className   = `plan-label plan-${planId}`;
 
-    // Show upgrade link for free plan or when at ≥80% of quota
     const atLimit = usage.included !== null && usage.used / usage.included >= 0.8;
     upgradeLink.style.display = (planId === 'free' || atLimit) ? '' : 'none';
 
-    // Credit bar — only for plans with a finite quota
     if (usage.included !== null && usage.included > 0) {
       creditWrap.style.display = 'block';
       const pct = Math.min(100, Math.round((Math.min(usage.used, usage.included) / usage.included) * 100));
@@ -221,6 +279,13 @@ portSave.addEventListener('click', async () => {
   refresh(port);
 });
 
+// ── Gear toggle (port settings) ───────────────────────────────────────────────
+
+btnGear.addEventListener('click', () => {
+  const isOpen = portRow.classList.toggle('open');
+  btnGear.classList.toggle('active', isOpen);
+});
+
 // ── Mute toggle ───────────────────────────────────────────────────────────────
 
 muteToggle.addEventListener('change', async () => {
@@ -233,18 +298,37 @@ muteToggle.addEventListener('change', async () => {
   else       { toggleSub.textContent = 'Active on current tab'; mutedBanner.style.display = 'none'; }
 });
 
-// ── Clear buffer ──────────────────────────────────────────────────────────────
+// ── Clear buffer (two-step confirm to prevent accidental clears) ──────────────
 
 btnClear.addEventListener('click', async () => {
+  if (!_clearConfirmPending) {
+    _clearConfirmPending = true;
+    btnClear.textContent = 'Confirm clear?';
+    btnClear.classList.add('confirming');
+    _clearConfirmTimer = setTimeout(() => {
+      _clearConfirmPending = false;
+      _clearConfirmTimer = null;
+      btnClear.textContent = '🗑 Clear';
+      btnClear.classList.remove('confirming');
+    }, 3000);
+    return;
+  }
+
+  clearTimeout(_clearConfirmTimer);
+  _clearConfirmPending = false;
+  _clearConfirmTimer = null;
+  btnClear.classList.remove('confirming');
+
   const port = parseInt(portInput.value, 10);
   try {
     await fetch(`${getBaseUrl(port)}/clear`, { method: 'POST', signal: AbortSignal.timeout(2000) });
     btnClear.textContent = '✓ Cleared';
-    setTimeout(() => { btnClear.textContent = '🗑 Clear Buffer'; }, 1500);
+    _prevBuffered = 0;
+    setTimeout(() => { btnClear.textContent = '🗑 Clear'; }, 1500);
     refresh(port);
   } catch {
     btnClear.textContent = '✗ Failed';
-    setTimeout(() => { btnClear.textContent = '🗑 Clear Buffer'; }, 1500);
+    setTimeout(() => { btnClear.textContent = '🗑 Clear'; }, 1500);
   }
 });
 
@@ -272,13 +356,12 @@ upgradeLink.addEventListener('click', (e) => {
 // ── Content-script ping ───────────────────────────────────────────────────────
 // If the tab was open before the extension was installed/reloaded, the content
 // script was never injected — console.log patches never ran. Detect this and
-// show a one-click "reload tab" banner so the user knows why logs are missing.
+// show a one-click "reload tab" button so the user knows why logs are missing.
 
 async function checkContentScript() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) return;
-    // chrome:// and extension pages can't receive messages — skip silently.
     if (!tab.url || tab.url.startsWith('chrome') || tab.url.startsWith('chrome-extension')) return;
     const response = await chrome.tabs.sendMessage(tab.id, { type: 'MERGEN_PING' })
       .catch(() => null);
@@ -299,5 +382,8 @@ async function checkContentScript() {
   await loadMuteState();
   await refresh(port);
   await checkContentScript();
-})();
 
+  // Auto-refresh every 3 s while popup is open so activity row and signals stay live.
+  const intervalId = setInterval(() => refresh(parseInt(portInput.value, 10)), 3000);
+  window.addEventListener('unload', () => clearInterval(intervalId));
+})();

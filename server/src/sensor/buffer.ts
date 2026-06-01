@@ -155,6 +155,10 @@ export interface BufferStore {
   getLocalStorageDiff(current: Record<string, string>, url: string): LocalStorageDiff;
   clear(): void;
   size(): number;
+  /** Unix ms timestamp of the most recent event pushed, or null if empty. */
+  lastEventAt(): number | null;
+  /** Unix ms timestamp of the most recent clear(), or null if never cleared. */
+  clearedAt(): number | null;
 }
 
 // ── Plan-aware read limit ─────────────────────────────────────────────────────
@@ -187,6 +191,9 @@ class RingBuffer implements BufferStore {
   // Track last localStorage snapshot per URL for diffing
   private readonly _lastLocalStorageByUrl = new Map<string, Record<string, string>>();
 
+  private _lastEventAt: number | null = null;
+  private _clearedAt: number | null = null;
+
   private _incrementCounters(event: BrowserEvent): void {
     if (event.type === 'console') {
       if (event.level === 'error') this._errors++;
@@ -206,6 +213,7 @@ class RingBuffer implements BufferStore {
   }
 
   push(event: BrowserEvent): void {
+    this._lastEventAt = event.timestamp;
     if (this._count < MAX_SIZE) {
       // Buffer has space — append normally
       const slot = (this._head + this._count) % MAX_SIZE;
@@ -321,6 +329,8 @@ class RingBuffer implements BufferStore {
     this._warnings = 0;
     this._networkErrors = 0;
     this._lastLocalStorageByUrl.clear();
+    this._lastEventAt = null;
+    this._clearedAt = Date.now();
   }
 
   getLocalStorageDiff(current: Record<string, string>, url: string): LocalStorageDiff {
@@ -531,6 +541,9 @@ class RingBuffer implements BufferStore {
   size(): number {
     return this._count;
   }
+
+  lastEventAt(): number | null { return this._lastEventAt; }
+  clearedAt(): number | null { return this._clearedAt; }
 }
 
 export const store: BufferStore = new RingBuffer();

@@ -63,6 +63,18 @@
       white-space: nowrap;
     }
 
+    .mcp-sub {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 1px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      transition: color .3s;
+    }
+    .mcp-sub.active       { color: var(--green); }
+    .mcp-sub.unconfigured { color: var(--yellow); }
+
     /* ── Status pill ── */
     .status-pill {
       display: flex;
@@ -106,11 +118,11 @@
       border-radius: 10px;
     }
 
-    .plan-free        { background: rgba(148,163,184,.1);  color: var(--text-muted); border: 1px solid var(--border); }
+    .plan-free          { background: rgba(148,163,184,.1);  color: var(--text-muted); border: 1px solid var(--border); }
     .plan-solo_standard { background: rgba(167,139,250,.12); color: var(--accent);    border: 1px solid rgba(167,139,250,.3); }
-    .plan-solo_pro    { background: rgba(167,139,250,.2);  color: var(--accent);    border: 1px solid var(--accent); }
-    .plan-team        { background: rgba(251,191,36,.1);   color: var(--yellow);    border: 1px solid rgba(251,191,36,.3); }
-    .plan-pay_as_you_go { background: rgba(74,222,128,.08); color: var(--green);    border: 1px solid rgba(74,222,128,.25); }
+    .plan-solo_pro      { background: rgba(167,139,250,.2);  color: var(--accent);    border: 1px solid var(--accent); }
+    .plan-team          { background: rgba(251,191,36,.1);   color: var(--yellow);    border: 1px solid rgba(251,191,36,.3); }
+    .plan-pay_as_you_go { background: rgba(74,222,128,.08);  color: var(--green);     border: 1px solid rgba(74,222,128,.25); }
 
     .team-dot {
       display: none;
@@ -119,7 +131,6 @@
       background: var(--green);
       box-shadow: 0 0 6px var(--green);
     }
-
     .team-dot.active { display: block; }
 
     .upgrade-link {
@@ -183,6 +194,12 @@
       border-bottom: 1px solid var(--border);
     }
 
+    @keyframes flashIn {
+      0%   { background: rgba(167,139,250,.18); }
+      100% { background: var(--border); }
+    }
+    .stats.flash { animation: flashIn .4s ease-out forwards; }
+
     .stat {
       background: var(--surface);
       padding: 11px 8px;
@@ -208,15 +225,102 @@
     .stat.warnings .stat-value { color: var(--yellow); }
     .stat.network .stat-value  { color: var(--accent); }
 
-    /* ── Port row ── */
-    .port-row {
+    /* ── Activity row ── */
+    .activity-row {
       display: flex;
+      align-items: center;
+      padding: 5px 14px;
+      font-size: 10px;
+      color: var(--text-muted);
+      background: var(--surface3);
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* ── Disconnect hint ── */
+    .disconnect-hint {
+      display: none;
+      padding: 8px 14px;
+      font-size: 11px;
+      color: var(--red);
+      background: rgba(248,113,113,.06);
+      border-bottom: 1px solid rgba(248,113,113,.15);
+      line-height: 1.5;
+    }
+    .disconnect-hint code {
+      background: rgba(248,113,113,.12);
+      border: 1px solid rgba(248,113,113,.2);
+      border-radius: 3px;
+      padding: 1px 5px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 10px;
+      color: var(--red);
+    }
+
+    /* ── Signals ── */
+    #signals-wrap {
+      display: none;
+      border-bottom: 1px solid var(--border);
+    }
+    #signals-wrap.has-signals { display: block; }
+
+    .signals-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 14px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: var(--text-muted);
+      background: var(--surface2);
+    }
+
+    .signals-count {
+      background: var(--accent-glow);
+      color: var(--accent);
+      border: 1px solid rgba(167,139,250,.3);
+      border-radius: 8px;
+      padding: 1px 6px;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .signal {
+      padding: 8px 14px 8px 16px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .signal.high   { border-left: 2px solid var(--red); }
+    .signal.medium { border-left: 2px solid var(--yellow); }
+    .signal.low    { border-left: 2px solid var(--text-muted); }
+
+    .signal-msg    { color: var(--text); font-size: 11px; margin-bottom: 2px; line-height: 1.4; }
+    .signal-action { color: var(--text-muted); font-size: 10px; margin-bottom: 5px; }
+
+    .signal-cta {
+      background: var(--accent-glow);
+      color: var(--accent);
+      border: 1px solid rgba(167,139,250,.25);
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 8px;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    .signal-cta:hover { background: rgba(167,139,250,.25); }
+
+    /* ── Port row (hidden by default, toggled by gear) ── */
+    .port-row {
+      display: none;
       align-items: center;
       gap: 8px;
       padding: 8px 14px;
       border-bottom: 1px solid var(--border);
       background: var(--surface2);
     }
+    .port-row.open { display: flex; }
 
     .port-label { font-size: 10px; color: var(--text-muted); white-space: nowrap; }
 
@@ -296,12 +400,17 @@
       color: var(--text-muted);
     }
 
-    .btn-clear   { background: rgba(248,113,113,.08); color: var(--red);    border-color: rgba(248,113,113,.2); }
-    .btn-clear:hover   { background: rgba(248,113,113,.16); }
-    .btn-clear:disabled { opacity:.4; cursor:not-allowed; }
+    .btn-clear            { background: rgba(248,113,113,.08); color: var(--red);    border-color: rgba(248,113,113,.2); }
+    .btn-clear:hover      { background: rgba(248,113,113,.16); }
+    .btn-clear:disabled   { opacity:.4; cursor:not-allowed; }
+    .btn-clear.confirming { background: rgba(248,113,113,.22); color: var(--red);    border-color: var(--red); font-weight: 700; }
 
-    .btn-reconnect { background: rgba(167,139,250,.08); color: var(--accent); border-color: rgba(167,139,250,.2); }
+    .btn-reconnect       { background: rgba(167,139,250,.08); color: var(--accent); border-color: rgba(167,139,250,.2); }
     .btn-reconnect:hover { background: rgba(167,139,250,.16); }
+
+    .btn-gear       { flex: 0; padding: 7px 10px; font-size: 14px; }
+    .btn-gear:hover { color: var(--text); }
+    .btn-gear.active { color: var(--accent); border-color: rgba(167,139,250,.3); background: var(--accent-glow); }
 
     /* ── Footer ── */
     .footer {
@@ -332,16 +441,20 @@
     /* ── No content script banner ── */
     #no-cs-banner {
       display: none;
-      background: rgba(248,113,113,.08);
+      width: 100%;
+      background: rgba(248,113,113,.1);
+      border: none;
       border-bottom: 1px solid rgba(248,113,113,.2);
       color: var(--red);
       font-size: 11px;
       font-weight: 600;
-      text-align: center;
-      padding: 6px 14px;
+      text-align: left;
+      padding: 8px 14px;
       cursor: pointer;
+      transition: background .15s;
+      font-family: inherit;
     }
-    #no-cs-banner:hover { background: rgba(248,113,113,.14); }
+    #no-cs-banner:hover { background: rgba(248,113,113,.18); }
 
     /* ── Team badge ── */
     .team-badge {
@@ -363,6 +476,7 @@
     <div class="header-info">
       <div class="header-title">Mergen</div>
       <div class="header-sub" id="server-url">http://127.0.0.1:3000</div>
+      <div class="mcp-sub" id="mcp-sub">MCP: checking…</div>
     </div>
     <div class="status-pill checking" id="status-pill">
       <div class="dot pulse"></div>
@@ -385,7 +499,9 @@
 
   <!-- Muted banner -->
   <div id="muted-banner">⏸ Recording paused on this tab</div>
-  <div id="no-cs-banner" title="Click to reload the tab">⚠ Tab opened before extension loaded — click here to reload &amp; enable capture</div>
+
+  <!-- No content script — styled as an explicit action button -->
+  <button id="no-cs-banner">⚠ Content script not loaded — click to reload tab and enable capture →</button>
 
   <!-- Credit meter (solo_standard only) -->
   <div id="credit-wrap" style="display:none">
@@ -398,7 +514,7 @@
   </div>
 
   <!-- Stats -->
-  <div class="stats">
+  <div class="stats" id="stats-grid">
     <div class="stat errors">
       <div class="stat-value" id="stat-errors">—</div>
       <div class="stat-label">Errors</div>
@@ -413,8 +529,27 @@
     </div>
   </div>
 
-  <!-- Port config -->
-  <div class="port-row">
+  <!-- Activity: last event timestamp -->
+  <div class="activity-row" id="activity-row" style="display:none">
+    <span id="last-event-text">No events yet</span>
+  </div>
+
+  <!-- Disconnect hint with recovery guidance -->
+  <div class="disconnect-hint" id="disconnect-hint">
+    Server not responding · Run <code>npm start</code> inside <code>server/</code>, or check that another process hasn't claimed port 3000.
+  </div>
+
+  <!-- Live signals (shown only when findings exist) -->
+  <div id="signals-wrap">
+    <div class="signals-header">
+      <span>Live findings</span>
+      <span id="signals-count" class="signals-count"></span>
+    </div>
+    <div id="signals-list"></div>
+  </div>
+
+  <!-- Port config — hidden by default, gear button toggles it -->
+  <div class="port-row" id="port-row">
     <span class="port-label">Port</span>
     <input class="port-input" type="number" id="port-input" min="1024" max="65535" value="3000" />
     <button class="port-save" id="port-save">Save</button>
@@ -435,8 +570,9 @@
 
   <!-- Actions -->
   <div class="actions">
-    <button class="btn btn-clear" id="btn-clear">🗑 Clear Buffer</button>
+    <button class="btn btn-clear" id="btn-clear" disabled>🗑 Clear</button>
     <button class="btn btn-reconnect" id="btn-reconnect">↺ Reconnect</button>
+    <button class="btn btn-gear" id="btn-gear" title="Port settings">⚙</button>
   </div>
 
   <!-- Footer -->
@@ -450,3 +586,4 @@
 
   <script src="src/popup.js"></script>
 </body>
+</html>

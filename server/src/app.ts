@@ -24,9 +24,10 @@ import { createTelemetryRouter } from './routes/telemetry.js';
 import { createSetupRouter } from './routes/setup-ui.js';
 import { layersRouter } from './routes/layers.js';
 import { sentryRouter } from './routes/sentry.js';
+import { otelRouter } from './routes/otel.js';
 
 /** Paths that require the x-mergen-secret header on non-GET requests. */
-const MUTATING_PATHS = ['/feedback', '/license', '/clear', '/checkpoint', '/telemetry'];
+const MUTATING_PATHS = ['/feedback', '/license', '/clear', '/checkpoint', '/telemetry', '/otel-config'];
 
 export function createApp(opts: { serverVersion: string; localSecret: string }): express.Express {
   const { serverVersion, localSecret } = opts;
@@ -77,6 +78,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string }):
   app.use(teamRouter);
   app.use(ingestRouter);
   app.use(layersRouter); // Layer 2-4 routes
+  app.use(otelRouter);   // OpenTelemetry export config
 
   // ── Malformed JSON handler ────────────────────────────────────────────────
   app.use(

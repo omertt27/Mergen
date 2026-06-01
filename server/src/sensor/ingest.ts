@@ -7,6 +7,20 @@ import { layer2Store } from './layer2-store.js';
 import { layer3Store } from './layer3-store.js';
 import { layer4Store } from './layer4-store.js';
 import { historyStore } from './sqlite-store.js';
+import { exportToOtel } from './otel-exporter.js';
+
+// ── Team broadcast hook ───────────────────────────────────────────────────────
+// Registered by intelligence/team.ts at startup to avoid a circular import.
+type TeamBroadcaster = (events: BrowserEvent[], member: string) => void;
+let _teamBroadcast: TeamBroadcaster | null = null;
+export function registerTeamBroadcaster(fn: TeamBroadcaster): void {
+  _teamBroadcast = fn;
+}
+function maybeTeamBroadcast(event: BrowserEvent): void {
+  if (_teamBroadcast) {
+    try { _teamBroadcast([event], 'self'); } catch { /* non-fatal */ }
+  }
+}
 
 // ── Diagnostic activity hooks ─────────────────────────────────────────────────
 // The intelligence layer registers these at startup so the sensor layer
@@ -232,16 +246,22 @@ ingestRouter.post('/ingest', (req: Request, res: Response): void => {
         const resolved_event = { ...event, stack: resolved };
         store.push(resolved_event);
         historyStore.push(resolved_event);
+        maybeTeamBroadcast(resolved_event);
+        exportToOtel(resolved_event);
       })
       .catch((err) => {
         logger.warn({ err }, 'sourcemap resolution failed or timed out, storing raw event');
         store.push(event);
         historyStore.push(event);
+        maybeTeamBroadcast(event);
+        exportToOtel(event);
       })
       .finally(triggerActivity);
   } else {
     store.push(event);
     historyStore.push(event);
+    maybeTeamBroadcast(event);
+    exportToOtel(event);
     triggerActivity();
   }
 });

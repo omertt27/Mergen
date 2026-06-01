@@ -29,11 +29,12 @@ import { startWatcher } from './sensor/watcher.js';
 
 import { initLicense, getActivePlanId } from './intelligence/license.js';
 import { initUsage, flushOverageOnShutdown } from './intelligence/usage.js';
-import { initTeam } from './intelligence/team.js';
+import { initTeam, broadcastToTeam } from './intelligence/team.js';
 import { initTelemetry, maybeSendTelemetry } from './intelligence/telemetry.js';
 import { getPlan } from './intelligence/plans.js';
 import { registerTools, toolCallCounts } from './intelligence/tools.js';
 import { SYSTEM_PROMPT } from './intelligence/prompts.js';
+import { registerTeamBroadcaster } from './sensor/ingest.js';
 
 import { createApp } from './app.js';
 import { checkForUpdates, formatUpdateMessage } from './update-checker.js';
@@ -91,6 +92,10 @@ async function main(): Promise<void> {
   await initTelemetry();
   await historyStore.init();
   setBufferSizeGetter(() => getPlan(getActivePlanId()).bufferSize);
+
+  // Wire team broadcast: events ingested by the sensor layer are fanned out
+  // to all connected SSE peers that share the same team token.
+  registerTeamBroadcaster(broadcastToTeam);
 
   // ── HTTP server ────────────────────────────────────────────────────────────
   const app = createApp({ serverVersion: SERVER_VERSION, localSecret });
