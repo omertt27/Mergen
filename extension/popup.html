@@ -466,6 +466,72 @@
       font-weight: 600;
     }
     .team-badge.visible { display: flex; }
+
+    /* ── Debug session strip ── */
+    .session-strip {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 7px 14px;
+      background: rgba(167,139,250,.07);
+      border-bottom: 1px solid rgba(167,139,250,.2);
+    }
+    .session-strip.active { display: flex; }
+
+    .session-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .session-beacon {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+      flex-shrink: 0;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    .session-name {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--accent);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .session-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .session-diff {
+      font-size: 10px;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+    .session-diff .s-ok  { color: var(--green); }
+    .session-diff .s-err { color: var(--red); }
+
+    .session-copy-btn {
+      background: var(--accent-glow);
+      color: var(--accent);
+      border: 1px solid rgba(167,139,250,.3);
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      cursor: pointer;
+      transition: background .15s;
+      white-space: nowrap;
+    }
+    .session-copy-btn:hover { background: rgba(167,139,250,.25); }
   </style>
 </head>
 <body>
@@ -495,6 +561,18 @@
       Team sync on
     </div>
     <a class="upgrade-link" id="upgrade-link">Upgrade →</a>
+  </div>
+
+  <!-- Debug session strip — visible only when a session is active -->
+  <div class="session-strip" id="session-strip">
+    <div class="session-left">
+      <div class="session-beacon"></div>
+      <span class="session-name" id="session-name">Debug session</span>
+    </div>
+    <div class="session-right">
+      <span class="session-diff" id="session-diff"></span>
+      <button class="session-copy-btn" id="session-copy-btn">⚑ Checkpoint</button>
+    </div>
   </div>
 
   <!-- Muted banner -->

@@ -16,6 +16,7 @@ import { hypothesisHistory } from '../intelligence/hypothesis-history.js';
 import { getStats } from '../intelligence/calibration.js';
 import { getUsageSnapshot } from '../intelligence/usage.js';
 import { toolCallCounts, lastMcpCallAt } from '../intelligence/tools.js';
+import { listActiveSessions } from '../intelligence/debug-sessions.js';
 import { getTeamState, isTeamEnabled } from '../intelligence/team.js';
 
 export function createSensorRouter(serverVersion: string): Router {
@@ -225,6 +226,30 @@ export function createSensorRouter(serverVersion: string): Router {
     rows.sort((a, b) => a.ts - b.ts);
 
     res.json({ ok: true, windowSeconds: seconds, count: rows.length, rows: rows.slice(-limit) });
+  });
+
+  // ── Active debug sessions ─────────────────────────────────────────────────
+  // Used by the popup to show the session strip widget.
+  router.get('/sessions', (_req, res) => {
+    const sessions = listActiveSessions().map(s => {
+      const last = s.iterations.length > 0 ? s.iterations[s.iterations.length - 1] : null;
+      return {
+        id: s.id,
+        description: s.description,
+        targetComponent: s.targetComponent ?? null,
+        startedAt: s.startedAt,
+        iterationCount: s.iterations.length,
+        baselineErrorCount: s.baseline.errors.length,
+        baselineNetworkFailureCount: s.baseline.networkFailures.length,
+        latestDiff: last ? {
+          resolved: last.diff.resolved.length,
+          persisted: last.diff.persisted.length,
+          newErrors: last.diff.newErrors.length,
+          isFixed: last.diff.isFixed,
+        } : null,
+      };
+    });
+    res.json({ ok: true, sessions });
   });
 
   // ── Replay — historical events from SQLite (last 1 hour) ─────────────────

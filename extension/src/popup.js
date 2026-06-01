@@ -40,6 +40,10 @@ const creditOverage = document.getElementById('credit-overage');
 const signalsWrap   = document.getElementById('signals-wrap');
 const signalsList   = document.getElementById('signals-list');
 const signalsCount  = document.getElementById('signals-count');
+const sessionStrip  = document.getElementById('session-strip');
+const sessionName   = document.getElementById('session-name');
+const sessionDiff   = document.getElementById('session-diff');
+const sessionCopyBtn = document.getElementById('session-copy-btn');
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let _prevBuffered = -1;
@@ -81,6 +85,54 @@ function updateMcpStatus(lastCallAt) {
     mcpSub.className = 'mcp-sub';
   }
 }
+
+// ── Debug session strip ───────────────────────────────────────────────────────
+
+let _activeSessionId = null;
+
+async function refreshSessionStrip(port) {
+  try {
+    const res = await fetch(`${getBaseUrl(port)}/sessions`, { signal: AbortSignal.timeout(2000) });
+    if (!res.ok) { sessionStrip.classList.remove('active'); return; }
+    const { sessions } = await res.json();
+
+    if (!sessions || sessions.length === 0) {
+      sessionStrip.classList.remove('active');
+      _activeSessionId = null;
+      return;
+    }
+
+    const s = sessions[0];
+    _activeSessionId = s.id;
+    sessionStrip.classList.add('active');
+
+    const label = s.description.length > 32 ? s.description.slice(0, 30) + '…' : s.description;
+    sessionName.textContent = `🔬 ${label}`;
+    if (s.iterationCount > 0) sessionName.textContent += ` · iter ${s.iterationCount}`;
+
+    if (s.latestDiff) {
+      const { resolved, persisted, newErrors } = s.latestDiff;
+      sessionDiff.innerHTML =
+        `<span class="s-ok">✓${resolved}</span> ` +
+        `<span class="s-err">✗${persisted + newErrors}</span>`;
+    } else {
+      sessionDiff.innerHTML = `<span>${s.baselineErrorCount} error${s.baselineErrorCount !== 1 ? 's' : ''} at baseline</span>`;
+    }
+  } catch { sessionStrip.classList.remove('active'); }
+}
+
+sessionCopyBtn.addEventListener('click', async () => {
+  if (!_activeSessionId) return;
+  const text = `checkpoint_debug_session("${_activeSessionId}", "describe your fix here")`;
+  try {
+    await navigator.clipboard.writeText(text);
+    const orig = sessionCopyBtn.textContent;
+    sessionCopyBtn.textContent = '✓ Copied';
+    setTimeout(() => { sessionCopyBtn.textContent = orig; }, 1800);
+  } catch {
+    sessionCopyBtn.textContent = 'Copy failed';
+  }
+});
 
 // ── Live signals ─────────────────────────────────────────────────────────────
 
@@ -211,6 +263,9 @@ async function refresh(port) {
 
   // MCP dual-status indicator
   updateMcpStatus(health.mcpLastCallAt ?? null);
+
+  // Debug session strip
+  await refreshSessionStrip(port);
 
   // Live signals
   renderSignals(health.signals ?? []);
