@@ -9,6 +9,43 @@ import { MergenPanel } from './panel.js';
 
 const FEEDBACK_URL = 'https://github.com/omertt27/Mergen/discussions/new?category=feedback';
 const INSTALL_GUIDE_URL = 'https://github.com/omertt27/Mergen#install-in-60-seconds';
+const SECRET_FILE = path.join(os.homedir(), '.mergen', 'secret');
+
+let cachedSecret: string | null = null;
+
+function getSharedSecret(): string | null {
+  if (cachedSecret) return cachedSecret;
+  try {
+    cachedSecret = fs.readFileSync(SECRET_FILE, 'utf8').trim() || null;
+  } catch {
+    cachedSecret = null;
+  }
+  return cachedSecret;
+}
+
+function postToIngest(port: number, payload: Record<string, unknown>): Promise<void> {
+  return new Promise((resolve) => {
+    const body = JSON.stringify(payload);
+    const secret = getSharedSecret();
+    const req = http.request(
+      {
+        hostname: '127.0.0.1',
+        port,
+        path: '/ingest',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+          ...(secret ? { 'x-mergen-secret': secret } : {}),
+        },
+      },
+      (res) => { res.resume(); resolve(); },
+    );
+    req.on('error', () => resolve()); // best-effort, never throw
+    req.write(body);
+    req.end();
+  });
+}
 
 export function activate(context: vscode.ExtensionContext): void {
   console.log('[Mergen] activate() called');
@@ -56,6 +93,88 @@ export function activate(context: vscode.ExtensionContext): void {
   if (cfg.get<boolean>('autoStartServer', true)) {
     void startServer(context, /*explicit*/ false);
   }
+
+  let diagDebounce: ReturnType<typeof setTimeout> | null = null;
+  const pendingUris = new Set<string>();
+
+  context.subscriptions.push(
+    vscode.languages.onDidChangeDiagnostics((event) => {
+      for (const uri of event.uris) pendingUris.add(uri.toString());
+      if (diagDebounce) clearTimeout(diagDebounce);
+      diagDebounce = setTimeout(() => {
+        diagDebounce = null;
+        const uris = [...pendingUris];
+        pendingUris.clear();
+        const cfg2 = vscode.workspace.getConfiguration('mergen');
+        const port2 = cfg2.get<number>('serverPort', 3000);
+        const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+        for (const uriStr of uris) {
+          const uri2 = vscode.Uri.parse(uriStr);
+          const diags = vscode.languages.getDiagnostics(uri2);
+          const relPath = workspace ? path.relative(workspace, uri2.fsPath) : uri2.fsPath;
+          for (const d of diags) {
+            if (d.severity > vscode.DiagnosticSeverity.Warning) continue;
+            const sevMap: Record<number, string> = {
+              [vscode.DiagnosticSeverity.Error]: 'error',
+              [vscode.DiagnosticSeverity.Warning]: 'warning',
+              [vscode.DiagnosticSeverity.Information]: 'info',
+              [vscode.DiagnosticSeverity.Hint]: 'hint',
+            };
+            const payload = {
+              type: 'diagnostic',
+              source: typeof d.source === 'string' ? d.source : 'unknown',
+              file: relPath,
+              severity: sevMap[d.severity] ?? 'warning',
+              message: d.message,
+              code: d.code != null ? (typeof d.code === 'object' ? String(d.code.value) : d.code) : undefined,
+              line: d.range.start.line,
+              column: d.range.start.character,
+              timestamp: Date.now(),
+            };
+            void postToIngest(port2, payload);
+          }
+        }
+      }, 150);
+    }),
+  );
+
+  context.subscriptions.push(
+    ((vscode.window as any).onDidWriteTerminalData?.((e: { terminal: vscode.Terminal; data: string }) => {
+      const cfg2 = vscode.workspace.getConfiguration('mergen');
+      const port2 = cfg2.get<number>('serverPort', 3000);
+      void postToIngest(port2, {
+        type: 'terminal',
+        terminalName: e.terminal.name,
+        data: e.data.slice(0, 2000),
+        timestamp: Date.now(),
+      });
+    }) as vscode.Disposable | undefined) ?? { dispose: () => {} },
+  );
+
+  context.subscriptions.push(
+    vscode.workspace.onDidSaveTextDocument((doc) => {
+      const fp = doc.uri.fsPath;
+      if (/\.(test|spec)\.[jt]sx?$/.test(fp)) return;
+      if (!/\.[jt]sx?$/.test(fp)) return;
+
+      const dir = path.dirname(fp);
+      const base = path.basename(fp).replace(/\.[^.]+$/, '');
+      const candidates = ['.test.ts', '.spec.ts', '.test.tsx', '.spec.tsx', '.test.js', '.spec.js']
+        .map((s) => path.join(dir, base + s));
+      const now = new Date();
+      for (const c of candidates) {
+        try { if (fs.existsSync(c)) fs.utimesSync(c, now, now); } catch { /* non-fatal */ }
+      }
+    }),
+    {
+      dispose: () => {
+        if (diagDebounce) {
+          clearTimeout(diagDebounce);
+          diagDebounce = null;
+        }
+      },
+    },
+  );
 }
 
 export function deactivate(): void {

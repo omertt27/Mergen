@@ -455,4 +455,59 @@ export function registerLayerTools(server: McpServer): void {
       return { content: [{ type: 'text', text: lines.join('\n') }] };
     },
   );
+
+  // ── git suspect commit ────────────────────────────────────────────────────────
+  server.registerTool(
+    'get_suspect_commit',
+    {
+      description:
+        'Identify the git commit most likely responsible for a runtime error by running ' +
+        'git blame on the error\'s stack frame. Returns commit SHA, author, message, ' +
+        'causal weight (feat/fix = high, chore/style = low), and any local uncommitted diff.',
+      inputSchema: {
+        file: z.string().describe('Workspace-relative file path from the stack trace'),
+        line: z.number().int().describe('Line number from the stack trace'),
+        cwd: z.string().optional().describe('Workspace root (defaults to process.cwd())'),
+      },
+    },
+    async ({ file, line, cwd: cwdArg }) => {
+      const { findSuspectCommit, getLocalDiff } = await import('../sensor/git-suspect.js');
+      const cwd = cwdArg ?? process.cwd();
+      const suspect = await findSuspectCommit(file, line, cwd);
+
+      if (!suspect) {
+        return {
+          content: [{
+            type: 'text',
+            text: `No git blame data for ${file}:${line}. ` +
+              'The file may be untracked, the line uncommitted, or git is unavailable.',
+          }],
+        };
+      }
+
+      const weightEmoji = { high: '🔴', medium: '🟡', low: '🟢' }[suspect.causalWeight];
+      const lines: string[] = [
+        `## Suspect Commit for \`${file}:${line}\``,
+        '',
+        `**SHA:** \`${suspect.shortSha}\` (${suspect.sha})`,
+        `**Author:** ${suspect.author} <${suspect.authorEmail}>`,
+        `**Date:** ${new Date(suspect.timestamp).toISOString()}`,
+        `**Message:** ${suspect.summary}`,
+        `**Causal weight:** ${weightEmoji} ${suspect.causalWeight.toUpperCase()}`,
+        '',
+      ];
+
+      if (suspect.hasLocalDiff) {
+        lines.push('⚠️ **This file has uncommitted local changes** — the bug may be in your working tree, not this commit.');
+        if (suspect.localDiffStat) lines.push(`Changed: ${suspect.localDiffStat}`);
+        lines.push('');
+        const diff = await getLocalDiff(file, cwd);
+        if (diff) {
+          lines.push('```diff', diff.slice(0, 1500), '```');
+        }
+      }
+
+      return { content: [{ type: 'text', text: lines.join('\n') }] };
+    },
+  );
 }

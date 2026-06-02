@@ -75,12 +75,59 @@ export const SSEEventSchema = z.object({
   timestamp: z.number(),
 });
 
+export const DiagnosticEventSchema = z.object({
+  type: z.literal('diagnostic'),
+  source: z.string(),
+  file: z.string(),
+  severity: z.enum(['error', 'warning', 'info', 'hint']),
+  message: z.string(),
+  code: z.union([z.string(), z.number()]).optional(),
+  line: z.number().int(),
+  column: z.number().int(),
+  timestamp: z.number(),
+});
+
+export const TerminalOutputEventSchema = z.object({
+  type: z.literal('terminal'),
+  terminalName: z.string(),
+  data: z.string(),
+  timestamp: z.number(),
+});
+
+export const TestResultEventSchema = z.object({
+  type: z.literal('test_result'),
+  runner: z.enum(['vitest', 'jest', 'playwright', 'unknown']),
+  file: z.string(),
+  name: z.string(),
+  status: z.enum(['pass', 'fail', 'skip', 'todo']),
+  duration: z.number().optional(),
+  error: z.object({
+    message: z.string(),
+    stack: z.string().optional(),
+  }).optional(),
+  timestamp: z.number(),
+});
+
+export const ProcessExitEventSchema = z.object({
+  type: z.literal('process_exit'),
+  process: z.string(),
+  exitCode: z.number().int(),
+  reason: z.enum(['oom', 'signal', 'crash', 'normal']),
+  signal: z.string().optional(),
+  memoryLimitBytes: z.number().optional(),
+  timestamp: z.number(),
+});
+
 export const BrowserEventSchema = z.discriminatedUnion('type', [
   ConsoleEventSchema,
   NetworkEventSchema,
   ContextSnapshotSchema,
   WebSocketEventSchema,
   SSEEventSchema,
+  DiagnosticEventSchema,
+  TerminalOutputEventSchema,
+  TestResultEventSchema,
+  ProcessExitEventSchema,
 ]);
 
 export type ConsoleEvent = z.infer<typeof ConsoleEventSchema>;
@@ -88,6 +135,10 @@ export type NetworkEvent = z.infer<typeof NetworkEventSchema>;
 export type ContextSnapshot = z.infer<typeof ContextSnapshotSchema>;
 export type WebSocketEvent = z.infer<typeof WebSocketEventSchema>;
 export type SSEEvent = z.infer<typeof SSEEventSchema>;
+export type DiagnosticEvent = z.infer<typeof DiagnosticEventSchema>;
+export type TerminalOutputEvent = z.infer<typeof TerminalOutputEventSchema>;
+export type TestResultEvent = z.infer<typeof TestResultEventSchema>;
+export type ProcessExitEvent = z.infer<typeof ProcessExitEventSchema>;
 export type WebSocketFrame = z.infer<typeof WebSocketFrameSchema>;
 export type BrowserEvent = z.infer<typeof BrowserEventSchema>;
 
@@ -147,6 +198,10 @@ export interface BufferStore {
   getContext(limit?: number, since?: number): ContextSnapshot[];
   getWebSockets(limit?: number, connectionUrl?: string, since?: number): WebSocketEvent[];
   getSSE(limit?: number, connectionUrl?: string, since?: number): SSEEvent[];
+  getDiagnostics(limit?: number, severity?: DiagnosticEvent['severity'], since?: number): DiagnosticEvent[];
+  getTerminalOutput(limit?: number, terminalName?: string, since?: number): TerminalOutputEvent[];
+  getTestResults(limit?: number, status?: TestResultEvent['status'], since?: number): TestResultEvent[];
+  getProcessExits(limit?: number, reason?: ProcessExitEvent['reason'], since?: number): ProcessExitEvent[];
   /** Lightweight pattern scan — no credit cost. Used by /health and quick_check. */
   getSignals(): SessionSignal[];
   /** O(1) counters for health endpoint — no iteration needed. */
@@ -315,6 +370,54 @@ class RingBuffer implements BufferStore {
     for (const e of this._iterate()) {
       if (e.type !== 'sse') continue;
       if (connectionUrl && !e.url.includes(connectionUrl)) continue;
+      if (since !== undefined && e.timestamp < since) continue;
+      results.push(e);
+    }
+    return results.slice(-cap);
+  }
+
+  getDiagnostics(limit = 50, severity?: DiagnosticEvent['severity'], since?: number): DiagnosticEvent[] {
+    const cap = Math.min(limit, _getEffectiveBufferSize());
+    const results: DiagnosticEvent[] = [];
+    for (const e of this._iterate()) {
+      if (e.type !== 'diagnostic') continue;
+      if (severity && e.severity !== severity) continue;
+      if (since !== undefined && e.timestamp < since) continue;
+      results.push(e);
+    }
+    return results.slice(-cap);
+  }
+
+  getTerminalOutput(limit = 50, terminalName?: string, since?: number): TerminalOutputEvent[] {
+    const cap = Math.min(limit, _getEffectiveBufferSize());
+    const results: TerminalOutputEvent[] = [];
+    for (const e of this._iterate()) {
+      if (e.type !== 'terminal') continue;
+      if (terminalName && e.terminalName !== terminalName) continue;
+      if (since !== undefined && e.timestamp < since) continue;
+      results.push(e);
+    }
+    return results.slice(-cap);
+  }
+
+  getTestResults(limit = 50, status?: TestResultEvent['status'], since?: number): TestResultEvent[] {
+    const cap = Math.min(limit, _getEffectiveBufferSize());
+    const results: TestResultEvent[] = [];
+    for (const e of this._iterate()) {
+      if (e.type !== 'test_result') continue;
+      if (status && e.status !== status) continue;
+      if (since !== undefined && e.timestamp < since) continue;
+      results.push(e);
+    }
+    return results.slice(-cap);
+  }
+
+  getProcessExits(limit = 50, reason?: ProcessExitEvent['reason'], since?: number): ProcessExitEvent[] {
+    const cap = Math.min(limit, _getEffectiveBufferSize());
+    const results: ProcessExitEvent[] = [];
+    for (const e of this._iterate()) {
+      if (e.type !== 'process_exit') continue;
+      if (reason && e.reason !== reason) continue;
       if (since !== undefined && e.timestamp < since) continue;
       results.push(e);
     }

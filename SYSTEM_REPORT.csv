@@ -1,0 +1,131 @@
+################################################################################
+# MERGEN SYSTEM REPORT — Generated 2026-06-02
+################################################################################
+
+## SECTION 1: PRICING PLANS
+################################################################################
+
+Section,Plan ID,Plan Name,Price (USD/mo),Per Seat,Buffer Size,Analyze Credits/Month,Burst Limit/hr,Overage Cost (cents/credit),Team Sync,Team Insights,LemonSqueezy Variant Env Var
+Plans,free,Free,$0.00,No,200,100,10,0 (hard cap),No,No,—
+Plans,solo_starter,Solo Starter,$15.00,No,200,500,None,$0.03,No,No,LS_VARIANT_SOLO_STARTER
+Plans,solo_pro,Solo Pro,$29.00,No,200,2000,None,$0.02,No,No,LS_VARIANT_SOLO_PRO
+Plans,solo_power,Solo Power,$49.00,No,200,5000,None,$0.01,No,No,LS_VARIANT_SOLO_POWER
+Plans,team,Team,$39.00/seat,Yes (pooled),200,3000/seat,None,$0.02,Yes,No,LS_VARIANT_TEAM
+Plans,team_pro,Team Pro,$59.00/seat,Yes (pooled),200,8000/seat,None,$0.01,Yes,Yes,LS_VARIANT_TEAM_PRO
+Plans,pay_as_you_go,Pay-As-You-Go,$0.00,No,200,0,None,$0.05,No,No,LS_VARIANT_PAYG
+
+################################################################################
+## SECTION 2: USAGE TRACKING — State Fields
+################################################################################
+
+Section,Field,Type,Description,Reset Behaviour,Persisted
+UsageState,month,string (YYYY-MM),Current billing month,Resets on 1st of each month (UTC),Yes — ~/.mergen/usage.json
+UsageState,used,number,Total credits consumed this month (included + overage),Monthly reset,Yes
+UsageState,overageReported,number,Overage credits already reported to LemonSqueezy,Accumulated (never reset),Yes
+UsageState,overagePending,number,Overage credits queued but not yet sent to LS API,Cleared on successful flush,Yes
+UsageState,analysesByDay,Record<YYYY-MM-DD→number>,Daily count of automatic causal-chain rebuilds (NOT billable),Rolling 30-day window (trimmed),Yes (every 5th increment)
+
+################################################################################
+## SECTION 3: USAGE TRACKING — Behaviour & Constants
+################################################################################
+
+Section,Constant/Behaviour,Value,Notes
+UsageConstants,FLUSH_DEBOUNCE_MS,5000 ms,Batches rapid overage calls into one LS API request
+UsageConstants,FETCH_TIMEOUT_MS,8000 ms,Timeout for LemonSqueezy API requests
+UsageConstants,FLUSH_MAX_RETRIES,3,Max exponential back-off attempts for overage flush
+UsageConstants,FLUSH_RETRY_BASE_MS,2000 ms,Back-off schedule: 2s → 4s → 8s
+UsageConstants,analysesByDay trim window,30 days,Keeps last 30 days; older entries are pruned on write
+UsageBehaviour,Monthly rollover,Flush pending overage first then reset counters,Ensures no overage is lost across month boundary
+UsageBehaviour,Startup flush,Yes — if overagePending > 0 on startup,Recovers overage that was not sent before last shutdown
+UsageBehaviour,Graceful shutdown flush,Yes — flushOverageOnShutdown(),Clears debounce timer and immediately POSTs pending overage
+UsageBehaviour,Thread safety,Mutex via _lock promise chain,All read-modify-write ops serialised; rejections don't stall queue
+UsageBehaviour,Low-credit threshold,min(10, max(5, floor(included × 20%))),Notice sent when remaining ≤ threshold
+UsageBehaviour,Free plan overage,Hard cap — no billing,overageCentsPerCredit = 0; upgrade nudge shown instead
+
+################################################################################
+## SECTION 4: USAGE SNAPSHOT — Exposed Fields (getUsageSnapshot)
+################################################################################
+
+Section,Field,Type,Source,Notes
+Snapshot,planId,PlanId,Active plan,From license state or 'free'
+Snapshot,planName,string,Active plan,Human-readable plan name
+Snapshot,month,string (YYYY-MM),_usage.month,Current billing month
+Snapshot,resetsAt,ISO timestamp,Next 1st of month (UTC),When credits will reset
+Snapshot,used,number,_usage.used,Total credits used this month
+Snapshot,included,number | null,plan.analyzeCreditsPerMonth,null for PAYG (no quota)
+Snapshot,remaining,number | null,max(0, included - used),null for PAYG
+Snapshot,lowCredits,boolean,remaining ≤ threshold,Pain-point flag for UI warning
+Snapshot,overage,number,max(0, used - included),0 for plans not yet in overage
+Snapshot,billingStatus,'pending' | 'confirmed',overagePending > 0 → 'pending',Indicates unsynced LS charges
+Snapshot,overagePendingCredits,number,_usage.overagePending,Credits queued for LS
+Snapshot,overageConfirmedCredits,number,_usage.overageReported,Credits already billed
+Snapshot,overageCentsPerCredit,number,plan.overageCentsPerCredit,Per-credit overage rate in cents
+Snapshot,estimatedOverageCents,number,overage × overageCentsPerCredit,Estimated extra bill in cents
+Snapshot,analysesByDay,Record<string,number>,_usage.analysesByDay,30-day rolling map (engagement KPI)
+Snapshot,analysesToday,number,analysesByDay[today] ?? 0,Auto-analyses run today
+Snapshot,analysesAvgPerDay7d,number,7-day rolling average (rounded to 1 dp),Watcher North-Star metric
+
+################################################################################
+## SECTION 5: LICENSE STATE — Fields
+################################################################################
+
+Section,Field,Type,Description,Persisted
+LicenseState,key,string,LemonSqueezy license key,Yes — ~/.mergen/license.json
+LicenseState,instanceId,string,Machine activation instance ID (mergen-<hostname>),Yes
+LicenseState,planId,PlanId,Resolved plan from LS variant ID,Yes
+LicenseState,status,'active'|'inactive'|'expired'|'disabled',Current license status,Yes
+LicenseState,customerName,string,Customer full name (from LS),Yes
+LicenseState,customerEmail,string,Customer email (from LS),Yes
+LicenseState,activatedAt,ISO timestamp,When this machine first activated,Yes
+LicenseState,validatedAt,ISO timestamp,Last successful remote validation,Yes
+LicenseState,lsSubscriptionItemId,string | undefined,LS subscription item for usage-based billing,Yes
+
+################################################################################
+## SECTION 6: LICENSE LIFECYCLE
+################################################################################
+
+Section,Step,Trigger,Action,Notes
+LicenseLifecycle,1 – Purchase,User buys on LemonSqueezy,LS sends license key by email,—
+LicenseLifecycle,2 – Activation,POST /license {key},Server calls LS activateLicense API; persists state,Fails if LS_API_KEY not set
+LicenseLifecycle,3 – Startup load,Server start,Reads ~/.mergen/license.json; serves immediately,Background re-validation (non-blocking)
+LicenseLifecycle,4 – Background validate,After disk load,validateLicense() called async; revocations applied async,On LS API error: trusts cache
+LicenseLifecycle,5 – Downgrade on failure,Background validate fails,status → 'inactive'; falls back to 'free' plan,No hard restart required
+LicenseLifecycle,6 – Deactivation,DELETE /license,Calls LS deactivateLicense; deletes license file; clears state,LS errors are logged but don't block local deactivation
+
+################################################################################
+## SECTION 7: BILLING WEBHOOK — Handled Events
+################################################################################
+
+Section,Event,Action,Key Data Extracted,Side Effects
+Webhook,subscription_created,Activate / upgrade plan,variant_id → planId; lsSubscriptionItemId; email; name,Writes license file with new plan + subscriptionItemId
+Webhook,subscription_updated,Plan change,Same as subscription_created,Overwrites plan + status in license file
+Webhook,subscription_expired,Downgrade to free,status from LS,Sets status = 'inactive' in license file
+Webhook,order_created,One-time PAYG top-up (future),—,Placeholder for future implementation
+Webhook,Signature verification,HMAC-SHA256 (X-Signature header),LS_WEBHOOK_SECRET env var required,Returns 401 on mismatch; fail-closed if secret missing
+
+################################################################################
+## SECTION 8: KEY FILES & PATHS
+################################################################################
+
+Section,Purpose,File/Path,Notes
+Paths,Usage state,~/.mergen/usage.json,Monthly credits; overage counters; analysesByDay
+Paths,License state,~/.mergen/license.json,Key; instanceId; planId; subscriptionItemId
+Paths,Plans definition,server/src/intelligence/plans.ts,All plan configs; LS variant env vars
+Paths,Usage module,server/src/intelligence/usage.ts,Credit consumption; overage flush; snapshot
+Paths,License module,server/src/intelligence/license.ts,Activation; validation; deactivation
+Paths,Billing webhooks,server/src/intelligence/billing.ts,LS event handler; signature verification
+Paths,Billing routes,server/src/routes/license.ts,REST endpoints for license management
+
+################################################################################
+## SECTION 9: ENVIRONMENT VARIABLES
+################################################################################
+
+Section,Variable,Required,Description
+EnvVars,LS_API_KEY,Yes (for paid features),LemonSqueezy API key for license validation & usage reporting
+EnvVars,LS_WEBHOOK_SECRET,Yes (production),HMAC secret for webhook signature verification
+EnvVars,LS_VARIANT_SOLO_STARTER,Recommended,LS variant ID for Solo Starter plan
+EnvVars,LS_VARIANT_SOLO_PRO,Recommended,LS variant ID for Solo Pro plan
+EnvVars,LS_VARIANT_SOLO_POWER,Recommended,LS variant ID for Solo Power plan
+EnvVars,LS_VARIANT_TEAM,Recommended,LS variant ID for Team plan
+EnvVars,LS_VARIANT_TEAM_PRO,Recommended,LS variant ID for Team Pro plan
+EnvVars,LS_VARIANT_PAYG,Recommended,LS variant ID for Pay-As-You-Go plan

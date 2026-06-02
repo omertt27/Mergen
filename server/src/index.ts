@@ -26,6 +26,7 @@ import { DATA_DIR, SECRET_FILE } from './sensor/paths.js';
 import { setBufferSizeGetter, store } from './sensor/buffer.js';
 import { historyStore } from './sensor/sqlite-store.js';
 import { startWatcher } from './sensor/watcher.js';
+import { startDockerMonitor, startHeapMonitor, stopDockerMonitor } from './sensor/docker-monitor.js';
 
 import { initLicense, getActivePlanId } from './intelligence/license.js';
 import { initUsage, flushOverageOnShutdown } from './intelligence/usage.js';
@@ -139,10 +140,15 @@ async function main(): Promise<void> {
   // ── Continuous watcher ────────────────────────────────────────────────────
   startWatcher();
 
+  // ── Container and process health monitoring ───────────────────────────────
+  startDockerMonitor();
+  startHeapMonitor();
+
   // ── Graceful shutdown ─────────────────────────────────────────────────────
   function shutdown(signal: string): void {
     logger.info({ signal }, 'shutting down');
     flushOverageOnShutdown().finally(() => {
+      stopDockerMonitor();
       httpServer.close(() => { logger.info('HTTP server closed'); process.exit(0); });
       setTimeout(() => process.exit(1), 5_000).unref();
     });

@@ -11,7 +11,8 @@
 import initSqlJs, { type Database } from 'sql.js';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
+import { createRequire } from 'module';
 import { DATA_DIR, HISTORY_DB } from './paths.js';
 import type { BrowserEvent } from './buffer.js';
 import logger from './logger.js';
@@ -26,12 +27,39 @@ class SqliteHistoryStore {
   private wasmPath: string;
 
   constructor() {
-    // Locate the sql-wasm.wasm file relative to this module
+    this.wasmPath = SqliteHistoryStore.resolveWasmPath();
+  }
+
+  /**
+   * Locate sql-wasm.wasm using multiple strategies so the server works
+   * regardless of where the binary is installed or run from.
+   *
+   * Priority:
+   *   1. MERGEN_WASM_PATH env var (explicit override for Docker / custom installs)
+   *   2. Relative to this compiled module (standard npm install layout)
+   *   3. Node module resolution via createRequire — works for monorepos and
+   *      global installs where the relative path doesn't exist
+   */
+  private static resolveWasmPath(): string {
+    if (process.env.MERGEN_WASM_PATH) return process.env.MERGEN_WASM_PATH;
+
     const moduleDir = path.dirname(fileURLToPath(import.meta.url));
-    this.wasmPath = path.resolve(
-      moduleDir,
-      '../../node_modules/sql.js/dist/sql-wasm.wasm',
-    );
+    const fromModule = path.resolve(moduleDir, '../../node_modules/sql.js/dist/sql-wasm.wasm');
+    if (fs.existsSync(fromModule)) return fromModule;
+
+    try {
+      // createRequire resolves against this file's location — safe for ESM.
+      const req = createRequire(import.meta.url);
+      const sqlJsEntry = req.resolve('sql.js');
+      const resolved = path.join(path.dirname(sqlJsEntry), 'sql-wasm.wasm');
+      if (fs.existsSync(resolved)) return resolved;
+    } catch {
+      /* sql.js not resolvable from this location */
+    }
+
+    // Fall back to the computed relative path; init() will log a clear error
+    // if the file is still missing so the operator knows exactly what to set.
+    return fromModule;
   }
 
   async init(): Promise<void> {
@@ -70,7 +98,11 @@ class SqliteHistoryStore {
       this.flush(); // Persist schema creation immediately
       logger.info({ path: HISTORY_DB }, 'SQLite history store initialised');
     } catch (err) {
-      logger.warn({ err }, 'SQLite history store failed to initialise — replay unavailable');
+      logger.warn(
+        { err, wasmPath: this.wasmPath },
+        'SQLite history store failed to initialise — replay unavailable. ' +
+        'Set MERGEN_WASM_PATH to override the wasm location.',
+      );
       this.db = null;
     }
   }

@@ -115,6 +115,7 @@ export function exportToOtel(event: BrowserEvent): void {
 
     const isNetwork = event.type === 'network';
     const isConsole = event.type === 'console';
+    const eventUrl = 'url' in event ? event.url : undefined;
 
     const severityText = isConsole ? ((event as any).level ?? 'log') : 'info';
     const severityNumber = isConsole
@@ -125,7 +126,17 @@ export function exportToOtel(event: BrowserEvent): void {
       ? (event as any).args.map((a: unknown) => typeof a === 'string' ? a : JSON.stringify(a)).join(' ')
       : isNetwork
         ? `${(event as any).method} ${event.url} → ${(event as any).status}`
-        : `context: ${event.url}`;
+        : event.type === 'context'
+          ? `context: ${event.url}`
+          : event.type === 'diagnostic'
+            ? `${event.source} ${event.file}:${event.line}:${event.column} ${event.message}`
+            : event.type === 'terminal'
+              ? `${event.terminalName}: ${event.data}`
+              : event.type === 'test_result'
+                ? `${event.runner} ${event.status} ${event.name}`
+                : event.type === 'process_exit'
+                  ? `${event.process} exited (${event.reason})`
+                  : `${event.type} event`;
 
     _otelLogger.emit({
       severityNumber,
@@ -133,7 +144,7 @@ export function exportToOtel(event: BrowserEvent): void {
       body,
       timestamp: new Date(event.timestamp),
       attributes: {
-        'browser.url': event.url,
+        ...(eventUrl ? { 'browser.url': eventUrl } : {}),
         'mergen.event_type': event.type,
         ...(isConsole && (event as any).stack ? { 'exception.stacktrace': (event as any).stack } : {}),
         ...(isNetwork ? {
