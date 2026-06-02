@@ -27,6 +27,7 @@ import { sentryRouter } from './routes/sentry.js';
 import { otelRouter } from './routes/otel.js';
 import { createCIRouter } from './routes/ci.js';
 import { createIncidentsRouter } from './routes/incidents.js';
+import { createTicketsRouter } from './routes/tickets.js';
 import { createDashboardRouter } from './routes/dashboard.js';
 import { handleSlackActions, handleFeedbackLink } from './intelligence/slack.js';
 
@@ -86,6 +87,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string }):
   app.use(otelRouter);   // OpenTelemetry export config
   app.use(createCIRouter());       // CI/CD and deployment events
   app.use(createIncidentsRouter()); // Incident workflow (acknowledge/assign/resolve/note)
+  app.use(createTicketsRouter());   // Linear + Jira one-click ticket creation
 
   // ── Slack interactive actions & feedback link ─────────────────────────────
   app.post('/slack/actions', (req, res) => { void handleSlackActions(req, res); });

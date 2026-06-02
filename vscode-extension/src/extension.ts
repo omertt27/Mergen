@@ -47,8 +47,70 @@ function postToIngest(port: number, payload: Record<string, unknown>): Promise<v
   });
 }
 
+// ── Inline gutter annotations ────────────────────────────────────────────────
+// Shows a warning gutter icon on the suspect file + line identified by the
+// causal engine via git blame. Updated every 30 seconds — frequently enough
+// to track an active incident, infrequently enough to not hammer the server.
+
+const mergenDiagnostics = vscode.languages.createDiagnosticCollection('mergen');
+let _annotationTimer: ReturnType<typeof setInterval> | null = null;
+
+async function refreshAnnotations(port: number): Promise<void> {
+  try {
+    const data = await new Promise<{ hasPack?: boolean; errors?: Array<{ primaryFrame?: { file?: string; line?: number; column?: number } | null; message?: string }> } | null>((resolve) => {
+      const req = http.get(
+        { hostname: '127.0.0.1', port, path: '/last-pack', timeout: 1000 },
+        (res) => {
+          let d = ''; res.on('data', (c: string) => { d += c; });
+          res.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve(null); } });
+        },
+      );
+      req.on('timeout', () => { req.destroy(); resolve(null); });
+      req.on('error',   () => resolve(null));
+    });
+
+    if (!data?.hasPack || !data?.errors?.length) { mergenDiagnostics.clear(); return; }
+
+    const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+    const newDiags  = new Map<string, vscode.Diagnostic[]>();
+
+    for (const err of data.errors ?? []) {
+      const frame = err.primaryFrame;
+      if (!frame?.file || frame.line == null) continue;
+
+      const absPath = path.isAbsolute(frame.file)
+        ? frame.file
+        : workspace ? path.join(workspace, frame.file) : frame.file;
+
+      const line = Math.max(0, (frame.line ?? 1) - 1);
+      const col  = Math.max(0, (frame.column ?? 0));
+      const range = new vscode.Range(line, col, line, col + 80);
+
+      const diag = new vscode.Diagnostic(
+        range,
+        `Mergen: ${err.message ?? 'flagged by causal engine'} — see panel for details`,
+        vscode.DiagnosticSeverity.Warning,
+      );
+      diag.source = 'Mergen';
+
+      const key = absPath;
+      if (!newDiags.has(key)) newDiags.set(key, []);
+      newDiags.get(key)!.push(diag);
+    }
+
+    mergenDiagnostics.clear();
+    for (const [filePath, diags] of newDiags) {
+      try {
+        mergenDiagnostics.set(vscode.Uri.file(filePath), diags);
+      } catch { /* file not found or not in workspace */ }
+    }
+  } catch { /* server down — clear annotations */ mergenDiagnostics.clear(); }
+}
+
 export function activate(context: vscode.ExtensionContext): void {
   console.log('[Mergen] activate() called');
+  context.subscriptions.push(mergenDiagnostics);
+
   // Register the sidebar webview provider
   const provider = new MergenPanel(context);
   context.subscriptions.push(
@@ -93,6 +155,13 @@ export function activate(context: vscode.ExtensionContext): void {
   if (cfg.get<boolean>('autoStartServer', true)) {
     void startServer(context, /*explicit*/ false);
   }
+
+  // ── Inline gutter annotations — refresh every 30s ─────────────────────────
+  const annotationPort = () => vscode.workspace.getConfiguration('mergen').get<number>('serverPort', 3000);
+  _annotationTimer = setInterval(() => { void refreshAnnotations(annotationPort()); }, 30_000);
+  context.subscriptions.push({ dispose: () => { if (_annotationTimer) clearInterval(_annotationTimer); } });
+  // Initial annotation on activate (after a short delay so server has time to start)
+  setTimeout(() => { void refreshAnnotations(annotationPort()); }, 3000);
 
   let diagDebounce: ReturnType<typeof setTimeout> | null = null;
   const pendingUris = new Set<string>();
