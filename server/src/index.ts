@@ -27,6 +27,9 @@ import { setBufferSizeGetter, store } from './sensor/buffer.js';
 import { historyStore } from './sensor/sqlite-store.js';
 import { startWatcher } from './sensor/watcher.js';
 import { startDockerMonitor, startHeapMonitor, stopDockerMonitor } from './sensor/docker-monitor.js';
+import { startDockerLogStream, stopDockerLogStream } from './sensor/docker-log-stream.js';
+import { incidentStore } from './sensor/incident-store.js';
+import { stopAllProcessWatchers } from './sensor/process-watcher.js';
 
 import { initLicense, getActivePlanId } from './intelligence/license.js';
 import { initUsage, flushOverageOnShutdown } from './intelligence/usage.js';
@@ -46,12 +49,16 @@ const { version: SERVER_VERSION } = _require('../package.json') as { version: st
 const PORT_RANGE_START = 3000;
 const PORT_RANGE_END   = 3010;
 
+// MERGEN_BIND=0.0.0.0 enables team mode — CI runners and remote browsers
+// can POST to this instance. Defaults to 127.0.0.1 (local-only, safe default).
+const BIND_HOST = process.env.MERGEN_BIND ?? '127.0.0.1';
+
 async function isPortAvailable(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const s = net.createServer();
     s.once('error', () => resolve(false));
     s.once('listening', () => s.close(() => resolve(true)));
-    s.listen(port, '127.0.0.1');
+    s.listen(port, BIND_HOST);
   });
 }
 
@@ -92,6 +99,7 @@ async function main(): Promise<void> {
   await initTeam();
   await initTelemetry();
   await historyStore.init();
+  await incidentStore.init();
   setBufferSizeGetter(() => getPlan(getActivePlanId()).bufferSize);
 
   // Wire team broadcast: events ingested by the sensor layer are fanned out
@@ -101,8 +109,8 @@ async function main(): Promise<void> {
   // ── HTTP server ────────────────────────────────────────────────────────────
   const app = createApp({ serverVersion: SERVER_VERSION, localSecret });
   const port = await findPort(PORT_RANGE_START, PORT_RANGE_END);
-  const httpServer: HttpServer = app.listen(port, '127.0.0.1', () => {
-    logger.info({ port }, `HTTP ingest listening on http://127.0.0.1:${port}`);
+  const httpServer: HttpServer = app.listen(port, BIND_HOST, () => {
+    logger.info({ port, host: BIND_HOST }, `HTTP ingest listening on http://${BIND_HOST}:${port}`);
   });
 
   // ── MCP stdio server ───────────────────────────────────────────────────────
@@ -142,6 +150,7 @@ async function main(): Promise<void> {
 
   // ── Container and process health monitoring ───────────────────────────────
   if (process.env.MERGEN_DOCKER_MONITOR === 'true') startDockerMonitor();
+  if (process.env.MERGEN_DOCKER_LOGS   === 'true') void startDockerLogStream();
   startHeapMonitor();
 
   // ── Graceful shutdown ─────────────────────────────────────────────────────
@@ -149,6 +158,8 @@ async function main(): Promise<void> {
     logger.info({ signal }, 'shutting down');
     flushOverageOnShutdown().finally(() => {
       stopDockerMonitor();
+      stopDockerLogStream();
+      stopAllProcessWatchers();
       httpServer.close(() => { logger.info('HTTP server closed'); process.exit(0); });
       setTimeout(() => process.exit(1), 5_000).unref();
     });

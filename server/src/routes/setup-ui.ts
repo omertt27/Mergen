@@ -14,8 +14,14 @@ export function createSetupRouter(): Router {
   const router = Router();
 
   // ── GET /setup — Setup wizard UI ─────────────────────────────────────────────
-  router.get('/setup', (_req, res) => {
-    res.send(SETUP_HTML);
+  // Accepts ?server=<url>&token=<secret> from mergen invite URLs to pre-fill fields.
+  router.get('/setup', (req, res) => {
+    const preServer = typeof req.query.server === 'string' ? req.query.server : '';
+    const preToken  = typeof req.query.token  === 'string' ? req.query.token  : '';
+    const html = preServer
+      ? SETUP_HTML.replace('</head>', `<script>window.__MERGEN_PREFILL__={server:${JSON.stringify(preServer)},token:${JSON.stringify(preToken)}};</script></head>`)
+      : SETUP_HTML;
+    res.send(html);
   });
 
   // ── POST /api/setup/ide — Configure IDE ──────────────────────────────────────

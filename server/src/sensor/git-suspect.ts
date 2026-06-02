@@ -15,6 +15,7 @@
  */
 
 import { execFile } from 'child_process';
+import fs from 'fs';
 import path from 'path';
 import { promisify } from 'util';
 
@@ -94,6 +95,90 @@ export async function findSuspectCommit(
       hasLocalDiff,
       localDiffStat,
     };
+  } catch {
+    return null;
+  }
+}
+
+// ── CODEOWNERS ────────────────────────────────────────────────────────────────
+
+export interface CodeOwnerResult {
+  owners: string[];       // e.g. ['@auth-team', '@alice']
+  pattern: string;        // the matching rule, e.g. 'src/auth/'
+  source: string;         // which CODEOWNERS file was read
+}
+
+const _coCache = new Map<string, { parsed: Array<{ pattern: string; owners: string[] }>; mtime: number }>();
+
+function _loadCodeowners(cwd: string): Array<{ pattern: string; owners: string[] }> | null {
+  const candidates = [
+    path.join(cwd, '.github', 'CODEOWNERS'),
+    path.join(cwd, 'CODEOWNERS'),
+    path.join(cwd, 'docs', 'CODEOWNERS'),
+  ];
+
+  for (const p of candidates) {
+    try {
+      const stat = fs.statSync(p);
+      const cached = _coCache.get(p);
+      if (cached && cached.mtime === stat.mtimeMs) return cached.parsed;
+
+      const lines = fs.readFileSync(p, 'utf8').split('\n');
+      const parsed: Array<{ pattern: string; owners: string[] }> = [];
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const parts = trimmed.split(/\s+/);
+        if (parts.length < 2) continue;
+        parsed.push({ pattern: parts[0], owners: parts.slice(1) });
+      }
+      // Reverse so later (more specific) rules take precedence on first-match
+      parsed.reverse();
+      _coCache.set(p, { parsed, mtime: stat.mtimeMs });
+      return parsed;
+    } catch { /* file not found */ }
+  }
+  return null;
+}
+
+function _matchesPattern(filePath: string, pattern: string): boolean {
+  // Normalise to forward slashes for matching
+  const fp = filePath.replace(/\\/g, '/');
+  const pat = pattern.replace(/\\/g, '/');
+
+  // Directory pattern (ends with /)
+  if (pat.endsWith('/')) return fp.startsWith(pat.slice(1)) || fp.startsWith(pat);
+
+  // Glob * (single segment)
+  if (pat.includes('*')) {
+    const escaped = pat.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*');
+    return new RegExp(escaped + '$').test(fp) || new RegExp(escaped + '$').test(fp.split('/').pop() ?? '');
+  }
+
+  // Exact file or directory prefix
+  return fp === pat || fp === pat.replace(/^\//, '') || fp.endsWith('/' + pat) || fp.startsWith(pat + '/') || fp.startsWith(pat.replace(/^\//, '') + '/');
+}
+
+/**
+ * Find the CODEOWNERS entries for a given file path.
+ * Returns null if no CODEOWNERS file is found or no rule matches.
+ */
+export function findCodeOwners(filePath: string, cwd: string): CodeOwnerResult | null {
+  try {
+    const rules = _loadCodeowners(cwd);
+    if (!rules) return null;
+
+    const rel = path.isAbsolute(filePath) ? path.relative(cwd, filePath) : filePath;
+    const normalised = rel.replace(/\\/g, '/');
+
+    for (const rule of rules) {
+      if (_matchesPattern(normalised, rule.pattern)) {
+        const source = ['.github/CODEOWNERS', 'CODEOWNERS', 'docs/CODEOWNERS']
+          .find((f) => { try { fs.statSync(path.join(cwd, f)); return true; } catch { return false; } }) ?? 'CODEOWNERS';
+        return { owners: rule.owners, pattern: rule.pattern, source };
+      }
+    }
+    return null;
   } catch {
     return null;
   }

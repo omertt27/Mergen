@@ -12,6 +12,11 @@ export const ConsoleEventSchema = z.object({
   stack: z.string().optional(),
   url: z.string(),
   timestamp: z.number(),
+  buildSha: z.string().optional(),
+  /** Identity of the engineer whose browser captured this event. Set once in the
+   *  extension popup or auto-read from VS Code git config. Enables per-engineer
+   *  filtering in team mode. */
+  userId: z.string().optional(),
 });
 
 export const NetworkEventSchema = z.object({
@@ -27,6 +32,11 @@ export const NetworkEventSchema = z.object({
   responseHeaders: z.record(z.string()).optional(),
   error: z.string().optional(),
   timestamp: z.number(),
+  buildSha: z.string().optional(),
+  userId: z.string().optional(),
+  /** W3C traceparent or X-Trace-ID extracted from the response headers.
+   *  Links browser network events to backend OTel spans across service boundaries. */
+  traceId: z.string().optional(),
 });
 
 export const ContextSnapshotSchema = z.object({
@@ -118,6 +128,38 @@ export const ProcessExitEventSchema = z.object({
   timestamp: z.number(),
 });
 
+export const CIEventSchema = z.object({
+  type: z.literal('ci'),
+  provider: z.enum(['github_actions', 'gitlab_ci', 'circleci', 'jenkins', 'unknown']).default('unknown'),
+  sha: z.string(),
+  shortSha: z.string().optional(),
+  branch: z.string().optional(),
+  workflow: z.string().optional(),
+  job: z.string(),
+  status: z.enum(['success', 'failure', 'cancelled', 'skipped']),
+  durationMs: z.number().optional(),
+  url: z.string().optional(),
+  failedTests: z.array(z.object({
+    name: z.string(),
+    error: z.string().optional(),
+    file: z.string().optional(),
+  })).optional().default([]),
+  timestamp: z.number(),
+});
+
+export const DeploymentEventSchema = z.object({
+  type: z.literal('deployment'),
+  environment: z.string(),
+  sha: z.string(),
+  shortSha: z.string().optional(),
+  version: z.string().optional(),
+  service: z.string().optional(),
+  status: z.enum(['started', 'success', 'failure', 'rollback']),
+  url: z.string().optional(),
+  actor: z.string().optional(),
+  timestamp: z.number(),
+});
+
 export const BrowserEventSchema = z.discriminatedUnion('type', [
   ConsoleEventSchema,
   NetworkEventSchema,
@@ -128,6 +170,8 @@ export const BrowserEventSchema = z.discriminatedUnion('type', [
   TerminalOutputEventSchema,
   TestResultEventSchema,
   ProcessExitEventSchema,
+  CIEventSchema,
+  DeploymentEventSchema,
 ]);
 
 export type ConsoleEvent = z.infer<typeof ConsoleEventSchema>;
@@ -139,6 +183,8 @@ export type DiagnosticEvent = z.infer<typeof DiagnosticEventSchema>;
 export type TerminalOutputEvent = z.infer<typeof TerminalOutputEventSchema>;
 export type TestResultEvent = z.infer<typeof TestResultEventSchema>;
 export type ProcessExitEvent = z.infer<typeof ProcessExitEventSchema>;
+export type CIEvent = z.infer<typeof CIEventSchema>;
+export type DeploymentEvent = z.infer<typeof DeploymentEventSchema>;
 export type WebSocketFrame = z.infer<typeof WebSocketFrameSchema>;
 export type BrowserEvent = z.infer<typeof BrowserEventSchema>;
 
@@ -202,6 +248,8 @@ export interface BufferStore {
   getTerminalOutput(limit?: number, terminalName?: string, since?: number): TerminalOutputEvent[];
   getTestResults(limit?: number, status?: TestResultEvent['status'], since?: number): TestResultEvent[];
   getProcessExits(limit?: number, reason?: ProcessExitEvent['reason'], since?: number): ProcessExitEvent[];
+  getCIEvents(limit?: number, status?: CIEvent['status'], since?: number): CIEvent[];
+  getDeployments(limit?: number, environment?: string, since?: number): DeploymentEvent[];
   /** Lightweight pattern scan — no credit cost. Used by /health and quick_check. */
   getSignals(): SessionSignal[];
   /** O(1) counters for health endpoint — no iteration needed. */
@@ -422,6 +470,30 @@ class RingBuffer implements BufferStore {
     for (const e of this._iterate()) {
       if (e.type !== 'process_exit') continue;
       if (reason && e.reason !== reason) continue;
+      if (since !== undefined && e.timestamp < since) continue;
+      results.push(e);
+    }
+    return results.slice(-cap);
+  }
+
+  getCIEvents(limit = 50, status?: CIEvent['status'], since?: number): CIEvent[] {
+    const cap = Math.min(limit, _getEffectiveBufferSize());
+    const results: CIEvent[] = [];
+    for (const e of this._iterate()) {
+      if (e.type !== 'ci') continue;
+      if (status && e.status !== status) continue;
+      if (since !== undefined && e.timestamp < since) continue;
+      results.push(e);
+    }
+    return results.slice(-cap);
+  }
+
+  getDeployments(limit = 50, environment?: string, since?: number): DeploymentEvent[] {
+    const cap = Math.min(limit, _getEffectiveBufferSize());
+    const results: DeploymentEvent[] = [];
+    for (const e of this._iterate()) {
+      if (e.type !== 'deployment') continue;
+      if (environment && e.environment !== environment) continue;
       if (since !== undefined && e.timestamp < since) continue;
       results.push(e);
     }

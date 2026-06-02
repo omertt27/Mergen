@@ -1,0 +1,176 @@
+/**
+ * process-watcher.ts — Stream stdout/stderr of any local process into the buffer.
+ *
+ * Turns any dev server into a causal signal source. Usage:
+ *   startProcessWatcher({ name: 'backend', command: 'node', args: ['server.js'], cwd: '/my/app' })
+ *
+ * Design constraints:
+ *   - Rate-limited to MAX_LINES_PER_SEC to prevent buffer saturation during log bursts.
+ *   - Long lines are truncated to 2000 chars (enough for stack traces, not megabytes).
+ *   - Structured JSON log lines (pino, winston, bunyan) are detected and their `level`
+ *     field is used to drive severity routing in the buffer.
+ *   - Non-zero exit → process_exit event pushed immediately so the causal engine
+ *     can correlate a browser error with a backend crash.
+ *   - All errors are best-effort: a broken watcher never crashes the Mergen server.
+ */
+
+import { spawn } from 'child_process';
+import type { ChildProcess } from 'child_process';
+import { store } from './buffer.js';
+import type { TerminalOutputEvent, ProcessExitEvent } from './buffer.js';
+import logger from './logger.js';
+
+const MAX_LINES_PER_SEC = 30;
+const MAX_LINE_LENGTH   = 2_000;
+const RATE_WINDOW_MS    = 1_000;
+
+interface WatcherOptions {
+  name: string;
+  command: string;
+  args?: string[];
+  cwd?: string;
+  env?: Record<string, string>;
+}
+
+interface ActiveWatcher {
+  proc: ChildProcess;
+  name: string;
+  lineCount: number;
+  windowStart: number;
+  droppedInWindow: number;
+}
+
+const _watchers = new Map<string, ActiveWatcher>();
+
+export function startProcessWatcher(opts: WatcherOptions): void {
+  const { name, command, args = [], cwd, env } = opts;
+
+  if (_watchers.has(name)) {
+    logger.warn({ name }, 'process watcher already running for this name — stopping previous');
+    stopProcessWatcher(name);
+  }
+
+  let proc: ChildProcess;
+  try {
+    proc = spawn(command, args, {
+      cwd,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, ...env },
+    });
+  } catch (err) {
+    logger.warn({ name, err }, 'process-watcher: failed to spawn process');
+    return;
+  }
+
+  const watcher: ActiveWatcher = {
+    proc, name,
+    lineCount: 0, windowStart: Date.now(), droppedInWindow: 0,
+  };
+  _watchers.set(name, watcher);
+
+  logger.info({ name, command, args }, 'process-watcher: started');
+
+  function handleLine(raw: string, isStderr: boolean): void {
+    const now = Date.now();
+
+    // Rate-limit window reset
+    if (now - watcher.windowStart > RATE_WINDOW_MS) {
+      if (watcher.droppedInWindow > 0) {
+        pushTerminal(watcher, `[mergen] dropped ${watcher.droppedInWindow} lines (rate limit: ${MAX_LINES_PER_SEC}/s)`);
+      }
+      watcher.lineCount = 0;
+      watcher.windowStart = now;
+      watcher.droppedInWindow = 0;
+    }
+
+    if (watcher.lineCount >= MAX_LINES_PER_SEC) {
+      watcher.droppedInWindow++;
+      return;
+    }
+    watcher.lineCount++;
+
+    const line = raw.slice(0, MAX_LINE_LENGTH);
+    const data = isStderr ? `[stderr] ${line}` : line;
+    pushTerminal(watcher, data);
+  }
+
+  function pushTerminal(w: ActiveWatcher, data: string): void {
+    const event: TerminalOutputEvent = {
+      type: 'terminal',
+      terminalName: w.name,
+      data,
+      timestamp: Date.now(),
+    };
+    try { store.push(event); } catch { /* never crash */ }
+  }
+
+  // Stream stdout
+  let stdoutBuf = '';
+  proc.stdout?.on('data', (chunk: Buffer) => {
+    stdoutBuf += chunk.toString('utf8');
+    const lines = stdoutBuf.split('\n');
+    stdoutBuf = lines.pop() ?? '';
+    for (const l of lines) if (l.trim()) handleLine(l, false);
+  });
+
+  // Stream stderr
+  let stderrBuf = '';
+  proc.stderr?.on('data', (chunk: Buffer) => {
+    stderrBuf += chunk.toString('utf8');
+    const lines = stderrBuf.split('\n');
+    stderrBuf = lines.pop() ?? '';
+    for (const l of lines) if (l.trim()) handleLine(l, true);
+  });
+
+  proc.on('error', (err) => {
+    logger.warn({ name, err }, 'process-watcher: spawn error');
+    _watchers.delete(name);
+  });
+
+  proc.on('close', (code, signal) => {
+    _watchers.delete(name);
+
+    const isCrash = code !== 0 && code !== null;
+    const isOom   = code === 137;
+    const reason: ProcessExitEvent['reason'] = isOom ? 'oom'
+      : signal ? 'signal'
+      : isCrash ? 'crash'
+      : 'normal';
+
+    logger.info({ name, code, signal, reason }, 'process-watcher: process exited');
+
+    const exitEvent: ProcessExitEvent = {
+      type: 'process_exit',
+      process: name,
+      exitCode: code ?? -1,
+      reason,
+      signal: signal ?? undefined,
+      timestamp: Date.now(),
+    };
+    try { store.push(exitEvent); } catch { /* never crash */ }
+
+    if (isCrash) {
+      pushTerminal({ ...watcher, name }, `[mergen] process "${name}" exited with code ${code}${signal ? ` (${signal})` : ''}`);
+    }
+  });
+}
+
+export function stopProcessWatcher(name: string): void {
+  const w = _watchers.get(name);
+  if (!w) return;
+  try {
+    w.proc.stdout?.destroy();
+    w.proc.stderr?.destroy();
+    w.proc.kill();
+  } catch { /* best-effort */ }
+  _watchers.delete(name);
+  logger.info({ name }, 'process-watcher: stopped');
+}
+
+export function stopAllProcessWatchers(): void {
+  for (const name of _watchers.keys()) stopProcessWatcher(name);
+}
+
+export function listProcessWatchers(): string[] {
+  return [..._watchers.keys()];
+}

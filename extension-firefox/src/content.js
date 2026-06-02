@@ -123,9 +123,47 @@
     return Array.from(args).map((a) => safeValue(a, 0, seen));
   }
 
+  // ── Build SHA detection ───────────────────────────────────────────────────────
+  let _buildSha = null;
+  const SHA_RE = /^[0-9a-f]{7,40}$/i;
+
+  function _tryExtractSha(val) {
+    if (typeof val === 'string' && SHA_RE.test(val.trim())) return val.trim().toLowerCase();
+    return null;
+  }
+
+  function _detectShaFromPage() {
+    const globals = ['__MERGEN_SHA__','__SHA__','__COMMIT_SHA__','__GIT_SHA__','__BUILD_SHA__','__GIT_COMMIT__','__COMMIT_HASH__','__REVISION__'];
+    for (const key of globals) { const f = _tryExtractSha(window[key]); if (f) return f; }
+    const metas = ['meta[name="mergen:sha"]','meta[name="commit-sha"]','meta[name="build-sha"]','meta[name="git-hash"]','meta[name="git-sha"]'];
+    for (const sel of metas) { try { const el = document.querySelector(sel); if (el) { const f = _tryExtractSha(el.getAttribute('content')); if (f) return f; } } catch {} }
+    return null;
+  }
+
   // ── Capture native fetch before any patching ─────────────────────────────────
 
   const _nativeFetch = window.fetch ? window.fetch.bind(window) : null;
+
+  function _fetchServerSha() {
+    try {
+      const tryPort = function(p) {
+        _nativeFetch(`http://127.0.0.1:${p}/current-version`, { cache: 'no-store' })
+          .then(function(r) { return r.ok ? r.json() : null; })
+          .then(function(d) { if (d && d.sha) { const f = _tryExtractSha(d.sha); if (f && !_buildSha) _buildSha = f; } })
+          .catch(function() { if (p < 3003) tryPort(p + 1); });
+      };
+      tryPort(currentPort || 3000);
+    } catch {}
+  }
+
+  function _initBuildSha() {
+    try { const f = _detectShaFromPage(); if (f) { _buildSha = f; return; } _fetchServerSha(); } catch {}
+  }
+
+  try {
+    if (document.readyState !== 'loading') { _initBuildSha(); }
+    else { document.addEventListener('DOMContentLoaded', _initBuildSha, { once: true }); }
+  } catch {}
 
   // ── Ingest helper (fire-and-forget, silent on server-not-running) ────────────
 
@@ -133,12 +171,15 @@
     if (muted) return;
     if (!_nativeFetch) return;
     try {
+      const enriched = (_buildSha && (event.type === 'console' || event.type === 'network'))
+        ? Object.assign({}, event, { buildSha: _buildSha })
+        : event;
       _nativeFetch(getIngestUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(event),
+        body: JSON.stringify(enriched),
         keepalive: true,
-      }).catch(function () { /* server not running — ignore */ });
+      }).catch(function () {});
     } catch { /* ignore */ }
   }
 

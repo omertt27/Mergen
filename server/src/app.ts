@@ -25,6 +25,10 @@ import { createSetupRouter } from './routes/setup-ui.js';
 import { layersRouter } from './routes/layers.js';
 import { sentryRouter } from './routes/sentry.js';
 import { otelRouter } from './routes/otel.js';
+import { createCIRouter } from './routes/ci.js';
+import { createIncidentsRouter } from './routes/incidents.js';
+import { createDashboardRouter } from './routes/dashboard.js';
+import { handleSlackActions, handleFeedbackLink } from './intelligence/slack.js';
 
 /** Paths that require the x-mergen-secret header on non-GET requests. */
 const MUTATING_PATHS = ['/feedback', '/license', '/clear', '/checkpoint', '/telemetry', '/otel-config'];
@@ -70,6 +74,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string }):
   });
 
   // ── Route modules ─────────────────────────────────────────────────────────
+  app.use(createDashboardRouter(serverVersion)); // Read-only web dashboard
   app.use(createSetupRouter()); // Setup wizard UI
   app.use(createSensorRouter(serverVersion));
   app.use(createLicenseRouter());
@@ -79,6 +84,12 @@ export function createApp(opts: { serverVersion: string; localSecret: string }):
   app.use(ingestRouter);
   app.use(layersRouter); // Layer 2-4 routes
   app.use(otelRouter);   // OpenTelemetry export config
+  app.use(createCIRouter());       // CI/CD and deployment events
+  app.use(createIncidentsRouter()); // Incident workflow (acknowledge/assign/resolve/note)
+
+  // ── Slack interactive actions & feedback link ─────────────────────────────
+  app.post('/slack/actions', (req, res) => { void handleSlackActions(req, res); });
+  app.get('/feedback', (req, res) => { void handleFeedbackLink(req, res); });
 
   // ── Malformed JSON handler ────────────────────────────────────────────────
   app.use(

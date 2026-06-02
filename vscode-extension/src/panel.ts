@@ -150,6 +150,23 @@ interface CalibrationOverview {
   perDetector: CalibrationStats[];
 }
 
+interface TimelineRow {
+  ts: number;
+  isoTs: string;
+  kind: 'log' | 'warn' | 'error' | 'request' | 'context' | 'terminal' | 'process_exit' | 'ci_failure' | 'ci_success' | 'deployment';
+  summary: string;
+  source?: 'browser' | 'backend' | 'ci' | 'deploy';
+  sha?: string;
+}
+
+interface RootCause {
+  hypothesis: string;
+  tag: string;
+  confidence: number;
+  fixHint: string | null;
+  builtAt?: number;
+}
+
 interface ServerState {
   connected: boolean;
   port: number;
@@ -158,6 +175,8 @@ interface ServerState {
   lastPack: LastPack | null;
   history: HistoryEntry[];
   calibration: CalibrationOverview | null;
+  timeline: TimelineRow[];
+  rootCause: RootCause | null;
   error: string | null;
 }
 
@@ -174,7 +193,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private _state: ServerState = {
     connected: false, port: 3000, health: null, usage: null,
-    lastPack: null, history: [], calibration: null, error: null,
+    lastPack: null, history: [], calibration: null, timeline: [], rootCause: null, error: null,
   };
   private _pollTimer?: ReturnType<typeof setTimeout>;
   private _statusBar: vscode.StatusBarItem;
@@ -387,10 +406,12 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     lastPack: LastPack;
     history: HistoryEntry[];
     calibration: CalibrationOverview | null;
+    timeline: TimelineRow[];
+    rootCause: RootCause | null;
   } | null> {
     try {
       const base = `http://127.0.0.1:${port}`;
-      const [health, usage, lastPack, history, calibration] = await Promise.all([
+      const [health, usage, lastPack, history, calibration, unifiedData] = await Promise.all([
         httpGet(`${base}/health`,    timeoutMs) as Promise<HealthResponse>,
         httpGet(`${base}/usage`,     timeoutMs) as Promise<UsageSnapshot>,
         httpGet(`${base}/last-pack`, timeoutMs).catch(() => ({ hasPack: false } as LastPack)) as Promise<LastPack>,
@@ -398,8 +419,10 @@ export class MergenPanel implements vscode.WebviewViewProvider {
           .then(d => d.entries ?? []).catch(() => [] as HistoryEntry[]),
         (httpGet(`${base}/calibration`, timeoutMs) as Promise<CalibrationOverview>)
           .catch(() => null),
+        (httpGet(`${base}/timeline/unified?seconds=300&limit=12`, timeoutMs) as Promise<{ rows: TimelineRow[]; rootCause: RootCause | null }>)
+          .catch(() => ({ rows: [] as TimelineRow[], rootCause: null })),
       ]);
-      return { health, usage, lastPack, history, calibration };
+      return { health, usage, lastPack, history, calibration, timeline: unifiedData.rows ?? [], rootCause: unifiedData.rootCause ?? null };
     } catch {
       return null;
     }
@@ -413,7 +436,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
         connected: true, port,
         health: result.health, usage: result.usage,
         lastPack: result.lastPack, history: result.history,
-        calibration: result.calibration,
+        calibration: result.calibration, timeline: result.timeline, rootCause: result.rootCause,
         error: null,
       };
     } else {
@@ -423,7 +446,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
           connected: false, port,
           health: null, usage: null,
           lastPack: null, history: [],
-          calibration: null,
+          calibration: null, timeline: [], rootCause: null,
           error: 'Server not running on port ' + port,
         };
       }
@@ -439,7 +462,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
           connected: true, port: p,
           health: result.health, usage: result.usage,
           lastPack: result.lastPack, history: result.history,
-          calibration: result.calibration,
+          calibration: result.calibration, timeline: result.timeline, rootCause: result.rootCause,
           error: null,
         };
         await vscode.workspace.getConfiguration('mergen').update('serverPort', p, vscode.ConfigurationTarget.Workspace);
@@ -783,6 +806,62 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   }
   .signal-run:hover { opacity: .85; }
 
+  /* ── Activity Feed ── */
+  .activity-row {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--vscode-widget-border, rgba(127,127,127,.1));
+    font-size: 11px;
+    line-height: 1.4;
+  }
+  .activity-row:last-child { border-bottom: none; }
+  .activity-kind {
+    flex-shrink: 0;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    width: 42px;
+  }
+  .activity-kind.error   { color: var(--vscode-charts-red); }
+  .activity-kind.warn    { color: var(--vscode-charts-yellow); }
+  .activity-kind.request { color: var(--vscode-charts-blue); }
+  .activity-kind.context { color: var(--vscode-descriptionForeground); }
+  .activity-kind.log          { color: var(--vscode-descriptionForeground); }
+  .activity-kind.ci_failure   { color: var(--vscode-charts-red); }
+  .activity-kind.ci_success   { color: var(--vscode-charts-green); }
+  .activity-kind.deployment   { color: var(--vscode-charts-blue); }
+  .activity-kind.process_exit { color: var(--vscode-charts-red); }
+  .activity-source {
+    flex-shrink: 0;
+    font-size: 8px;
+    font-weight: 600;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: rgba(127,127,127,.12);
+    color: var(--vscode-descriptionForeground);
+  }
+  .activity-source.ci     { background: rgba(0,120,200,.12); color: var(--vscode-charts-blue); }
+  .activity-source.deploy { background: rgba(0,200,100,.12); color: var(--vscode-charts-green); }
+  .activity-source.backend{ background: rgba(200,100,0,.12); color: var(--vscode-charts-orange, #e07000); }
+  .activity-summary {
+    flex: 1;
+    min-width: 0;
+    color: var(--vscode-foreground);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .activity-time {
+    flex-shrink: 0;
+    font-size: 10px;
+    color: var(--vscode-descriptionForeground);
+  }
+
   /* ── Context Pack card (B2) ── */
   .pack-time {
     font-size: 9px;
@@ -1067,6 +1146,19 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   <div id="capture-status" style="display:none;margin-top:6px;font-size:10px;color:var(--vscode-charts-green)"></div>
 </div>
 
+<!-- Unified Timeline -->
+<div class="card" id="card-activity" style="display:none">
+  <div class="card-title">Unified Timeline</div>
+  <div id="root-cause-box" style="display:none;margin-bottom:8px;padding:8px 10px;border-radius:4px;background:rgba(255,100,100,.08);border-left:3px solid var(--vscode-charts-red)">
+    <div style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--vscode-charts-red);margin-bottom:3px">
+      Root Cause · <span id="rc-confidence"></span>
+    </div>
+    <div id="rc-hypothesis" style="font-size:11px;color:var(--vscode-foreground);line-height:1.4"></div>
+    <div id="rc-fix" style="display:none;font-size:10px;color:var(--vscode-descriptionForeground);margin-top:4px"></div>
+  </div>
+  <div id="activity-list"></div>
+</div>
+
 <!-- Proactive signals -->
 <div class="card" id="card-signals" style="display:none">
   <div class="card-title">Detected Patterns</div>
@@ -1342,6 +1434,58 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     document.getElementById('stat-errors').textContent  = h.errors;
     document.getElementById('stat-warns').textContent   = h.warnings;
     document.getElementById('stat-net').textContent     = h.networkErrors;
+
+    // Unified Timeline card
+    const timeline  = state.timeline ?? [];
+    const rootCause = state.rootCause ?? null;
+    const activityCard = document.getElementById('card-activity');
+    const activityList = document.getElementById('activity-list');
+    const rcBox        = document.getElementById('root-cause-box');
+
+    if ((timeline.length > 0 || rootCause) && activityCard) {
+      activityCard.style.display = 'block';
+
+      // Root cause strip
+      if (rootCause && rcBox) {
+        rcBox.style.display = 'block';
+        const pct = Math.round((rootCause.confidence ?? 0) * 100);
+        var rcConf = document.getElementById('rc-confidence');
+        var rcHyp  = document.getElementById('rc-hypothesis');
+        var rcFix  = document.getElementById('rc-fix');
+        if (rcConf) rcConf.textContent = pct + '% confidence';
+        if (rcHyp)  rcHyp.textContent  = rootCause.hypothesis ?? '';
+        if (rcFix) {
+          if (rootCause.fixHint) { rcFix.textContent = '💡 ' + rootCause.fixHint; rcFix.style.display = 'block'; }
+          else { rcFix.style.display = 'none'; }
+        }
+      } else if (rcBox) {
+        rcBox.style.display = 'none';
+      }
+
+      const ICON = {
+        error: '🔴', warn: '🟡', log: '⬜', request: '🟠', context: '⬜',
+        terminal: '💻', process_exit: '💥', ci_failure: '❌', ci_success: '✅', deployment: '🚀',
+      };
+      if (activityList) {
+        activityList.innerHTML = timeline.slice(-12).reverse().map(function(r) {
+          var age = Date.now() - r.ts;
+          var ageStr = age < 60000 ? Math.max(1, Math.floor(age / 1000)) + 's ago'
+                     : age < 3600000 ? Math.floor(age / 60000) + 'm ago'
+                     : Math.floor(age / 3600000) + 'h ago';
+          var icon = ICON[r.kind] || '⬜';
+          var src  = r.source || '';
+          var sha  = r.sha ? ' <span style="font-size:9px;opacity:.6">[' + escHtml(r.sha) + ']</span>' : '';
+          return '<div class="activity-row">' +
+            '<span style="flex-shrink:0;width:18px;text-align:center">' + icon + '</span>' +
+            (src ? '<span class="activity-source ' + src + '">' + src + '</span>' : '') +
+            '<span class="activity-summary">' + escHtml(r.summary) + sha + '</span>' +
+            '<span class="activity-time">' + ageStr + '</span>' +
+            '</div>';
+        }).join('');
+      }
+    } else if (activityCard) {
+      activityCard.style.display = 'none';
+    }
 
     // Signals card
     const signals = h.signals ?? [];

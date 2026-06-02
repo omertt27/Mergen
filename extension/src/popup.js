@@ -318,6 +318,30 @@ async function refresh(port) {
   } catch { /* server may not have license module */ }
 }
 
+// ── Engineer identity ─────────────────────────────────────────────────────────
+// Stores the engineer's name/email in chrome.storage.local so it's attached to
+// every event posted to a shared team Mergen instance.
+
+const userIdInput  = document.getElementById('user-id-input');
+const userIdSave   = document.getElementById('user-id-save');
+const userIdSaved  = document.getElementById('user-id-saved');
+
+if (userIdInput && userIdSave) {
+  // Load existing identity on popup open
+  chrome.storage.local.get('mergenUserId', function(r) {
+    if (r && r.mergenUserId) userIdInput.value = r.mergenUserId;
+  });
+
+  userIdSave.addEventListener('click', async () => {
+    const val = userIdInput.value.trim().slice(0, 80);
+    await chrome.storage.local.set({ mergenUserId: val || null });
+    if (userIdSaved) {
+      userIdSaved.style.display = 'inline';
+      setTimeout(() => { userIdSaved.style.display = 'none'; }, 2000);
+    }
+  });
+}
+
 // ── Port save ─────────────────────────────────────────────────────────────────
 
 portSave.addEventListener('click', async () => {

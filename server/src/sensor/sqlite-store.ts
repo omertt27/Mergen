@@ -17,7 +17,10 @@ import { DATA_DIR, HISTORY_DB } from './paths.js';
 import type { BrowserEvent } from './buffer.js';
 import logger from './logger.js';
 
-const ONE_HOUR_MS = 60 * 60 * 1_000;
+const ONE_HOUR_MS = (() => {
+  const h = parseFloat(process.env.MERGEN_RETENTION_HOURS ?? '1');
+  return (Number.isFinite(h) && h > 0 ? Math.min(h, 72) : 1) * 60 * 60 * 1_000;
+})();
 // Persist to disk every N writes to avoid fsync overhead on every event.
 const FLUSH_EVERY = 50;
 

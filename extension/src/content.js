@@ -123,6 +123,130 @@
     return Array.from(args).map((a) => safeValue(a, 0, seen));
   }
 
+  // ── Build SHA detection ───────────────────────────────────────────────────────
+  // The commit SHA is the causal key that links browser errors to CI failures
+  // and deployments. We detect it from three sources in priority order:
+  //
+  //   1. Page globals / meta tags — already present if the app or our build
+  //      plugin injected it (zero user action for teams using Vite/webpack plugin)
+  //   2. Page-served version endpoint — /__mergen__/version.json or /version.json
+  //   3. Mergen server fallback — GET /current-version returns the SHA from the
+  //      most recent deployment event (automatic for teams with CI integration)
+  //
+  // Safety: never throws, never blocks page load, fires after DOMContentLoaded.
+
+  // ── Engineer identity ─────────────────────────────────────────────────────────
+  // Set once in the extension popup ("Your name / email").
+  // Attached to console and network events so team Mergen instances can filter
+  // by engineer and show "Alice's browser saw these 3 errors".
+  let _userId = null;
+  try {
+    chrome.storage.local.get('mergenUserId', function(r) {
+      if (r && r.mergenUserId) _userId = String(r.mergenUserId).slice(0, 80);
+    });
+  } catch { /* not available in all frames */ }
+
+  let _buildSha = null;
+  const SHA_RE = /^[0-9a-f]{7,40}$/i;
+
+  function _tryExtractSha(val) {
+    if (typeof val === 'string' && SHA_RE.test(val.trim())) return val.trim().toLowerCase();
+    return null;
+  }
+
+  function _detectShaFromPage() {
+    // Window globals (common framework patterns + our own)
+    const globals = [
+      '__MERGEN_SHA__', '__SHA__', '__COMMIT_SHA__', '__GIT_SHA__', '__BUILD_SHA__',
+      '__GIT_COMMIT__', '__COMMIT_HASH__', '__REVISION__',
+    ];
+    for (const key of globals) {
+      const found = _tryExtractSha(window[key]);
+      if (found) return found;
+    }
+    // Meta tags
+    const metaSelectors = [
+      'meta[name="mergen:sha"]', 'meta[name="commit-sha"]', 'meta[name="build-sha"]',
+      'meta[name="git-hash"]', 'meta[name="git-sha"]', 'meta[name="revision"]',
+    ];
+    for (const sel of metaSelectors) {
+      try {
+        const el = document.querySelector(sel);
+        if (el) {
+          const found = _tryExtractSha(el.getAttribute('content'));
+          if (found) return found;
+        }
+      } catch { /* sandboxed frame */ }
+    }
+    // window.__ENV__ / window._env_ patterns
+    const envObjs = ['__ENV__', '_env_', '__RUNTIME_CONFIG__', 'APP_CONFIG'];
+    for (const key of envObjs) {
+      try {
+        const obj = window[key];
+        if (obj && typeof obj === 'object') {
+          for (const k of ['SHA', 'COMMIT_SHA', 'GIT_SHA', 'BUILD_SHA', 'COMMIT_HASH']) {
+            const found = _tryExtractSha(obj[k]);
+            if (found) return found;
+          }
+        }
+      } catch { /* ignore */ }
+    }
+    return null;
+  }
+
+  // Fetch SHA from the page's own version endpoint (optional, best-effort).
+  function _fetchPageVersionSha() {
+    try {
+      const base = window.location.origin;
+      _nativeFetch(`${base}/__mergen__/version.json`, { cache: 'no-store' })
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) {
+          if (!d) return;
+          const found = _tryExtractSha(d.sha ?? d.commit ?? d.hash ?? d.version);
+          if (found && !_buildSha) { _buildSha = found; }
+        })
+        .catch(function() {}); // endpoint doesn't exist — ignore
+    } catch { /* ignore */ }
+  }
+
+  // Fetch SHA from the Mergen server (uses deployment events stored by CI integration).
+  // This is the zero-frontend-change path: once the team's CI posts to /deployments,
+  // every developer's browser automatically knows which SHA they're testing against.
+  function _fetchServerSha() {
+    try {
+      // Try ports 3000–3003 (same range as extension popup)
+      const tryPort = function(p) {
+        _nativeFetch(`http://127.0.0.1:${p}/current-version`, { cache: 'no-store' })
+          .then(function(r) { return r.ok ? r.json() : null; })
+          .then(function(d) {
+            if (!d || !d.sha) return;
+            const found = _tryExtractSha(d.sha);
+            if (found && !_buildSha) { _buildSha = found; }
+          })
+          .catch(function() { if (p < 3003) tryPort(p + 1); });
+      };
+      tryPort(currentPort || 3000);
+    } catch { /* ignore */ }
+  }
+
+  // Run detection after DOM is available (meta tags may not exist at document_start).
+  function _initBuildSha() {
+    try {
+      const fromPage = _detectShaFromPage();
+      if (fromPage) { _buildSha = fromPage; return; }
+      _fetchPageVersionSha();
+      _fetchServerSha();
+    } catch { /* never break the page */ }
+  }
+
+  try {
+    if (document.readyState !== 'loading') {
+      _initBuildSha();
+    } else {
+      document.addEventListener('DOMContentLoaded', _initBuildSha, { once: true });
+    }
+  } catch { /* ignore */ }
+
   // ── Capture native fetch before any patching ─────────────────────────────────
 
   const _nativeFetch = window.fetch ? window.fetch.bind(window) : null;
@@ -133,10 +257,19 @@
     if (muted) return;
     if (!_nativeFetch) return;
     try {
+      // Attach the detected build SHA to console and network events so the causal
+      // engine can automatically join them with CI failures and deployments.
+      const needsEnrich = event.type === 'console' || event.type === 'network';
+      const enriched = needsEnrich
+        ? Object.assign({}, event,
+            _buildSha ? { buildSha: _buildSha } : {},
+            _userId   ? { userId: _userId }     : {},
+          )
+        : event;
       _nativeFetch(getIngestUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(event),
+        body: JSON.stringify(enriched),
         keepalive: true,
       }).catch(function () { /* server not running — ignore */ });
     } catch { /* ignore */ }
@@ -624,6 +757,26 @@
           }
         } catch { /* ignore */ }
 
+        // Extract trace/request IDs from response headers for cross-service correlation.
+        // traceparent (W3C): "00-{traceId}-{spanId}-{flags}" → extract traceId segment.
+        var traceId = null;
+        try {
+          var tp = response.headers.get('traceparent');
+          if (tp) {
+            var tparts = tp.split('-');
+            if (tparts.length >= 4) traceId = tparts[1]; // 32-char hex trace ID
+          }
+          if (!traceId) {
+            traceId = response.headers.get('x-trace-id')
+              || response.headers.get('x-request-id')
+              || response.headers.get('x-correlation-id')
+              || response.headers.get('x-b3-traceid')
+              || response.headers.get('x-amzn-requestid')
+              || null;
+          }
+          if (traceId) traceId = traceId.slice(0, 64);
+        } catch { /* ignore */ }
+
         post({
           type: 'network',
           method: method,
@@ -637,6 +790,7 @@
           requestHeaders: requestHeaders,
           responseBody: responseBody,
           timestamp: Date.now(),
+          ...(traceId ? { traceId } : {}),
         });
 
         return response;

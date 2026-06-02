@@ -1,0 +1,62 @@
+# Mergen CI Integration — GitHub Actions
+#
+# Add this step to any job in your workflow to stream CI results into Mergen.
+# The commit SHA links browser errors to the exact CI run that shipped the bug.
+#
+# Requirements:
+#   - MERGEN_URL: the URL of your team Mergen instance (e.g. http://192.168.1.10:3000)
+#     Set as a repository variable (Settings → Variables → Actions).
+#   - MERGEN_SECRET: optional shared secret (Settings → Secrets → Actions).
+#
+# Usage:
+#   Copy the step below into your existing workflow, after your test/build steps.
+
+# ── Minimal integration (add to any existing job) ────────────────────────────
+
+      - name: Report to Mergen
+        if: always()   # run even when tests fail — that's the most useful case
+        env:
+          MERGEN_URL: ${{ vars.MERGEN_URL }}
+          MERGEN_SECRET: ${{ secrets.MERGEN_SECRET }}
+        run: |
+          # Collect failed test names if you use a JUnit XML reporter
+          FAILED_TESTS="[]"
+          if [ -f test-results.xml ]; then
+            # Extract failed test names from JUnit XML (requires xmllint)
+            FAILED_TESTS=$(xmllint --xpath "//testcase[@name][failure]/@name" test-results.xml 2>/dev/null \
+              | sed 's/name="//g;s/"/ /g' \
+              | tr ' ' '\n' | grep -v '^$' \
+              | jq -R '{name: .}' | jq -s '.' 2>/dev/null || echo "[]")
+          fi
+
+          curl -s -X POST "${MERGEN_URL}/ci/github" \
+            -H "Content-Type: application/json" \
+            ${MERGEN_SECRET:+-H "x-mergen-secret: ${MERGEN_SECRET}"} \
+            -d "{
+              \"sha\":          \"${{ github.sha }}\",
+              \"branch\":       \"${{ github.ref_name }}\",
+              \"workflow\":     \"${{ github.workflow }}\",
+              \"job\":          \"${{ github.job }}\",
+              \"status\":       \"${{ job.status }}\",
+              \"url\":          \"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\",
+              \"failed_tests\": ${FAILED_TESTS}
+            }" || true   # never fail the CI run because Mergen is unreachable
+
+# ── Deploy notification (add after your deploy step) ─────────────────────────
+
+      - name: Notify Mergen of deployment
+        if: success()
+        env:
+          MERGEN_URL: ${{ vars.MERGEN_URL }}
+          MERGEN_SECRET: ${{ secrets.MERGEN_SECRET }}
+        run: |
+          curl -s -X POST "${MERGEN_URL}/deployments" \
+            -H "Content-Type: application/json" \
+            ${MERGEN_SECRET:+-H "x-mergen-secret: ${MERGEN_SECRET}"} \
+            -d "{
+              \"sha\":         \"${{ github.sha }}\",
+              \"environment\": \"staging\",
+              \"status\":      \"success\",
+              \"actor\":       \"${{ github.actor }}\",
+              \"url\":         \"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"
+            }" || true
