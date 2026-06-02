@@ -1,0 +1,14 @@
+{
+  "name": "mergen-proof",
+  "version": "1.0.0",
+  "description": "Self-contained golden proof environment for Mergen cross-runtime identity graph",
+  "private": true,
+  "scripts": {
+    "backend": "mergen-server watch --name backend node backend/server.js",
+    "frontend": "npx http-server frontend -p 5173 --cors -c-1",
+    "proof": "echo 'Open two terminals:  npm run backend  |  npm run frontend'"
+  },
+  "dependencies": {
+    "express": "^4.22.0"
+  }
+}

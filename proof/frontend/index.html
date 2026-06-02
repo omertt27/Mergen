@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mergen Golden Proof</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 600px; margin: 60px auto; padding: 0 24px; }
+    h1 { font-size: 1.4rem; margin-bottom: 4px; }
+    p.sub { color: #666; font-size: 0.9rem; margin-top: 0; margin-bottom: 32px; }
+    button {
+      padding: 12px 28px; font-size: 1rem; border-radius: 6px; border: none;
+      background: #7c3aed; color: white; cursor: pointer; font-weight: 600;
+    }
+    button:hover { background: #6d28d9; }
+    button:disabled { background: #94a3b8; cursor: default; }
+    #status {
+      margin-top: 20px; padding: 14px 18px; border-radius: 6px;
+      background: #f8fafc; border: 1px solid #e2e8f0; font-size: 0.9rem;
+      font-family: monospace; min-height: 24px; white-space: pre-wrap;
+    }
+    #status.error   { border-color: #fca5a5; background: #fef2f2; color: #b91c1c; }
+    #status.success { border-color: #86efac; background: #f0fdf4; color: #15803d; }
+    .step { margin-top: 32px; font-size: 0.85rem; color: #475569; border-left: 3px solid #e2e8f0; padding-left: 12px; }
+    .step code { background: #f1f5f9; padding: 2px 5px; border-radius: 3px; font-size: 0.8rem; }
+  </style>
+</head>
+<body>
+  <h1>Mergen — Golden Proof Environment</h1>
+  <p class="sub">
+    Triggers a traceable cross-runtime failure. The AI agent must reach root cause
+    using only <code>get_unified_timeline</code> — no manual hints.
+  </p>
+
+  <button id="checkout-btn">Checkout (Empty Cart)</button>
+
+  <div id="status">Status: Idle — waiting for button click</div>
+
+  <div class="step">
+    <strong>After clicking:</strong><br>
+    Paste into your AI assistant:<br>
+    <code>"The checkout failed. Find the root cause."</code><br><br>
+    Expected result: agent calls <code>get_unified_timeline</code>, sees an
+    <strong>EXACT</strong> label joining the browser POST and the backend error log
+    via matching traceId — without being given any trace IDs.
+  </div>
+
+  <script>
+    const btn    = document.getElementById('checkout-btn');
+    const status = document.getElementById('status');
+
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      status.className = '';
+      status.textContent = 'Sending POST /api/checkout with empty cart...';
+
+      try {
+        const res = await fetch('http://localhost:4000/api/checkout', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          // Deliberately empty items array — triggers the backend throw
+          body: JSON.stringify({ cart: { items: [] } }),
+        });
+
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          // console.error so Mergen captures it with a stack trace
+          console.error('[BROWSER] Checkout failed:', body.message || res.statusText);
+          status.className = 'error';
+          status.textContent =
+            `HTTP ${res.status} — ${body.message || 'Internal Server Error'}\n\n` +
+            'Now ask your AI: "The checkout failed. Find the root cause."';
+          return;
+        }
+
+        status.className = 'success';
+        status.textContent = 'Success (unexpected — did you send items: []?)';
+      } catch (err) {
+        console.error('[BROWSER] Network error:', err.message);
+        status.className = 'error';
+        status.textContent =
+          `Network error: ${err.message}\n\n` +
+          'Is the backend running?  node proof/backend/server.js';
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

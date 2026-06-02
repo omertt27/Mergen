@@ -2,17 +2,17 @@
 
 # Mergen
 
-### Local-first runtime debugging for AI assistants.
+### Agent-native telemetry for the machine-readable stack.
 
-**The 30 seconds between a bug appearing in your browser and the fix landing in your editor — and nothing in between leaves your laptop.**
+**Stream browser, backend, and microservice signals into Cursor, Claude Code, Copilot, or Windsurf via MCP.**
 
 [![Tests](https://img.shields.io/badge/tests-142%20passing-brightgreen)](./server)
 [![License](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 [![MCP](https://img.shields.io/badge/Model%20Context%20Protocol-stdio-black)](https://modelcontextprotocol.io)
 [![Local-only](https://img.shields.io/badge/data-127.0.0.1%20only-success)](#privacy)
-[![Calibrated](https://img.shields.io/badge/hypotheses-calibrated-7c3aed)](./docs/HONESTY.md)
+[![Agent-Native](https://img.shields.io/badge/telemetry-agent--native-black)](./docs/HONESTY.md)
 
-[**Quick Start →**](./QUICKSTART.md) · [**Install Guide →**](./INSTALL.md) · [**Architecture →**](./ARCHITECTURE.md) · [**Pricing →**](#pricing)
+[**Quick Start →**](./QUICKSTART.md) · [**Install Guide →**](./INSTALL.md) · [**Architecture →**](./ARCHITECTURE.md) · [**Pricing →**](#pricing) · [**Enterprise Security →**](./docs/ENTERPRISE_SECURITY.md)
 
 </div>
 
@@ -20,240 +20,125 @@
 
 ## What it is
 
-Mergen is the runtime-observability layer your AI assistant has been missing.
+Mergen is the **machine-readable observability stack** for AI coding agents. 
 
-A browser extension streams `console.*`, `fetch`/`xhr`, and DOM state to a local Node server on `127.0.0.1`. The server correlates them into a **causal chain**, ranks **hypotheses by their actual track record** — not just model confidence — and exposes the result as **MCP tools** that Copilot Chat, Cursor, Claude Code, Windsurf, and ChatGPT Desktop can call directly.
+AI agents can read code, but they are "blind to runtime." Mergen gives them the live runtime context and verified causal links they need to autonomously resolve system failures. 
 
-Mergen is **continuous**, not crash-triggered. Every page refresh, hot-reload, network burst, and idle background tick produces a fresh diagnosis — so when your code finally throws, your AI already has the stack trace, the failing request, the response body, the DOM snapshot, **and a baseline of what the page looked like 30 seconds ago when it was still fine**.
+Unlike legacy observability built for human dashboards, Mergen streams **agent-native telemetry** — deterministic causal joins linking browser errors to specific microservice failures — directly into AI-native editors via the Model Context Protocol (MCP).
 
-Mergen is also **calibrated**. Every hypothesis we surface carries a stable id; one click in the panel ("✓ Yes / ◐ Sort of / ✕ No") teaches the engine which detectors are worth trusting. Detectors below 50% empirical accuracy are demoted; below 20% they're suppressed entirely. The status bar only interrupts you when the firing detector has earned the right (≥60% accuracy, ≥5 verdicts). You don't get "we generate hypotheses" — you get **"we track which hypotheses are actually correct."** See [`docs/HONESTY.md`](./docs/HONESTY.md).
+### Why agent-native telemetry matters
 
-```mermaid
-flowchart LR
-  B[Browser tab] -- console + fetch + DOM --> X[Mergen extension]
-  X -- HTTP 127.0.0.1 --> S[Mergen server]
-  S -- MCP stdio --> A[Copilot / Cursor / Claude]
-  A -- analyze_runtime() --> S
-  S -- Context Pack --> A
-```
+Most AI tools provide raw log dumps. Mergen provides a **Machine-Readable Causal Graph**:
+
+| Evidence Tier | Reliability | Agent Action |
+| :--- | :--- | :--- |
+| **EXACT_JOIN** | 100% | Direct link: Browser ↔ Microservice traceId. Confirmed truth. |
+| **STRUCTURAL** | High | Structural connection (e.g., component-state-event link). |
+| **HYPOTHESIS** | Medium | Statistical correlation. Requires agent validation. |
+| **OBSERVATION** | Baseline | Raw runtime signal with no confirmed parent yet. |
 
 ---
 
 ## Why it exists
 
-> **Sentry built dashboards for humans. Mergen built tools for your AI.**
+> **Observability for machine consumption, not human dashboarding.**
 
-Every other observability product is *during* or *after* deploy: Sentry, LogRocket, Datadog RUM, Highlight. They ship beautiful dashboards to your engineering manager. None of them speak to your AI assistant in its native language.
+Sentry built dashboards for humans. Mergen built the machine-readable context layer for your AI.
 
-Every other "browser MCP" is a thin pipe — `getConsoleLogs()`, `clickElement()`. Useful for *agents driving a browser*, useless for the *human debugging their own dev session*.
+Every other "browser MCP" is a thin pipe for *agents driving a browser*. Mergen is the first stack designed for the *AI agent observing a live system*.
 
-Mergen sits in the gap nobody else does:
+Mergen tracks agent actions across complex enterprise microservices using a **zero-config backend proxy** (`node --require`), proving trace correlation across headless architectures.
 
-|                          | Production observability | Browser MCPs        | **Mergen**                      |
+|                          | Legacy Observability     | Headless Browser MCPs | **Mergen**                      |
 | ------------------------ | ------------------------ | ------------------- | ------------------------------- |
-| When it's used           | After deploy             | Agent automation    | **The dev inner loop**          |
-| Audience                 | On-call eng              | Headless agents     | **You, mid-typo**               |
-| Surface for AI           | Bolted-on chat panel     | Raw log dump        | **Ranked Context Pack via MCP** |
-| Causal chain             | ❌                       | ❌                  | ✅ error ↔ network ↔ DOM in 30s window |
-| Hypothesis ranking       | ❌                       | ❌                  | ✅ HIGH/MEDIUM/LOW + fix hint   |
-| Source-mapping           | partial                  | ❌                  | ✅                              |
-| Where data lives         | Vendor cloud             | Vendor cloud / OSS  | **127.0.0.1 — never leaves**    |
-| PII redaction            | configurable, server-side| ❌                  | ✅ at the edge, before storage  |
+| **Target Audience**      | Humans (Dashboards)      | Headless Scripts    | **AI Agents (Machine-Readable)** |
+| **Microservice Depth**   | Manual Instrumentation   | None (Frontend Only)| ✅ **Zero-Config Runtime Proxy** |
+| **Causal Graph**         | ❌                       | ❌                  | ✅ **EXACT** joins across services |
+| **Authentication**       | Production cookies       | Clean/Headless      | ✅ **Existing REAL cookies & auth** |
+| **Privacy**              | Vendor cloud             | Vendor cloud / OSS  | **127.0.0.1 — never leaves**    |
 
 ---
 
 ## What's in the box
 
-- **Browser extension** (Chrome / Edge MV3) — streams console, network, DOM
-- **Local server** (Node 18+) — ring buffer, causal correlation, MCP host
-- **VS Code extension** — sidebar with Context Pack card, hypothesis history, status bar
-- **MCP tools** for any host that speaks MCP:
-  - `get_status` · `get_recent_logs` · `get_network_activity` · `get_dom_context` · `clear_buffer` *(free)*
-  - `analyze_runtime` — the magic: full causal chain, source-mapped, with ranked hypotheses *(paid)*
-- **CLI** — `mergen status`, `mergen doctor`, `mergen guard` *(pre-commit)*, `mergen start/stop/clear`
-- **HTTP API** — `/diagnose`, `/last-pack`, `/history`, `/timeline` *(text-based session replay)*, `/checkpoint`, `/feedback` + `/calibration` + `/calibration/export` *(audit-friendly CSV)* for non-MCP integrations
-- **Continuous-watch loop** — background watcher rebuilds the Context Pack on every pageload, HMR, network burst, and 15 s idle tick. North-Star metric: *analyses per developer per day*, exposed on `/usage`.
+- **Agent-Native Extension** (Chrome / Edge MV3) — streams session-state, auth, and HMR signals.
+- **Zero-Config Backend Proxy** (Node / Python / Go) — attaches trace IDs across microservice boundaries.
+- **Machine-Readable Server** (Node 18+) — the "Causal Engine" that joins signals into a Context Pack.
+- **MCP tools** for machine-to-machine communication:
+  - `analyze_runtime` — **The Core:** Emits a causal graph with EXACT/STRUCTURAL evidence.
+  - `get_recent_logs`, `get_network_activity`, `get_dom_context` (Free).
+- **CLI** — `mergen status`, `mergen doctor`, `mergen setup`.
 
 ---
 
 ## Privacy
 
-**Local-first runtime debugging.** This is not a marketing phrase, it's the architecture.
+**Local-first machine observability.** Nothing about your code, logs, or agent actions leaves the machine.
 
 | What                          | Where                                    |
 | ----------------------------- | ---------------------------------------- |
-| Browser → server              | `127.0.0.1`, never the internet          |
-| Buffer                        | In-memory only, capped, cleared on quit  |
-| License key                   | `~/.mergen/license.json`, validated lazily |
+| Agent → machine               | `127.0.0.1`, never the internet          |
+| Ring Buffer                   | In-memory only, capped, cleared on quit  |
 | PII (JWTs, emails, tokens)    | Redacted at ingest by `redact.ts` *before* storage |
-| Network bodies                | Clamped to 8 KB at the edge              |
-| Telemetry                     | **Off by default**, opt-in, URL-gated, throttled to 1×/24h, anonymous installId only |
+| Network bodies                | Clamped to 8 KB for context efficiency   |
 
-The server binds to `127.0.0.1` — not `0.0.0.0`. Other devices on your Wi-Fi can't reach it. Your AI host talks MCP over **stdio**, which is a pipe, not a socket. Nothing about your code, logs, or browsing leaves the machine unless you explicitly POST to `/telemetry { enabled: true }` *and* set `MERGEN_TELEMETRY_URL` *and* the 24-hour throttle window has elapsed.
-
-For enterprises: this is the only runtime-debug tool you can run inside an air-gapped network without filing a security review.
+The server binds to `127.0.0.1` — not `0.0.0.0`. Your AI host talks MCP over **stdio**, which is a pipe, not a socket. This is the only stack you can deploy inside an air-gapped network without a security review.
 
 ---
 
 ## Pricing
 
-**Open core.** The client tooling is MIT and free forever. You pay only when the Hypothesis Engine does the reasoning for you.
+**Machine Reasoning Credits.** You pay only when the engine reasons for your AI.
 
-| Plan          | Price        | `analyze_runtime` per month | Buffer | Team sync |
+| Plan          | Price        | Reasoning calls per month | Buffer | Microservice Tracing |
 | ------------- | ------------ | --------------------------- | ------ | --------- |
-| **Free**      | $0           | **25 / month**              | 200 events | — |
-| Solo Standard | $19 / mo     | 500 (then $0.05 each)       | 200    | — |
-| Solo Pro      | $39 / mo     | **Unlimited**               | 200    | — |
-| Team          | $49 / seat   | Unlimited                   | 200    | ✅        |
-| Pay-as-you-go | $0.05 / call | Metered, no subscription    | 200    | — |
-
-**What's always free:**
-- The full 200-event ring buffer
-- All local MCP tools (`get_status`, `get_recent_logs`, `get_network_activity`, `get_dom_context`, `get_dom_context`, `clear_buffer`)
-- The VS Code panel, status bar, and calibration dashboard
-- The browser extension and all capture
-- The CLI (`mergen status`, `mergen doctor`, `mergen guard`)
-- Self-hosting — run everything yourself, forever, no key required
-
-**What's paid:** `analyze_runtime` — the call that turns raw telemetry into a ranked, source-mapped causal chain with fix hints. That's the only thing that costs us money (LLM inference), and it's the only thing we charge for.
+| **Developer** | $0           | **500 / month**             | 2,000  | ✅         |
+| Solo Pro      | $29 / mo     | 2,000 (then $0.02 each)     | 2,000  | ✅         |
+| Team          | $39 / seat   | 3,000/seat pooled           | 2,000  | ✅         |
+| Pay-as-you-go | $0.05 / call | Metered, no subscription    | 2,000  | ✅         |
 
 ---
 
-## What we deliberately *don't* do
+## ⚡ Microservice Setup — pick your path
 
-Restraint is a feature.
-
-- ❌ **No tab automation / `clickElement`.** That's Playwright + Browser MCP territory; OSS will always undercut paid here.
-- ❌ **No video session replay.** LogRocket owns that ground; we do scrubbable *text* timelines instead.
-- ❌ **No production SDK.** Sentry et al. are great at prod. We are great at the inner loop. Different problems.
-- ❌ **No mandatory cloud account.** You can use 100% of the free tier without an email address.
-- ❌ **No telemetry-by-default.** It is structurally impossible for us to look at your code.
-
----
-
-## ⚡ Install (2 minutes)
-
-**New simplified installation:**
-
+**Start the machine-readable server first:**
 ```bash
-# 1. Install and configure server (auto-detects your IDE)
 npx mergen-server@latest setup
-
-# 2. Install browser extension
-# Chrome Web Store (when published) or load unpacked from extension/
-
-# 3. Ask your AI: "Get recent logs"
-```
-
-✅ **Done!** See [QUICKSTART.md](QUICKSTART.md) for walkthrough.
-
-**Other methods:** [Docker](INSTALL.md#docker) · [Homebrew](INSTALL.md#homebrew) · [Binaries](INSTALL.md#binaries) · [From Source](INSTALL.md#from-source)
-
----
-
-## No Chrome extension? No problem.
-
-Mergen works without the browser extension in two ways:
-
-### Option A — Node.js SDK (backend / SSR / React Native)
-
-```bash
-# Zero code change — wrap any process:
-node --require mergen-server/sdk/node your-app.js
-
-# Or add one line to your entry point:
-require('mergen-server/sdk/node');  // CJS
-import 'mergen-server/sdk/node';    // ESM
-
-# Docker / container — point at the host machine:
-MERGEN_HOST=host.docker.internal node --require mergen-server/sdk/node app.js
-```
-
-Captures: `console.log/warn/error`, outbound HTTP/HTTPS with traceparent injection, uncaught exceptions, unhandled rejections.
-
-### Option B — DevTools snippet (any page, no install)
-
-Paste this once into your browser DevTools console:
-
-```javascript
-fetch('http://127.0.0.1:3000/sdk/inject').then(r=>r.text()).then(eval)
-```
-
-Or load `sdk/devtools-snippet.js` directly. Instruments the current page immediately — no extension, no install, no restart.
-
-### Check everything is wired up
-
-```bash
-mergen-server status   # instant health snapshot
-mergen-server doctor   # full diagnostic walkthrough
 ```
 
 ---
 
-## Alternative: Install from Source
-
-For development:
+### Headless / Backend / Microservices *(Zero-Config Proxy)*
 
 ```bash
-git clone https://github.com/omertt27/Mergen.git
-cd Mergen/server
-npm install && npm run build
-npm start
+# Proves trace correlation across service boundaries without code changes:
+node --require mergen-server/sdk/node app.js
+
+# Docker / Kubernetes — point at the loopback:
+MERGEN_HOST=host.docker.internal \
+  node --require mergen-server/sdk/node app.js
 ```
 
-Configure IDE:
-
-```bash
-# Auto-configure
-node scripts/setup.mjs
-
-# Or manually add to .vscode/mcp.json:
-{
-  "servers": {
-    "mergen": {
-      "type": "stdio",
-      "command": "node",
-      "args": ["${workspaceFolder}/server/dist/index.js"]
-    }
-  }
-}
-```
-
-Load `mergen/extension` as an unpacked Chrome extension. Done — your AI assistant now sees what your browser sees.
-
-Full instructions: [SETUP.md](./SETUP.md).
+Captures: `console.*`, outbound HTTP/HTTPS with automatic traceId injection,
+uncaught exceptions. **No browser extension required.**
 
 ---
 
-## Distribution
+### Browser / Frontend *(Agent-Native Extension)*
 
-Mergen lives where your AI assistant lives:
+```bash
+# Load the extension:
+# chrome://extensions → Enable Developer mode → Load unpacked → select extension/
+```
 
-- 🟢 **VS Code Marketplace** — `mergen.mergen` *(stock VS Code, Insiders, Codespaces)*
-- 🟢 **Open VSX** — `mergen.mergen` *(Cursor, Windsurf, VSCodium, Gitpod, code-server)*
-- 🟢 **Cursor MCP Directory**
-- 🟢 **Anthropic MCP Catalog**
-- 🟢 **`awesome-mcp-servers`** *(category: debugging)*
-- 🟢 **Chrome Web Store** *(coming)*
-- 🟡 **JetBrains Marketplace** *(v1.1 — power users can wire stdio-MCP today)*
-
-If your editor speaks MCP, Mergen already speaks to it. We treat Cursor / Copilot / Claude as **distribution channels, not competitors** — and we publish to **both** registries so neither MS nor non-MS users are second-class.
-
-See [`docs/PUBLISHING.md`](./docs/PUBLISHING.md) for the editor-to-registry map and one-command publish flow.
-
----
-
-## License
-
-**Client tooling (browser extension, VS Code extension, CLI) — MIT. Free forever.**
-
-The server's Hypothesis Engine and Team Sync are closed-source and fund ongoing development. You can self-host the full stack from this repo; the paid surface is `analyze_runtime` — the one call that touches an LLM.
+Captures: console, fetch/XHR, WebSocket, DOM snapshots, React/Vue hierarchies.
+Works alongside the Node Proxy for full-stack causal joins.
 
 ---
 
 <div align="center">
 
-**Mergen — the only runtime observability tool built for AI assistants.**
-Local-first. Causally correlated. 30 seconds from bug to fix.
+**Mergen — the machine-readable observability stack for AI agents.**
+Agent-Native. Machine-Consumable. Verified Causality.
 
 </div>

@@ -61,7 +61,7 @@ export async function postSlackAlert(
   const blocks = [
     {
       type: 'header',
-      text: { type: 'plain_text', text: `🔴 Mergen Alert — ${pct}% confidence`, emoji: true },
+      text: { type: 'plain_text', text: `🔴 Mergen Causal Alert`, emoji: true },
     },
     {
       type: 'section',

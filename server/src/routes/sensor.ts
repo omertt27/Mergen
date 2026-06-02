@@ -526,8 +526,15 @@ export function createSensorRouter(serverVersion: string): Router {
     lines.push(`# Incident Postmortem — ${startIso.slice(0, 10)}`);
     lines.push('');
     if (topHyp) {
-      lines.push(`**Root Cause:** ${topHyp.summary} (${Math.round((topHyp.confidenceScore ?? 0) * 100)}% confidence)`);
+      lines.push(`**Root Cause**`);
+      lines.push(`${topHyp.summary}`);
+      if (topHyp.evidence && topHyp.evidence.length > 0) {
+        lines.push('');
+        lines.push(`**Evidence**`);
+        for (const ev of topHyp.evidence) lines.push(`- ${ev}`);
+      }
     }
+    lines.push('');
     lines.push(`**Window:** ${startIso.slice(11, 19)} → ${endIso.slice(11, 19)} UTC`);
     if (depRef) lines.push(`**SHA:** \`${depRef.shortSha ?? depRef.sha.slice(0, 7)}\` — deployed to ${depRef.environment}${depRef.actor ? ' by ' + depRef.actor : ''}`);
     if (topHyp?.fixHint) lines.push(`**Fix:** ${topHyp.fixHint}`);

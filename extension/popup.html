@@ -96,6 +96,26 @@
     .dot.pulse { animation: pulse 2s ease-in-out infinite; }
     @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.35} }
 
+    /* ── Critical error banner (no content script) ── */
+    #no-cs-banner {
+      display: none;
+      width: 100%;
+      background: rgba(248,113,113,.13);
+      border: none;
+      border-bottom: 2px solid var(--red);
+      color: var(--red);
+      font-size: 12px;
+      font-weight: 700;
+      text-align: left;
+      padding: 11px 14px;
+      cursor: pointer;
+      transition: background .15s;
+      font-family: inherit;
+      line-height: 1.4;
+    }
+    #no-cs-banner:hover { background: rgba(248,113,113,.22); }
+    #no-cs-banner::before { content: '⚠ '; }
+
     /* ── Plan banner ── */
     .plan-banner {
       display: flex;
@@ -311,18 +331,29 @@
     }
     .signal-cta:hover { background: rgba(167,139,250,.25); }
 
-    /* ── Port row (hidden by default, toggled by gear) ── */
-    .port-row {
+    /* ── Settings panel (gear toggles) ── */
+    .settings-panel {
       display: none;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 14px;
+      flex-direction: column;
+      gap: 0;
       border-bottom: 1px solid var(--border);
       background: var(--surface2);
     }
-    .port-row.open { display: flex; }
+    .settings-panel.open { display: flex; }
 
-    .port-label { font-size: 10px; color: var(--text-muted); white-space: nowrap; }
+    .settings-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .settings-row:last-child { border-bottom: none; }
+
+    .settings-label { font-size: 11px; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
+
+    .settings-right { display: flex; align-items: center; gap: 6px; }
 
     .port-input {
       width: 68px;
@@ -349,25 +380,10 @@
       transition: background .15s;
     }
     .port-save:hover { background: var(--accent); }
-
     .port-saved { font-size: 10px; color: var(--green); display: none; }
 
-    /* ── Mute toggle ── */
-    .toggle-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 9px 14px;
-      border-bottom: 1px solid var(--border);
-    }
-
-    .toggle-label { display: flex; flex-direction: column; gap: 2px; }
-    .toggle-label span:first-child  { font-size: 12px; font-weight: 600; }
-    .toggle-label span:last-child   { font-size: 10px; color: var(--text-muted); }
-
-    .switch { position: relative; width: 36px; height: 19px; }
+    .switch { position: relative; width: 36px; height: 19px; flex-shrink: 0; }
     .switch input { opacity: 0; width: 0; height: 0; }
-
     .slider {
       position: absolute; inset: 0;
       background: var(--border); border-radius: 20px; cursor: pointer; transition: background .2s;
@@ -438,23 +454,8 @@
       padding: 5px 14px;
     }
 
-    /* ── No content script banner ── */
-    #no-cs-banner {
-      display: none;
-      width: 100%;
-      background: rgba(248,113,113,.1);
-      border: none;
-      border-bottom: 1px solid rgba(248,113,113,.2);
-      color: var(--red);
-      font-size: 11px;
-      font-weight: 600;
-      text-align: left;
-      padding: 8px 14px;
-      cursor: pointer;
-      transition: background .15s;
-      font-family: inherit;
-    }
-    #no-cs-banner:hover { background: rgba(248,113,113,.18); }
+    /* Stats hidden until first data load */
+    #stats-grid { display: none; }
 
     /* ── Team badge ── */
     .team-badge {
@@ -578,10 +579,45 @@
   <!-- Muted banner -->
   <div id="muted-banner">⏸ Recording paused on this tab</div>
 
-  <!-- No content script — styled as an explicit action button -->
-  <button id="no-cs-banner">⚠ Content script not loaded — click to reload tab and enable capture →</button>
+  <!-- No content script — prominent critical error -->
+  <button id="no-cs-banner">Content script not loaded — click to reload tab and enable capture</button>
 
-  <!-- Credit meter (solo_standard only) -->
+  <!-- Disconnect hint with recovery guidance -->
+  <div class="disconnect-hint" id="disconnect-hint">
+    Server not responding · Run <code>mergen-server start</code> or check port 3000 is free.
+  </div>
+
+  <!-- Live signals — shown ABOVE stats when active -->
+  <div id="signals-wrap">
+    <div class="signals-header">
+      <span>Live findings</span>
+      <span id="signals-count" class="signals-count"></span>
+    </div>
+    <div id="signals-list"></div>
+  </div>
+
+  <!-- Stats (hidden until first data; secondary to signals) -->
+  <div class="stats" id="stats-grid">
+    <div class="stat errors">
+      <div class="stat-value" id="stat-errors">0</div>
+      <div class="stat-label">Errors</div>
+    </div>
+    <div class="stat warnings">
+      <div class="stat-value" id="stat-warns">0</div>
+      <div class="stat-label">Warnings</div>
+    </div>
+    <div class="stat network">
+      <div class="stat-value" id="stat-net">0</div>
+      <div class="stat-label">Net Errors</div>
+    </div>
+  </div>
+
+  <!-- Activity: last event timestamp + rate -->
+  <div class="activity-row" id="activity-row" style="display:none">
+    <span id="last-event-text">No events yet</span>
+  </div>
+
+  <!-- Credit meter — only shown when ≥70% consumed or in overage -->
   <div id="credit-wrap" style="display:none">
     <div class="credit-header">
       <span>analyze_runtime credits</span>
@@ -591,66 +627,32 @@
     <div class="credit-overage" id="credit-overage" style="display:none"></div>
   </div>
 
-  <!-- Stats -->
-  <div class="stats" id="stats-grid">
-    <div class="stat errors">
-      <div class="stat-value" id="stat-errors">—</div>
-      <div class="stat-label">Errors</div>
+  <!-- Settings panel — port + mute, hidden by default, gear reveals -->
+  <div class="settings-panel" id="port-row">
+    <div class="settings-row">
+      <span class="settings-label">Port</span>
+      <div class="settings-right">
+        <input class="port-input" type="number" id="port-input" min="1024" max="65535" value="3000" />
+        <button class="port-save" id="port-save">Save</button>
+        <span class="port-saved" id="port-saved">✓</span>
+      </div>
     </div>
-    <div class="stat warnings">
-      <div class="stat-value" id="stat-warns">—</div>
-      <div class="stat-label">Warnings</div>
+    <div class="settings-row">
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--text)">Record this tab</div>
+        <div style="font-size:10px;color:var(--text-muted)" id="toggle-sub">Active on current tab</div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="mute-toggle" checked />
+        <span class="slider"></span>
+      </label>
     </div>
-    <div class="stat network">
-      <div class="stat-value" id="stat-net">—</div>
-      <div class="stat-label">Net Errors</div>
-    </div>
   </div>
 
-  <!-- Activity: last event timestamp -->
-  <div class="activity-row" id="activity-row" style="display:none">
-    <span id="last-event-text">No events yet</span>
-  </div>
-
-  <!-- Disconnect hint with recovery guidance -->
-  <div class="disconnect-hint" id="disconnect-hint">
-    Server not responding · Run <code>npm start</code> inside <code>server/</code>, or check that another process hasn't claimed port 3000.
-  </div>
-
-  <!-- Live signals (shown only when findings exist) -->
-  <div id="signals-wrap">
-    <div class="signals-header">
-      <span>Live findings</span>
-      <span id="signals-count" class="signals-count"></span>
-    </div>
-    <div id="signals-list"></div>
-  </div>
-
-  <!-- Port config — hidden by default, gear button toggles it -->
-  <div class="port-row" id="port-row">
-    <span class="port-label">Port</span>
-    <input class="port-input" type="number" id="port-input" min="1024" max="65535" value="3000" />
-    <button class="port-save" id="port-save">Save</button>
-    <span class="port-saved" id="port-saved">✓</span>
-  </div>
-
-  <!-- Mute toggle -->
-  <div class="toggle-row">
-    <div class="toggle-label">
-      <span>Record this tab</span>
-      <span id="toggle-sub">Active on current tab</span>
-    </div>
-    <label class="switch">
-      <input type="checkbox" id="mute-toggle" checked />
-      <span class="slider"></span>
-    </label>
-  </div>
-
-  <!-- Actions -->
+  <!-- Actions — Clear + Gear only -->
   <div class="actions">
     <button class="btn btn-clear" id="btn-clear" disabled>🗑 Clear</button>
-    <button class="btn btn-reconnect" id="btn-reconnect">↺ Reconnect</button>
-    <button class="btn btn-gear" id="btn-gear" title="Port settings">⚙</button>
+    <button class="btn btn-gear" id="btn-gear" title="Settings">⚙</button>
   </div>
 
   <!-- Footer -->

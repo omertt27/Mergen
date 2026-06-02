@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mergen — Agent-Native Telemetry for Machine-Readable Observability</title>
+  <meta name="description" content="The machine-readable observability stack for AI coding agents. Stream agent-native telemetry from browser and microservices via MCP." />
+  <meta property="og:title" content="Mergen" />
+  <meta property="og:description" content="Observability for machine consumption, not human dashboarding. Verified causal links across complex headless architectures." />
+  <meta property="og:type" content="website" />
+
+  <!-- Geist (Vercel's open-source typeface for developer tools) + Geist Mono -->
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+  <link href="https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-sans/style.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-mono/style.css" rel="stylesheet" />
+
+  <style>
+    /* ─── Tokens (Strict B&W) ────────────────────────────────────────────────── */
+    :root {
+      --bg:        #000000;
+      --s1:        #000000;
+      --s2:        #111111;
+      --s3:        #000000;
+      --b1:        #333333;   /* subtle dividers */
+      --b2:        #ffffff;   /* stark borders  */
+      --t1:        #ffffff;   /* primary text     */
+      --t2:        #a0a0a0;   /* muted            */
+      --t3:        #666666;   /* very muted       */
+      
+      --exact:     #ffffff;   /* inverted for B&W  */
+      --linked:    #ffffff;
+      --corr:      #ffffff;
+      --obs:       #666666;
+
+      --r:         0px;       /* Sharp edges for brutalist look */
+      --r-sm:      0px;
+      --font:      'Geist', 'Helvetica Neue', system-ui, sans-serif;
+      --mono:      'Geist Mono', 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+      --max:       1100px;
+    }
+
+    /* ─── Reset ──────────────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; font-size: 15px; background: var(--bg); }
+    body {
+      background: var(--bg);
+      color: var(--t1);
+      font-family: var(--font);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+    a:hover { background: #fff; color: #000; text-decoration: none; }
+    code { font-family: var(--mono); font-size: .9em; background: #222; padding: 2px 4px; }
+    img { display: block; filter: grayscale(1); }
+
+    /* ─── Layout ─────────────────────────────────────────────────────────────── */
+    .wrap { max-width: var(--max); margin: 0 auto; padding: 0 40px; }
+
+    /* ─── Nav ────────────────────────────────────────────────────────────────── */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      background: #000;
+      border-bottom: 2px solid var(--b2);
+    }
+    .nav-row {
+      display: flex; align-items: center; justify-content: space-between;
+      height: 70px;
+    }
+    .logo {
+      display: flex; align-items: center; gap: 12px;
+      font-weight: 800; font-size: 18px; color: var(--t1); letter-spacing: -.03em;
+      text-transform: uppercase; text-decoration: none;
+    }
+    .logo:hover { background: transparent; color: var(--t1); }
+    .logo img { width: 30px; height: 30px; border: 2px solid #fff; }
+    .nav-links { display: flex; align-items: center; gap: 10px; list-style: none; }
+    .nav-links a {
+      padding: 8px 14px;
+      font-size: 13px; font-weight: 600; color: var(--t1);
+      text-decoration: none; text-transform: uppercase; letter-spacing: .05em;
+    }
+    .nav-links a:hover { background: #fff; color: #000; }
+    .nav-links .cta {
+      border: 2px solid #fff;
+    }
+
+    /* ─── Hero ───────────────────────────────────────────────────────────────── */
+    .hero {
+      padding: 120px 0 100px;
+      text-align: left;
+      border-bottom: 2px solid var(--b2);
+    }
+    .eyebrow {
+      display: block;
+      font-size: 13px; font-weight: 700; letter-spacing: .1em;
+      text-transform: uppercase; color: var(--t3);
+      margin-bottom: 30px;
+    }
+    h1 {
+      font-size: clamp(3rem, 7vw, 6rem);
+      font-weight: 800;
+      letter-spacing: -.04em;
+      line-height: 0.95;
+      margin-bottom: 40px;
+      text-transform: uppercase;
+    }
+    .hero-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 60px; align-items: start;
+    }
+    .hero-copy {
+      font-size: 1.25rem;
+      color: var(--t1);
+      line-height: 1.4;
+      font-weight: 500;
+    }
+    .hero-copy em { font-style: normal; color: var(--t3); }
+    .btn-row {
+      display: flex; gap: 15px; margin-top: 50px;
+    }
+    .btn {
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 14px 28px;
+      font-family: var(--font); font-size: 14px; font-weight: 800;
+      cursor: pointer; text-decoration: none; text-transform: uppercase; letter-spacing: .05em;
+      transition: all .1s;
+    }
+    .btn-fill { background: #fff; color: #000; border: 2px solid #fff; }
+    .btn-fill:hover { background: #000; color: #fff; }
+    .btn-line {
+      background: transparent; color: #fff;
+      border: 2px solid #fff;
+    }
+    .btn-line:hover { background: #fff; color: #000; }
+
+    /* ─── Terminal (Brutalist) ────────────────────────────────────────────────── */
+    .term {
+      background: #000;
+      border: 2px solid var(--b2);
+      text-align: left;
+      position: relative;
+    }
+    .term-chrome {
+      padding: 12px 16px;
+      background: #fff; color: #000;
+      border-bottom: 2px solid var(--b2);
+      font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: .1em;
+    }
+    .term-body {
+      padding: 30px;
+      font-family: var(--mono); font-size: 13px; line-height: 1.6;
+    }
+    .t-prompt { color: #fff; margin-bottom: 20px; font-weight: 700; font-size: 15px; }
+    .t-prompt::before { content: '> '; }
+    .t-sep { border: none; border-top: 2px dashed #333; margin: 25px 0; }
+
+    /* causal graph */
+    .c-graph {
+      font-family: var(--mono); font-size: 11px; line-height: 1.3; color: #fff;
+      margin: 25px 0;
+    }
+    .c-node { border: 1px solid #fff; padding: 8px 12px; display: inline-block; }
+    .c-edge { padding-left: 40px; color: #666; font-size: 10px; margin: 4px 0; }
+
+    .t-rc {
+      margin: 20px 0;
+      padding: 20px;
+      border: 2px solid #fff;
+    }
+    .t-rc-lbl { font-size: 10px; font-weight: 900; letter-spacing: .2em; text-transform: uppercase; background: #fff; color: #000; padding: 2px 6px; display: inline-block; margin-bottom: 12px; }
+    .t-rc-h   { color: #fff; display: block; font-size: 16px; font-weight: 700; }
+    .t-rc-fix { color: var(--t2); font-size: 13px; display: block; margin-top: 10px; }
+
+    /* evidence block */
+    .t-evidence { margin: 20px 0; display: flex; gap: 10px; flex-wrap: wrap; }
+    .ev-tag { border: 1px solid #666; padding: 2px 8px; font-size: 10px; font-weight: 700; }
+    .ev-tag.hit { border-color: #fff; background: #fff; color: #000; }
+
+    /* timeline rows */
+    .t-row { display: flex; align-items: baseline; gap: 15px; margin-bottom: 8px; border-bottom: 1px solid #111; padding-bottom: 8px; }
+    .t-ts  { color: #444; font-size: 11px; }
+    .t-badge {
+      font-size: 10px; font-weight: 900; padding: 1px 6px; border: 1px solid #fff;
+    }
+    .b-obs { border-color: #444; color: #444; }
+    .t-msg  { color: #fff; }
+    .t-link { color: #666; font-size: 11px; }
+
+    /* ─── Distribution ────────────────────────────────────────────────────────── */
+    .ides {
+      padding: 40px 0;
+      border-bottom: 2px solid var(--b2);
+      display: flex; align-items: center; justify-content: center; gap: 20px; flex-wrap: wrap;
+    }
+    .ides span {
+      font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: .1em;
+    }
+    .ides-label { color: #444; }
+
+    /* ─── Sections ───────────────────────────────────────────────────────────── */
+    section { padding: 100px 0; border-bottom: 2px solid var(--b2); }
+    h2 {
+      font-size: clamp(2rem, 4vw, 3.5rem);
+      font-weight: 800; letter-spacing: -.03em;
+      line-height: 1.1; margin-bottom: 30px; text-transform: uppercase;
+    }
+    .sub {
+      font-size: 1.15rem; color: var(--t2);
+      max-width: 600px; line-height: 1.5; margin-bottom: 60px;
+    }
+    .label {
+      display: block; font-size: 13px; font-weight: 900; letter-spacing: .2em;
+      text-transform: uppercase; color: #444; margin-bottom: 20px;
+    }
+
+    /* ─── Steps ─────────────────────────────────────────────────────────────── */
+    .steps {
+      display: grid; grid-template-columns: repeat(3,1fr);
+      gap: 2px; background: #fff; border: 2px solid #fff;
+    }
+    .step {
+      background: #000; padding: 40px;
+    }
+    .step-n { font-weight: 900; font-size: 40px; color: #222; line-height: 1; margin-bottom: 20px; }
+    .step h3 { font-size: 18px; font-weight: 800; text-transform: uppercase; margin-bottom: 15px; }
+    .step p { font-size: 14px; color: var(--t2); }
+    .step-cmd {
+      display: block; margin-top: 25px;
+      padding: 12px;
+      border: 1px solid #333; font-family: var(--mono); font-size: 12px; color: #fff;
+    }
+
+    /* ─── Taxonomy Grid ───────────────────────────────────────────────────────── */
+    .conf-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(250px,1fr));
+      gap: 2px; background: #fff; border: 2px solid #fff;
+    }
+    .conf-item {
+      background: #000; padding: 40px;
+    }
+    .conf-tag {
+      font-weight: 900; font-size: 11px; padding: 4px 10px; border: 2px solid #fff;
+      display: inline-block; margin-bottom: 25px; text-transform: uppercase;
+    }
+    .ct-obs { border-color: #444; color: #444; }
+    .conf-item h3 { font-size: 16px; font-weight: 800; text-transform: uppercase; margin-bottom: 10px; }
+    .conf-item p { font-size: 13px; color: var(--t2); line-height: 1.6; }
+
+    /* ─── Install Tabs ───────────────────────────────────────────────────────── */
+    .tabs { margin-top: 50px; border: 2px solid #fff; }
+    .tab-row { display: flex; background: #fff; gap: 2px; }
+    .tab-btn {
+      flex: 1; padding: 15px;
+      background: #000; color: #666; font-weight: 800; font-size: 13px;
+      text-transform: uppercase; border: none; cursor: pointer;
+    }
+    .tab-btn.on { background: #fff; color: #000; }
+    .tab-panel { display: none; padding: 40px; }
+    .tab-panel.on { display: block; }
+    .cb {
+      background: #111; padding: 25px; font-family: var(--mono); font-size: 13px; color: #fff;
+      border-left: 4px solid #fff; overflow-x: auto;
+    }
+
+    /* ─── Privacy / Pricing Cards ─────────────────────────────────────────────── */
+    .price-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px,1fr)); gap: 20px; }
+    .pc {
+      border: 2px solid #333; padding: 40px;
+    }
+    .pc:hover, .pc.best { border-color: #fff; }
+    .pc.best { background: #fff; color: #000; }
+    .pc.best .pc-items, .pc.best .pc-name, .pc.best .pc-period { color: #000; }
+    .pc.best .pc-cta { background: #000; color: #fff; border-color: #000; }
+    .pc-name { font-weight: 800; text-transform: uppercase; font-size: 12px; color: #666; margin-bottom: 20px; }
+    .pc-price { font-size: 40px; font-weight: 900; margin-bottom: 5px; }
+    .pc-items { list-style: none; font-size: 13px; margin: 30px 0; color: #a0a0a0; }
+    .pc-items li { margin-bottom: 10px; }
+    .pc-items li::before { content: "▪ "; margin-right: 5px; }
+    .pc-cta {
+      display: block; text-align: center; padding: 12px; border: 2px solid #fff;
+      font-weight: 900; text-transform: uppercase; font-size: 12px; text-decoration: none;
+    }
+
+    /* ─── Footer ─────────────────────────────────────────────────────────────── */
+    footer { padding: 60px 0; border-top: 2px solid #fff; }
+    .foot { display: flex; justify-content: space-between; align-items: center; }
+    .foot-logo { font-weight: 900; text-transform: uppercase; font-size: 20px; }
+    .foot-links { display: flex; gap: 30px; list-style: none; }
+    .foot-links a { font-size: 12px; font-weight: 700; text-transform: uppercase; text-decoration: none; color: #666; }
+    .foot-links a:hover { color: #fff; background: transparent; }
+
+    @media (max-width: 900px) {
+      .hero-grid { grid-template-columns: 1fr; }
+      .steps { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <div class="nav-row">
+      <a class="logo" href="/">
+        <img src="../extension/icons/icon128.png" alt="" />
+        Mergen
+      </a>
+      <ul class="nav-links">
+        <li><a href="#install">Install</a></li>
+        <li><a href="#pricing">Pricing</a></li>
+        <li><a href="https://github.com/omertt27/Mergen">GitHub</a></li>
+        <li><a class="cta" href="#install">Start</a></li>
+      </ul>
+    </div>
+  </div>
+</nav>
+
+<section class="hero">
+  <div class="wrap">
+    <div class="eyebrow">Agent-Native &nbsp;▪&nbsp; Machine-Readable &nbsp;▪&nbsp; 127.0.0.1</div>
+    <h1>Agent-native telemetry for the machine-readable stack.</h1>
+    
+    <div class="hero-grid">
+      <div>
+        <p class="hero-copy">
+          AI agents can read code, but they are "blind to runtime." Mergen is the machine-readable observability stack that gives them live runtime context and verified causal links.
+          <br/><br/>
+          <em>Observability for machine consumption, not human dashboarding. Stream signals from browser and microservices via MCP.</em>
+        </p>
+        <div class="btn-row">
+          <a class="btn btn-fill" href="#install">Setup — 60s</a>
+          <a class="btn btn-line" href="https://github.com/omertt27/Mergen/tree/main/proof">View Proof</a>
+        </div>
+      </div>
+
+      <div class="term">
+        <div class="term-chrome">Machine Output: [CAUSAL_PACK_INGESTED]</div>
+        <div class="term-body">
+          <div class="t-prompt">Querying runtime graph for checkout.js...</div>
+          <div class="t-sep"></div>
+
+          <div class="t-rc">
+            <span class="t-rc-lbl">Machine Diagnosis</span>
+            <span class="t-rc-h">POST /api/checkout → 500:<br/><code>cart.items</code> is null at checkout.js:42</span>
+            <span class="t-rc-fix">Evidence: Trace correlation confirmed backend OOM.</span>
+          </div>
+
+          <div class="t-evidence">
+            <span class="ev-tag hit">[EXACT_JOIN]</span>
+            <span class="ev-tag hit">[STRUCTURAL_LINK]</span>
+            <span class="ev-tag">[OBSERVATION]</span>
+          </div>
+
+          <div class="c-graph">
+            ┌──────────────────────────┐<br/>
+            │    AGENT_ACTION_B102     │<br/>
+            └──────────┬───────────────┘<br/>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↓ (trace: a3f9c2)<br/>
+            ┌──────────┴───────────────┐<br/>
+            │    MICROSERVICE_FAIL     │<br/>
+            └──────────┬───────────────┘<br/>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↓ (sha: f7b2e1)<br/>
+            ┌──────────┴───────────────┐<br/>
+            │    RUNTIME_CONTEXT_PACK  │<br/>
+            └──────────────────────────┘
+          </div>
+
+          <div class="t-row">
+            <span class="t-ts">10:41</span>
+            <span class="t-badge">EXACT</span>
+            <span class="t-msg">POST /api/checkout → 500</span>
+          </div>
+          <div class="t-row">
+            <span class="t-ts">10:40</span>
+            <span class="t-badge b-obs">OBS</span>
+            <span class="t-msg">Agent observed state mutation</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="ides">
+  <div class="wrap" style="display:flex;gap:30px;justify-content:center;align-items:center;">
+    <span class="ides-label">Machine-Readable Interface</span>
+    <span>Claude Code</span>
+    <span>Cursor</span>
+    <span>Windsurf</span>
+    <span>Copilot</span>
+    <span>Any MCP</span>
+  </div>
+</div>
+
+<section>
+  <div class="wrap">
+    <div class="label">Causal identity graph</div>
+    <h2>Machine-readable truth, not human guesses.</h2>
+    <p class="sub">Mergen builds a deterministic graph between every signal, providing agents the structural certainty required to autonomously resolve system failures.</p>
+
+    <div class="conf-grid">
+      <div class="conf-item">
+        <span class="conf-tag">EXACT</span>
+        <h3>Deterministic Joins</h3>
+        <p>W3C traceparents link browser events to backend microservice logs with 100% certainty. Zero inference required.</p>
+      </div>
+      <div class="conf-item">
+        <span class="conf-tag">LINKED</span>
+        <h3>Structural Links</h3>
+        <p>Agent actions tied directly to the runtime crash frame and git history. Machine-consumable structural truth.</p>
+      </div>
+      <div class="conf-item">
+        <span class="conf-tag">~CORR</span>
+        <h3>Proximity</h3>
+        <p>Statistical temporal correlation. Surfaced as a hypothesis for the machine agent to validate via deeper inspection.</p>
+      </div>
+      <div class="conf-item">
+        <span class="conf-tag ct-obs">OBS</span>
+        <h3>Observation</h3>
+        <p>Raw runtime signals without confirmed causal parents. Essential context for the agent's system-wide visibility.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <div class="label">Microservice Footprint</div>
+    <h2>Zero-Config Backend Proxy.</h2>
+    <p class="sub">Track agent actions across complex headless architectures and enterprise microservices without code changes.</p>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-n">01</div>
+        <h3>Node Proxy</h3>
+        <p>Zero-config injection via <code>--require</code>. Proves trace correlation across service boundaries.</p>
+        <code class="step-cmd">node --require mergen-server/sdk/node app.js</code>
+      </div>
+      <div class="step">
+        <div class="step-n">02</div>
+        <h3>Agent Hook</h3>
+        <p>Agent-native extension for real browser auth. Bypasses headless instance limitations.</p>
+        <code class="step-cmd">chrome://extensions -> Load Unpacked</code>
+      </div>
+      <div class="step">
+        <div class="step-n">03</div>
+        <h3>MCP Protocol</h3>
+        <p>Machine-to-machine communication over stdio pipe. No human dashboards required.</p>
+        <code class="step-cmd">"Analyze runtime pack for trace a3f9c2"</code>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <div class="tab-row">
+        <button class="tab-btn on" onclick="tab('node',this)">Headless SDK</button>
+        <button class="tab-btn" onclick="tab('ext',this)">Agent Extension</button>
+        <button class="tab-btn" onclick="tab('dv',this)">Snippet</button>
+      </div>
+      <div class="tab-panel on" id="tab-node">
+        <div class="cb">npm install mergen-server<br/>node --require mergen-server/sdk/node app.js</div>
+      </div>
+      <div class="tab-panel" id="tab-ext">
+        <div class="cb">chrome://extensions -> Load Unpacked -> extension/</div>
+      </div>
+      <div class="tab-panel" id="tab-dv">
+        <div class="cb">fetch('http://127.0.0.1:3000/sdk/inject').then(r=>r.text()).then(eval)</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="pricing">
+  <div class="wrap">
+    <div class="label">Pricing</div>
+    <h2>Machine Reasoning Credits.</h2>
+    <p class="sub">The telemetry layer is MIT open source. You pay only for the machine reasoning that connects the dots.</p>
+
+    <div class="price-grid">
+      <div class="pc">
+        <div class="pc-name">Developer</div>
+        <div class="pc-price">$0</div>
+        <div class="pc-period">Free forever</div>
+        <ul class="pc-items">
+          <li>500 reasoning calls / month</li>
+          <li>All free MCP tools</li>
+          <li>Full Ring Buffer</li>
+          <li>Agent-Native Labels</li>
+        </ul>
+        <a class="pc-cta" href="#install">Start Free</a>
+      </div>
+      <div class="pc best">
+        <div class="pc-name">Solo Pro</div>
+        <div class="pc-price">$29</div>
+        <div class="pc-period">per month</div>
+        <ul class="pc-items">
+          <li>2,000 reasoning calls / month</li>
+          <li>Unlimited local context</li>
+          <li>Microservice tracing</li>
+          <li>Machine-Readable JSON</li>
+        </ul>
+        <a class="pc-cta" href="#">Start Trial</a>
+      </div>
+      <div class="pc">
+        <div class="pc-name">Enterprise</div>
+        <div class="pc-price">Custom</div>
+        <div class="pc-period">Air-gapped support</div>
+        <ul class="pc-items">
+          <li>Pooled reasoning credits</li>
+          <li>Team-wide causal graph</li>
+          <li>Microservice fleet support</li>
+          <li>Custom detector logic</li>
+        </ul>
+        <a class="pc-cta" href="#">Contact Sales</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div class="foot-logo">Mergen</div>
+      <ul class="foot-links">
+        <li><a href="https://github.com/omertt27/Mergen">GitHub</a></li>
+        <li><a href="https://github.com/omertt27/Mergen/blob/main/docs/ENTERPRISE_SECURITY.md">Security</a></li>
+        <li><a href="https://github.com/omertt27/Mergen/blob/main/ARCHITECTURE.md">Architecture</a></li>
+      </ul>
+      <p style="font-size: 11px; font-weight: 700; color: #444; text-transform: uppercase;">© 2026 Mergen · Agent-Native</p>
+    </div>
+  </div>
+</footer>
+
+<script>
+  function tab(id, btn) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('on'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('on'));
+    document.getElementById('tab-' + id).classList.add('on');
+    btn.classList.add('on');
+  }
+</script>
+</body>
+</html>

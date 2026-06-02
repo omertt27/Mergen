@@ -233,9 +233,6 @@ export class MergenPanel implements vscode.WebviewViewProvider {
       if (msg.type === 'refresh') await this.refresh();
       if (msg.type === 'startCapture') await this.startCapture();
       if (msg.type === 'ready') {
-                // Immediately send current state so the webview hides the loading
-                // spinner without waiting for the async poll to complete.
-                console.log('[Mergen] ready received, sending state:', JSON.stringify(this._state).slice(0, 200));
                 this._send({ type: 'state', state: this._state });
                 void this._poll();
             }
@@ -473,8 +470,6 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   }
 
   private _send(msg: unknown): void {
-    const hasView = !!this._view;
-    console.log('[Mergen] _send called, hasView:', hasView, JSON.stringify(msg).slice(0, 150));
     this._view?.webview.postMessage(msg);
     // Keep the status bar in sync on every state update so it's always live
     // even when the panel is hidden — this is the always-on engagement hook.
@@ -852,14 +847,14 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     flex: 1;
     min-width: 0;
     color: var(--vscode-foreground);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    word-break: break-word;
+    overflow-wrap: anywhere;
   }
   .activity-time {
     flex-shrink: 0;
     font-size: 10px;
     color: var(--vscode-descriptionForeground);
+    padding-left: 4px;
   }
 
   /* ── Context Pack card (B2) ── */
@@ -1113,15 +1108,55 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   </div>
   <div style="margin-top:12px; display:flex; gap:6px; flex-wrap:wrap; justify-content:center">
     <button class="signal-run" onclick="runCmd('mergen.startServer')">▶ Start local server</button>
-    <button class="signal-run" onclick="runCmd('mergen.installExtension')">📥 Install guide</button>
-    <button class="signal-run" onclick="runCmd('mergen.sendFeedback')">💬 Send feedback</button>
+    <button class="signal-run" onclick="runCmd('mergen.installExtension')">📖 Setup guide</button>
   </div>
   <div style="margin-top:10px; font-size:11px; opacity:0.65">
-    Or in a terminal: <code>cd server &amp;&amp; npm start</code>
+    Or in a terminal: <code>mergen-server start</code>
   </div>
 </div>
 
-<!-- Buffer stats -->
+<!-- Live Context Pack — promoted to first: root cause is the primary question -->
+<div class="card" id="card-pack" style="display:none">
+  <div class="card-title">Context Pack <span id="pack-time" class="pack-time"></span></div>
+  <div class="pack-trigger" id="pack-trigger"></div>
+  <div class="hyp" id="pack-hyp" style="display:none">
+    <div class="hyp-head">
+      <span class="hyp-tag" id="hyp-tag">—</span>
+      <span class="hyp-conf" id="hyp-conf">—</span>
+    </div>
+    <div class="hyp-summary" id="hyp-summary"></div>
+    <div class="hyp-fix" id="hyp-fix" style="display:none"></div>
+    <div class="calib" id="hyp-calib" style="display:none"></div>
+  </div>
+  <div class="pack-meta">
+    <span id="pack-counts">—</span>
+  </div>
+  <div class="btn-row" style="margin-top:8px">
+    <button class="primary" id="pack-send">→ Send to AI Chat</button>
+    <button id="pack-copy">⧉ Copy Pack</button>
+  </div>
+</div>
+
+<!-- Unified Timeline -->
+<div class="card" id="card-activity" style="display:none">
+  <div class="card-title">Unified Timeline</div>
+  <div id="root-cause-box" style="display:none;margin-bottom:8px;padding:8px 10px;border-radius:4px;background:rgba(255,100,100,.08);border-left:3px solid var(--vscode-charts-red)">
+    <div style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--vscode-charts-red);margin-bottom:3px">
+      Root Cause · <span id="rc-confidence"></span>
+    </div>
+    <div id="rc-hypothesis" style="font-size:11px;color:var(--vscode-foreground);line-height:1.4"></div>
+    <div id="rc-fix" style="display:none;font-size:10px;color:var(--vscode-descriptionForeground);margin-top:4px"></div>
+  </div>
+  <div id="activity-list"></div>
+</div>
+
+<!-- Proactive signals -->
+<div class="card" id="card-signals" style="display:none">
+  <div class="card-title">Detected Patterns</div>
+  <div id="signals-list"></div>
+</div>
+
+<!-- Buffer stats — moved after signals; raw counts are secondary to explanations -->
 <div class="card" id="card-buffer" style="display:none">
   <div class="card-title">Buffer</div>
   <div class="stats">
@@ -1144,47 +1179,6 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     <button onclick="send('clear')">✕ Clear</button>
   </div>
   <div id="capture-status" style="display:none;margin-top:6px;font-size:10px;color:var(--vscode-charts-green)"></div>
-</div>
-
-<!-- Unified Timeline -->
-<div class="card" id="card-activity" style="display:none">
-  <div class="card-title">Unified Timeline</div>
-  <div id="root-cause-box" style="display:none;margin-bottom:8px;padding:8px 10px;border-radius:4px;background:rgba(255,100,100,.08);border-left:3px solid var(--vscode-charts-red)">
-    <div style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--vscode-charts-red);margin-bottom:3px">
-      Root Cause · <span id="rc-confidence"></span>
-    </div>
-    <div id="rc-hypothesis" style="font-size:11px;color:var(--vscode-foreground);line-height:1.4"></div>
-    <div id="rc-fix" style="display:none;font-size:10px;color:var(--vscode-descriptionForeground);margin-top:4px"></div>
-  </div>
-  <div id="activity-list"></div>
-</div>
-
-<!-- Proactive signals -->
-<div class="card" id="card-signals" style="display:none">
-  <div class="card-title">Detected Patterns</div>
-  <div id="signals-list"></div>
-</div>
-
-<!-- Live Context Pack (B2) -->
-<div class="card" id="card-pack" style="display:none">
-  <div class="card-title">Context Pack <span id="pack-time" class="pack-time"></span></div>
-  <div class="pack-trigger" id="pack-trigger"></div>
-  <div class="hyp" id="pack-hyp" style="display:none">
-    <div class="hyp-head">
-      <span class="hyp-tag" id="hyp-tag">—</span>
-      <span class="hyp-conf" id="hyp-conf">—</span>
-    </div>
-    <div class="hyp-summary" id="hyp-summary"></div>
-    <div class="hyp-fix" id="hyp-fix" style="display:none"></div>
-    <div class="calib" id="hyp-calib" style="display:none"></div>
-  </div>
-  <div class="pack-meta">
-    <span id="pack-counts">—</span>
-  </div>
-  <div class="btn-row" style="margin-top:8px">
-    <button class="primary" id="pack-send">→ Send to AI Chat</button>
-    <button id="pack-copy">⧉ Copy Pack</button>
-  </div>
 </div>
 
 <!-- Hypothesis history (C1) -->
@@ -1266,7 +1260,6 @@ export class MergenPanel implements vscode.WebviewViewProvider {
 </div>
 
 <script nonce="${nonce}">
-  document.getElementById('loading').textContent = 'Script started…';
   try {
   const vscode = acquireVsCodeApi();
 
@@ -1390,7 +1383,6 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   // miss the host's immediate state reply.
   let _rendered = false;
   window.addEventListener('message', ({ data }) => {
-    console.log('[Mergen webview] message received', JSON.stringify(data).slice(0, 200));
     if (data.type === 'state') { _rendered = true; render(data.state); }
     if (data.type === 'captureStarted') {
       const el = document.getElementById('capture-status');
@@ -1401,14 +1393,9 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     }
   });
 
-  console.log('[Mergen webview] listener registered, sending ready');
-  // Signal ready to start polling — host will reply with current state immediately.
   send('ready');
-  console.log('[Mergen webview] ready sent');
 
-  // Fallback: if no state is received within 3 s (e.g. race condition on first load),
-  // re-send 'ready' so the host pushes state again.
-  setTimeout(() => { if (!_rendered) { console.log('[Mergen webview] retry ready'); send('ready'); } }, 3000);
+  setTimeout(() => { if (!_rendered) send('ready'); }, 3000);
 
   function render(state) {
     // Hide the loading spinner on the very first render
@@ -1419,7 +1406,6 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     document.getElementById('dot').className       = 'dot' + (connected ? ' ok' : '');
     document.getElementById('disconnected').style.display  = connected ? 'none' : 'block';
     document.getElementById('card-buffer').style.display   = connected ? 'block' : 'none';
-    document.getElementById('card-usage').style.display    = connected ? 'block' : 'none';
     document.getElementById('card-server').style.display   = connected ? 'block' : 'none';
 
     if (!connected) return;
@@ -1659,6 +1645,12 @@ export class MergenPanel implements vscode.WebviewViewProvider {
       analysesToday + (avg ? '  (7d avg: ' + avg + ')' : '');
 
     // Usage
+    // Show credits card only when approaching limit (≥70%) or in overage — below
+    // that threshold the developer doesn't need to think about billing mid-session.
+    const showCredits = u.included === null || u.overage > 0 ||
+      (u.included > 0 && u.used / u.included >= 0.70);
+    document.getElementById('card-usage').style.display = (connected && showCredits) ? 'block' : 'none';
+
     document.getElementById('usage-month').textContent  = u.month;
     document.getElementById('usage-resets').textContent = fmtDate(u.resetsAt);
 
@@ -1707,8 +1699,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
       return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
     } catch (_) { return iso; }
   }
-  document.getElementById('loading').textContent = 'Script complete, ready sent.';
-  } catch(e) { document.getElementById('loading').textContent = 'SCRIPT ERROR: ' + e.message; }
+  } catch(e) { console.error('[Mergen] panel error:', e); }
 </script>
 </body>
 </html>`;

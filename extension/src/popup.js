@@ -25,7 +25,6 @@ const toggleSub     = document.getElementById('toggle-sub');
 const mutedBanner   = document.getElementById('muted-banner');
 const noCsBanner    = document.getElementById('no-cs-banner');
 const btnClear      = document.getElementById('btn-clear');
-const btnReconnect  = document.getElementById('btn-reconnect');
 const btnGear       = document.getElementById('btn-gear');
 const welcomeLink   = document.getElementById('welcome-link');
 const pricingLink   = document.getElementById('pricing-link');
@@ -166,9 +165,7 @@ function renderSignals(signals) {
       <div class="signal ${band}">
         <div class="signal-msg">${escapeHtml(s.message)}</div>
         <div class="signal-action">→ ${escapeHtml(s.action)}</div>
-        <button class="signal-cta" data-tool="${escapeHtml(tool)}">
-          Run ${escapeHtml(tool)} (${pct}% confidence)
-        </button>
+        <button class="signal-cta" data-tool="${escapeHtml(tool)}">→ Ask your AI</button>
       </div>
     `;
   }).join('');
@@ -243,6 +240,7 @@ async function refresh(port) {
   statErrors.textContent = health.errors ?? 0;
   statWarns.textContent  = health.warnings ?? 0;
   statNet.textContent    = health.networkErrors ?? 0;
+  statsGrid.style.display = 'grid'; // reveal stats on first successful poll
   btnClear.disabled = false;
 
   // Flash stats row when new events arrive since last poll
@@ -310,7 +308,8 @@ async function refresh(port) {
     const atLimit = usage.included !== null && usage.used / usage.included >= 0.8;
     upgradeLink.style.display = (planId === 'free' || atLimit) ? '' : 'none';
 
-    if (usage.included !== null && usage.included > 0) {
+    if (usage.included !== null && usage.included > 0 &&
+        (usage.used / usage.included >= 0.70 || usage.overage > 0)) {
       creditWrap.style.display = 'block';
       const pct = Math.min(100, Math.round((Math.min(usage.used, usage.included) / usage.included) * 100));
       creditCount.textContent = `${usage.used} / ${usage.included}`;
@@ -375,6 +374,7 @@ portSave.addEventListener('click', async () => {
 btnGear.addEventListener('click', () => {
   const isOpen = portRow.classList.toggle('open');
   btnGear.classList.toggle('active', isOpen);
+  btnGear.title = isOpen ? 'Close settings' : 'Settings';
 });
 
 // ── Mute toggle ───────────────────────────────────────────────────────────────
@@ -423,9 +423,6 @@ btnClear.addEventListener('click', async () => {
   }
 });
 
-// ── Reconnect ─────────────────────────────────────────────────────────────────
-
-btnReconnect.addEventListener('click', () => refresh(parseInt(portInput.value, 10)));
 
 // ── Nav links ─────────────────────────────────────────────────────────────────
 

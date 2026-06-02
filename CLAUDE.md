@@ -6,6 +6,20 @@ localhost.
 
 ---
 
+## Why Mergen vs. chrome-devtools-mcp?
+
+Mergen is the **runtime context layer** for AI agents. While other tools focus on browser automation, Mergen focuses on **human-in-the-loop debugging**.
+
+| Feature | chrome-devtools-mcp / playwright-mcp | **Mergen** |
+| :--- | :--- | :--- |
+| **Context** | Headless / Clean Instance | ✅ **Your REAL browser session** |
+| **Auth** | No cookies / Requires re-login | ✅ **Existing REAL cookies & profiles** |
+| **Workflow** | AI drives a robot browser | ✅ **AI observes YOUR dev session** |
+| **Causality** | Raw logs | ✅ **Deterministic Causal Joins** |
+| **Moat** | Automation only | ✅ **Auth-gated debugging** |
+
+---
+
 ## How it works
 
 ```

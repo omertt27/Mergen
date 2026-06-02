@@ -169,28 +169,33 @@ The `analyze_runtime` tool returns a structured markdown document. It **leads wi
 ### §7  Task Prompt       — explicit 4-point output contract for the LLM
 ```
 
-### 7.1 Hypothesis Engine (§5)
+### 7.1 Hypothesis Engine (§5) — Deterministic Causality
 
-`causal.ts` tracks **event dependencies**, not time proximity:
+Mergen doesn't just "guess" based on model confidence. It tracks **event dependencies** across the full stack using a deterministic taxonomy of evidence:
 
-```
-request → response → state mutation → render → crash
-```
+| Tier | Type | Signal | Reliability |
+| :--- | :--- | :--- | :--- |
+| **EXACT** | Deterministic | Shared `traceparent` or `x-request-id` found in both browser and server logs. | 100% |
+| **LINKED** | Structural | Component-level link (e.g., error happened inside the same React component that just received props). | High |
+| **~CORR** | Statistical | Events happened within a tight temporal window (±200ms) with matching payloads. | Medium |
+| **OBS** | Observation | Raw log line or event with no known causal link yet. | Baseline |
 
-Each dependency produces a structured `Hypothesis`:
+#### Why agents need this
+AI agents can read code, but they are "blind to runtime." They cannot see which specific request caused which specific UI crash. Mergen provides the **Causal Graph** that bridges this gap.
+
+Each dependency produces a structured `Hypothesis` focused on **Evidence**:
 
 ```ts
 {
   summary:         "auth token from /api/login was not persisted — code reads userToken, gets null",
-  confidence:      "HIGH",
-  confidenceScore: 0.80,
+  evidenceTier:    "EXACT",
   evidence: [
-    "POST /api/login → 200 OK",
-    "localStorage.userToken = null at crash time",
-    "Crash at AuthGuard.tsx:42 in checkAuth"
+    "EXACT: POST /api/login [trace:8a2f...] returned 200 OK",
+    "EXACT: localStorage.userToken = null at crash time",
+    "LINKED: Crash at AuthGuard.tsx:42 in checkAuth (component state missing token)"
   ],
   causalPath: [
-    "POST /api/login → 200 OK",
+    "POST /api/login [trace:8a2f...] → 200 OK",
     "Expected: token stored to localStorage.userToken",
     "Actual: localStorage.userToken = null/missing",
     "Crash: code reads userToken, gets null"
@@ -198,15 +203,6 @@ Each dependency produces a structured `Hypothesis`:
   fixHint: "After /api/login resolves, call localStorage.setItem('userToken', response.token) before navigating."
 }
 ```
-
-Signals that contribute to `confidenceScore`:
-| Signal | Score |
-|--------|-------|
-| Source frame resolved | +0.15 |
-| Null/empty localStorage key | +0.25 |
-| Successful auth call + missing token (strongest) | +0.40 |
-| Failed network call before crash | +0.30 |
-| Warning immediately before error | +0.10 |
 
 ---
 
