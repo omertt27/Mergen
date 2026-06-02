@@ -254,11 +254,23 @@ async function refresh(port) {
   }
   _prevBuffered = newBuffered;
 
-  // Activity row: show when the last event was captured
+  // Activity row: last event time + live event rate from background rolling window
   if (health.lastEventAt) {
-    lastEventText.textContent = `Last event: ${timeAgo(health.lastEventAt)}`;
+    let rateStr = '';
+    try {
+      const { mergenLiveStatus = null } = await chrome.storage.session.get('mergenLiveStatus');
+      const rate = mergenLiveStatus?.eventsPerMin;
+      const active = mergenLiveStatus?.isActive;
+      if (rate !== null && rate !== undefined && rate > 0) {
+        rateStr = `  ·  ~${rate} evt/min`;
+      }
+      // Pulse the dot when active
+      const dot = statusPill.querySelector('.dot');
+      if (dot) dot.className = active ? 'dot pulse' : 'dot';
+    } catch { /* storage not available */ }
+    lastEventText.textContent = `Last event: ${timeAgo(health.lastEventAt)}${rateStr}`;
   } else {
-    lastEventText.textContent = 'No events captured yet — open a browser tab and browse';
+    lastEventText.textContent = 'No events yet — open your app in a browser tab';
   }
 
   // MCP dual-status indicator

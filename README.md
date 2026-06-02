@@ -151,6 +151,45 @@ npx mergen-server@latest setup
 
 ---
 
+## No Chrome extension? No problem.
+
+Mergen works without the browser extension in two ways:
+
+### Option A — Node.js SDK (backend / SSR / React Native)
+
+```bash
+# Zero code change — wrap any process:
+node --require mergen-server/sdk/node your-app.js
+
+# Or add one line to your entry point:
+require('mergen-server/sdk/node');  // CJS
+import 'mergen-server/sdk/node';    // ESM
+
+# Docker / container — point at the host machine:
+MERGEN_HOST=host.docker.internal node --require mergen-server/sdk/node app.js
+```
+
+Captures: `console.log/warn/error`, outbound HTTP/HTTPS with traceparent injection, uncaught exceptions, unhandled rejections.
+
+### Option B — DevTools snippet (any page, no install)
+
+Paste this once into your browser DevTools console:
+
+```javascript
+fetch('http://127.0.0.1:3000/sdk/inject').then(r=>r.text()).then(eval)
+```
+
+Or load `sdk/devtools-snippet.js` directly. Instruments the current page immediately — no extension, no install, no restart.
+
+### Check everything is wired up
+
+```bash
+mergen-server status   # instant health snapshot
+mergen-server doctor   # full diagnostic walkthrough
+```
+
+---
+
 ## Alternative: Install from Source
 
 For development:

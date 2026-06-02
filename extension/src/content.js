@@ -251,6 +251,40 @@
 
   const _nativeFetch = window.fetch ? window.fetch.bind(window) : null;
 
+  // ── W3C traceparent injection ─────────────────────────────────────────────────
+  // For same-origin and localhost requests we generate a traceparent header and
+  // inject it before the request leaves the browser. This gives every fetch/XHR
+  // a stable ID that backend logs can reference — the link that makes
+  // browser error → backend log automatic without any backend instrumentation.
+  //
+  // Only injected on same-origin / local requests to avoid CORS preflight
+  // failures on third-party APIs that don't accept custom headers.
+
+  function _generateTraceContext() {
+    try {
+      var bytes = new Uint8Array(24);
+      if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+        crypto.getRandomValues(bytes);
+      } else {
+        for (var i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+      }
+      var hex = Array.from(bytes, function(b) { return b.toString(16).padStart(2, '0'); }).join('');
+      var traceId = hex.slice(0, 32);
+      var spanId  = hex.slice(32, 48);
+      return { header: '00-' + traceId + '-' + spanId + '-01', traceId: traceId };
+    } catch { return null; }
+  }
+
+  function _isSameOriginOrLocal(url) {
+    try {
+      if (!url || url.charAt(0) === '/') return true;
+      var parsed = new URL(url, window.location.href);
+      if (parsed.origin === window.location.origin) return true;
+      var h = parsed.hostname;
+      return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h.endsWith('.local');
+    } catch { return false; }
+  }
+
   // ── Ingest helper (fire-and-forget, silent on server-not-running) ────────────
 
   function post(event) {
@@ -713,9 +747,22 @@
         ).toUpperCase();
         const startTime = Date.now();
 
+        // Inject traceparent on same-origin / local requests
+        var _tpCtx = _isSameOriginOrLocal(url) ? _generateTraceContext() : null;
+        var _fetchInit = init;
+        if (_tpCtx) {
+          try {
+            var _existingHdrs = (init && init.headers) ||
+              (typeof input === 'object' && input && input.headers);
+            var _newHdrs = new Headers(_existingHdrs || {});
+            if (!_newHdrs.has('traceparent')) _newHdrs.set('traceparent', _tpCtx.header);
+            _fetchInit = Object.assign({}, init || {}, { headers: _newHdrs });
+          } catch { _fetchInit = init; }
+        }
+
         let response;
         try {
-          response = await _nativeFetch(input, init);
+          response = await _nativeFetch(input, _fetchInit);
         } catch (err) {
           post({
             type: 'network',
@@ -757,25 +804,28 @@
           }
         } catch { /* ignore */ }
 
-        // Extract trace/request IDs from response headers for cross-service correlation.
-        // traceparent (W3C): "00-{traceId}-{spanId}-{flags}" → extract traceId segment.
-        var traceId = null;
-        try {
-          var tp = response.headers.get('traceparent');
-          if (tp) {
-            var tparts = tp.split('-');
-            if (tparts.length >= 4) traceId = tparts[1]; // 32-char hex trace ID
-          }
-          if (!traceId) {
-            traceId = response.headers.get('x-trace-id')
-              || response.headers.get('x-request-id')
-              || response.headers.get('x-correlation-id')
-              || response.headers.get('x-b3-traceid')
-              || response.headers.get('x-amzn-requestid')
-              || null;
-          }
-          if (traceId) traceId = traceId.slice(0, 64);
-        } catch { /* ignore */ }
+        // Use our injected traceId for same-origin requests so the ID is always
+        // present even when the backend doesn't echo it back. Fall back to reading
+        // standard trace headers from the response for third-party services.
+        var traceId = (_tpCtx && _tpCtx.traceId) || null;
+        if (!traceId) {
+          try {
+            var tp = response.headers.get('traceparent');
+            if (tp) {
+              var tparts = tp.split('-');
+              if (tparts.length >= 4) traceId = tparts[1];
+            }
+            if (!traceId) {
+              traceId = response.headers.get('x-trace-id')
+                || response.headers.get('x-request-id')
+                || response.headers.get('x-correlation-id')
+                || response.headers.get('x-b3-traceid')
+                || response.headers.get('x-amzn-requestid')
+                || null;
+            }
+            if (traceId) traceId = traceId.slice(0, 64);
+          } catch { /* ignore */ }
+        }
 
         post({
           type: 'network',
@@ -817,6 +867,17 @@
           : body ? '[non-string body]'
           : undefined;
 
+        // Inject traceparent on same-origin / local XHR requests
+        try {
+          if (_isSameOriginOrLocal(this._mergen.url)) {
+            var _xhrTp = _generateTraceContext();
+            if (_xhrTp) {
+              this.setRequestHeader('traceparent', _xhrTp.header);
+              this._mergen.traceId = _xhrTp.traceId;
+            }
+          }
+        } catch { /* never break the page */ }
+
         const xhr = this;
         xhr.addEventListener('loadend', function () {
           try {
@@ -829,6 +890,17 @@
                 : xhr.responseText.slice(0, 500);
             } catch { /* ignore */ }
 
+            // Prefer our injected traceId, fall back to response headers
+            var xhrTraceId = (xhr._mergen && xhr._mergen.traceId) || null;
+            if (!xhrTraceId) {
+              try {
+                var xhrTp = xhr.getResponseHeader('traceparent');
+                if (xhrTp) { var xhrTparts = xhrTp.split('-'); if (xhrTparts.length >= 4) xhrTraceId = xhrTparts[1]; }
+                if (!xhrTraceId) xhrTraceId = xhr.getResponseHeader('x-trace-id') || xhr.getResponseHeader('x-request-id') || xhr.getResponseHeader('x-correlation-id') || null;
+                if (xhrTraceId) xhrTraceId = xhrTraceId.slice(0, 64);
+              } catch { /* ignore */ }
+            }
+
             post({
               type: 'network',
               method: method,
@@ -839,6 +911,7 @@
               requestBody: requestBody,
               responseBody: responseBody,
               timestamp: Date.now(),
+              ...(xhrTraceId ? { traceId: xhrTraceId } : {}),
             });
           } catch { /* never break the page */ }
         });

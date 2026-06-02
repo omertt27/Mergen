@@ -17,6 +17,13 @@ export const ConsoleEventSchema = z.object({
    *  extension popup or auto-read from VS Code git config. Enables per-engineer
    *  filtering in team mode. */
   userId: z.string().optional(),
+  /** The git commit that last touched the primary error frame — populated
+   *  automatically after sourcemap resolution when a .git repo is present. */
+  gitSuspect: z.object({
+    sha: z.string(),
+    author: z.string(),
+    summary: z.string(),
+  }).optional(),
 });
 
 export const NetworkEventSchema = z.object({
@@ -102,6 +109,10 @@ export const TerminalOutputEventSchema = z.object({
   terminalName: z.string(),
   data: z.string(),
   timestamp: z.number(),
+  /** W3C traceId (32 hex chars) extracted from the log line by the process-watcher.
+   *  Present when the backend logged a traceparent header or a known trace ID key.
+   *  Enables deterministic browser↔backend joins in get_unified_timeline. */
+  traceId: z.string().optional(),
 });
 
 export const TestResultEventSchema = z.object({
@@ -280,7 +291,7 @@ export function setBufferSizeGetter(fn: () => number): void {
 
 const MAX_BUFFER_SIZE = (() => {
   const env = parseInt(process.env.MERGEN_BUFFER_SIZE ?? '', 10);
-  if (!Number.isFinite(env) || env < 1) return 200;
+  if (!Number.isFinite(env) || env < 1) return 2_000; // default raised: 200 was too small for real sessions
   return Math.min(env, 10_000);
 })();
 const MAX_SIZE = MAX_BUFFER_SIZE;

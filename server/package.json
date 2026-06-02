@@ -11,6 +11,10 @@
     "dist/**/*.js",
     "dist/**/*.d.ts",
     "!dist/**/__tests__/**",
+    "../sdk/node.js",
+    "../sdk/mergen-inject.js",
+    "../sdk/vite-plugin.ts",
+    "../sdk/webpack-plugin.js",
     "README.md",
     "LICENSE"
   ],

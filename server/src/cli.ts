@@ -723,9 +723,10 @@ async function watchCommand(args: string[]): Promise<void> {
     } catch {}
   }
 
-  const ingestUrl = `http://127.0.0.1:${serverPort}/ingest`;
+  const mergenHost = process.env.MERGEN_HOST ?? '127.0.0.1';
+  const ingestUrl  = `http://${mergenHost}:${serverPort}/ingest`;
   log(`Watching: ${[command, ...cmdArgs].join(' ')}`);
-  log(`Streaming to Mergen on :${serverPort} as process "${processName}"\n`);
+  log(`Streaming to Mergen on ${mergenHost}:${serverPort} as process "${processName}"\n`);
 
   const { spawn: spawnChild } = await import('child_process');
 
@@ -807,6 +808,83 @@ async function watchCommand(args: string[]): Promise<void> {
 
   process.on('SIGINT', () => { child.kill('SIGINT'); });
   process.on('SIGTERM', () => { child.kill('SIGTERM'); });
+}
+
+// ── Status command ─────────────────────────────────────────────────────────────
+// Single-screen live snapshot: server health, buffer fill, errors, MCP activity.
+// Designed to be run any time an engineer wants to confirm Mergen is wired up.
+
+async function statusCommand(): Promise<void> {
+  let port = 0;
+  interface HealthData {
+    version?: string; buffered?: number; maxBuffer?: number;
+    errors?: number; warnings?: number; networkErrors?: number;
+    lastEventAt?: number | null; lastMcpCallAt?: number | null;
+    signals?: Array<{ kind: string; confidence: number; message: string }>;
+  }
+  let health: HealthData | null = null;
+
+  for (let p = 3000; p <= 3010; p++) {
+    try {
+      const r = await fetch(`http://127.0.0.1:${p}/health`, { signal: AbortSignal.timeout(800) });
+      if (r.ok) { health = await r.json() as HealthData; port = p; break; }
+    } catch { /* try next port */ }
+  }
+
+  console.log('⬡ Mergen Status\n');
+  hr();
+
+  if (!health) {
+    error('Server not running  (tried :3000–:3010)');
+    console.log('\n  Start it:  mergen-server start');
+    console.log('  Diagnose:  mergen-server doctor');
+    process.exit(1);
+  }
+
+  const buffered    = health.buffered     ?? 0;
+  const maxBuffer   = health.maxBuffer    ?? 2000;
+  const errors      = health.errors       ?? 0;
+  const warns       = health.warnings     ?? 0;
+  const netErrors   = health.networkErrors ?? 0;
+  const lastAt      = health.lastEventAt  ?? null;
+  const mcpAt       = health.lastMcpCallAt ?? null;
+  const version     = health.version      ?? '?';
+  const signals     = health.signals      ?? [];
+
+  const bufPct    = maxBuffer > 0 ? Math.round((buffered / maxBuffer) * 100) : 0;
+  const lastStr   = lastAt ? `${Math.round((Date.now() - lastAt)  / 1000)}s ago` : 'none yet';
+  const mcpStr    = mcpAt  ? `${Math.round((Date.now() - mcpAt)   / 1000)}s ago` : 'not yet';
+
+  const errLabel = [
+    errors    > 0 ? `${errors} console`  : '',
+    netErrors > 0 ? `${netErrors} network` : '',
+  ].filter(Boolean).join(', ') || 'none';
+
+  console.log(`  Server      http://127.0.0.1:${port}  v${version}`);
+  console.log(`  Buffer      ${buffered} / ${maxBuffer}  (${bufPct}% full)`);
+  console.log(`  Errors      ${errLabel}`);
+  if (warns > 0) console.log(`  Warnings    ${warns}`);
+  console.log(`  Last event  ${lastStr}`);
+  console.log(`  MCP         ${mcpStr}`);
+
+  if (signals.length > 0) {
+    console.log(`\n  Signals (${signals.length} active):`);
+    for (const s of signals.slice(0, 3)) {
+      console.log(`    [${Math.round(s.confidence * 100)}%] ${s.message}`);
+    }
+  }
+
+  hr();
+
+  if (!lastAt) {
+    console.log('  ⚠ No events yet — open your app in the browser with the Mergen extension active');
+    console.log('    Or for Node apps: node --require mergen-server/sdk/node your-app.js');
+  } else if (errors === 0 && netErrors === 0) {
+    success(`Healthy — server running, events flowing`);
+  } else {
+    console.log(`  ⚠ ${errors + netErrors} error(s) in buffer`);
+    console.log('    Ask your AI: "quick_check"');
+  }
 }
 
 // ── Doctor command ─────────────────────────────────────────────────────────────
@@ -1128,6 +1206,10 @@ async function main(): Promise<void> {
       await watchCommand(args);
       break;
 
+    case 'status':
+      await statusCommand();
+      break;
+
     case 'doctor':
       await doctorCommand();
       break;
@@ -1154,19 +1236,20 @@ async function main(): Promise<void> {
 Mergen — Local-first browser observability for AI
 
 Usage:
+  mergen-server status             Live snapshot: server health, buffer, errors, MCP activity
   mergen-server setup              Interactive setup wizard
+  mergen-server start              Start the server
+  mergen-server watch <cmd>        Stream any process into Mergen (e.g. watch npm start)
+  mergen-server doctor             Full health-check wizard (diagnose config issues)
   mergen-server invite             Generate a team invite URL (pre-configured setup link)
   mergen-server join <url>         Join a team Mergen instance from an invite URL
   mergen-server postmortem [h]     Generate a postmortem document (default: last 1 hour)
   mergen-server timeline [seconds] Unified causal timeline (browser + CI + deploy + backend)
-  mergen-server watch <cmd>        Stream any process into Mergen (e.g. watch npm start)
-  mergen-server doctor             Health-check wizard (diagnose config issues)
-  mergen-server test               Validate installation
-  mergen-server start              Start the server
   mergen-server export [label]     Export session as JSON + HTML report
   mergen-server guard              Pre-commit runtime check
   mergen-server guard --install    Install as git pre-commit hook
   mergen-server guard --strict     Block commit on errors (use in hook)
+  mergen-server test               Validate installation
   mergen-server ci                 CI smoke test (exit 0 = healthy)
   mergen-server --version          Show version
   mergen-server --help             Show this help

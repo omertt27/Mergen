@@ -24,6 +24,27 @@ const MAX_LINES_PER_SEC = 30;
 const MAX_LINE_LENGTH   = 2_000;
 const RATE_WINDOW_MS    = 1_000;
 
+// ── TraceId extraction ────────────────────────────────────────────────────────
+// Scan each log line for a W3C traceparent or a structured trace ID key-value
+// pair. When found, the 32-char hex traceId is stored on the TerminalOutputEvent
+// so get_unified_timeline can do a deterministic browser↔backend join without
+// requiring any backend instrumentation changes.
+//
+// Patterns recognised (zero developer action required for any of these):
+//   traceparent: 00-abc123...(32hex)-def456...(16hex)-01   (W3C header logged verbatim)
+//   traceId: abc123...   "traceId":"abc123..."   trace_id=abc123...   (structured logs)
+
+const TRACEPARENT_RE = /\b00-([0-9a-f]{32})-[0-9a-f]{16}-[0-9a-f]{2}\b/i;
+const TRACE_KV_RE    = /(?:trace[_-]?id|traceid)["'\s]*[:=]["'\s]*([0-9a-f]{32})\b/i;
+
+function extractTraceId(line: string): string | null {
+  const tp = TRACEPARENT_RE.exec(line);
+  if (tp) return tp[1].toLowerCase();
+  const kv = TRACE_KV_RE.exec(line);
+  if (kv) return kv[1].toLowerCase();
+  return null;
+}
+
 interface WatcherOptions {
   name: string;
   command: string;
@@ -95,11 +116,13 @@ export function startProcessWatcher(opts: WatcherOptions): void {
   }
 
   function pushTerminal(w: ActiveWatcher, data: string): void {
+    const traceId = extractTraceId(data) ?? undefined;
     const event: TerminalOutputEvent = {
       type: 'terminal',
       terminalName: w.name,
       data,
       timestamp: Date.now(),
+      ...(traceId ? { traceId } : {}),
     };
     try { store.push(event); } catch { /* never crash */ }
   }

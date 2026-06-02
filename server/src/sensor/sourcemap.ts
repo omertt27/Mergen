@@ -1,12 +1,22 @@
 import fs from 'fs/promises';
 import path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { SourceMapConsumer } from 'source-map';
 import { LRUCache } from 'lru-cache';
 import fg from 'fast-glob';
 
+const execFileAsync = promisify(execFile);
+
 // ── Exported type ─────────────────────────────────────────────────────────────
 // Defined here (sensor layer) so sourcemap.ts is self-contained.
 // causal.ts imports this from here rather than defining it itself.
+export interface GitSuspect {
+  sha: string;
+  author: string;
+  summary: string;
+}
+
 export interface SourceFrame {
   fn: string;
   file: string;
@@ -14,6 +24,9 @@ export interface SourceFrame {
   column: number;
   snippet: string;
   rawResolved: string;
+  /** The last git commit that touched this exact line — populated when a .git
+   *  repo is present and the file exists on disk. null when not available. */
+  gitSuspect: GitSuspect | null;
 }
 
 // LRU cache: absolute .map path → parsed consumer (max 20 entries).
@@ -56,6 +69,64 @@ async function getMapIndex(): Promise<Map<string, string>> {
   })();
 
   return scanInFlight;
+}
+
+// ── Git blame ─────────────────────────────────────────────────────────────────
+// For each primary frame we run `git blame --porcelain` on the resolved source
+// file to find which commit last touched that line. This links the error to a
+// specific author and change without any manual digging.
+//
+// Results are cached in a bounded map; failures (no git, no file, uncommitted
+// line) are cached as null so we don't re-run on every event.
+
+const BLAME_TIMEOUT_MS = 800;
+const MAX_BLAME_CACHE = 500;
+const blameCache = new Map<string, GitSuspect | null>();
+
+async function blameFrame(file: string, line: number): Promise<GitSuspect | null> {
+  // Resolve path relative to cwd (sourcemaps often emit relative paths)
+  const absFile = path.isAbsolute(file) ? file : path.resolve(process.cwd(), file);
+  const cacheKey = `${absFile}:${line}`;
+
+  if (blameCache.has(cacheKey)) return blameCache.get(cacheKey)!;
+
+  // Evict oldest entry when cache is full
+  if (blameCache.size >= MAX_BLAME_CACHE) {
+    blameCache.delete(blameCache.keys().next().value as string);
+  }
+
+  // Guard: file must exist on disk
+  try { await fs.access(absFile); } catch {
+    blameCache.set(cacheKey, null);
+    return null;
+  }
+
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['blame', '-L', `${line},${line}`, '--porcelain', absFile],
+      { cwd: process.cwd(), timeout: BLAME_TIMEOUT_MS },
+    );
+
+    const lines = stdout.split('\n');
+    const sha = lines[0]?.slice(0, 40) ?? '';
+
+    // All-zeros SHA = uncommitted changes
+    if (!sha || /^0+$/.test(sha)) {
+      blameCache.set(cacheKey, null);
+      return null;
+    }
+
+    const author  = lines.find((l) => l.startsWith('author '))?.slice(7).trim()  ?? 'unknown';
+    const summary = lines.find((l) => l.startsWith('summary '))?.slice(8).trim() ?? '';
+
+    const result: GitSuspect = { sha, author, summary };
+    blameCache.set(cacheKey, result);
+    return result;
+  } catch {
+    blameCache.set(cacheKey, null);
+    return null;
+  }
 }
 
 async function getConsumer(mapPath: string): Promise<SourceMapConsumer> {
@@ -219,6 +290,9 @@ export async function resolveFrameAndStack(
         if (sourceContent) snippet = extractSnippet(sourceContent, pos.line, 5);
       } catch { /* no embedded source content */ }
 
+      let gitSuspect: GitSuspect | null = null;
+      try { gitSuspect = await blameFrame(pos.source, pos.line); } catch { /* non-fatal */ }
+
       primaryFrame = {
         fn,
         file: pos.source,
@@ -226,6 +300,7 @@ export async function resolveFrameAndStack(
         column: pos.column ?? colNum,
         snippet,
         rawResolved: `    at ${fn} (${pos.source}:${pos.line}:${pos.column})`,
+        gitSuspect,
       };
     } catch {
       continue;
@@ -278,6 +353,9 @@ export async function resolveFirstFrame(
         if (sourceContent) snippet = extractSnippet(sourceContent, pos.line, 5);
       } catch { /* no embedded source content */ }
 
+      let gitSuspect: GitSuspect | null = null;
+      try { gitSuspect = await blameFrame(pos.source, pos.line); } catch { /* non-fatal */ }
+
       return {
         fn,
         file: pos.source,
@@ -285,6 +363,7 @@ export async function resolveFirstFrame(
         column: pos.column ?? colNum,
         snippet,
         rawResolved: `    at ${fn} (${pos.source}:${pos.line}:${pos.column})`,
+        gitSuspect,
       };
     } catch {
       continue;

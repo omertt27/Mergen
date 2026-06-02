@@ -1,6 +1,6 @@
 import { Request, Response, Router } from 'express';
 import { store, BrowserEventSchema, type BrowserEvent } from './buffer.js';
-import { resolveStackTrace } from './sourcemap.js';
+import { resolveFrameAndStack } from './sourcemap.js';
 import { redact } from './redact.js';
 import logger from './logger.js';
 import { layer2Store } from './layer2-store.js';
@@ -241,9 +241,13 @@ ingestRouter.post('/ingest', (req: Request, res: Response): void => {
   }
 
   if (event.type === 'console' && typeof event.stack === 'string') {
-    withTimeout(resolveStackTrace(event.stack), SOURCEMAP_TIMEOUT_MS)
-      .then((resolved) => {
-        const resolved_event = { ...event, stack: resolved };
+    withTimeout(resolveFrameAndStack(event.stack), SOURCEMAP_TIMEOUT_MS)
+      .then(({ resolvedStack, primaryFrame }) => {
+        const resolved_event = {
+          ...event,
+          stack: resolvedStack,
+          ...(primaryFrame?.gitSuspect ? { gitSuspect: primaryFrame.gitSuspect } : {}),
+        };
         store.push(resolved_event);
         historyStore.push(resolved_event);
         maybeTeamBroadcast(resolved_event);
