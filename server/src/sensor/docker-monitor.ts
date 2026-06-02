@@ -164,6 +164,9 @@ export function startDockerMonitor(): void {
 
 export function stopDockerMonitor(): void {
   if (_dockerProc) {
+    // Destroy the readable stream before killing so no buffered data events
+    // fire after the process is gone and cause noisy pipe errors on exit.
+    _dockerProc.stdout?.destroy();
     _dockerProc.kill();
     _dockerProc = null;
   }

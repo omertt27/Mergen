@@ -211,7 +211,9 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     // Handle messages from the webview
     webviewView.webview.onDidReceiveMessage(async (msg: { type: string; tool?: string; text?: string; command?: string; pid?: string; verdict?: string }) => {
       if (msg.type === 'clear') await this.clearBuffer();
-      if (msg.type === 'refresh') await this.refresh();            if (msg.type === 'ready') {
+      if (msg.type === 'refresh') await this.refresh();
+      if (msg.type === 'startCapture') await this.startCapture();
+      if (msg.type === 'ready') {
                 // Immediately send current state so the webview hides the loading
                 // spinner without waiting for the async poll to complete.
                 console.log('[Mergen] ready received, sending state:', JSON.stringify(this._state).slice(0, 200));
@@ -303,6 +305,19 @@ export class MergenPanel implements vscode.WebviewViewProvider {
       await this._poll();
     } catch {
       // server not running — panel will show disconnected state
+    }
+  }
+
+  async startCapture(): Promise<void> {
+    const port = this._getPort();
+    try {
+      const result = await httpPost(`http://127.0.0.1:${port}/mark`, null, 3000) as { timestamp: number; iso: string };
+      this._view?.webview.postMessage({ type: 'captureStarted', timestamp: result.timestamp });
+      vscode.window.showInformationMessage(
+        'Mergen: Capture started — reproduce your bug, then ask your AI: "What happened since capture?"',
+      );
+    } catch {
+      vscode.window.showWarningMessage('Mergen: Could not start capture — is the server running?');
     }
   }
 
@@ -1046,8 +1061,10 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   </div>
   <div class="btn-row" style="margin-top:10px">
     <button class="primary" onclick="send('refresh')">↺ Refresh</button>
+    <button id="btn-capture" onclick="send('startCapture')" title="Mark a start point — reproduce your bug — then ask your AI what happened since capture">⏺ Capture</button>
     <button onclick="send('clear')">✕ Clear</button>
   </div>
+  <div id="capture-status" style="display:none;margin-top:6px;font-size:10px;color:var(--vscode-charts-green)"></div>
 </div>
 
 <!-- Proactive signals -->
@@ -1283,6 +1300,13 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   window.addEventListener('message', ({ data }) => {
     console.log('[Mergen webview] message received', JSON.stringify(data).slice(0, 200));
     if (data.type === 'state') { _rendered = true; render(data.state); }
+    if (data.type === 'captureStarted') {
+      const el = document.getElementById('capture-status');
+      if (el) {
+        el.textContent = '⏺ Capturing since ' + new Date(data.timestamp).toLocaleTimeString();
+        el.style.display = 'block';
+      }
+    }
   });
 
   console.log('[Mergen webview] listener registered, sending ready');

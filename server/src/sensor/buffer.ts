@@ -230,7 +230,11 @@ export function setBufferSizeGetter(fn: () => number): void {
 // Uses a fixed-size pre-allocated array with head + count pointers.
 // push() is always O(1) — no Array.shift() / splice().
 
-const MAX_BUFFER_SIZE = 200;
+const MAX_BUFFER_SIZE = (() => {
+  const env = parseInt(process.env.MERGEN_BUFFER_SIZE ?? '', 10);
+  if (!Number.isFinite(env) || env < 1) return 200;
+  return Math.min(env, 10_000);
+})();
 const MAX_SIZE = MAX_BUFFER_SIZE;
 
 class RingBuffer implements BufferStore {

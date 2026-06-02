@@ -141,7 +141,7 @@ async function main(): Promise<void> {
   startWatcher();
 
   // ── Container and process health monitoring ───────────────────────────────
-  startDockerMonitor();
+  if (process.env.MERGEN_DOCKER_MONITOR === 'true') startDockerMonitor();
   startHeapMonitor();
 
   // ── Graceful shutdown ─────────────────────────────────────────────────────

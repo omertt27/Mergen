@@ -43,7 +43,23 @@ function postEvent(payload: Record<string, unknown>): void {
 }
 
 export default class MergenReporter implements Reporter {
+  private _warned = false;
+
   onTestCaseResult(testCase: TestCase): void {
+    try {
+      this._reportTestCase(testCase);
+    } catch (err) {
+      if (!this._warned) {
+        this._warned = true;
+        // Vitest's internal vite/chunks/logger.js resolution can fail in some
+        // project configurations. Log once so the failure is visible rather
+        // than silently dropping test results.
+        process.stderr.write(`[mergen] vitest-reporter error (results will not be sent): ${err}\n`);
+      }
+    }
+  }
+
+  private _reportTestCase(testCase: TestCase): void {
     const result = testCase.result() as {
       state: string;
       errors?: unknown[];

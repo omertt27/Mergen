@@ -7,6 +7,11 @@
  *   3. Conventional Commits weighting:
  *        feat/fix/refactor → HIGH causal weight (likely introduced the bug)
  *        chore/style/docs  → LOW  causal weight (unlikely)
+ *
+ * NOTE: Weighting is a heuristic, not a guarantee. A `feat:` that introduces
+ * a bug scores HIGH correctly, but a `chore: update deps` that breaks a
+ * transitive dependency scores LOW. Treat causalWeight as a signal to
+ * investigate, not a determination of root cause.
  */
 
 import { execFile } from 'child_process';

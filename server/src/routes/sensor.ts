@@ -228,6 +228,20 @@ export function createSensorRouter(serverVersion: string): Router {
     res.json({ ok: true, windowSeconds: seconds, count: rows.length, rows: rows.slice(-limit) });
   });
 
+  // ── Mark capture start ────────────────────────────────────────────────────
+  // Records a timestamp bookmark so the AI and VS Code panel can filter
+  // events to "only what happened since I clicked Start Capture".
+  let _captureMarkTs: number | null = null;
+
+  router.post('/mark', (_req, res) => {
+    _captureMarkTs = Date.now();
+    res.json({ ok: true, timestamp: _captureMarkTs, iso: new Date(_captureMarkTs).toISOString() });
+  });
+
+  router.get('/mark', (_req, res) => {
+    res.json({ ok: true, timestamp: _captureMarkTs, iso: _captureMarkTs ? new Date(_captureMarkTs).toISOString() : null });
+  });
+
   // ── Active debug sessions ─────────────────────────────────────────────────
   // Used by the popup to show the session strip widget.
   router.get('/sessions', (_req, res) => {

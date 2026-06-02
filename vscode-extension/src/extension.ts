@@ -134,7 +134,7 @@ export function activate(context: vscode.ExtensionContext): void {
             void postToIngest(port2, payload);
           }
         }
-      }, 150);
+      }, 500);
     }),
   );
 
