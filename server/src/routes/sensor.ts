@@ -10,6 +10,7 @@
  */
 import { Router } from 'express';
 import { store } from '../sensor/buffer.js';
+import { getMetricCounters } from '../sensor/otel-exporter.js';
 import { startProcessWatcher, stopProcessWatcher, listProcessWatchers } from '../sensor/process-watcher.js';
 import { startDockerLogStream, stopDockerLogStream, listStreamedContainers } from '../sensor/docker-log-stream.js';
 import { historyStore } from '../sensor/sqlite-store.js';
@@ -17,7 +18,7 @@ import { buildCausalChain } from '../intelligence/causal.js';
 import { hypothesisHistory } from '../intelligence/hypothesis-history.js';
 import { getStats } from '../intelligence/calibration.js';
 import { getUsageSnapshot } from '../intelligence/usage.js';
-import { toolCallCounts, lastMcpCallAt, firstAnalyzeAt } from '../intelligence/tools.js';
+import { toolCallCounts, lastMcpCallAt, firstAnalyzeAt, lastTimeToFirstAnalysisMs } from '../intelligence/tools.js';
 import { listActiveSessions } from '../intelligence/debug-sessions.js';
 import { getTeamState, isTeamEnabled } from '../intelligence/team.js';
 
@@ -44,6 +45,8 @@ export function createSensorRouter(serverVersion: string): Router {
       clearedAt: store.clearedAt(),
       mcpLastCallAt: lastMcpCallAt,
       firstAnalyzeAt,
+      lastTimeToFirstAnalysisMs,
+      metrics: getMetricCounters(),
       signals,
       allClear,
       allClearMessage: allClear ? `✅ 0 errors in the last session (${buffered} events captured)` : null,

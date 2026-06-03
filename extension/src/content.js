@@ -808,6 +808,7 @@
         // present even when the backend doesn't echo it back. Fall back to reading
         // standard trace headers from the response for third-party services.
         var traceId = (_tpCtx && _tpCtx.traceId) || null;
+        var tracestate = null;
         if (!traceId) {
           try {
             var tp = response.headers.get('traceparent');
@@ -826,6 +827,42 @@
             if (traceId) traceId = traceId.slice(0, 64);
           } catch { /* ignore */ }
         }
+        // W3C tracestate — vendor-specific routing metadata alongside traceparent
+        try {
+          var ts = response.headers.get('tracestate');
+          if (ts) tracestate = ts.slice(0, 512);
+        } catch { /* ignore */ }
+
+        // W3C Baggage — parse custom metadata propagated on the outgoing request
+        var baggage = null;
+        try {
+          var _baggageRaw = null;
+          var _reqHdrs2 = (init && init.headers) || (input && typeof input === 'object' && input.headers);
+          if (_reqHdrs2) {
+            if (typeof Headers !== 'undefined' && _reqHdrs2 instanceof Headers) {
+              _baggageRaw = _reqHdrs2.get('baggage');
+            } else if (Array.isArray(_reqHdrs2)) {
+              var _bPair = _reqHdrs2.find(function(p) { return p[0] && p[0].toLowerCase() === 'baggage'; });
+              if (_bPair) _baggageRaw = String(_bPair[1]);
+            } else if (typeof _reqHdrs2 === 'object') {
+              _baggageRaw = _reqHdrs2['baggage'] || _reqHdrs2['Baggage'] || null;
+            }
+          }
+          // Also check the response for any baggage the server echoed back
+          if (!_baggageRaw) _baggageRaw = response.headers.get('baggage');
+          if (_baggageRaw) {
+            var _parsed = {};
+            _baggageRaw.split(',').forEach(function(pair) {
+              var eqIdx = pair.indexOf('=');
+              if (eqIdx > 0) {
+                var k = pair.slice(0, eqIdx).trim();
+                var v = decodeURIComponent(pair.slice(eqIdx + 1).trim());
+                if (k) _parsed[k] = v;
+              }
+            });
+            if (Object.keys(_parsed).length > 0) baggage = _parsed;
+          }
+        } catch { /* ignore */ }
 
         post({
           type: 'network',
@@ -841,6 +878,8 @@
           responseBody: responseBody,
           timestamp: Date.now(),
           ...(traceId ? { traceId } : {}),
+          ...(tracestate ? { tracestate } : {}),
+          ...(baggage ? { baggage } : {}),
         });
 
         return response;
@@ -892,6 +931,8 @@
 
             // Prefer our injected traceId, fall back to response headers
             var xhrTraceId = (xhr._mergen && xhr._mergen.traceId) || null;
+            var xhrTracestate = null;
+            var xhrBaggage = null;
             if (!xhrTraceId) {
               try {
                 var xhrTp = xhr.getResponseHeader('traceparent');
@@ -900,6 +941,27 @@
                 if (xhrTraceId) xhrTraceId = xhrTraceId.slice(0, 64);
               } catch { /* ignore */ }
             }
+            // W3C tracestate from response
+            try {
+              var _xhrTs = xhr.getResponseHeader('tracestate');
+              if (_xhrTs) xhrTracestate = _xhrTs.slice(0, 512);
+            } catch { /* ignore */ }
+            // W3C Baggage from response (servers may echo it back)
+            try {
+              var _xhrBaggageRaw = xhr.getResponseHeader('baggage');
+              if (_xhrBaggageRaw) {
+                var _xhrParsed = {};
+                _xhrBaggageRaw.split(',').forEach(function(pair) {
+                  var eqIdx = pair.indexOf('=');
+                  if (eqIdx > 0) {
+                    var k = pair.slice(0, eqIdx).trim();
+                    var v = decodeURIComponent(pair.slice(eqIdx + 1).trim());
+                    if (k) _xhrParsed[k] = v;
+                  }
+                });
+                if (Object.keys(_xhrParsed).length > 0) xhrBaggage = _xhrParsed;
+              }
+            } catch { /* ignore */ }
 
             post({
               type: 'network',
@@ -912,6 +974,8 @@
               responseBody: responseBody,
               timestamp: Date.now(),
               ...(xhrTraceId ? { traceId: xhrTraceId } : {}),
+              ...(xhrTracestate ? { tracestate: xhrTracestate } : {}),
+              ...(xhrBaggage ? { baggage: xhrBaggage } : {}),
             });
           } catch { /* never break the page */ }
         });

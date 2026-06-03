@@ -30,6 +30,7 @@ import { createIncidentsRouter } from './routes/incidents.js';
 import { createTicketsRouter } from './routes/tickets.js';
 import { createDashboardRouter } from './routes/dashboard.js';
 import { handleSlackActions, handleFeedbackLink } from './intelligence/slack.js';
+import { getPrometheusMetrics } from './sensor/otel-exporter.js';
 
 /** Paths that require the x-mergen-secret header on non-GET requests. */
 const MUTATING_PATHS = ['/feedback', '/license', '/clear', '/checkpoint', '/telemetry', '/otel-config'];
@@ -119,6 +120,15 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createCIRouter());       // CI/CD and deployment events
   app.use(createIncidentsRouter()); // Incident workflow (acknowledge/assign/resolve/note)
   app.use(createTicketsRouter());   // Linear + Jira one-click ticket creation
+
+  // ── Prometheus metrics endpoint ───────────────────────────────────────────
+  // Exposes browser error rates, network failure counts, and request durations
+  // in Prometheus text format. Scrape with any Prometheus-compatible collector.
+  // Counters are cumulative since server start; reset on restart only.
+  app.get('/metrics', (_req, res) => {
+    res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+    res.send(getPrometheusMetrics());
+  });
 
   // ── Slack interactive actions & feedback link ─────────────────────────────
   app.post('/slack/actions', (req, res) => { void handleSlackActions(req, res); });

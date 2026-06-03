@@ -44,6 +44,14 @@ export const NetworkEventSchema = z.object({
   /** W3C traceparent or X-Trace-ID extracted from the response headers.
    *  Links browser network events to backend OTel spans across service boundaries. */
   traceId: z.string().optional(),
+  /** W3C tracestate header value, preserved verbatim.
+   *  Carries vendor-specific routing metadata (e.g. Datadog sampling, Lightstep flags).
+   *  Required for multi-vendor trace propagation to survive service boundary crossings. */
+  tracestate: z.string().optional(),
+  /** W3C Baggage key-value pairs parsed from the baggage request header.
+   *  Propagates custom metadata across hops: userId, deploymentEnv, featureFlags, etc.
+   *  Only present when the outgoing request carried a baggage header. */
+  baggage: z.record(z.string()).optional(),
 });
 
 export const ContextSnapshotSchema = z.object({

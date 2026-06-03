@@ -37,6 +37,8 @@ import { initTeam, broadcastToTeam } from './intelligence/team.js';
 import { initTelemetry, maybeSendTelemetry } from './intelligence/telemetry.js';
 import { getPlan } from './intelligence/plans.js';
 import { registerTools, toolCallCounts } from './intelligence/tools.js';
+import { registerResources } from './intelligence/mcp-resources.js';
+import { registerPrompts } from './intelligence/mcp-prompts.js';
 import { SYSTEM_PROMPT } from './intelligence/prompts.js';
 import { registerTeamBroadcaster } from './sensor/ingest.js';
 
@@ -119,6 +121,8 @@ async function main(): Promise<void> {
     { instructions: SYSTEM_PROMPT },
   );
   registerTools(mcp);
+  registerResources(mcp);
+  registerPrompts(mcp);
   const transport = new StdioServerTransport();
   await mcp.connect(transport);
   logger.info('MCP server ready (stdio transport)');

@@ -16,8 +16,62 @@
  *   GET /otel-config      → current state
  */
 
+import { trace, context as otelCtx, TraceFlags } from '@opentelemetry/api';
 import type { BrowserEvent } from './buffer.js';
 import logger from './logger.js';
+
+// ── In-process metrics counters ───────────────────────────────────────────────
+// Always-on regardless of OTel config. Powers GET /metrics (Prometheus format)
+// and enriches telemetry with runtime signal counts.
+interface MetricCounters {
+  errorCount: number;
+  networkErrorCount: number;
+  requestCount: number;
+  requestDurationTotalMs: number;
+  requestDurationSamples: number;
+}
+const _m: MetricCounters = {
+  errorCount: 0,
+  networkErrorCount: 0,
+  requestCount: 0,
+  requestDurationTotalMs: 0,
+  requestDurationSamples: 0,
+};
+
+function _recordCounters(event: BrowserEvent): void {
+  if (event.type === 'console' && event.level === 'error') {
+    _m.errorCount++;
+  } else if (event.type === 'network') {
+    _m.requestCount++;
+    _m.requestDurationTotalMs += event.duration;
+    _m.requestDurationSamples++;
+    if (event.status >= 400 || event.status === 0 || event.error) _m.networkErrorCount++;
+  }
+}
+
+/** Returns Prometheus text-format metrics. Served by GET /metrics. */
+export function getPrometheusMetrics(): string {
+  const avg = _m.requestDurationSamples > 0
+    ? Math.round(_m.requestDurationTotalMs / _m.requestDurationSamples)
+    : 0;
+  return [
+    '# HELP mergen_browser_error_total Total browser console errors since server start',
+    '# TYPE mergen_browser_error_total counter',
+    `mergen_browser_error_total ${_m.errorCount}`,
+    '# HELP mergen_browser_network_error_total Total failed network requests (4xx/5xx/network error)',
+    '# TYPE mergen_browser_network_error_total counter',
+    `mergen_browser_network_error_total ${_m.networkErrorCount}`,
+    '# HELP mergen_browser_request_total Total network requests captured',
+    '# TYPE mergen_browser_request_total counter',
+    `mergen_browser_request_total ${_m.requestCount}`,
+    '# HELP mergen_browser_request_duration_avg_ms Rolling average request duration in milliseconds',
+    '# TYPE mergen_browser_request_duration_avg_ms gauge',
+    `mergen_browser_request_duration_avg_ms ${avg}`,
+  ].join('\n') + '\n';
+}
+
+/** Returns raw metric counters for telemetry snapshots. */
+export function getMetricCounters(): Readonly<MetricCounters> { return _m; }
 
 // ── Config types ─────────────────────────────────────────────────────────────
 
@@ -98,9 +152,10 @@ export async function disableOtel(): Promise<void> {
 
 /**
  * Export a single BrowserEvent as an OTLP log record.
- * No-op when OTel is not configured.
+ * Always records in-process metric counters; OTLP export only when configured.
  */
 export function exportToOtel(event: BrowserEvent): void {
+  _recordCounters(event);
   if (!_otelLogger || !_config?.enabled) return;
 
   try {
@@ -138,11 +193,31 @@ export function exportToOtel(event: BrowserEvent): void {
                   ? `${event.process} exited (${event.reason})`
                   : `${event.type} event`;
 
+    // ── W3C trace context correlation ─────────────────────────────────────────
+    // When a network event carries a traceId (W3C traceparent), embed it as a
+    // span context on the log record. Observability backends (Grafana, Jaeger,
+    // Honeycomb) use this to correlate browser log records with backend spans
+    // without requiring a separate trace export pipeline.
+    let logContext: any = undefined;
+    const networkTraceId = isNetwork ? (event as any).traceId as string | undefined : undefined;
+    if (networkTraceId && networkTraceId.length === 32) {
+      try {
+        const spanContext = {
+          traceId: networkTraceId,
+          spanId: networkTraceId.slice(16), // deterministic span ID derived from traceId
+          traceFlags: TraceFlags.SAMPLED,
+          isRemote: true,
+        };
+        logContext = trace.setSpanContext(otelCtx.active(), spanContext);
+      } catch { /* ignore — api may not be available */ }
+    }
+
     _otelLogger.emit({
       severityNumber,
       severityText,
       body,
       timestamp: new Date(event.timestamp),
+      ...(logContext ? { context: logContext } : {}),
       attributes: {
         ...(eventUrl ? { 'browser.url': eventUrl } : {}),
         'mergen.event_type': event.type,
@@ -151,6 +226,9 @@ export function exportToOtel(event: BrowserEvent): void {
           'http.method': (event as any).method,
           'http.url': event.url,
           'http.status_code': (event as any).status,
+          ...((event as any).traceId ? { 'trace_id': (event as any).traceId } : {}),
+          ...((event as any).tracestate ? { 'w3c.tracestate': (event as any).tracestate } : {}),
+          ...((event as any).baggage ? { 'w3c.baggage': JSON.stringify((event as any).baggage) } : {}),
         } : {}),
       },
     });
