@@ -34,8 +34,11 @@ import { handleSlackActions, handleFeedbackLink } from './intelligence/slack.js'
 /** Paths that require the x-mergen-secret header on non-GET requests. */
 const MUTATING_PATHS = ['/feedback', '/license', '/clear', '/checkpoint', '/telemetry', '/otel-config'];
 
-export function createApp(opts: { serverVersion: string; localSecret: string }): express.Express {
-  const { serverVersion, localSecret } = opts;
+/** Hostnames always valid for local-only mode. */
+const LOCAL_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '::1']);
+
+export function createApp(opts: { serverVersion: string; localSecret: string; port: number; bindHost: string }): express.Express {
+  const { serverVersion, localSecret, port, bindHost } = opts;
   const app = express();
 
   // ── Billing webhook — raw body for HMAC, MUST precede express.json() ──────
@@ -57,13 +60,41 @@ export function createApp(opts: { serverVersion: string; localSecret: string }):
     next();
   });
 
+  // ── DNS-rebinding / Host-header validation ────────────────────────────────
+  // In local-only mode every legitimate caller sets Host: 127.0.0.1:<port> or
+  // Host: localhost:<port>. A DNS-rebinding attack or an XSS payload running on
+  // a different localhost port would send a different Host value and is rejected
+  // here before it reaches any route. Skipped in team mode (MERGEN_BIND ≠
+  // 127.0.0.1) where the server is intentionally reachable from the network.
+  if (bindHost === '127.0.0.1') {
+    app.use((req, res, next) => {
+      if (req.method === 'OPTIONS') { next(); return; }
+      const raw = req.headers.host ?? '';
+      // Strip brackets from IPv6 literal hosts like [::1]:3000
+      const hostname = raw.replace(/^\[([^\]]+)\].*$/, '$1').split(':')[0];
+      const hostPort = raw.includes(':') ? raw.split(':').pop() : null;
+      if (!LOCAL_HOSTNAMES.has(hostname) || (hostPort !== null && hostPort !== String(port))) {
+        res.status(421).json({ error: 'misdirected request' });
+        return;
+      }
+      next();
+    });
+  }
+
   app.options('*', (_req, res) => res.status(204).end());
 
+  // ── Local-secret endpoint ─────────────────────────────────────────────────
+  // Browser clients (extension popup, dashboard) read this once to obtain the
+  // shared secret for mutating requests. Protected by the Host-header check
+  // above, so only callers on 127.0.0.1:<port> can retrieve it.
+  app.get('/local-secret', (_req, res) => {
+    res.json({ secret: localSecret });
+  });
+
   // ── Local-secret guard ────────────────────────────────────────────────────
-  // Any browser tab on the machine can reach 127.0.0.1 — the browser sends
-  // the request even when CORS blocks reading the response. For POSTs/DELETEs
-  // the damage is already done. We require the shared secret (written to
-  // ~/.mergen/secret on first start) on all state-changing routes.
+  // VS Code / Cursor extensions read ~/.mergen/secret and send it as
+  // x-mergen-secret. The Host check above blocks DNS rebinding for routes not
+  // in this list; this guard adds a second factor for privileged admin actions.
   app.use((req, res, next) => {
     if (req.method === 'GET' || req.method === 'OPTIONS') { next(); return; }
     if (!MUTATING_PATHS.some((p) => req.path === p || req.path.startsWith(p + '/'))) { next(); return; }

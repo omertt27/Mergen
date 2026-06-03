@@ -48,6 +48,7 @@ const sessionCopyBtn = document.getElementById('session-copy-btn');
 let _prevBuffered = -1;
 let _clearConfirmPending = false;
 let _clearConfirmTimer = null;
+let _localSecret = null;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -389,6 +390,20 @@ muteToggle.addEventListener('change', async () => {
   else       { toggleSub.textContent = 'Active on current tab'; mutedBanner.style.display = 'none'; }
 });
 
+// ── Local secret (for mutating requests that require x-mergen-secret) ─────────
+
+async function fetchLocalSecret(port) {
+  if (_localSecret) return _localSecret;
+  try {
+    const res = await fetch(`${getBaseUrl(port)}/local-secret`, { signal: AbortSignal.timeout(2000) });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && typeof data.secret === 'string') _localSecret = data.secret;
+    }
+  } catch { /* server not running or not reachable — proceed without secret */ }
+  return _localSecret;
+}
+
 // ── Clear buffer (two-step confirm to prevent accidental clears) ──────────────
 
 btnClear.addEventListener('click', async () => {
@@ -412,7 +427,12 @@ btnClear.addEventListener('click', async () => {
 
   const port = parseInt(portInput.value, 10);
   try {
-    await fetch(`${getBaseUrl(port)}/clear`, { method: 'POST', signal: AbortSignal.timeout(2000) });
+    const secret = await fetchLocalSecret(port);
+    await fetch(`${getBaseUrl(port)}/clear`, {
+      method: 'POST',
+      headers: secret ? { 'x-mergen-secret': secret } : {},
+      signal: AbortSignal.timeout(2000),
+    });
     btnClear.textContent = '✓ Cleared';
     _prevBuffered = 0;
     setTimeout(() => { btnClear.textContent = '🗑 Clear'; }, 1500);

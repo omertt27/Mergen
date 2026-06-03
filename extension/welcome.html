@@ -4,20 +4,24 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Welcome to Mergen</title>
+  
+  <!-- Geist + Geist Mono -->
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+  <link href="https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-sans/style.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-mono/style.css" rel="stylesheet" />
+
   <style>
+    /* ─── TOKENS (Monolith B&W) ────────────────────────────────────────────── */
     :root {
-      --bg: #0f0f1a;
-      --surface: #1a1a2e;
-      --border: #2d2d4e;
-      --accent: #a78bfa;
-      --accent-dim: #7c3aed;
-      --accent-glow: rgba(167,139,250,0.12);
-      --text: #e2e8f0;
-      --text-muted: #94a3b8;
-      --green: #4ade80;
-      --red: #f87171;
-      --yellow: #fbbf24;
-      --code-bg: #12121f;
+      --bg: #000000;
+      --surface: #0a0a0a;
+      --border: #1a1a1a;
+      --border-bright: #ffffff;
+      --text: #ffffff;
+      --text-muted: #808080;
+      --text-dim: #404040;
+      --font: 'Geist', sans-serif;
+      --mono: 'Geist Mono', monospace;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -25,386 +29,277 @@
     body {
       background: var(--bg);
       color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-family: var(--font);
       font-size: 15px;
       line-height: 1.6;
-      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
     }
 
-    /* ── Layout ── */
     .page {
-      max-width: 680px;
+      max-width: 720px;
       margin: 0 auto;
-      padding: 48px 24px 80px;
+      padding: 80px 40px;
     }
 
     /* ── Hero ── */
     .hero {
-      display: flex;
-      align-items: center;
-      gap: 20px;
-      margin-bottom: 40px;
+      margin-bottom: 80px;
     }
-
-    .hero img {
-      width: 72px;
-      height: 72px;
-      border-radius: 16px;
-      box-shadow: 0 0 32px rgba(167, 139, 250, 0.3);
+    .hero-eyebrow {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.4em;
+      color: var(--text-dim);
+      margin-bottom: 1rem;
+      display: block;
     }
-
-    .hero-text h1 {
-      font-size: 28px;
-      font-weight: 800;
-      background: linear-gradient(135deg, #a78bfa, #7c3aed);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-      line-height: 1.2;
+    h1 {
+      font-size: 3rem;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: -0.04em;
+      line-height: 1;
+      margin-bottom: 1.5rem;
     }
-
-    .hero-text p {
+    .hero-sub {
+      font-size: 1.25rem;
       color: var(--text-muted);
-      margin-top: 6px;
-      font-size: 14px;
+      max-width: 500px;
     }
 
     /* ── Steps ── */
     .steps {
       display: flex;
       flex-direction: column;
-      gap: 20px;
+      gap: 40px;
     }
-
     .step {
-      display: flex;
-      gap: 16px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 20px;
+      display: grid;
+      grid-template-columns: 40px 1fr;
+      gap: 30px;
+      padding-top: 40px;
+      border-top: 1px solid var(--border);
     }
-
     .step-num {
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, var(--accent), var(--accent-dim));
-      color: white;
+      font-family: var(--mono);
+      font-size: 1rem;
       font-weight: 800;
-      font-size: 14px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
+      color: var(--text-dim);
     }
-
     .step-body h3 {
-      font-size: 15px;
-      font-weight: 700;
-      margin-bottom: 6px;
+      font-size: 1.25rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 1rem;
     }
-
     .step-body p {
-      font-size: 13px;
       color: var(--text-muted);
-      line-height: 1.55;
+      margin-bottom: 1.5rem;
     }
 
+    /* ── Code ── */
     code {
-      background: var(--code-bg);
+      font-family: var(--mono);
+      font-size: 0.85em;
+      background: var(--surface);
+      padding: 0.2rem 0.4rem;
       border: 1px solid var(--border);
-      border-radius: 4px;
-      padding: 1px 6px;
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      font-size: 12px;
-      color: var(--accent);
     }
-
     pre {
-      background: var(--code-bg);
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      background: var(--surface);
+      padding: 1.5rem;
       border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 14px 16px;
-      margin-top: 10px;
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      font-size: 12px;
-      color: var(--green);
       overflow-x: auto;
+      margin: 1.5rem 0;
     }
 
-    .alt-label {
-      font-size: 11px;
-      color: var(--text-muted);
-      margin-top: 12px;
-      margin-bottom: 4px;
-      display: block;
-      font-style: italic;
-    }
-
-    /* ── Inline server check ── */
-    .inline-check {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-top: 12px;
-    }
-
-    .check-btn-sm {
-      background: var(--accent-glow);
-      color: var(--accent);
-      border: 1px solid rgba(167,139,250,.3);
-      border-radius: 6px;
-      padding: 5px 12px;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      font-family: inherit;
-      transition: background .15s;
-      white-space: nowrap;
-    }
-    .check-btn-sm:hover { background: rgba(167,139,250,.22); }
-
-    .inline-result {
-      font-size: 12px;
-      font-weight: 600;
-      display: none;
-    }
-    .inline-result.ok   { color: var(--green); }
-    .inline-result.fail { color: var(--red); }
-
-    /* ── IDE tabs (Step 2) ── */
+    /* ── Tabs ── */
     .ide-tabs {
       display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin-top: 10px;
-      margin-bottom: 12px;
+      gap: 10px;
+      margin-bottom: 1.5rem;
     }
-
     .ide-tab {
-      background: none;
+      background: transparent;
       border: 1px solid var(--border);
-      border-radius: 6px;
       color: var(--text-muted);
-      font-size: 12px;
-      font-weight: 600;
-      padding: 4px 12px;
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      padding: 6px 12px;
       cursor: pointer;
-      transition: all .15s;
-      font-family: inherit;
     }
     .ide-tab.active {
-      background: var(--accent-glow);
-      color: var(--accent);
-      border-color: rgba(167,139,250,.4);
-    }
-    .ide-tab:hover:not(.active) {
-      background: rgba(255,255,255,.04);
+      border-color: var(--border-bright);
       color: var(--text);
+      background: var(--surface);
     }
-
     .tab-panel { display: none; }
     .tab-panel.active { display: block; }
 
-    .setup-cmd {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      background: var(--code-bg);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 10px 14px;
-      margin-top: 8px;
-    }
-    .setup-cmd pre {
-      margin: 0;
-      border: none;
-      background: none;
-      padding: 0;
-      flex: 1;
-    }
-
-    /* ── Status check ── */
-    .status-check {
-      margin-top: 32px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 20px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-    }
-
-    .status-check p {
-      font-size: 13px;
-      color: var(--text-muted);
-    }
-
-    .status-check strong {
-      display: block;
+    /* ── Buttons ── */
+    .btn {
+      display: inline-block;
+      padding: 0.8rem 1.5rem;
+      font-size: 0.7rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      border: 1px solid var(--border-bright);
+      background: transparent;
       color: var(--text);
-      margin-bottom: 2px;
-    }
-
-    #check-btn {
-      background: linear-gradient(135deg, var(--accent), var(--accent-dim));
-      color: white;
-      border: none;
-      border-radius: 8px;
-      padding: 10px 20px;
-      font-size: 13px;
-      font-weight: 700;
       cursor: pointer;
-      white-space: nowrap;
-      transition: opacity 0.15s;
-      font-family: inherit;
+      text-decoration: none;
+      transition: all 0.2s;
     }
-    #check-btn:hover { opacity: 0.88; }
+    .btn:hover { background: var(--text); color: var(--bg); }
+    .btn-sm { padding: 0.4rem 1rem; font-size: 0.6rem; }
 
-    #check-result {
-      margin-top: 12px;
-      font-size: 13px;
-      font-weight: 600;
+    /* ── Status Check ── */
+    .status-check {
+      margin-top: 80px;
+      padding: 40px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .status-check h4 {
+      font-size: 1rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      margin-bottom: 0.5rem;
+    }
+    .status-check p { font-size: 0.8rem; color: var(--text-muted); }
+
+    /* ── Result ── */
+    .result {
+      margin-top: 1rem;
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      text-transform: uppercase;
       display: none;
     }
-    #check-result.ok   { color: var(--green); }
-    #check-result.fail { color: var(--red); }
+    .result.ok { color: var(--text); font-weight: 800; display: block; }
+    .result.fail { color: var(--text-muted); display: block; }
 
-    /* ── Footer ── */
-    .footer-note {
-      margin-top: 32px;
+    footer {
+      margin-top: 80px;
+      padding-top: 40px;
+      border-top: 1px solid var(--border);
       text-align: center;
-      font-size: 12px;
-      color: var(--text-muted);
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: var(--text-dim);
+    }
+
+    @media (max-width: 600px) {
+      .step { grid-template-columns: 1fr; gap: 10px; }
+      .status-check { flex-direction: column; gap: 20px; align-items: flex-start; }
     }
   </style>
 </head>
 <body>
   <div class="page">
 
-    <!-- Hero -->
     <div class="hero">
-      <img src="icons/icon128.png" alt="Mergen" />
-      <div class="hero-text">
-        <h1>Welcome to Mergen</h1>
-        <p>Stream live browser telemetry into any AI IDE — everything stays on localhost.</p>
-      </div>
+      <span class="hero-eyebrow">Initializing System</span>
+      <h1>Welcome to Mergen.</h1>
+      <p class="hero-sub">Stream live browser telemetry into any AI IDE. Everything stays on 127.0.0.1.</p>
     </div>
 
-    <!-- Steps -->
     <div class="steps">
-
-      <!-- Step 1: Start the server -->
       <div class="step">
-        <div class="step-num">1</div>
+        <div class="step-num">01</div>
         <div class="step-body">
-          <h3>Start the Mergen server</h3>
-          <p>Quickest way — installs and auto-configures your IDE:</p>
+          <h3>Boot the Server</h3>
+          <p>Initialize the machine-readable stack via CLI:</p>
           <pre>npx mergen-server@latest setup</pre>
-          <span class="alt-label">Or, if you cloned the repo, run inside <code>server/</code>:</span>
-          <pre>npm run build &amp;&amp; npm start</pre>
-          <p style="margin-top:10px">The server listens on <code>http://127.0.0.1:3000</code> by default. If port 3000 is busy it will try 3001–3010 — check the terminal output.</p>
-          <div class="inline-check">
-            <button class="check-btn-sm" id="step1-check-btn">Check server</button>
-            <span class="inline-result" id="step1-result"></span>
+          <div style="display:flex; align-items:center; gap:15px;">
+            <button class="btn btn-sm" id="step1-check-btn">Ping Server</button>
+            <span class="result" id="step1-result"></span>
           </div>
         </div>
       </div>
 
-      <!-- Step 2: Connect your AI IDE -->
       <div class="step">
-        <div class="step-num">2</div>
+        <div class="step-num">02</div>
         <div class="step-body">
-          <h3>Connect your AI IDE</h3>
-          <p>Select your IDE for the exact setup command:</p>
+          <h3>Link MCP IDE</h3>
           <div class="ide-tabs">
-            <button class="ide-tab active" data-target="tab-claude">Claude Code</button>
+            <button class="ide-tab active" data-target="tab-claude">Claude</button>
             <button class="ide-tab" data-target="tab-cursor">Cursor</button>
             <button class="ide-tab" data-target="tab-windsurf">Windsurf</button>
             <button class="ide-tab" data-target="tab-vscode">VS Code</button>
           </div>
 
           <div class="tab-panel active" id="tab-claude">
-            <p>Run in your terminal from the Mergen repo root:</p>
+            <p>Register the MCP server with Claude Code:</p>
             <pre>claude mcp add mergen --transport stdio -- node "$(pwd)/server/dist/index.js"</pre>
-            <p style="margin-top:8px">Verify: <code>claude mcp list</code> — you should see <strong>mergen</strong> listed.</p>
           </div>
-
           <div class="tab-panel" id="tab-cursor">
-            <p>Auto-setup (writes to <code>.cursor/mcp.json</code> or <code>~/.cursor/mcp.json</code>):</p>
-            <pre>npx mergen-server@latest setup</pre>
-            <span class="alt-label">Or manually edit <code>.cursor/mcp.json</code>:</span>
+            <p>Ensure <code>.cursor/mcp.json</code> contains the mergen entry:</p>
             <pre>{
   "mergen": {
     "command": "node",
-    "args": ["/absolute/path/to/Mergen/server/dist/index.js"]
+    "args": ["/path/to/server/dist/index.js"]
   }
 }</pre>
-            <p style="margin-top:8px">Then: <strong>Settings → Tools → MCP</strong> — confirm "mergen" is listed.</p>
           </div>
-
           <div class="tab-panel" id="tab-windsurf">
-            <p>Auto-setup (writes to <code>~/.codeium/windsurf/mcp_config.json</code>):</p>
-            <pre>npx mergen-server@latest setup</pre>
-            <span class="alt-label">Or manually edit <code>~/.codeium/windsurf/mcp_config.json</code>:</span>
+            <p>Update <code>~/.codeium/windsurf/mcp_config.json</code>:</p>
             <pre>{
   "mcpServers": {
     "mergen": {
       "command": "node",
-      "args": ["/absolute/path/to/Mergen/server/dist/index.js"]
+      "args": ["/path/to/server/dist/index.js"]
     }
   }
 }</pre>
-            <p style="margin-top:8px">Restart Windsurf, then open <strong>Cascade → MCP Servers</strong> to confirm.</p>
           </div>
-
           <div class="tab-panel" id="tab-vscode">
-            <p><code>.vscode/mcp.json</code> is already committed to the Mergen repo — no config needed if you opened the Mergen project in VS Code.</p>
-            <p style="margin-top:8px">For other projects (global user-level config):</p>
-            <pre>npx mergen-server@latest setup</pre>
-            <p style="margin-top:8px">Requirements: VS Code 1.99+, GitHub Copilot extension, Agent mode enabled. Open Copilot Chat → switch to <strong>Agent mode</strong> → click <strong>tools</strong> — Mergen tools should appear.</p>
+            <p>Enable Agent mode in Copilot Chat and ensure the <code>mergen</code> tool is active via the <code>mcp.json</code> configuration.</p>
           </div>
         </div>
       </div>
 
-      <!-- Step 3 -->
       <div class="step">
-        <div class="step-num">3</div>
+        <div class="step-num">03</div>
         <div class="step-body">
-          <h3>Browse — Mergen records everything</h3>
-          <p>Open any webpage you're developing. Console logs, errors, warnings, and network requests (fetch + XHR) are automatically captured and forwarded to the local server buffer.</p>
+          <h3>Instrument Runtime</h3>
+          <p>Mergen records all <code>console.*</code>, <code>fetch</code>, and <code>XHR</code> signals automatically on any open tab.</p>
         </div>
       </div>
 
-      <!-- Step 4 -->
       <div class="step">
-        <div class="step-num">4</div>
+        <div class="step-num">04</div>
         <div class="step-body">
-          <h3>Ask your AI</h3>
-          <p>In your MCP-connected IDE, ask something like:</p>
-          <pre>What errors are happening in my browser right now?</pre>
-          <p style="margin-top:8px">Mergen surfaces errors first, then warnings, then a summary with suggested fixes.</p>
+          <h3>Consult Agent</h3>
+          <p>Ask your AI about the runtime state. It now has eyes on your execution flow.</p>
         </div>
       </div>
-
     </div>
 
-    <!-- Full connection check -->
     <div class="status-check">
       <div>
-        <strong>Verify the full connection</strong>
-        <p>Checks that the server is running and has received at least one event.</p>
-        <div id="check-result"></div>
+        <h4>Connection Status</h4>
+        <p>Verifying full-stack signal propagation.</p>
+        <span class="result" id="check-result"></span>
       </div>
-      <button id="check-btn">Check Now</button>
+      <button class="btn" id="check-btn">Check Nexus</button>
     </div>
 
-    <p class="footer-note">
-      Click the Mergen icon in your toolbar anytime to see live stats, change the port, or pause recording on a tab.
-    </p>
+    <footer>
+      © 2026 MERGEN // INSTRUMENTED BY MACHINE
+    </footer>
 
   </div>
 

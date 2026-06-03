@@ -3,539 +3,664 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Mergen — Agent-Native Telemetry for Machine-Readable Observability</title>
-  <meta name="description" content="The machine-readable observability stack for AI coding agents. Stream agent-native telemetry from browser and microservices via MCP." />
-  <meta property="og:title" content="Mergen" />
-  <meta property="og:description" content="Observability for machine consumption, not human dashboarding. Verified causal links across complex headless architectures." />
-  <meta property="og:type" content="website" />
-
-  <!-- Geist (Vercel's open-source typeface for developer tools) + Geist Mono -->
+  <title>Mergen — Causal Observability for AI Agents</title>
+  <meta name="description" content="Agent-native telemetry for the machine-readable stack. Verified causal links across complex architectures." />
+  
+  <!-- Geist + Geist Mono -->
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
   <link href="https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-sans/style.css" rel="stylesheet" />
   <link href="https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-mono/style.css" rel="stylesheet" />
 
   <style>
-    /* ─── Tokens (Strict B&W) ────────────────────────────────────────────────── */
-    :root {
-      --bg:        #000000;
-      --s1:        #000000;
-      --s2:        #111111;
-      --s3:        #000000;
-      --b1:        #333333;   /* subtle dividers */
-      --b2:        #ffffff;   /* stark borders  */
-      --t1:        #ffffff;   /* primary text     */
-      --t2:        #a0a0a0;   /* muted            */
-      --t3:        #666666;   /* very muted       */
-      
-      --exact:     #ffffff;   /* inverted for B&W  */
-      --linked:    #ffffff;
-      --corr:      #ffffff;
-      --obs:       #666666;
-
-      --r:         0px;       /* Sharp edges for brutalist look */
-      --r-sm:      0px;
-      --font:      'Geist', 'Helvetica Neue', system-ui, sans-serif;
-      --mono:      'Geist Mono', 'JetBrains Mono', 'SF Mono', Consolas, monospace;
-      --max:       1100px;
-    }
-
-    /* ─── Reset ──────────────────────────────────────────────────────────────── */
+    /* ─── RESET ────────────────────────────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    html { scroll-behavior: smooth; font-size: 15px; background: var(--bg); }
+    html { scroll-behavior: smooth; font-size: 16px; background: #000; }
     body {
-      background: var(--bg);
-      color: var(--t1);
-      font-family: var(--font);
-      line-height: 1.5;
-      -webkit-font-smoothing: antialiased;
-    }
-    a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
-    a:hover { background: #fff; color: #000; text-decoration: none; }
-    code { font-family: var(--mono); font-size: .9em; background: #222; padding: 2px 4px; }
-    img { display: block; filter: grayscale(1); }
-
-    /* ─── Layout ─────────────────────────────────────────────────────────────── */
-    .wrap { max-width: var(--max); margin: 0 auto; padding: 0 40px; }
-
-    /* ─── Nav ────────────────────────────────────────────────────────────────── */
-    nav {
-      position: sticky; top: 0; z-index: 100;
       background: #000;
-      border-bottom: 2px solid var(--b2);
+      color: #fff;
+      font-family: 'Geist', sans-serif;
+      line-height: 1.4;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
     }
-    .nav-row {
-      display: flex; align-items: center; justify-content: space-between;
-      height: 70px;
+    a { color: inherit; text-decoration: none; transition: opacity 0.2s; }
+    a:hover { opacity: 0.7; }
+    code { font-family: 'Geist Mono', monospace; font-size: 0.9em; }
+
+    /* ─── TOKENS ───────────────────────────────────────────────────────────── */
+    :root {
+      --gray-900: #0a0a0a;
+      --gray-800: #1a1a1a;
+      --gray-700: #2a2a2a;
+      --gray-600: #404040;
+      --gray-400: #808080;
+      --white: #ffffff;
+      --border: 1px solid var(--gray-800);
+      --space-sm: 2rem;
+      --space-md: 4rem;
+      --space-lg: 8rem;
+    }
+
+    /* ─── BACKGROUND ANIMATION ────────────────────────────────────────────── */
+    #causal-canvas {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: -1;
+      opacity: 0.4;
+    }
+
+    /* ─── LAYOUT ───────────────────────────────────────────────────────────── */
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 0 var(--space-sm); }
+    
+    /* ─── NAVIGATION ───────────────────────────────────────────────────────── */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      z-index: 100;
+      padding: 1.5rem 0;
+      mix-blend-mode: difference;
+    }
+    .nav-inner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
     .logo {
-      display: flex; align-items: center; gap: 12px;
-      font-weight: 800; font-size: 18px; color: var(--t1); letter-spacing: -.03em;
-      text-transform: uppercase; text-decoration: none;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      font-size: 0.9rem;
     }
-    .logo:hover { background: transparent; color: var(--t1); }
-    .logo img { width: 30px; height: 30px; border: 2px solid #fff; }
-    .nav-links { display: flex; align-items: center; gap: 10px; list-style: none; }
-    .nav-links a {
-      padding: 8px 14px;
-      font-size: 13px; font-weight: 600; color: var(--t1);
-      text-decoration: none; text-transform: uppercase; letter-spacing: .05em;
-    }
-    .nav-links a:hover { background: #fff; color: #000; }
-    .nav-links .cta {
-      border: 2px solid #fff;
+    .nav-links {
+      display: flex;
+      gap: 2rem;
+      list-style: none;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
     }
 
-    /* ─── Hero ───────────────────────────────────────────────────────────────── */
+    /* ─── HERO ─────────────────────────────────────────────────────────────── */
     .hero {
-      padding: 120px 0 100px;
-      text-align: left;
-      border-bottom: 2px solid var(--b2);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding-top: 5rem;
     }
-    .eyebrow {
+    .hero-eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.4em;
+      color: var(--gray-400);
+      margin-bottom: 2rem;
       display: block;
-      font-size: 13px; font-weight: 700; letter-spacing: .1em;
-      text-transform: uppercase; color: var(--t3);
-      margin-bottom: 30px;
     }
     h1 {
-      font-size: clamp(3rem, 7vw, 6rem);
-      font-weight: 800;
-      letter-spacing: -.04em;
-      line-height: 0.95;
-      margin-bottom: 40px;
+      font-size: clamp(3rem, 10vw, 8rem);
+      font-weight: 900;
+      line-height: 0.9;
+      letter-spacing: -0.05em;
       text-transform: uppercase;
+      margin-left: -0.05em; /* Optical alignment */
+      max-width: 90%;
     }
-    .hero-grid {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 60px; align-items: start;
-    }
-    .hero-copy {
+    .hero-sub {
+      margin-top: 3rem;
+      max-width: 600px;
       font-size: 1.25rem;
-      color: var(--t1);
-      line-height: 1.4;
-      font-weight: 500;
+      color: var(--gray-400);
+      font-weight: 400;
     }
-    .hero-copy em { font-style: normal; color: var(--t3); }
-    .btn-row {
-      display: flex; gap: 15px; margin-top: 50px;
+    .hero-actions {
+      margin-top: 4rem;
+      display: flex;
+      gap: 1.5rem;
     }
     .btn {
-      display: inline-flex; align-items: center; gap: 10px;
-      padding: 14px 28px;
-      font-family: var(--font); font-size: 14px; font-weight: 800;
-      cursor: pointer; text-decoration: none; text-transform: uppercase; letter-spacing: .05em;
-      transition: all .1s;
+      padding: 1rem 2rem;
+      font-size: 0.7rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      border: 1px solid var(--white);
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     }
-    .btn-fill { background: #fff; color: #000; border: 2px solid #fff; }
-    .btn-fill:hover { background: #000; color: #fff; }
-    .btn-line {
-      background: transparent; color: #fff;
-      border: 2px solid #fff;
-    }
-    .btn-line:hover { background: #fff; color: #000; }
+    .btn-white { background: var(--white); color: #000; }
+    .btn-white:hover { background: #000; color: var(--white); }
+    .btn-outline:hover { background: var(--white); color: #000; }
 
-    /* ─── Terminal (Brutalist) ────────────────────────────────────────────────── */
-    .term {
-      background: #000;
-      border: 2px solid var(--b2);
-      text-align: left;
+    /* ─── SECTIONS ─────────────────────────────────────────────────────────── */
+    section { padding: var(--space-lg) 0; }
+    
+    .section-label {
+      font-family: 'Geist Mono', monospace;
+      font-size: 0.6rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5em;
+      color: var(--gray-600);
+      margin-bottom: 2rem;
+      display: block;
+    }
+    
+    h2 {
+      font-size: clamp(2rem, 5vw, 4rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      text-transform: uppercase;
+      line-height: 1.1;
+      margin-bottom: 4rem;
+    }
+
+    /* ─── FEATURE GRID (Asymmetric) ────────────────────────────────────────── */
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 2rem;
+    }
+    .feature-card {
+      grid-column: span 6;
+      border-top: 1px solid var(--gray-800);
+      padding-top: 2rem;
+    }
+    .feature-card:nth-child(2) { grid-column: 8 / span 5; margin-top: 4rem; }
+    .feature-card:nth-child(3) { grid-column: 2 / span 5; }
+    .feature-card:nth-child(4) { grid-column: 8 / span 4; margin-top: -2rem; }
+
+    .feature-num {
+      font-family: 'Geist Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--gray-600);
+      margin-bottom: 1.5rem;
+      display: block;
+    }
+    .feature-title {
+      font-size: 1.5rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      margin-bottom: 1rem;
+    }
+    .feature-desc {
+      color: var(--gray-400);
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+
+    /* ─── ARCHITECTURE (Schematic) ────────────────────────────────────────── */
+    .arch-view {
+      border: 1px solid var(--gray-800);
+      padding: 4rem;
+      position: relative;
+      overflow: hidden;
+      background: var(--gray-900);
+    }
+    .arch-grid {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background-image: linear-gradient(var(--gray-800) 1px, transparent 1px),
+                        linear-gradient(90deg, var(--gray-800) 1px, transparent 1px);
+      background-size: 40px 40px;
+      opacity: 0.2;
+    }
+    .arch-content {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .arch-box {
+      border: 1px solid var(--white);
+      padding: 2rem;
+      width: 250px;
+      text-align: center;
+    }
+    .arch-box h4 {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      margin-bottom: 1rem;
+    }
+    .arch-box .tag {
+      font-family: 'Geist Mono', monospace;
+      font-size: 0.6rem;
+      background: var(--white);
+      color: #000;
+      padding: 2px 6px;
+    }
+    .arch-connector {
+      flex: 1;
+      height: 1px;
+      background: var(--gray-600);
+      margin: 0 2rem;
       position: relative;
     }
-    .term-chrome {
-      padding: 12px 16px;
-      background: #fff; color: #000;
-      border-bottom: 2px solid var(--b2);
-      font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: .1em;
-    }
-    .term-body {
-      padding: 30px;
-      font-family: var(--mono); font-size: 13px; line-height: 1.6;
-    }
-    .t-prompt { color: #fff; margin-bottom: 20px; font-weight: 700; font-size: 15px; }
-    .t-prompt::before { content: '> '; }
-    .t-sep { border: none; border-top: 2px dashed #333; margin: 25px 0; }
-
-    /* causal graph */
-    .c-graph {
-      font-family: var(--mono); font-size: 11px; line-height: 1.3; color: #fff;
-      margin: 25px 0;
-    }
-    .c-node { border: 1px solid #fff; padding: 8px 12px; display: inline-block; }
-    .c-edge { padding-left: 40px; color: #666; font-size: 10px; margin: 4px 0; }
-
-    .t-rc {
-      margin: 20px 0;
-      padding: 20px;
-      border: 2px solid #fff;
-    }
-    .t-rc-lbl { font-size: 10px; font-weight: 900; letter-spacing: .2em; text-transform: uppercase; background: #fff; color: #000; padding: 2px 6px; display: inline-block; margin-bottom: 12px; }
-    .t-rc-h   { color: #fff; display: block; font-size: 16px; font-weight: 700; }
-    .t-rc-fix { color: var(--t2); font-size: 13px; display: block; margin-top: 10px; }
-
-    /* evidence block */
-    .t-evidence { margin: 20px 0; display: flex; gap: 10px; flex-wrap: wrap; }
-    .ev-tag { border: 1px solid #666; padding: 2px 8px; font-size: 10px; font-weight: 700; }
-    .ev-tag.hit { border-color: #fff; background: #fff; color: #000; }
-
-    /* timeline rows */
-    .t-row { display: flex; align-items: baseline; gap: 15px; margin-bottom: 8px; border-bottom: 1px solid #111; padding-bottom: 8px; }
-    .t-ts  { color: #444; font-size: 11px; }
-    .t-badge {
-      font-size: 10px; font-weight: 900; padding: 1px 6px; border: 1px solid #fff;
-    }
-    .b-obs { border-color: #444; color: #444; }
-    .t-msg  { color: #fff; }
-    .t-link { color: #666; font-size: 11px; }
-
-    /* ─── Distribution ────────────────────────────────────────────────────────── */
-    .ides {
-      padding: 40px 0;
-      border-bottom: 2px solid var(--b2);
-      display: flex; align-items: center; justify-content: center; gap: 20px; flex-wrap: wrap;
-    }
-    .ides span {
-      font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: .1em;
-    }
-    .ides-label { color: #444; }
-
-    /* ─── Sections ───────────────────────────────────────────────────────────── */
-    section { padding: 100px 0; border-bottom: 2px solid var(--b2); }
-    h2 {
-      font-size: clamp(2rem, 4vw, 3.5rem);
-      font-weight: 800; letter-spacing: -.03em;
-      line-height: 1.1; margin-bottom: 30px; text-transform: uppercase;
-    }
-    .sub {
-      font-size: 1.15rem; color: var(--t2);
-      max-width: 600px; line-height: 1.5; margin-bottom: 60px;
-    }
-    .label {
-      display: block; font-size: 13px; font-weight: 900; letter-spacing: .2em;
-      text-transform: uppercase; color: #444; margin-bottom: 20px;
+    .arch-connector::after {
+      content: '';
+      position: absolute;
+      right: 0; top: -3px;
+      width: 7px; height: 7px;
+      background: var(--white);
+      transform: rotate(45deg);
     }
 
-    /* ─── Steps ─────────────────────────────────────────────────────────────── */
-    .steps {
-      display: grid; grid-template-columns: repeat(3,1fr);
-      gap: 2px; background: #fff; border: 2px solid #fff;
+    /* ─── PRICING ──────────────────────────────────────────────────────────── */
+    .price-row {
+      display: flex;
+      border-top: 1px solid var(--gray-800);
     }
-    .step {
-      background: #000; padding: 40px;
+    .price-col {
+      flex: 1;
+      padding: 4rem 2rem;
+      border-right: 1px solid var(--gray-800);
     }
-    .step-n { font-weight: 900; font-size: 40px; color: #222; line-height: 1; margin-bottom: 20px; }
-    .step h3 { font-size: 18px; font-weight: 800; text-transform: uppercase; margin-bottom: 15px; }
-    .step p { font-size: 14px; color: var(--t2); }
-    .step-cmd {
-      display: block; margin-top: 25px;
-      padding: 12px;
-      border: 1px solid #333; font-family: var(--mono); font-size: 12px; color: #fff;
+    .price-col:last-child { border-right: none; }
+    .price-name {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.3em;
+      color: var(--gray-400);
+      margin-bottom: 2rem;
+      display: block;
+    }
+    .price-val {
+      font-size: 3rem;
+      font-weight: 800;
+      margin-bottom: 2rem;
+    }
+    .price-val span { font-size: 1rem; color: var(--gray-600); font-weight: 400; }
+    .price-list {
+      list-style: none;
+      font-size: 0.8rem;
+      color: var(--gray-400);
+      margin-bottom: 3rem;
+    }
+    .price-list li { margin-bottom: 0.75rem; }
+    .price-list li::before { content: "— "; }
+
+    /* ─── FOOTER ───────────────────────────────────────────────────────────── */
+    footer {
+      padding: 4rem 0;
+      border-top: 1px solid var(--gray-800);
+      font-size: 0.7rem;
+      color: var(--gray-600);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+    .foot-inner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
 
-    /* ─── Taxonomy Grid ───────────────────────────────────────────────────────── */
-    .conf-grid {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(250px,1fr));
-      gap: 2px; background: #fff; border: 2px solid #fff;
-    }
-    .conf-item {
-      background: #000; padding: 40px;
-    }
-    .conf-tag {
-      font-weight: 900; font-size: 11px; padding: 4px 10px; border: 2px solid #fff;
-      display: inline-block; margin-bottom: 25px; text-transform: uppercase;
-    }
-    .ct-obs { border-color: #444; color: #444; }
-    .conf-item h3 { font-size: 16px; font-weight: 800; text-transform: uppercase; margin-bottom: 10px; }
-    .conf-item p { font-size: 13px; color: var(--t2); line-height: 1.6; }
+    /* ─── UTILS ────────────────────────────────────────────────────────────── */
+    .text-white { color: var(--white); }
+    .mt-lg { margin-top: var(--space-lg); }
 
-    /* ─── Install Tabs ───────────────────────────────────────────────────────── */
-    .tabs { margin-top: 50px; border: 2px solid #fff; }
-    .tab-row { display: flex; background: #fff; gap: 2px; }
-    .tab-btn {
-      flex: 1; padding: 15px;
-      background: #000; color: #666; font-weight: 800; font-size: 13px;
-      text-transform: uppercase; border: none; cursor: pointer;
+    /* ─── COMPAT STRIP ─────────────────────────────────────────────────────── */
+    .compat-strip {
+      padding: 4rem 0 5rem;
+      text-align: center;
     }
-    .tab-btn.on { background: #fff; color: #000; }
-    .tab-panel { display: none; padding: 40px; }
-    .tab-panel.on { display: block; }
-    .cb {
-      background: #111; padding: 25px; font-family: var(--mono); font-size: 13px; color: #fff;
-      border-left: 4px solid #fff; overflow-x: auto;
+    .compat-label {
+      font-family: 'Geist Mono', monospace;
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: var(--gray-400);
+      margin-bottom: 2.5rem;
+      display: block;
+    }
+    .compat-logos {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 3rem;
+      flex-wrap: wrap;
+    }
+    .compat-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.6rem;
+      opacity: 0.55;
+      transition: opacity 0.25s;
+      cursor: default;
+    }
+    .compat-item:hover { opacity: 1; }
+    .compat-icon {
+      width: 36px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .compat-icon img {
+      width: 32px;
+      height: 32px;
+      object-fit: contain;
+      filter: invert(1);
+    }
+    .compat-icon svg {
+      width: 32px;
+      height: 32px;
+    }
+    .compat-name {
+      font-family: 'Geist Mono', monospace;
+      font-size: 0.6rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--gray-400);
+      white-space: nowrap;
+    }
+    .compat-divider {
+      width: 1px;
+      height: 40px;
+      background: var(--gray-700);
+      flex-shrink: 0;
     }
 
-    /* ─── Privacy / Pricing Cards ─────────────────────────────────────────────── */
-    .price-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px,1fr)); gap: 20px; }
-    .pc {
-      border: 2px solid #333; padding: 40px;
-    }
-    .pc:hover, .pc.best { border-color: #fff; }
-    .pc.best { background: #fff; color: #000; }
-    .pc.best .pc-items, .pc.best .pc-name, .pc.best .pc-period { color: #000; }
-    .pc.best .pc-cta { background: #000; color: #fff; border-color: #000; }
-    .pc-name { font-weight: 800; text-transform: uppercase; font-size: 12px; color: #666; margin-bottom: 20px; }
-    .pc-price { font-size: 40px; font-weight: 900; margin-bottom: 5px; }
-    .pc-items { list-style: none; font-size: 13px; margin: 30px 0; color: #a0a0a0; }
-    .pc-items li { margin-bottom: 10px; }
-    .pc-items li::before { content: "▪ "; margin-right: 5px; }
-    .pc-cta {
-      display: block; text-align: center; padding: 12px; border: 2px solid #fff;
-      font-weight: 900; text-transform: uppercase; font-size: 12px; text-decoration: none;
-    }
-
-    /* ─── Footer ─────────────────────────────────────────────────────────────── */
-    footer { padding: 60px 0; border-top: 2px solid #fff; }
-    .foot { display: flex; justify-content: space-between; align-items: center; }
-    .foot-logo { font-weight: 900; text-transform: uppercase; font-size: 20px; }
-    .foot-links { display: flex; gap: 30px; list-style: none; }
-    .foot-links a { font-size: 12px; font-weight: 700; text-transform: uppercase; text-decoration: none; color: #666; }
-    .foot-links a:hover { color: #fff; background: transparent; }
-
-    @media (max-width: 900px) {
-      .hero-grid { grid-template-columns: 1fr; }
-      .steps { grid-template-columns: 1fr; }
+    @media (max-width: 1000px) {
+      .feature-card, .feature-card:nth-child(n) { grid-column: span 12; margin: 0; }
+      .arch-content { flex-direction: column; gap: 3rem; }
+      .arch-connector { height: 60px; width: 1px; margin: 0; }
+      .arch-connector::after { bottom: 0; top: auto; right: -3px; }
+      .price-row { flex-direction: column; }
+      .price-col { border-right: none; border-bottom: 1px solid var(--gray-800); }
+      .compat-logos { gap: 2rem; }
+      .compat-divider { display: none; }
     }
   </style>
 </head>
 <body>
 
+<canvas id="causal-canvas"></canvas>
+
 <nav>
   <div class="wrap">
-    <div class="nav-row">
-      <a class="logo" href="/">
-        <img src="../extension/icons/icon128.png" alt="" />
-        Mergen
-      </a>
+    <div class="nav-inner">
+      <a href="/" class="logo">Mergen</a>
       <ul class="nav-links">
-        <li><a href="#install">Install</a></li>
-        <li><a href="#pricing">Pricing</a></li>
-        <li><a href="https://github.com/omertt27/Mergen">GitHub</a></li>
-        <li><a class="cta" href="#install">Start</a></li>
+        <li><a href="#how">Engine</a></li>
+        <li><a href="#pricing">Access</a></li>
+        <li><a href="https://github.com/omertt27/Mergen">Source</a></li>
       </ul>
     </div>
   </div>
 </nav>
 
-<section class="hero">
-  <div class="wrap">
-    <div class="eyebrow">Agent-Native &nbsp;▪&nbsp; Machine-Readable &nbsp;▪&nbsp; 127.0.0.1</div>
-    <h1>Agent-native telemetry for the machine-readable stack.</h1>
+<main class="wrap">
+  <section class="hero">
+    <span class="hero-eyebrow">Local-First · Agent-Native · Causal</span>
+    <h1>The machine-readable observability stack.</h1>
+    <p class="hero-sub">
+      Mergen bridges the gap between code and runtime. It streams verified causal links from your browser and microservices directly into AI coding agents via MCP.
+    </p>
+    <div class="hero-actions">
+      <a href="https://github.com/omertt27/Mergen/blob/main/INSTALL.md" class="btn btn-white">Get Started</a>
+      <a href="#how" class="btn btn-outline">Explore Engine</a>
+    </div>
+  </section>
+
+  <!-- ── COMPAT STRIP ─────────────────────────────────────────────────────── -->
+  <div class="compat-strip">
+    <span class="compat-label">Machine-Readable Interface · Works with</span>
+    <div class="compat-logos">
+
+      <!-- Claude Code -->
+      <div class="compat-item">
+        <div class="compat-icon">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M17.304 1.273a.527.527 0 0 0-.993 0L14.92 5.61a.527.527 0 0 1-.332.316l-4.4 1.377a.527.527 0 0 0 0 1.003l4.4 1.376a.527.527 0 0 1 .332.317l1.391 4.336a.527.527 0 0 0 .993 0l1.391-4.336a.527.527 0 0 1 .332-.317l4.4-1.376a.527.527 0 0 0 0-1.003l-4.4-1.377a.527.527 0 0 1-.332-.316zm-9.2 9.803a.395.395 0 0 0-.745 0l-.87 2.713a.396.396 0 0 1-.25.238l-2.772.868a.395.395 0 0 0 0 .752l2.773.867a.396.396 0 0 1 .249.238l.87 2.714a.395.395 0 0 0 .745 0l.87-2.714a.396.396 0 0 1 .249-.238l2.773-.867a.395.395 0 0 0 0-.752l-2.772-.868a.396.396 0 0 1-.25-.238z" fill="#D97757"/>
+          </svg>
+        </div>
+        <span class="compat-name">Claude Code</span>
+      </div>
+
+      <div class="compat-divider"></div>
+
+      <!-- Cursor -->
+      <div class="compat-item">
+        <div class="compat-icon">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M11.925 1 22 6.404v11.192L11.925 23 1.85 17.596V6.404z" stroke="#fff" stroke-width="1.6" fill="none"/>
+            <path d="M1.85 6.404 11.925 12M11.925 12 22 6.404M11.925 12v11" stroke="#fff" stroke-width="1.6"/>
+          </svg>
+        </div>
+        <span class="compat-name">Cursor</span>
+      </div>
+
+      <div class="compat-divider"></div>
+
+      <!-- Windsurf -->
+      <div class="compat-item">
+        <div class="compat-icon">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M3 17c3.5-8 7-12 10.5-12C17 5 20 8.5 21 12c-2-2-4.5-3-7-2C11.5 11 8.5 13.5 3 17z" fill="#fff"/>
+            <path d="M3 17c2-1 5-3.5 8-4.5 2-.7 4.2-.5 6 .5-1 2.5-3.5 5-7 5.5C7 19 4.5 18.5 3 17z" fill="#fff" opacity="0.5"/>
+          </svg>
+        </div>
+        <span class="compat-name">Windsurf</span>
+      </div>
+
+      <div class="compat-divider"></div>
+
+      <!-- GitHub Copilot -->
+      <div class="compat-item">
+        <div class="compat-icon">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="#fff">
+            <path d="M9.75 14.5a2.75 2.75 0 1 1-5.5 0 2.75 2.75 0 0 1 5.5 0zm9.5 0a2.75 2.75 0 1 1-5.5 0 2.75 2.75 0 0 1 5.5 0z"/>
+            <path d="M12 2C7.03 2 3 5.86 3 10.6c0 2.3.87 4.41 2.3 6.04.34.39.56.9.56 1.42V19a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-.94c0-.52.22-1.03.56-1.42A9.15 9.15 0 0 0 21 10.6C21 5.86 16.97 2 12 2zm0 2c3.87 0 7 2.96 7 6.6 0 1.83-.7 3.49-1.84 4.73-.6.67-1.16 1.55-1.16 2.67H8c0-1.12-.56-2-.16-2.67A7.04 7.04 0 0 1 5 10.6C5 6.96 8.13 4 12 4z"/>
+            <path d="M9 20h6v1.5A1.5 1.5 0 0 1 13.5 23h-3A1.5 1.5 0 0 1 9 21.5V20z"/>
+          </svg>
+        </div>
+        <span class="compat-name">Copilot</span>
+      </div>
+
+      <div class="compat-divider"></div>
+
+      <!-- Any MCP -->
+      <div class="compat-item">
+        <div class="compat-icon">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="12" cy="12" r="2.5" fill="#fff"/>
+            <circle cx="4" cy="7" r="2" fill="#fff" opacity="0.7"/>
+            <circle cx="20" cy="7" r="2" fill="#fff" opacity="0.7"/>
+            <circle cx="4" cy="17" r="2" fill="#fff" opacity="0.7"/>
+            <circle cx="20" cy="17" r="2" fill="#fff" opacity="0.7"/>
+            <path d="M6 7.5 10 11M14 13l4 3.5M6 16.5 10 13M14 11l4-3.5" stroke="#fff" stroke-width="1" opacity="0.5"/>
+          </svg>
+        </div>
+        <span class="compat-name">Any MCP</span>
+      </div>
+
+    </div>
+  </div>
+
+  <section id="how">
+    <span class="section-label">01 // The Thesis</span>
+    <h2>Observability for machines,<br>not human dashboards.</h2>
     
-    <div class="hero-grid">
-      <div>
-        <p class="hero-copy">
-          AI agents can read code, but they are "blind to runtime." Mergen is the machine-readable observability stack that gives them live runtime context and verified causal links.
-          <br/><br/>
-          <em>Observability for machine consumption, not human dashboarding. Stream signals from browser and microservices via MCP.</em>
-        </p>
-        <div class="btn-row">
-          <a class="btn btn-fill" href="#install">Setup — 60s</a>
-          <a class="btn btn-line" href="https://github.com/omertt27/Mergen/tree/main/proof">View Proof</a>
-        </div>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <span class="feature-num">01.01</span>
+        <h3 class="feature-title">Deterministic Joins</h3>
+        <p class="feature-desc">W3C traceparents link browser events to backend logs with 100% certainty. No guessing, just ground truth for your AI.</p>
       </div>
+      <div class="feature-card">
+        <span class="feature-num">01.02</span>
+        <h3 class="feature-title">Causal Identity</h3>
+        <p class="feature-desc">We build a structural graph between signals, providing agents the certainty required to autonomously resolve system failures.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-num">01.03</span>
+        <h3 class="feature-title">Local Sovereignty</h3>
+        <p class="feature-desc">All telemetry stays on your machine. 127.0.0.1 is the only destination. Data is redacted before it even hits the buffer.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-num">01.04</span>
+        <h3 class="feature-title">Zero-Config SDK</h3>
+        <p class="feature-desc">Attach to any Node, Python, or Go process via a simple proxy. No manual instrumentation or code changes required.</p>
+      </div>
+    </div>
+  </section>
 
-      <div class="term">
-        <div class="term-chrome">Machine Output: [CAUSAL_PACK_INGESTED]</div>
-        <div class="term-body">
-          <div class="t-prompt">Querying runtime graph for checkout.js...</div>
-          <div class="t-sep"></div>
-
-          <div class="t-rc">
-            <span class="t-rc-lbl">Machine Diagnosis</span>
-            <span class="t-rc-h">POST /api/checkout → 500:<br/><code>cart.items</code> is null at checkout.js:42</span>
-            <span class="t-rc-fix">Evidence: Trace correlation confirmed backend OOM.</span>
-          </div>
-
-          <div class="t-evidence">
-            <span class="ev-tag hit">[EXACT_JOIN]</span>
-            <span class="ev-tag hit">[STRUCTURAL_LINK]</span>
-            <span class="ev-tag">[OBSERVATION]</span>
-          </div>
-
-          <div class="c-graph">
-            ┌──────────────────────────┐<br/>
-            │    AGENT_ACTION_B102     │<br/>
-            └──────────┬───────────────┘<br/>
-            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↓ (trace: a3f9c2)<br/>
-            ┌──────────┴───────────────┐<br/>
-            │    MICROSERVICE_FAIL     │<br/>
-            └──────────┬───────────────┘<br/>
-            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↓ (sha: f7b2e1)<br/>
-            ┌──────────┴───────────────┐<br/>
-            │    RUNTIME_CONTEXT_PACK  │<br/>
-            └──────────────────────────┘
-          </div>
-
-          <div class="t-row">
-            <span class="t-ts">10:41</span>
-            <span class="t-badge">EXACT</span>
-            <span class="t-msg">POST /api/checkout → 500</span>
-          </div>
-          <div class="t-row">
-            <span class="t-ts">10:40</span>
-            <span class="t-badge b-obs">OBS</span>
-            <span class="t-msg">Agent observed state mutation</span>
-          </div>
+  <section>
+    <span class="section-label">02 // The Schematic</span>
+    <h2>Verified Causal Chain.</h2>
+    
+    <div class="arch-view mt-lg">
+      <div class="arch-grid"></div>
+      <div class="arch-content">
+        <div class="arch-box">
+          <span class="tag">BROWSER</span>
+          <h4>Frontend Event</h4>
+          <code style="font-size:0.6rem; color:var(--gray-400)">POST /api/checkout</code>
+        </div>
+        <div class="arch-connector"></div>
+        <div class="arch-box">
+          <span class="tag" style="background:var(--gray-400)">MERGEN</span>
+          <h4>Causal Engine</h4>
+          <code style="font-size:0.6rem; color:var(--gray-400)">TRACE_ID: 8a2f...</code>
+        </div>
+        <div class="arch-connector"></div>
+        <div class="arch-box">
+          <span class="tag">BACKEND</span>
+          <h4>Service Signal</h4>
+          <code style="font-size:0.6rem; color:var(--gray-400)">500 Internal Error</code>
         </div>
       </div>
     </div>
-  </div>
-</section>
+  </section>
 
-<div class="ides">
-  <div class="wrap" style="display:flex;gap:30px;justify-content:center;align-items:center;">
-    <span class="ides-label">Machine-Readable Interface</span>
-    <span>Claude Code</span>
-    <span>Cursor</span>
-    <span>Windsurf</span>
-    <span>Copilot</span>
-    <span>Any MCP</span>
-  </div>
-</div>
-
-<section>
-  <div class="wrap">
-    <div class="label">Causal identity graph</div>
-    <h2>Machine-readable truth, not human guesses.</h2>
-    <p class="sub">Mergen builds a deterministic graph between every signal, providing agents the structural certainty required to autonomously resolve system failures.</p>
-
-    <div class="conf-grid">
-      <div class="conf-item">
-        <span class="conf-tag">EXACT</span>
-        <h3>Deterministic Joins</h3>
-        <p>W3C traceparents link browser events to backend microservice logs with 100% certainty. Zero inference required.</p>
-      </div>
-      <div class="conf-item">
-        <span class="conf-tag">LINKED</span>
-        <h3>Structural Links</h3>
-        <p>Agent actions tied directly to the runtime crash frame and git history. Machine-consumable structural truth.</p>
-      </div>
-      <div class="conf-item">
-        <span class="conf-tag">~CORR</span>
-        <h3>Proximity</h3>
-        <p>Statistical temporal correlation. Surfaced as a hypothesis for the machine agent to validate via deeper inspection.</p>
-      </div>
-      <div class="conf-item">
-        <span class="conf-tag ct-obs">OBS</span>
-        <h3>Observation</h3>
-        <p>Raw runtime signals without confirmed causal parents. Essential context for the agent's system-wide visibility.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section id="install">
-  <div class="wrap">
-    <div class="label">Microservice Footprint</div>
-    <h2>Zero-Config Backend Proxy.</h2>
-    <p class="sub">Track agent actions across complex headless architectures and enterprise microservices without code changes.</p>
-
-    <div class="steps">
-      <div class="step">
-        <div class="step-n">01</div>
-        <h3>Node Proxy</h3>
-        <p>Zero-config injection via <code>--require</code>. Proves trace correlation across service boundaries.</p>
-        <code class="step-cmd">node --require mergen-server/sdk/node app.js</code>
-      </div>
-      <div class="step">
-        <div class="step-n">02</div>
-        <h3>Agent Hook</h3>
-        <p>Agent-native extension for real browser auth. Bypasses headless instance limitations.</p>
-        <code class="step-cmd">chrome://extensions -> Load Unpacked</code>
-      </div>
-      <div class="step">
-        <div class="step-n">03</div>
-        <h3>MCP Protocol</h3>
-        <p>Machine-to-machine communication over stdio pipe. No human dashboards required.</p>
-        <code class="step-cmd">"Analyze runtime pack for trace a3f9c2"</code>
-      </div>
-    </div>
-
-    <div class="tabs">
-      <div class="tab-row">
-        <button class="tab-btn on" onclick="tab('node',this)">Headless SDK</button>
-        <button class="tab-btn" onclick="tab('ext',this)">Agent Extension</button>
-        <button class="tab-btn" onclick="tab('dv',this)">Snippet</button>
-      </div>
-      <div class="tab-panel on" id="tab-node">
-        <div class="cb">npm install mergen-server<br/>node --require mergen-server/sdk/node app.js</div>
-      </div>
-      <div class="tab-panel" id="tab-ext">
-        <div class="cb">chrome://extensions -> Load Unpacked -> extension/</div>
-      </div>
-      <div class="tab-panel" id="tab-dv">
-        <div class="cb">fetch('http://127.0.0.1:3000/sdk/inject').then(r=>r.text()).then(eval)</div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section id="pricing">
-  <div class="wrap">
-    <div class="label">Pricing</div>
+  <section id="pricing">
+    <span class="section-label">03 // The Access</span>
     <h2>Machine Reasoning Credits.</h2>
-    <p class="sub">The telemetry layer is MIT open source. You pay only for the machine reasoning that connects the dots.</p>
-
-    <div class="price-grid">
-      <div class="pc">
-        <div class="pc-name">Developer</div>
-        <div class="pc-price">$0</div>
-        <div class="pc-period">Free forever</div>
-        <ul class="pc-items">
+    
+    <div class="price-row mt-lg">
+      <div class="price-col">
+        <span class="price-name">Developer</span>
+        <div class="price-val">$0<span>/mo</span></div>
+        <ul class="price-list">
           <li>500 reasoning calls / month</li>
-          <li>All free MCP tools</li>
-          <li>Full Ring Buffer</li>
-          <li>Agent-Native Labels</li>
+          <li>Full local ring buffer</li>
+          <li>Agent-native extension</li>
+          <li>Standard MCP tools</li>
         </ul>
-        <a class="pc-cta" href="#install">Start Free</a>
+        <a href="#" class="btn btn-outline" style="display:block; text-align:center;">Join Waitlist</a>
       </div>
-      <div class="pc best">
-        <div class="pc-name">Solo Pro</div>
-        <div class="pc-price">$29</div>
-        <div class="pc-period">per month</div>
-        <ul class="pc-items">
-          <li>2,000 reasoning calls / month</li>
-          <li>Unlimited local context</li>
-          <li>Microservice tracing</li>
-          <li>Machine-Readable JSON</li>
-        </ul>
-        <a class="pc-cta" href="#">Start Trial</a>
-      </div>
-      <div class="pc">
-        <div class="pc-name">Enterprise</div>
-        <div class="pc-price">Custom</div>
-        <div class="pc-period">Air-gapped support</div>
-        <ul class="pc-items">
-          <li>Pooled reasoning credits</li>
-          <li>Team-wide causal graph</li>
-          <li>Microservice fleet support</li>
+      <div class="price-col" style="background: #050505;">
+        <span class="price-name" style="color:var(--white)">Solo Pro</span>
+        <div class="price-val">$29<span>/mo</span></div>
+        <ul class="price-list">
+          <li style="color:var(--white)">Unlimited reasoning calls</li>
+          <li>Microservice fleet tracing</li>
           <li>Custom detector logic</li>
+          <li>Advanced Causal Pack</li>
         </ul>
-        <a class="pc-cta" href="#">Contact Sales</a>
+        <a href="#" class="btn btn-white" style="display:block; text-align:center;">Start Free Trial</a>
+      </div>
+      <div class="price-col">
+        <span class="price-name">Enterprise</span>
+        <div class="price-val">Custom</div>
+        <ul class="price-list">
+          <li>Air-gapped deployment</li>
+          <li>Team-wide causal graph</li>
+          <li>Custom security policies</li>
+          <li>24/7 dedicated support</li>
+        </ul>
+        <a href="#" class="btn btn-outline" style="display:block; text-align:center;">Contact Sales</a>
       </div>
     </div>
-  </div>
-</section>
+  </section>
+</main>
 
-<footer>
-  <div class="wrap">
-    <div class="foot">
-      <div class="foot-logo">Mergen</div>
-      <ul class="foot-links">
-        <li><a href="https://github.com/omertt27/Mergen">GitHub</a></li>
-        <li><a href="https://github.com/omertt27/Mergen/blob/main/docs/ENTERPRISE_SECURITY.md">Security</a></li>
-        <li><a href="https://github.com/omertt27/Mergen/blob/main/ARCHITECTURE.md">Architecture</a></li>
-      </ul>
-      <p style="font-size: 11px; font-weight: 700; color: #444; text-transform: uppercase;">© 2026 Mergen · Agent-Native</p>
+<footer class="wrap">
+  <div class="foot-inner">
+    <div>© 2026 Mergen · Agent-Native Telemetry</div>
+    <div style="display:flex; gap: 2rem;">
+      <a href="https://github.com/omertt27/Mergen">GitHub</a>
+      <a href="https://github.com/omertt27/Mergen/blob/main/docs/ENTERPRISE_SECURITY.md">Security</a>
+      <a href="https://github.com/omertt27/Mergen/blob/main/ARCHITECTURE.md">Architecture</a>
     </div>
   </div>
 </footer>
 
 <script>
-  function tab(id, btn) {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('on'));
-    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('on'));
-    document.getElementById('tab-' + id).classList.add('on');
-    btn.classList.add('on');
+  /**
+   * CAUSAL CANVAS
+   * A delicate web of nodes representing the causal graph.
+   */
+  const canvas = document.getElementById('causal-canvas');
+  const ctx = canvas.getContext('2d');
+  
+  let width, height, nodes = [];
+  const nodeCount = 60;
+  const maxDistance = 200;
+
+  function init() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+    nodes = [];
+    for (let i = 0; i < nodeCount; i++) {
+      nodes.push({
+        x: Math.random() * width,
+        y: Math.random() * height,
+        vx: (Math.random() - 0.5) * 0.5,
+        vy: (Math.random() - 0.5) * 0.5,
+        size: Math.random() * 2 + 1
+      });
+    }
   }
+
+  function draw() {
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = '#fff';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.lineWidth = 0.5;
+
+    for (let i = 0; i < nodes.length; i++) {
+      const n1 = nodes[i];
+      n1.x += n1.vx;
+      n1.y += n1.vy;
+
+      if (n1.x < 0 || n1.x > width) n1.vx *= -1;
+      if (n1.y < 0 || n1.y > height) n1.vy *= -1;
+
+      ctx.beginPath();
+      ctx.arc(n1.x, n1.y, n1.size, 0, Math.PI * 2);
+      ctx.fill();
+
+      for (let j = i + 1; j < nodes.length; j++) {
+        const n2 = nodes[j];
+        const dx = n1.x - n2.x;
+        const dy = n1.y - n2.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < maxDistance) {
+          ctx.globalAlpha = 1 - (dist / maxDistance);
+          ctx.beginPath();
+          ctx.moveTo(n1.x, n1.y);
+          ctx.lineTo(n2.x, n2.y);
+          ctx.stroke();
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
+    requestAnimationFrame(draw);
+  }
+
+  window.addEventListener('resize', init);
+  init();
+  draw();
 </script>
+
 </body>
 </html>

@@ -4,665 +4,309 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Mergen</title>
+  
+  <!-- Geist + Geist Mono -->
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+  <link href="https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-sans/style.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-mono/style.css" rel="stylesheet" />
+
   <style>
+    /* ─── TOKENS (Monolith B&W) ────────────────────────────────────────────── */
     :root {
-      --bg: #0d0d17;
-      --surface: #161625;
-      --surface2: #1c1c30;
-      --surface3: #12121f;
-      --border: #2a2a44;
-      --accent: #a78bfa;
-      --accent-dim: #7c3aed;
-      --accent-glow: rgba(167,139,250,0.15);
-      --text: #e2e8f0;
-      --text-muted: #8892a4;
-      --green: #4ade80;
-      --red: #f87171;
-      --yellow: #fbbf24;
-      --radius: 8px;
-      --radius-sm: 5px;
+      --bg: #000000;
+      --surface: #0a0a0a;
+      --surface2: #1a1a1a;
+      --border: #262626;
+      --border-bright: #ffffff;
+      --text: #ffffff;
+      --text-muted: #808080;
+      --text-dim: #404040;
+      --accent: #ffffff;
+      --red: #ffffff; /* We keep it B&W but maybe use weight/borders for errors */
+      --green: #ffffff;
+      --yellow: #ffffff;
+      --font: 'Geist', sans-serif;
+      --mono: 'Geist Mono', monospace;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      width: 340px;
+      width: 320px;
       background: var(--bg);
       color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      font-size: 13px;
+      font-family: var(--font);
+      font-size: 12px;
+      -webkit-font-smoothing: antialiased;
     }
 
     /* ── Header ── */
     .header {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 13px 14px 11px;
+      padding: 1.5rem 1rem;
       border-bottom: 1px solid var(--border);
-      background: var(--surface3);
-    }
-
-    .header img { width: 26px; height: 26px; border-radius: 6px; }
-
-    .header-info { flex: 1; min-width: 0; }
-
-    .header-title {
-      font-weight: 700;
-      font-size: 14px;
-      letter-spacing: 0.2px;
-      color: var(--text);
-    }
-
-    .header-sub {
-      font-size: 10px;
-      color: var(--text-muted);
-      margin-top: 1px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .mcp-sub {
-      font-size: 10px;
-      color: var(--text-muted);
-      margin-top: 1px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      transition: color .3s;
-    }
-    .mcp-sub.active       { color: var(--green); }
-    .mcp-sub.unconfigured { color: var(--yellow); }
-
-    /* ── Status pill ── */
-    .status-pill {
       display: flex;
-      align-items: center;
-      gap: 5px;
-      padding: 3px 9px;
-      border-radius: 20px;
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.3px;
-      white-space: nowrap;
-    }
-
-    .status-pill.connected    { background: rgba(74,222,128,0.1);  color: var(--green);  border: 1px solid rgba(74,222,128,0.25); }
-    .status-pill.disconnected { background: rgba(248,113,113,0.1); color: var(--red);    border: 1px solid rgba(248,113,113,0.25); }
-    .status-pill.checking     { background: var(--accent-glow);    color: var(--accent); border: 1px solid rgba(167,139,250,0.25); }
-
-    .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-    .dot.pulse { animation: pulse 2s ease-in-out infinite; }
-    @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.35} }
-
-    /* ── Critical error banner (no content script) ── */
-    #no-cs-banner {
-      display: none;
-      width: 100%;
-      background: rgba(248,113,113,.13);
-      border: none;
-      border-bottom: 2px solid var(--red);
-      color: var(--red);
-      font-size: 12px;
-      font-weight: 700;
-      text-align: left;
-      padding: 11px 14px;
-      cursor: pointer;
-      transition: background .15s;
-      font-family: inherit;
-      line-height: 1.4;
-    }
-    #no-cs-banner:hover { background: rgba(248,113,113,.22); }
-    #no-cs-banner::before { content: '⚠ '; }
-
-    /* ── Plan banner ── */
-    .plan-banner {
-      display: flex;
-      align-items: center;
       justify-content: space-between;
-      padding: 7px 14px;
-      background: var(--surface2);
-      border-bottom: 1px solid var(--border);
-      min-height: 32px;
+      align-items: center;
     }
-
-    .plan-left { display: flex; align-items: center; gap: 7px; }
-
-    .plan-label {
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.4px;
+    .logo-text {
+      font-weight: 800;
       text-transform: uppercase;
-      padding: 2px 8px;
-      border-radius: 10px;
+      letter-spacing: 0.2em;
+      font-size: 0.8rem;
     }
-
-    .plan-free          { background: rgba(148,163,184,.1);  color: var(--text-muted); border: 1px solid var(--border); }
-    .plan-solo_standard { background: rgba(167,139,250,.12); color: var(--accent);    border: 1px solid rgba(167,139,250,.3); }
-    .plan-solo_pro      { background: rgba(167,139,250,.2);  color: var(--accent);    border: 1px solid var(--accent); }
-    .plan-team          { background: rgba(251,191,36,.1);   color: var(--yellow);    border: 1px solid rgba(251,191,36,.3); }
-    .plan-pay_as_you_go { background: rgba(74,222,128,.08);  color: var(--green);     border: 1px solid rgba(74,222,128,.25); }
-
-    .team-dot {
-      display: none;
-      width: 7px; height: 7px;
-      border-radius: 50%;
-      background: var(--green);
-      box-shadow: 0 0 6px var(--green);
+    .status-pill {
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      padding: 2px 6px;
+      border: 1px solid var(--border-bright);
     }
-    .team-dot.active { display: block; }
+    .status-pill.disconnected { border-color: var(--text-dim); color: var(--text-dim); }
 
-    .upgrade-link {
-      font-size: 10px;
-      font-weight: 700;
-      color: var(--accent);
-      text-decoration: none;
-      padding: 3px 8px;
-      border: 1px solid rgba(167,139,250,.3);
-      border-radius: 8px;
-      background: var(--accent-glow);
-      cursor: pointer;
-      transition: background .15s;
-    }
-    .upgrade-link:hover { background: rgba(167,139,250,.25); }
-
-    /* ── Credit bar ── */
-    #credit-wrap {
-      padding: 7px 14px 8px;
+    /* ── Server Info ── */
+    .info-bar {
+      padding: 0.75rem 1rem;
       border-bottom: 1px solid var(--border);
-      background: var(--surface3);
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
     }
 
-    .credit-header {
+    /* ── Plan & Credits ── */
+    .plan-banner {
+      padding: 1rem;
+      border-bottom: 1px solid var(--border);
       display: flex;
       justify-content: space-between;
-      font-size: 10px;
-      color: var(--text-muted);
-      margin-bottom: 5px;
+      align-items: center;
+    }
+    .plan-label {
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+    }
+    .credit-count {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      font-weight: 600;
     }
 
-    .credit-header strong { color: var(--text); font-variant-numeric: tabular-nums; }
-
-    .credit-bar {
-      height: 5px;
-      background: var(--border);
-      border-radius: 5px;
-      overflow: hidden;
-    }
-
-    #credit-fill {
-      height: 100%;
-      background: linear-gradient(90deg, var(--accent), var(--accent-dim));
-      border-radius: 5px;
-      width: 0%;
-      transition: width .4s ease, background .3s;
-    }
-
-    .credit-overage {
-      font-size: 10px;
-      margin-top: 4px;
-      color: var(--yellow);
-    }
-
-    /* ── Stats ── */
+    /* ── Stats Grid ── */
     .stats {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 1px;
-      background: var(--border);
       border-bottom: 1px solid var(--border);
     }
-
-    @keyframes flashIn {
-      0%   { background: rgba(167,139,250,.18); }
-      100% { background: var(--border); }
-    }
-    .stats.flash { animation: flashIn .4s ease-out forwards; }
-
     .stat {
-      background: var(--surface);
-      padding: 11px 8px;
+      padding: 1.25rem 0.5rem;
       text-align: center;
+      border-right: 1px solid var(--border);
     }
-
-    .stat-value {
-      font-size: 21px;
-      font-weight: 700;
+    .stat:last-child { border-right: none; }
+    .stat-val {
+      font-size: 1.25rem;
+      font-weight: 800;
       line-height: 1;
-      font-variant-numeric: tabular-nums;
+      margin-bottom: 0.25rem;
     }
-
-    .stat-label {
-      font-size: 9px;
-      color: var(--text-muted);
-      margin-top: 3px;
+    .stat-lbl {
+      font-family: var(--mono);
+      font-size: 0.5rem;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    .stat.errors .stat-value   { color: var(--red); }
-    .stat.warnings .stat-value { color: var(--yellow); }
-    .stat.network .stat-value  { color: var(--accent); }
-
-    /* ── Activity row ── */
-    .activity-row {
-      display: flex;
-      align-items: center;
-      padding: 5px 14px;
-      font-size: 10px;
+      letter-spacing: 0.2em;
       color: var(--text-muted);
-      background: var(--surface3);
-      border-bottom: 1px solid var(--border);
-    }
-
-    /* ── Disconnect hint ── */
-    .disconnect-hint {
-      display: none;
-      padding: 8px 14px;
-      font-size: 11px;
-      color: var(--red);
-      background: rgba(248,113,113,.06);
-      border-bottom: 1px solid rgba(248,113,113,.15);
-      line-height: 1.5;
-    }
-    .disconnect-hint code {
-      background: rgba(248,113,113,.12);
-      border: 1px solid rgba(248,113,113,.2);
-      border-radius: 3px;
-      padding: 1px 5px;
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      font-size: 10px;
-      color: var(--red);
     }
 
     /* ── Signals ── */
-    #signals-wrap {
-      display: none;
-      border-bottom: 1px solid var(--border);
-    }
+    #signals-wrap { border-bottom: 1px solid var(--border); display: none; }
     #signals-wrap.has-signals { display: block; }
-
     .signals-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 6px 14px;
-      font-size: 10px;
-      font-weight: 700;
+      padding: 0.5rem 1rem;
+      font-family: var(--mono);
+      font-size: 0.55rem;
       text-transform: uppercase;
-      letter-spacing: 0.4px;
-      color: var(--text-muted);
-      background: var(--surface2);
-    }
-
-    .signals-count {
-      background: var(--accent-glow);
-      color: var(--accent);
-      border: 1px solid rgba(167,139,250,.3);
-      border-radius: 8px;
-      padding: 1px 6px;
-      font-size: 10px;
-      font-weight: 700;
-    }
-
-    .signal {
-      padding: 8px 14px 8px 16px;
-      border-top: 1px solid var(--border);
+      letter-spacing: 0.2em;
+      color: var(--text-dim);
       background: var(--surface);
     }
-    .signal.high   { border-left: 2px solid var(--red); }
-    .signal.medium { border-left: 2px solid var(--yellow); }
-    .signal.low    { border-left: 2px solid var(--text-muted); }
-
-    .signal-msg    { color: var(--text); font-size: 11px; margin-bottom: 2px; line-height: 1.4; }
-    .signal-action { color: var(--text-muted); font-size: 10px; margin-bottom: 5px; }
-
+    .signal {
+      padding: 0.75rem 1rem;
+      border-top: 1px solid var(--border);
+    }
+    .signal-msg { font-size: 0.75rem; font-weight: 600; margin-bottom: 0.25rem; }
     .signal-cta {
-      background: var(--accent-glow);
-      color: var(--accent);
-      border: 1px solid rgba(167,139,250,.25);
-      border-radius: 4px;
-      font-size: 10px;
-      font-weight: 600;
-      padding: 2px 8px;
+      display: inline-block;
+      margin-top: 0.25rem;
+      font-family: var(--mono);
+      font-size: 0.55rem;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border: 1px solid var(--border-bright);
       cursor: pointer;
-      transition: background .15s;
     }
-    .signal-cta:hover { background: rgba(167,139,250,.25); }
-
-    /* ── Settings panel (gear toggles) ── */
-    .settings-panel {
-      display: none;
-      flex-direction: column;
-      gap: 0;
-      border-bottom: 1px solid var(--border);
-      background: var(--surface2);
-    }
-    .settings-panel.open { display: flex; }
-
-    .settings-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      padding: 8px 14px;
-      border-bottom: 1px solid var(--border);
-    }
-    .settings-row:last-child { border-bottom: none; }
-
-    .settings-label { font-size: 11px; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
-
-    .settings-right { display: flex; align-items: center; gap: 6px; }
-
-    .port-input {
-      width: 68px;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      color: var(--text);
-      font-size: 12px;
-      padding: 3px 7px;
-      outline: none;
-      font-variant-numeric: tabular-nums;
-    }
-    .port-input:focus { border-color: var(--accent); }
-
-    .port-save {
-      background: var(--accent-dim);
-      color: white;
-      border: none;
-      border-radius: var(--radius-sm);
-      font-size: 10px;
-      font-weight: 700;
-      padding: 3px 9px;
-      cursor: pointer;
-      transition: background .15s;
-    }
-    .port-save:hover { background: var(--accent); }
-    .port-saved { font-size: 10px; color: var(--green); display: none; }
-
-    .switch { position: relative; width: 36px; height: 19px; flex-shrink: 0; }
-    .switch input { opacity: 0; width: 0; height: 0; }
-    .slider {
-      position: absolute; inset: 0;
-      background: var(--border); border-radius: 20px; cursor: pointer; transition: background .2s;
-    }
-    .slider:before {
-      content:''; position:absolute; width:13px;height:13px;
-      left:3px;top:3px; background:white; border-radius:50%; transition:transform .2s;
-    }
-    input:checked + .slider { background: var(--accent); }
-    input:checked + .slider:before { transform: translateX(17px); }
 
     /* ── Actions ── */
     .actions {
+      padding: 1rem;
       display: flex;
-      gap: 8px;
-      padding: 10px 14px;
+      gap: 0.75rem;
     }
-
     .btn {
       flex: 1;
-      padding: 7px 10px;
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border);
-      font-size: 11px;
-      font-weight: 600;
+      padding: 0.6rem;
+      font-family: var(--font);
+      font-size: 0.65rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border-bright);
       cursor: pointer;
-      transition: all .15s;
-      text-align: center;
-      background: var(--surface2);
+      transition: all 0.2s;
+    }
+    .btn:hover { background: var(--text); color: var(--bg); }
+    .btn:disabled { border-color: var(--text-dim); color: var(--text-dim); cursor: not-allowed; }
+    .btn-gear { flex: 0; padding: 0.6rem 0.8rem; }
+
+    /* ── Settings ── */
+    .settings-panel {
+      display: none;
+      padding: 1rem;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .settings-panel.open { display: block; }
+    .settings-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+    .settings-row:last-child { margin-bottom: 0; }
+    .settings-lbl {
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
       color: var(--text-muted);
     }
-
-    .btn-clear            { background: rgba(248,113,113,.08); color: var(--red);    border-color: rgba(248,113,113,.2); }
-    .btn-clear:hover      { background: rgba(248,113,113,.16); }
-    .btn-clear:disabled   { opacity:.4; cursor:not-allowed; }
-    .btn-clear.confirming { background: rgba(248,113,113,.22); color: var(--red);    border-color: var(--red); font-weight: 700; }
-
-    .btn-reconnect       { background: rgba(167,139,250,.08); color: var(--accent); border-color: rgba(167,139,250,.2); }
-    .btn-reconnect:hover { background: rgba(167,139,250,.16); }
-
-    .btn-gear       { flex: 0; padding: 7px 10px; font-size: 14px; }
-    .btn-gear:hover { color: var(--text); }
-    .btn-gear.active { color: var(--accent); border-color: rgba(167,139,250,.3); background: var(--accent-glow); }
+    .port-input {
+      width: 60px;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      padding: 2px 4px;
+      outline: none;
+    }
+    .port-input:focus { border-color: var(--border-bright); }
 
     /* ── Footer ── */
-    .footer {
-      padding: 7px 14px;
-      font-size: 10px;
-      color: var(--text-muted);
+    footer {
+      padding: 1rem;
       text-align: center;
-      border-top: 1px solid var(--border);
-      display: flex;
-      justify-content: center;
-      gap: 10px;
+      font-family: var(--mono);
+      font-size: 0.5rem;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: var(--text-dim);
     }
-    .footer a { color: var(--accent); text-decoration: none; }
-    .footer a:hover { text-decoration: underline; }
+    footer a { color: var(--text-muted); }
 
-    /* ── Muted banner ── */
+    /* ── Utils ── */
     #muted-banner {
-      display: none;
-      background: rgba(251,191,36,.08);
-      border-bottom: 1px solid rgba(251,191,36,.18);
-      color: var(--yellow);
-      font-size: 11px;
-      font-weight: 600;
+      padding: 0.5rem 1rem;
+      background: var(--surface2);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 0.55rem;
+      text-transform: uppercase;
       text-align: center;
-      padding: 5px 14px;
-    }
-
-    /* Stats hidden until first data load */
-    #stats-grid { display: none; }
-
-    /* ── Team badge ── */
-    .team-badge {
       display: none;
-      align-items: center;
-      gap: 5px;
-      font-size: 10px;
-      color: var(--green);
-      font-weight: 600;
     }
-    .team-badge.visible { display: flex; }
-
-    /* ── Debug session strip ── */
-    .session-strip {
+    #no-cs-banner {
+      padding: 0.75rem 1rem;
+      background: var(--text);
+      color: var(--bg);
+      font-weight: 800;
+      text-transform: uppercase;
+      font-size: 0.6rem;
+      text-align: center;
+      width: 100%;
+      border: none;
       display: none;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      padding: 7px 14px;
-      background: rgba(167,139,250,.07);
-      border-bottom: 1px solid rgba(167,139,250,.2);
-    }
-    .session-strip.active { display: flex; }
-
-    .session-left {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      min-width: 0;
-      flex: 1;
-    }
-
-    .session-beacon {
-      width: 7px; height: 7px;
-      border-radius: 50%;
-      background: var(--accent);
-      flex-shrink: 0;
-      animation: pulse 2s ease-in-out infinite;
-    }
-
-    .session-name {
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--accent);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .session-right {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      flex-shrink: 0;
-    }
-
-    .session-diff {
-      font-size: 10px;
-      color: var(--text-muted);
-      white-space: nowrap;
-    }
-    .session-diff .s-ok  { color: var(--green); }
-    .session-diff .s-err { color: var(--red); }
-
-    .session-copy-btn {
-      background: var(--accent-glow);
-      color: var(--accent);
-      border: 1px solid rgba(167,139,250,.3);
-      border-radius: 4px;
-      font-size: 10px;
-      font-weight: 700;
-      padding: 2px 7px;
       cursor: pointer;
-      transition: background .15s;
-      white-space: nowrap;
     }
-    .session-copy-btn:hover { background: rgba(167,139,250,.25); }
   </style>
 </head>
 <body>
 
-  <!-- Header -->
+  <button id="no-cs-banner">CAPTURING DISABLED // RELOAD TAB</button>
+  <div id="muted-banner">RECORDING PAUSED</div>
+
   <div class="header">
-    <img src="icons/icon48.png" alt="Mergen" />
-    <div class="header-info">
-      <div class="header-title">Mergen</div>
-      <div class="header-sub" id="server-url">http://127.0.0.1:3000</div>
-      <div class="mcp-sub" id="mcp-sub">MCP: checking…</div>
-    </div>
+    <div class="logo-text">Mergen</div>
     <div class="status-pill checking" id="status-pill">
-      <div class="dot pulse"></div>
-      <span id="status-text">Checking…</span>
+      <span id="status-text">INIT</span>
     </div>
   </div>
 
-  <!-- Plan banner -->
+  <div class="info-bar">
+    <span id="server-url">127.0.0.1:3000</span> // <span id="mcp-sub">MCP: ...</span>
+  </div>
+
   <div class="plan-banner">
-    <div class="plan-left">
-      <span class="plan-label plan-free" id="plan-badge">Free</span>
-      <span class="team-dot" id="team-dot" title="Team sync active"></span>
-    </div>
-    <div class="team-badge" id="team-badge">
-      <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="4" r="2.5"/><circle cx="11" cy="4" r="2.5"/><path d="M0 13c0-2.8 2.2-5 5-5 .7 0 1.4.15 2 .4A5 5 0 018 13H0z"/><path d="M8.7 8.6A5 5 0 0116 13h-6a5 5 0 00-1.3-4.4z"/></svg>
-      Team sync on
-    </div>
-    <a class="upgrade-link" id="upgrade-link">Upgrade →</a>
+    <div class="plan-label" id="plan-badge">Standard</div>
+    <div class="credit-count" id="credit-count">0/500</div>
   </div>
 
-  <!-- Debug session strip — visible only when a session is active -->
-  <div class="session-strip" id="session-strip">
-    <div class="session-left">
-      <div class="session-beacon"></div>
-      <span class="session-name" id="session-name">Debug session</span>
-    </div>
-    <div class="session-right">
-      <span class="session-diff" id="session-diff"></span>
-      <button class="session-copy-btn" id="session-copy-btn">⚑ Checkpoint</button>
-    </div>
-  </div>
-
-  <!-- Muted banner -->
-  <div id="muted-banner">⏸ Recording paused on this tab</div>
-
-  <!-- No content script — prominent critical error -->
-  <button id="no-cs-banner">Content script not loaded — click to reload tab and enable capture</button>
-
-  <!-- Disconnect hint with recovery guidance -->
-  <div class="disconnect-hint" id="disconnect-hint">
-    Server not responding · Run <code>mergen-server start</code> or check port 3000 is free.
-  </div>
-
-  <!-- Live signals — shown ABOVE stats when active -->
   <div id="signals-wrap">
-    <div class="signals-header">
-      <span>Live findings</span>
-      <span id="signals-count" class="signals-count"></span>
-    </div>
+    <div class="signals-header">Live Findings</div>
     <div id="signals-list"></div>
   </div>
 
-  <!-- Stats (hidden until first data; secondary to signals) -->
   <div class="stats" id="stats-grid">
-    <div class="stat errors">
-      <div class="stat-value" id="stat-errors">0</div>
-      <div class="stat-label">Errors</div>
+    <div class="stat">
+      <div class="stat-val" id="stat-errors">0</div>
+      <div class="stat-lbl">Err</div>
     </div>
-    <div class="stat warnings">
-      <div class="stat-value" id="stat-warns">0</div>
-      <div class="stat-label">Warnings</div>
+    <div class="stat">
+      <div class="stat-val" id="stat-warns">0</div>
+      <div class="stat-lbl">Wrn</div>
     </div>
-    <div class="stat network">
-      <div class="stat-value" id="stat-net">0</div>
-      <div class="stat-label">Net Errors</div>
+    <div class="stat">
+      <div class="stat-val" id="stat-net">0</div>
+      <div class="stat-lbl">Net</div>
     </div>
   </div>
 
-  <!-- Activity: last event timestamp + rate -->
-  <div class="activity-row" id="activity-row" style="display:none">
-    <span id="last-event-text">No events yet</span>
-  </div>
-
-  <!-- Credit meter — only shown when ≥70% consumed or in overage -->
-  <div id="credit-wrap" style="display:none">
-    <div class="credit-header">
-      <span>analyze_runtime credits</span>
-      <strong id="credit-count">—</strong>
-    </div>
-    <div class="credit-bar"><div id="credit-fill"></div></div>
-    <div class="credit-overage" id="credit-overage" style="display:none"></div>
-  </div>
-
-  <!-- Settings panel — port + mute, hidden by default, gear reveals -->
   <div class="settings-panel" id="port-row">
     <div class="settings-row">
-      <span class="settings-label">Port</span>
-      <div class="settings-right">
-        <input class="port-input" type="number" id="port-input" min="1024" max="65535" value="3000" />
-        <button class="port-save" id="port-save">Save</button>
-        <span class="port-saved" id="port-saved">✓</span>
-      </div>
+      <span class="settings-lbl">Port</span>
+      <input class="port-input" type="number" id="port-input" value="3000" />
     </div>
     <div class="settings-row">
-      <div>
-        <div style="font-size:11px;font-weight:600;color:var(--text)">Record this tab</div>
-        <div style="font-size:10px;color:var(--text-muted)" id="toggle-sub">Active on current tab</div>
-      </div>
-      <label class="switch">
-        <input type="checkbox" id="mute-toggle" checked />
-        <span class="slider"></span>
-      </label>
+      <span class="settings-lbl">Capture</span>
+      <input type="checkbox" id="mute-toggle" checked />
     </div>
+    <button class="btn" id="port-save" style="margin-top:0.5rem">Save Configuration</button>
   </div>
 
-  <!-- Actions — Clear + Gear only -->
   <div class="actions">
-    <button class="btn btn-clear" id="btn-clear" disabled>🗑 Clear</button>
-    <button class="btn btn-gear" id="btn-gear" title="Settings">⚙</button>
+    <button class="btn" id="btn-clear" disabled>Clear Buffer</button>
+    <button class="btn btn-gear" id="btn-gear">M</button>
   </div>
 
-  <!-- Footer -->
-  <div class="footer">
-    <a href="#" id="pricing-link">Pricing &amp; License</a>
-    <span>·</span>
-    <a href="#" id="welcome-link">Help</a>
-    <span>·</span>
-    <span>v1.0.0</span>
-  </div>
+  <footer>
+    <a href="#" id="welcome-link">Docs</a> // <a href="#" id="pricing-link">License</a> // v1.0.0
+  </footer>
 
   <script src="src/popup.js"></script>
 </body>

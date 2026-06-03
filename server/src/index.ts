@@ -107,8 +107,8 @@ async function main(): Promise<void> {
   registerTeamBroadcaster(broadcastToTeam);
 
   // ── HTTP server ────────────────────────────────────────────────────────────
-  const app = createApp({ serverVersion: SERVER_VERSION, localSecret });
   const port = await findPort(PORT_RANGE_START, PORT_RANGE_END);
+  const app = createApp({ serverVersion: SERVER_VERSION, localSecret, port, bindHost: BIND_HOST });
   const httpServer: HttpServer = app.listen(port, BIND_HOST, () => {
     logger.info({ port, host: BIND_HOST }, `HTTP ingest listening on http://${BIND_HOST}:${port}`);
   });

@@ -6,49 +6,6 @@ import { layer3Store } from '../sensor/layer3-store.js';
 import { layer4Store } from '../sensor/layer4-store.js';
 
 export function registerLayerTools(server: McpServer): void {
-  // ── Layer 1: get_component_tree ───────────────────────────────────────────────
-  server.registerTool(
-    'get_component_tree',
-    {
-      description:
-        'Returns full React/Vue component tree with props and state at error time. ' +
-        'Much more detailed than the simple component name in get_dom_context. ' +
-        'Use this when you need to understand the entire component hierarchy and state at crash time.',
-      inputSchema: {
-        since: z.number().int().optional()
-          .describe('Only return trees captured after this Unix timestamp in ms'),
-      },
-    },
-    async ({ since }) => {
-      const contexts = store.getContext(10, since);
-
-      // Filter contexts that have componentTree data (Layer 1 extended schema)
-      const withTrees = contexts.filter((c: any) => c.componentTree);
-
-      if (withTrees.length === 0) {
-        return {
-          content: [{
-            type: 'text',
-            text: '⚠️ No component trees captured yet. This feature requires the extension to send enhanced context snapshots.',
-          }],
-        };
-      }
-
-      const lines: string[] = ['## Component Trees'];
-      for (const ctx of withTrees) {
-        const ts = new Date(ctx.timestamp).toISOString();
-        lines.push('');
-        lines.push(`### ${ts} — ${ctx.url}`);
-        lines.push('');
-        lines.push('```json');
-        lines.push(JSON.stringify((ctx as any).componentTree, null, 2));
-        lines.push('```');
-      }
-
-      return { content: [{ type: 'text', text: lines.join('\n') }] };
-    },
-  );
-
   // ── Layer 1: get_state_diff ───────────────────────────────────────────────────
   server.registerTool(
     'get_state_diff',

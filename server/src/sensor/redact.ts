@@ -58,7 +58,9 @@ const RE_EMAIL   = /\b[\w.+-]+@[\w-]+\.[\w.-]+\b/g;
 const RE_CARD    = /\b(?:\d[ -]?){13,19}\b/g;
 
 function redactString(s: string): string {
-  if (s.length > 20_000) return s; // skip giant blobs — already truncated upstream
+  // Fully redact strings that are far beyond any legitimate field length — PII
+  // patterns inside a multi-MB blob aren't useful to the LLM anyway.
+  if (s.length > 100_000) return REDACTED;
   return s
     .replace(RE_JWT, REDACTED)
     .replace(RE_BEARER, `Bearer ${REDACTED}`)

@@ -5,12 +5,23 @@
  * Verifies production-critical scenarios, concurrency, reliability, and security.
  */
 
+import net from 'net';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import express from 'express';
 import type { Express } from 'express';
 import type { Server as HttpServer } from 'http';
 import { createApp } from '../app.js';
 import { store } from '../sensor/buffer.js';
+
+function findFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const s = net.createServer();
+    s.listen(0, '127.0.0.1', () => {
+      const port = (s.address() as net.AddressInfo).port;
+      s.close(() => resolve(port));
+    });
+    s.on('error', reject);
+  });
+}
 
 const TEST_SECRET = 'test-secret-123';
 const TEST_VERSION = '1.0.0-test';
@@ -22,15 +33,12 @@ describe('E2E System Tests', () => {
 
   beforeEach(async () => {
     store.clear();
-    app = createApp({ serverVersion: TEST_VERSION, localSecret: TEST_SECRET });
-
-    // Start server on random port
+    const port = await findFreePort();
+    app = createApp({ serverVersion: TEST_VERSION, localSecret: TEST_SECRET, port, bindHost: '127.0.0.1' });
     await new Promise<void>((resolve, reject) => {
-      server = app.listen(0, '127.0.0.1', () => {
-        const addr = server.address();
-        const port = typeof addr === 'object' && addr ? addr.port : 3000;
+      server = app.listen(port, '127.0.0.1', () => {
         baseURL = `http://127.0.0.1:${port}`;
-        setTimeout(resolve, 50); // Ensure server is ready
+        setTimeout(resolve, 50);
       });
       server.on('error', reject);
     });

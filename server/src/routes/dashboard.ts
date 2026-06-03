@@ -9,26 +9,33 @@
  * Completely self-contained HTML — no external CDN dependencies.
  */
 
+import { randomUUID } from 'crypto';
 import { Router } from 'express';
 
 export function createDashboardRouter(serverVersion: string): Router {
   const router = Router();
 
   router.get('/dashboard', (_req, res) => {
+    const nonce = randomUUID().replace(/-/g, '');
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(buildDashboardHtml(serverVersion));
+    res.setHeader('Content-Security-Policy',
+      `default-src 'self'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src 'self'`);
+    res.send(buildDashboardHtml(serverVersion, nonce));
   });
 
   // Also serve at root for team instances where /dashboard is the primary UI
   router.get('/', (_req, res) => {
+    const nonce = randomUUID().replace(/-/g, '');
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(buildDashboardHtml(serverVersion));
+    res.setHeader('Content-Security-Policy',
+      `default-src 'self'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src 'self'`);
+    res.send(buildDashboardHtml(serverVersion, nonce));
   });
 
   return router;
 }
 
-function buildDashboardHtml(version: string): string {
+function buildDashboardHtml(version: string, nonce: string): string {
   return /* html */`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -178,7 +185,7 @@ function buildDashboardHtml(version: string): string {
 
 <div class="refresh" id="refresh-bar">Refreshing…</div>
 
-<script>
+<script nonce="${nonce}">
 const ICON = {
   error:'🔴',warn:'🟡',log:'⬜',request:'🟠',context:'⬜',
   terminal:'💻',process_exit:'💥',ci_failure:'❌',ci_success:'✅',deployment:'🚀',
