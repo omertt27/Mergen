@@ -222,6 +222,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
 
     webviewView.webview.options = {
       enableScripts: true,
+      enableCommandUris: true,
       localResourceRoots: [this._context.extensionUri],
     };
 
@@ -535,14 +536,17 @@ export class MergenPanel implements vscode.WebviewViewProvider {
 
   // ── HTML ─────────────────────────────────────────────────────────────────────
 
-  private _getHtml(_webview: vscode.Webview): string {
+  private _getHtml(webview: vscode.Webview): string {
     const nonce = getNonce();
+    const scriptUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this._context.extensionUri, 'media', 'panel.js'),
+    );
     return /* html */`<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src ${webview.cspSource}; connect-src http://127.0.0.1:*;">
 <title>Mergen</title>
 <style>
   :root {
@@ -800,6 +804,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     white-space: nowrap;
   }
   .signal-run:hover { opacity: .85; }
+  a.signal-run { text-decoration: none; }
 
   /* ── Activity Feed ── */
   .activity-row {
@@ -1091,14 +1096,17 @@ export class MergenPanel implements vscode.WebviewViewProvider {
 <!-- Low-credit notice -->
 <div class="notice" id="notice"></div>
 
-<!-- Loading state (shown until first render) -->
-<div class="loading" id="loading">
+<!-- JS diagnostic — shows if the script block ever executes -->
+<div id="js-diag" style="font-size:10px;text-align:center;padding:4px;opacity:0.5">JS: not running</div>
+
+<!-- Loading state (hidden by default — disconnected card is the safe default) -->
+<div class="loading" id="loading" style="display:none">
   <span class="loading-spinner">⟳</span>
   Loading Mergen v2…
 </div>
 
-<!-- Disconnected state -->
-<div class="disconnected" id="disconnected" style="display:none">
+<!-- Disconnected state — shown by default so the panel never gets stuck -->
+<div class="disconnected" id="disconnected">
   <div class="icon">⚡</div>
   <div><b>Mergen server isn't running.</b></div>
   <div style="margin-top:8px; opacity:0.85">
@@ -1107,8 +1115,8 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     <code>mergen.serverPath</code>.
   </div>
   <div style="margin-top:12px; display:flex; gap:6px; flex-wrap:wrap; justify-content:center">
-    <button class="signal-run" onclick="runCmd('mergen.startServer')">▶ Start local server</button>
-    <button class="signal-run" onclick="runCmd('mergen.installExtension')">📖 Setup guide</button>
+    <a class="signal-run" href="command:mergen.startServer" title="Start the Mergen local server">▶ Start local server</a>
+    <a class="signal-run" href="command:mergen.installExtension" title="Open setup guide">📖 Setup guide</a>
   </div>
   <div style="margin-top:10px; font-size:11px; opacity:0.65">
     Or in a terminal: <code>mergen-server start</code>
@@ -1259,448 +1267,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   </div>
 </div>
 
-<script nonce="${nonce}">
-  try {
-  const vscode = acquireVsCodeApi();
-
-  function send(type) { vscode.postMessage({ type }); }
-
-  function escHtml(str) {
-    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-
-  // One-click: copy the MCP tool call to clipboard so the user can paste it
-  // into any AI chat (Cursor, Copilot Chat, Claude, etc.) immediately.
-  // We route through the extension host (postMessage) rather than calling
-  // navigator.clipboard directly — the webview sandbox blocks clipboard
-  // access without the clipboardWrite permission, so direct calls fail silently.
-  function copyTool(toolName) {
-    vscode.postMessage({ type: 'runTool', tool: toolName });
-  }
-
-  // Generic VS Code command runner — used by the disconnected card and the
-  // walkthrough buttons. Whitelisted on the host side.
-  function runCmd(commandId) {
-    vscode.postMessage({ type: 'runCommand', command: commandId });
-  }
-
-  // Cached Context Pack text for the Send/Copy buttons.
-  let _currentPackText = '';
-  document.getElementById('pack-send').addEventListener('click', () => {
-    if (!_currentPackText) return;
-    vscode.postMessage({
-      type: 'sendToChat',
-      text: 'Diagnose this runtime issue using the attached Context Pack:\n\n' + _currentPackText,
-    });
-  });
-  document.getElementById('pack-copy').addEventListener('click', () => {
-    if (!_currentPackText) return;
-    vscode.postMessage({ type: 'copyPack', text: _currentPackText });
-  });
-
-  function fmtRel(ms) {
-    const diff = Date.now() - ms;
-    if (diff < 60000)    return Math.max(1, Math.floor(diff / 1000)) + 's ago';
-    if (diff < 3600000)  return Math.floor(diff / 60000) + 'm ago';
-    if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
-    return Math.floor(diff / 86400000) + 'd ago';
-  }
-
-  // Render the calibration strip + feedback buttons for a hypothesis.
-  // Two halves: a left-side "track record" badge (so users can verify our
-  // claim before they trust it) and a right-side three-button verdict row
-  // (so they can teach the engine in one click). Both are essential —
-  // showing the badge without a way to challenge it is just marketing.
-  function renderCalibrationHtml(hyp) {
-    const cal = hyp && hyp.calibration;
-    const pid = hyp && hyp.pid;
-    let badgeHtml = '';
-    if (cal) {
-      if (!cal.trusted) {
-        badgeHtml =
-          '<span class="calib-badge" title="Need ≥5 verdicts before this score is trusted.">' +
-          'New detector · ' + cal.verdicts + '/' + cal.predictions + ' rated' +
-          '</span>';
-      } else {
-        const pct = Math.round(cal.accuracy * 100);
-        const cls = pct >= 75 ? 'good' : pct >= 50 ? 'mid' : 'poor';
-        const correct = Math.round(cal.accuracy * cal.verdicts);
-        badgeHtml =
-          '<span class="calib-badge ' + cls + '" title="Empirical accuracy across ' + cal.verdicts + ' user verdicts.">' +
-          pct + '% · ' + correct + '/' + cal.verdicts + ' correct' +
-          '</span>';
-        if (typeof cal.trendDelta === 'number') {
-          const delta = Math.round(cal.trendDelta * 100);
-          if (delta !== 0) {
-            const arrow = delta > 0 ? '▲' : '▼';
-            const trendCls = delta > 0 ? 'up' : 'down';
-            badgeHtml +=
-              '<span class="calib-trend ' + trendCls + '" title="7-day trend vs older verdicts.">' +
-              arrow + ' ' + Math.abs(delta) + '% (7d)' +
-              '</span>';
-          }
-        }
-      }
-    } else {
-      badgeHtml = '<span class="calib-badge" title="No verdicts recorded yet.">Unrated</span>';
-    }
-    let buttonsHtml = '';
-    if (pid) {
-      // We use single-quoted attributes so JSON.stringify(pid) (which emits
-      // double quotes) doesn't terminate the attribute. Verdict literals
-      // are intentionally inlined as JS strings — no user input here.
-      buttonsHtml =
-        '<span class="fb-prompt">Was this right?</span>' +
-        '<span class="feedback-btns">' +
-          "<button class='fb-btn fb-correct' title='Yes — diagnosis was correct' onclick='sendFeedback(" + JSON.stringify(pid) + ",\"correct\")'>✓ Yes</button>" +
-          "<button class='fb-btn fb-partial' title='Partially right' onclick='sendFeedback(" + JSON.stringify(pid) + ",\"partial\")'>◐ Sort of</button>" +
-          "<button class='fb-btn fb-wrong'   title='No — wrong diagnosis' onclick='sendFeedback(" + JSON.stringify(pid) + ",\"wrong\")'>✕ No</button>" +
-        '</span>';
-    }
-    // Failure-mode hint: surfaces the top user-supplied "why was this wrong"
-    // notes for this detector. Only meaningful when accuracy is poor enough
-    // that we should warn — and only when we actually have notes to show.
-    let failHtml = '';
-    if (cal && cal.commonFailureModes && cal.commonFailureModes.length > 0 && cal.accuracy < 0.75) {
-      const items = cal.commonFailureModes
-        .slice(0, 3)
-        .map(m => '<li>' + escHtml(m.note) + (m.count > 1 ? ' <span style="opacity:.6">(×' + m.count + ')</span>' : '') + '</li>')
-        .join('');
-      failHtml =
-        '<div class="calib-failmodes">' +
-          '<b>Often incorrect when:</b>' +
-          '<ul>' + items + '</ul>' +
-        '</div>';
-    }
-    return badgeHtml + '<span class="calib-spacer"></span>' + buttonsHtml + failHtml;
-  }
-
-  function sendFeedback(pid, verdict) {
-    vscode.postMessage({ type: 'feedback', pid: pid, verdict: verdict });
-  }
-
-  // Register the message listener BEFORE sending 'ready', so we never
-  // miss the host's immediate state reply.
-  let _rendered = false;
-  window.addEventListener('message', ({ data }) => {
-    if (data.type === 'state') { _rendered = true; render(data.state); }
-    if (data.type === 'captureStarted') {
-      const el = document.getElementById('capture-status');
-      if (el) {
-        el.textContent = '⏺ Capturing since ' + new Date(data.timestamp).toLocaleTimeString();
-        el.style.display = 'block';
-      }
-    }
-  });
-
-  send('ready');
-
-  setTimeout(() => { if (!_rendered) send('ready'); }, 3000);
-
-  function render(state) {
-    // Hide the loading spinner on the very first render
-    const loadingEl = document.getElementById('loading');
-    if (loadingEl) loadingEl.style.display = 'none';
-
-    const connected = state.connected;
-    document.getElementById('dot').className       = 'dot' + (connected ? ' ok' : '');
-    document.getElementById('disconnected').style.display  = connected ? 'none' : 'block';
-    document.getElementById('card-buffer').style.display   = connected ? 'block' : 'none';
-    document.getElementById('card-server').style.display   = connected ? 'block' : 'none';
-
-    if (!connected) return;
-
-    const h = state.health;
-    const u = state.usage;
-
-    // Plan badge
-    document.getElementById('plan-badge').textContent = u?.planName ?? '—';
-
-    // Buffer stats
-    document.getElementById('stat-errors').textContent  = h.errors;
-    document.getElementById('stat-warns').textContent   = h.warnings;
-    document.getElementById('stat-net').textContent     = h.networkErrors;
-
-    // Unified Timeline card
-    const timeline  = state.timeline ?? [];
-    const rootCause = state.rootCause ?? null;
-    const activityCard = document.getElementById('card-activity');
-    const activityList = document.getElementById('activity-list');
-    const rcBox        = document.getElementById('root-cause-box');
-
-    if ((timeline.length > 0 || rootCause) && activityCard) {
-      activityCard.style.display = 'block';
-
-      // Root cause strip
-      if (rootCause && rcBox) {
-        rcBox.style.display = 'block';
-        const pct = Math.round((rootCause.confidence ?? 0) * 100);
-        var rcConf = document.getElementById('rc-confidence');
-        var rcHyp  = document.getElementById('rc-hypothesis');
-        var rcFix  = document.getElementById('rc-fix');
-        if (rcConf) rcConf.textContent = pct + '% confidence';
-        if (rcHyp)  rcHyp.textContent  = rootCause.hypothesis ?? '';
-        if (rcFix) {
-          if (rootCause.fixHint) { rcFix.textContent = '💡 ' + rootCause.fixHint; rcFix.style.display = 'block'; }
-          else { rcFix.style.display = 'none'; }
-        }
-      } else if (rcBox) {
-        rcBox.style.display = 'none';
-      }
-
-      const ICON = {
-        error: '🔴', warn: '🟡', log: '⬜', request: '🟠', context: '⬜',
-        terminal: '💻', process_exit: '💥', ci_failure: '❌', ci_success: '✅', deployment: '🚀',
-      };
-      if (activityList) {
-        activityList.innerHTML = timeline.slice(-12).reverse().map(function(r) {
-          var age = Date.now() - r.ts;
-          var ageStr = age < 60000 ? Math.max(1, Math.floor(age / 1000)) + 's ago'
-                     : age < 3600000 ? Math.floor(age / 60000) + 'm ago'
-                     : Math.floor(age / 3600000) + 'h ago';
-          var icon = ICON[r.kind] || '⬜';
-          var src  = r.source || '';
-          var sha  = r.sha ? ' <span style="font-size:9px;opacity:.6">[' + escHtml(r.sha) + ']</span>' : '';
-          return '<div class="activity-row">' +
-            '<span style="flex-shrink:0;width:18px;text-align:center">' + icon + '</span>' +
-            (src ? '<span class="activity-source ' + src + '">' + src + '</span>' : '') +
-            '<span class="activity-summary">' + escHtml(r.summary) + sha + '</span>' +
-            '<span class="activity-time">' + ageStr + '</span>' +
-            '</div>';
-        }).join('');
-      }
-    } else if (activityCard) {
-      activityCard.style.display = 'none';
-    }
-
-    // Signals card
-    const signals = h.signals ?? [];
-    const signalsCard = document.getElementById('card-signals');
-    const signalsList = document.getElementById('signals-list');
-    if (signals.length > 0) {
-      signalsCard.style.display = 'block';
-      const ICON = {
-        repeated_network_error: '🔁',
-        warn_spike: '⚠️',
-        repeated_error: '❌',
-        slow_requests: '🐢',
-        auth_token_not_stored: '🔑',
-        auth_500: '🔥',
-        storage_cleared: '🗑️',
-      };
-      signalsList.innerHTML = signals.map(s => {
-        const icon      = ICON[s.kind] ?? '🔍';
-        const confPct   = Math.round((s.confidence ?? 0) * 100);
-        const barClass  = confPct >= 80 ? '' : confPct >= 55 ? ' med' : ' low';
-        const toolKey   = s.suggestedTool ?? 'quick_check';
-        // Use s.action (specific, contextual) as the button text.
-        // Truncate to 58 chars so it fits on one line in the panel.
-        const actionText = s.action
-          ? (s.action.length > 58 ? s.action.slice(0, 57) + '…' : s.action)
-          : ('▶ Run ' + toolKey);
-        return '<div class="signal-item">' +
-          '<span class="signal-icon">' + icon + '</span>' +
-          '<div class="signal-body">' +
-            '<div class="signal-msg">' + escHtml(s.message) + '</div>' +
-            '<div class="signal-meta">' +
-              '<div class="conf-bar-wrap"><div class="conf-bar-fill' + barClass + '" style="width:' + confPct + '%"></div></div>' +
-              '<span class="conf-pct">' + confPct + '%</span>' +
-            '</div>' +
-            '<button class="signal-run" onclick="copyTool(' + JSON.stringify(toolKey) + ')">▶ ' + escHtml(actionText) + '</button>' +
-          '</div>' +
-        '</div>';
-      }).join('');
-    } else {
-      signalsCard.style.display = 'none';
-    }
-
-    // Context Pack card (B2)
-    const pack = state.lastPack;
-    const packCard = document.getElementById('card-pack');
-    if (pack && pack.hasPack) {
-      packCard.style.display = 'block';
-      _currentPackText = pack.contextPack || '';
-      document.getElementById('pack-time').textContent  = pack.builtAt ? fmtRel(pack.builtAt) : '';
-      document.getElementById('pack-trigger').textContent = (pack.reason ? '[' + pack.reason + '] ' : '') + (pack.triggerMessage || '(unknown)');
-      document.getElementById('pack-counts').textContent  =
-        (pack.hypothesesCount || 0) + ' hypothesis' + ((pack.hypothesesCount || 0) === 1 ? '' : 'es') +
-        ' · ' + (pack.errorsCount || 0) + ' error' + ((pack.errorsCount || 0) === 1 ? '' : 's');
-      const hyp = pack.topHypothesis;
-      const hypBox = document.getElementById('pack-hyp');
-      if (hyp) {
-        hypBox.style.display = 'block';
-        document.getElementById('hyp-tag').textContent     = hyp.tag || '—';
-        document.getElementById('hyp-summary').textContent = hyp.summary || '';
-        const conf = (hyp.confidence || '').toLowerCase();
-        const confEl = document.getElementById('hyp-conf');
-        // Visually demoted — prefixed "belief:" so users mentally distinguish
-        // it from the headline accuracy badge below. Belief is what the
-        // model thinks; accuracy is what's actually been true.
-        confEl.textContent = 'belief: ' + (hyp.confidence || '—').toLowerCase();
-        confEl.className   = 'hyp-conf ' + conf;
-        const fixEl = document.getElementById('hyp-fix');
-        if (hyp.fixHint) {
-          fixEl.style.display = 'block';
-          fixEl.textContent   = '💡 ' + hyp.fixHint;
-        } else {
-          fixEl.style.display = 'none';
-        }
-        // Calibration strip — accuracy badge + verdict buttons. Always
-        // shown for any hypothesis (even unrated ones), so users learn
-        // from day one that they can challenge what we say.
-        const calEl = document.getElementById('hyp-calib');
-        calEl.innerHTML     = renderCalibrationHtml(hyp);
-        calEl.style.display = 'flex';
-      } else {
-        hypBox.style.display = 'none';
-      }
-    } else {
-      packCard.style.display = 'none';
-      _currentPackText = '';
-    }
-
-    // History card (C1)
-    const entries = state.history || [];
-    const histCard = document.getElementById('card-history');
-    const histList = document.getElementById('history-list');
-    if (entries.length > 0) {
-      histCard.style.display = 'block';
-      histList.innerHTML = entries.slice(0, 10).map(e => {
-        const tag = e.topHypothesis?.tag || 'baseline';
-        const reason = e.reason ? '<span class="history-reason">' + escHtml(e.reason) + '</span>' : '';
-        const cal = e.topHypothesis?.calibration;
-        // Tiny accuracy chip on each row — same source of truth as the
-        // big badge on the active hypothesis card. Surfaces "this detector
-        // has a 78% track record" everywhere it's relevant.
-        let chip = '';
-        if (cal && cal.trusted) {
-          const pct = Math.round(cal.accuracy * 100);
-          const cls = pct >= 75 ? 'good' : pct >= 50 ? 'mid' : 'poor';
-          chip = '<span class="calib-badge ' + cls + '" style="font-size:9px; padding:0 4px" title="Detector accuracy across ' + cal.verdicts + ' verdicts">' + pct + '%</span>';
-        }
-        return '<div class="history-item">' +
-          reason +
-          '<span class="history-tag">' + escHtml(tag) + '</span>' +
-          chip +
-          '<span class="history-msg" title="' + escHtml(e.triggerMessage) + '">' + escHtml(e.triggerMessage) + '</span>' +
-          '<span class="history-time">' + fmtRel(e.builtAt) + '</span>' +
-        '</div>';
-      }).join('');
-    } else {
-      histCard.style.display = 'none';
-    }
-
-    // Detector Health (global calibration view) — sorted accuracy-desc.
-    // This is the system's own scoreboard: every detector that has fired,
-    // its track record, and its trust state. Infra engineers will look
-    // here first to decide whether the engine is worth wiring in.
-    const cal = state.calibration;
-    const detCard = document.getElementById('card-detectors');
-    const detList = document.getElementById('detector-list');
-    if (cal && Array.isArray(cal.perDetector) && cal.perDetector.length > 0) {
-      detCard.style.display = 'block';
-      const overallTxt = cal.overallAccuracy !== null
-        ? 'overall ' + Math.round(cal.overallAccuracy * 100) + '% · ' + cal.trustedDetectors + '/' + cal.totalDetectors + ' trusted'
-        : cal.totalDetectors + ' detector' + (cal.totalDetectors === 1 ? '' : 's') + ' · awaiting verdicts';
-      document.getElementById('detector-summary').textContent = overallTxt;
-      const sorted = [...cal.perDetector].sort((a, b) => {
-        // Trusted first, then accuracy desc, then sample-size desc.
-        if (a.trusted !== b.trusted) return a.trusted ? -1 : 1;
-        if (b.accuracy !== a.accuracy) return b.accuracy - a.accuracy;
-        return b.verdicts - a.verdicts;
-      });
-      detList.innerHTML = sorted.map(s => {
-        let badge;
-        if (!s.trusted) {
-          badge = '<span class="calib-badge" title="Need ≥5 verdicts before trusted.">new</span>';
-        } else {
-          const pct = Math.round(s.accuracy * 100);
-          const cls = pct >= 75 ? 'good' : pct >= 50 ? 'mid' : 'poor';
-          badge = '<span class="calib-badge ' + cls + '">' + pct + '%</span>';
-        }
-        let trend = '';
-        if (typeof s.trendDelta === 'number' && s.trendDelta !== 0) {
-          const delta = Math.round(s.trendDelta * 100);
-          const arrow = delta > 0 ? '▲' : '▼';
-          const trendCls = delta > 0 ? 'up' : 'down';
-          trend = '<span class="calib-trend ' + trendCls + '">' + arrow + Math.abs(delta) + '%</span>';
-        }
-        return '<div class="det-row">' +
-          badge + trend +
-          '<span class="det-tag" title="' + escHtml(s.tag) + '">' + escHtml(s.tag) + '</span>' +
-          '<span class="det-n">' + s.verdicts + '/' + s.predictions + '</span>' +
-        '</div>';
-      }).join('');
-    } else {
-      detCard.style.display = 'none';
-    }
-
-    // Server info
-    document.getElementById('server-port').textContent     = state.port;
-    document.getElementById('server-version').textContent  = h.version;
-    document.getElementById('server-buffered').textContent = h.buffered + ' events';
-    const analysesToday = u.analysesToday ?? 0;
-    const avg = u.analysesAvgPerDay7d ?? 0;
-    document.getElementById('server-analyses').textContent =
-      analysesToday + (avg ? '  (7d avg: ' + avg + ')' : '');
-
-    // Usage
-    // Show credits card only when approaching limit (≥70%) or in overage — below
-    // that threshold the developer doesn't need to think about billing mid-session.
-    const showCredits = u.included === null || u.overage > 0 ||
-      (u.included > 0 && u.used / u.included >= 0.70);
-    document.getElementById('card-usage').style.display = (connected && showCredits) ? 'block' : 'none';
-
-    document.getElementById('usage-month').textContent  = u.month;
-    document.getElementById('usage-resets').textContent = fmtDate(u.resetsAt);
-
-    if (u.included === null) {
-      // Unlimited
-      document.getElementById('usage-unlimited').style.display = 'block';
-      document.getElementById('usage-quota').style.display     = 'none';
-      document.getElementById('usage-used-unlim').textContent  = u.used;
-    } else {
-      document.getElementById('usage-unlimited').style.display = 'none';
-      document.getElementById('usage-quota').style.display     = 'block';
-
-      const pct = u.included > 0 ? Math.min(1, u.used / u.included) : 1;
-      const bar = document.getElementById('credit-bar');
-      bar.style.width = (pct * 100) + '%';
-      bar.className   = 'credit-bar-fill' + (u.lowCredits ? ' warn' : '') + (u.overage > 0 ? ' over' : '');
-
-      document.getElementById('usage-used-label').textContent      = u.used + ' / ' + u.included + ' used';
-      document.getElementById('usage-remaining-label').textContent = (u.remaining ?? 0) + ' left';
-
-      // Low-credit notice
-      const notice = document.getElementById('notice');
-      if (u.lowCredits) {
-        notice.textContent = '⚠ Only ' + u.remaining + ' credits left this month.';
-        notice.className   = 'notice visible';
-      } else {
-        notice.className   = 'notice';
-      }
-
-      // Overage
-      if (u.overage > 0) {
-        document.getElementById('usage-overage').style.display = 'block';
-        document.getElementById('overage-count').textContent   = u.overage;
-        document.getElementById('overage-est').textContent     = '$' + (u.estimatedOverageCents / 100).toFixed(2);
-        const bs = document.getElementById('billing-status');
-        bs.textContent = u.billingStatus === 'confirmed' ? '✅ confirmed' : '⏳ pending';
-        bs.className   = 'row-value ' + (u.billingStatus === 'confirmed' ? 'billing-confirmed' : 'billing-pending');
-      } else {
-        document.getElementById('usage-overage').style.display = 'none';
-      }
-    }
-  }
-
-  function fmtDate(iso) {
-    try {
-      return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
-    } catch (_) { return iso; }
-  }
-  } catch(e) { console.error('[Mergen] panel error:', e); }
-</script>
+<script src="${scriptUri}"></script>
 </body>
 </html>`;
   }
