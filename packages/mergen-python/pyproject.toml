@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "mergen-python"
+version = "1.0.0"
+description = "Mergen Python SDK — instruments Django/FastAPI/Flask and streams telemetry to your AI IDE via MCP"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+keywords = ["mergen", "mcp", "observability", "debugging", "ai", "telemetry"]
+dependencies = []
+
+[project.optional-dependencies]
+django  = []
+fastapi = []
+flask   = []
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mergen*"]

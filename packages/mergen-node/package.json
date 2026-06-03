@@ -1,0 +1,37 @@
+{
+  "name": "mergen-node",
+  "version": "1.0.0",
+  "description": "Mergen Node.js SDK — instruments any Node.js backend and streams telemetry to your AI IDE via MCP",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "require": "./dist/index.js",
+      "import": "./dist/index.mjs",
+      "types": "./dist/index.d.ts"
+    },
+    "./middleware/express": {
+      "require": "./dist/middleware/express.js",
+      "import": "./dist/middleware/express.mjs",
+      "types": "./dist/middleware/express.d.ts"
+    },
+    "./middleware/nextjs": {
+      "require": "./dist/middleware/nextjs.js",
+      "import": "./dist/middleware/nextjs.mjs",
+      "types": "./dist/middleware/nextjs.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": ["mergen", "mcp", "observability", "debugging", "ai", "telemetry"],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}

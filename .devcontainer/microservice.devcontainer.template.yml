@@ -1,0 +1,55 @@
+# microservice.devcontainer.template.yml
+#
+# Copy this file to your microservice repo as:
+#   .devcontainer/docker-compose.devcontainer.yml
+#
+# Then update:
+#   - SERVICE_NAME  → your service identifier (e.g. "auth-api")
+#   - SERVICE_PORT  → the port your dev server listens on (e.g. 5173, 8080, 3001)
+#   - PATH_PREFIX   → the URL prefix for ingress routing (e.g. "/auth", "/api/v1")
+#   - IMAGE         → the base image for your language/runtime
+#
+# After starting, your service is reachable at:
+#   http://localhost:80/YOUR_PATH_PREFIX
+#
+# Point your OTLP exporter at:
+#   OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+#   OTEL_EXPORTER_OTLP_PROTOCOL=http/json
+# Mergen will ingest all traces and logs automatically.
+
+version: "3.8"
+
+services:
+  # Replace SERVICE_NAME with your actual service name
+  SERVICE_NAME-dev:
+    image: node:22.12.0   # Replace with your runtime image
+    command: sleep infinity
+    volumes:
+      # "cached" = host authoritative, best performance for source code on macOS/Windows
+      - ../../:/workspaces/SERVICE_NAME:cached
+      # "delegated" = container authoritative, best for build output / node_modules
+      - SERVICE_NAME-modules:/workspaces/SERVICE_NAME/node_modules:delegated
+    environment:
+      # Point OTLP SDK at Mergen (auto-ingested, no code changes needed)
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/json
+      - OTEL_SERVICE_NAME=SERVICE_NAME
+    extra_hosts:
+      # Allows container → host Mergen server access
+      - "host.docker.internal:host-gateway"
+    networks:
+      - mergen-shared-network
+    labels:
+      - "traefik.enable=true"
+      # Adjust Host and PathPrefix to match your routing needs
+      - "traefik.http.routers.SERVICE_NAME.rule=(Host(`localhost`) || Host(`host.docker.internal`)) && PathPrefix(`/PATH_PREFIX`)"
+      - "traefik.http.routers.SERVICE_NAME.entrypoints=web"
+      - "traefik.http.services.SERVICE_NAME.loadbalancer.server.port=SERVICE_PORT"
+
+volumes:
+  SERVICE_NAME-modules:
+
+networks:
+  mergen-shared-network:
+    # Attach to the central proxy network started from the Mergen devcontainer
+    external: true

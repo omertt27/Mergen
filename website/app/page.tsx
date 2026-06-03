@@ -1,8 +1,9 @@
 import CausalCanvas from '@/components/CausalCanvas'
 import Nav from '@/components/Nav'
 import Hero from '@/components/Hero'
-import Features from '@/components/Features'
 import Architecture from '@/components/Architecture'
+import Features from '@/components/Features'
+import Integrations from '@/components/Integrations'
 import Pricing from '@/components/Pricing'
 import Footer from '@/components/Footer'
 
@@ -13,8 +14,9 @@ export default function Home() {
       <Nav />
       <main className="wrap">
         <Hero />
-        <Features />
         <Architecture />
+        <Features />
+        <Integrations />
         <Pricing />
       </main>
       <Footer />

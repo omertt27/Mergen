@@ -102,6 +102,24 @@ export interface InjectedLog {
   captured: any[];
 }
 
+// ── Snapshot debugging ────────────────────────────────────────────────────────
+// A DiagnosticSnapshot is captured when a breakpoint is hit. It bundles the
+// triggering event with surrounding context so developers can replay offline.
+
+export interface DiagnosticSnapshot {
+  id: string;
+  capturedAt: number;
+  trigger: {
+    breakpointId: string;
+    eventType: string;
+    summary: string;
+  };
+  recentLogs:    any[];   // last 20 console events before trigger
+  recentNetwork: any[];   // last 10 network events before trigger
+  contextSnapshot: any | null; // most recent context (localStorage, component tree)
+  stack: string | undefined;
+}
+
 // ── Layer 4: Better Memory — Error history and fix linking ────────────────────
 
 export interface ErrorHistoryEntry {

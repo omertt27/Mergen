@@ -300,11 +300,12 @@ export function createSensorRouter(serverVersion: string): Router {
     type UnifiedRow = {
       ts: number;
       isoTs: string;
-      kind: 'error' | 'warn' | 'log' | 'request' | 'context' | 'terminal' | 'process_exit' | 'ci_failure' | 'ci_success' | 'deployment';
+      kind: 'error' | 'warn' | 'log' | 'request' | 'context' | 'terminal' | 'process_exit' | 'ci_failure' | 'ci_success' | 'deployment' | 'backend_span';
       summary: string;
       source: 'browser' | 'backend' | 'ci' | 'deploy';
       sha?: string;
       confidence?: number;
+      traceId?: string;
     };
 
     const rows: UnifiedRow[] = [];
@@ -371,6 +372,24 @@ export function createSensorRouter(serverVersion: string): Router {
         summary: `Deploy to ${d.environment}: ${d.status}${d.service ? ' (' + d.service + ')' : ''}${d.actor ? ' by ' + d.actor : ''}`,
         source: 'deploy',
         sha: d.shortSha ?? d.sha.slice(0, 7),
+      });
+    }
+
+    // Backend SDK spans
+    const browserTraceIds = new Set(
+      store.getNetwork(200, undefined, since)
+        .filter(n => n.traceId)
+        .map(n => n.traceId as string),
+    );
+    for (const s of store.getBackendSpans(limit, undefined, since)) {
+      const joined = browserTraceIds.has(s.traceId);
+      rows.push({
+        ts: s.timestamp, isoTs: new Date(s.timestamp).toISOString(),
+        kind: 'backend_span',
+        summary: `[${s.service}] ${s.method} ${s.route} → ${s.statusCode} (${s.durationMs}ms)${s.error ? ' — ' + s.error : ''}`,
+        source: 'backend',
+        confidence: joined ? 1.0 : 0.5,
+        traceId: s.traceId,
       });
     }
 
@@ -617,6 +636,60 @@ export function createSensorRouter(serverVersion: string): Router {
 
     const events = historyStore.query({ since, limit, level, type });
     res.json({ ok: true, count: events.length, events });
+  });
+
+  // ── SDK Status ───────────────────────────────────────────────────────────
+  // Returns active backend SDK connections (Node.js / Python services).
+  // Scans recent console events for mergen://node/* and mergen://python/* URLs.
+  router.get('/sdk-status', (_req, res) => {
+    const logs = store.getLogs(500);
+    const spans = store.getBackendSpans(200);
+    const services = new Map<string, { sdk: string; lastSeen: number; errorCount: number; spanCount: number }>();
+
+    for (const e of logs) {
+      if (!e.url?.startsWith('mergen://node/') && !e.url?.startsWith('mergen://python/')) continue;
+      const parts = e.url.split('/');
+      const sdk  = parts[2] ?? 'unknown';
+      const name = parts[3] ?? 'unknown';
+      const key  = `${sdk}/${name}`;
+      const prev = services.get(key);
+      services.set(key, {
+        sdk,
+        lastSeen: Math.max(e.timestamp, prev?.lastSeen ?? 0),
+        errorCount: (prev?.errorCount ?? 0) + (e.level === 'error' ? 1 : 0),
+        spanCount: prev?.spanCount ?? 0,
+      });
+    }
+    for (const s of spans) {
+      const key = `${s.sdk}/${s.service}`;
+      const prev = services.get(key);
+      services.set(key, {
+        sdk: s.sdk,
+        lastSeen: Math.max(s.timestamp, prev?.lastSeen ?? 0),
+        errorCount: (prev?.errorCount ?? 0) + (s.statusCode >= 400 ? 1 : 0),
+        spanCount: (prev?.spanCount ?? 0) + 1,
+      });
+    }
+
+    res.json({ ok: true, services: Object.fromEntries(services) });
+  });
+
+  // ── Trace detail ─────────────────────────────────────────────────────────
+  // Returns all events sharing a single W3C traceId:
+  // the browser network event + backend spans + backend log lines.
+  router.get('/trace/:traceId', (req, res) => {
+    const traceId = req.params['traceId']?.toLowerCase();
+    if (!traceId || !/^[0-9a-f]{32}$/.test(traceId)) {
+      res.status(400).json({ error: 'invalid traceId — must be 32 hex chars' });
+      return;
+    }
+
+    const browserNet   = store.getNetwork(200).filter(n => n.traceId?.toLowerCase() === traceId);
+    const backendSpans = store.getBackendSpans(50).filter(s => s.traceId.toLowerCase() === traceId);
+    const backendLogs  = store.getTerminalOutput(200).filter(t => t.traceId?.toLowerCase() === traceId);
+
+    const found = browserNet.length + backendSpans.length + backendLogs.length > 0;
+    res.json({ ok: true, traceId, found, browserNet, backendSpans, backendLogs });
   });
 
   return router;

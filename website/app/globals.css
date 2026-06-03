@@ -183,6 +183,8 @@ h2 {
 .feature-card:nth-child(2) { grid-column: 8 / span 5; margin-top: 5rem; }
 .feature-card:nth-child(3) { grid-column: 2 / span 5; }
 .feature-card:nth-child(4) { grid-column: 8 / span 4; margin-top: -1rem; }
+.feature-card:nth-child(5) { grid-column: 1 / span 6; margin-top: 2rem; }
+.feature-card:nth-child(6) { grid-column: 7 / span 6; margin-top: 2rem; }
 
 .feature-num {
   font-family: var(--font-geist-mono), monospace;
@@ -323,6 +325,127 @@ footer {
 }
 .foot-inner div:last-child { display: flex; gap: 3rem; }
 
+/* ─── HERO BADGES ──────────────────────────────────────────────────────── */
+.hero-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 3rem;
+}
+.hero-badge {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--gray-600);
+  border: 1px solid var(--gray-800);
+  padding: 4px 10px;
+  border-radius: 2px;
+  transition: border-color 0.3s, color 0.3s;
+}
+.hero-badge:hover { border-color: var(--accent); color: var(--accent-text); }
+
+/* ─── ARCHITECTURE FLOW ─────────────────────────────────────────────────── */
+.arch-flow {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  width: 100%;
+}
+.arch-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  flex-shrink: 0;
+  width: 200px;
+}
+.arch-mini-box {
+  border: 1px solid var(--gray-800);
+  padding: 1rem 1.25rem;
+  background: var(--bg);
+  transition: border-color 0.3s;
+}
+.arch-mini-box:hover { border-color: var(--gray-700); }
+.arch-flow-connector {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0 0.5rem;
+}
+.arch-flow-line {
+  width: 100%;
+  height: 1px;
+  background: linear-gradient(90deg, var(--gray-800), var(--accent), var(--gray-800));
+}
+.arch-flow-arrow {
+  font-size: 1.2rem;
+  color: var(--accent);
+  line-height: 1;
+}
+
+/* ─── INTEGRATIONS ──────────────────────────────────────────────────────── */
+.integ-grid {
+  display: flex;
+  align-items: center;
+  gap: 3rem;
+}
+.integ-label {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.55rem;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: var(--gray-600);
+  margin-bottom: 1.5rem;
+}
+.integ-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+}
+.integ-row-sm {
+  grid-template-columns: repeat(2, 1fr);
+}
+.integ-card {
+  border: 1px solid var(--gray-800);
+  padding: 0.9rem 1rem;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  transition: border-color 0.3s, background 0.3s;
+}
+.integ-card:hover { border-color: var(--gray-700); background: #0d0d0d; }
+.integ-card-accent { border-color: rgba(165, 243, 252, 0.12); }
+.integ-card-accent:hover { border-color: var(--accent); }
+.integ-name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--white);
+}
+.integ-tag {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.55rem;
+  color: var(--gray-600);
+}
+.integ-divider {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+  text-align: center;
+}
+.integ-arrow {
+  font-size: 1.5rem;
+  color: var(--accent);
+  line-height: 1;
+}
+
 /* ─── ANIMATIONS ───────────────────────────────────────────────────────── */
 @keyframes pulse {
   0%   { opacity: 0.5; transform: scale(0.9); box-shadow: 0 0 0 0 rgba(165, 243, 252, 0.4); }
@@ -339,6 +462,15 @@ footer {
   .arch-content { flex-direction: column; gap: 4rem; }
   .arch-connector { height: 80px; width: 1px; margin: 0; }
   .arch-connector::after { bottom: 0; top: auto; right: -3px; }
+  .arch-flow { flex-direction: column; align-items: stretch; }
+  .arch-col { width: 100%; flex-direction: row; flex-wrap: wrap; }
+  .arch-mini-box { flex: 1; min-width: 140px; }
+  .arch-flow-connector { flex-direction: row; padding: 0.5rem 0; }
+  .arch-flow-line { height: 100%; width: 1px; flex: 1; background: linear-gradient(180deg, var(--gray-800), var(--accent), var(--gray-800)); }
+  .integ-grid { flex-direction: column; gap: 2rem; }
+  .integ-row { grid-template-columns: repeat(2, 1fr); }
+  .integ-divider { flex-direction: row; }
+  .integ-arrow { transform: rotate(90deg); }
   .price-row { flex-direction: column; }
   .price-col { border-right: none; border-bottom: 1px solid var(--gray-800); }
 }

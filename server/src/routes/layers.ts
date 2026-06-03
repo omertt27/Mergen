@@ -39,8 +39,41 @@ layersRouter.post('/mock-hit', (req: Request, res: Response): void => {
   }
 });
 
+// ── Snapshot debugging ────────────────────────────────────────────────────────
+// GET  /snapshots        → list all captured diagnostic snapshots (newest first)
+// GET  /snapshots/:id    → get one snapshot as JSON (downloadable bundle)
+// DELETE /snapshots      → clear all snapshots
+
+layersRouter.get('/snapshots', (_req: Request, res: Response): void => {
+  const snaps = layer3Store.listSnapshots().map(s => ({
+    id:         s.id,
+    capturedAt: s.capturedAt,
+    capturedAtIso: new Date(s.capturedAt).toISOString(),
+    trigger:    s.trigger,
+    logCount:   s.recentLogs.length,
+    netCount:   s.recentNetwork.length,
+    hasContext: !!s.contextSnapshot,
+  }));
+  res.json({ ok: true, count: snaps.length, snapshots: snaps });
+});
+
+layersRouter.get('/snapshots/:id', (req: Request, res: Response): void => {
+  const snap = layer3Store.getSnapshot(req.params['id'] ?? '');
+  if (!snap) {
+    res.status(404).json({ error: 'snapshot not found' });
+    return;
+  }
+  res.setHeader('Content-Disposition', `attachment; filename="mergen-snapshot-${snap.id}.json"`);
+  res.json(snap);
+});
+
+layersRouter.delete('/snapshots', (_req: Request, res: Response): void => {
+  layer3Store.clearSnapshots();
+  res.json({ ok: true });
+});
+
 // Prune old data periodically
 setInterval(() => {
   layer2Store.pruneEventIndex();
   layer3Store.pruneOldCommands();
-}, 30_000); // Every 30 seconds
+}, 30_000);

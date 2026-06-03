@@ -5,8 +5,9 @@ const plans = [
     period: '/mo',
     features: [
       '500 reasoning calls / month',
-      'Full local ring buffer',
-      'Agent-native extension',
+      'Chrome extension + browser capture',
+      'Snapshot debugging (50 captures)',
+      'PII Shield — client-side masking',
       'Standard MCP tools',
     ],
     cta: 'Join Waitlist',
@@ -18,9 +19,10 @@ const plans = [
     period: '/mo',
     features: [
       'Unlimited reasoning calls',
-      'Microservice fleet tracing',
-      'Native Source Map resolution',
-      'OTel-compliant telemetry',
+      'Node.js + Python SDK instrumentation',
+      'OTLP receiver — any OTel service',
+      'Dynamic logpoints + trace correlation',
+      'Devcontainer templates + Traefik ingress',
     ],
     cta: 'Start Free Trial',
     ctaClass: 'btn btn-white',
@@ -31,10 +33,11 @@ const plans = [
     price: 'Custom',
     period: '',
     features: [
-      'Air-gapped deployment',
-      'Team-wide causal graph',
-      'Custom security policies',
-      'DLP-compliant redaction',
+      'Air-gapped OTLP pipeline',
+      'Multi-tenant isolation + cost chargeback',
+      'DLP-compliant PII redaction policies',
+      'Audit log export + SIEM integration',
+      'SSO / mTLS zero-trust gateway',
     ],
     cta: 'Contact Sales',
     ctaClass: 'btn btn-outline',
@@ -44,8 +47,8 @@ const plans = [
 export default function Pricing() {
   return (
     <section id="access">
-      <span className="section-label">03 // The Access</span>
-      <h2>Machine Reasoning Credits.</h2>
+      <span className="section-label">04 // Pricing</span>
+      <h2>Start local.<br />Scale to enterprise.</h2>
 
       <div className="price-row mt-lg">
         {plans.map((plan) => (

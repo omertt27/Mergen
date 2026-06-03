@@ -483,6 +483,107 @@ async function checkContentScript() {
   } catch { /* ignore — non-injectable page */ }
 }
 
+// ── PII Shield ───────────────────────────────────────────────────────────────
+// Client-side pattern scanner. Detects sensitive tokens in recent event data
+// and shows a per-entity toggle so the developer can choose what to redact.
+// The override list is in-memory only — never persisted or transmitted.
+
+const PII_PATTERNS = [
+  { type: 'JWT',        re: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g },
+  { type: 'Bearer',     re: /Bearer\s+[A-Za-z0-9\-._~+/]{20,}/gi },
+  { type: 'API Key',    re: /(?:api[_-]?key|apikey|access[_-]?key)[^\s"']*["'\s:=]+([A-Za-z0-9\-._]{20,})/gi },
+  { type: 'Email',      re: /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g },
+  { type: 'AWS Key',    re: /AKIA[0-9A-Z]{16}/g },
+  { type: 'Private Key',re: /-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----/g },
+  { type: 'Password',   re: /(?:password|passwd|pwd)[^\s"']*["'\s:=]+["']?([^\s"',;&]{8,})["']?/gi },
+];
+
+// Override set: entity values the user has toggled to "allow through"
+const _piiAllowlist = new Set();
+
+function scanForPii(text) {
+  const found = [];
+  for (const { type, re } of PII_PATTERNS) {
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      const value = (m[1] || m[0]).slice(0, 60);
+      if (!found.find(f => f.value === value)) {
+        found.push({ type, value, masked: !_piiAllowlist.has(value) });
+      }
+    }
+  }
+  return found;
+}
+
+async function refreshPiiPanel(port) {
+  try {
+    const data = await fetch(`${getBaseUrl(port)}/health`, { signal: AbortSignal.timeout(2000) }).then(r => r.json());
+    // Also pull recent log text from health signals
+    const signals = data.signals ?? [];
+    const text = signals.map(s => s.message + ' ' + s.action).join(' ');
+    const entities = scanForPii(text);
+
+    const badge = document.getElementById('pii-badge');
+    const list  = document.getElementById('pii-list');
+
+    if (entities.length === 0) {
+      badge.textContent = '';
+      list.innerHTML = '<div style="font-size:0.65rem;color:var(--text-dim)">No sensitive patterns detected.</div>';
+      return;
+    }
+
+    badge.textContent = String(entities.length);
+
+    list.innerHTML = entities.map(e => {
+      const masked = !_piiAllowlist.has(e.value);
+      const preview = masked ? e.value.slice(0, 8) + '••••' : e.value;
+      return `<div class="pii-entity" data-value="${encodeURIComponent(e.value)}">
+        <span class="pii-type">${e.type}</span>
+        <span class="pii-value">${preview}</span>
+        <label class="pii-toggle">
+          <input type="checkbox" class="pii-override" ${masked ? '' : 'checked'} style="margin:0 2px 0 0" />
+          Allow
+        </label>
+      </div>`;
+    }).join('');
+
+    list.querySelectorAll('.pii-override').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const row = cb.closest('.pii-entity');
+        const val = decodeURIComponent(row.dataset.value || '');
+        if (cb.checked) {
+          _piiAllowlist.add(val);
+        } else {
+          _piiAllowlist.delete(val);
+        }
+        // Send override list to content script for runtime use
+        chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+          if (tab?.id) {
+            chrome.tabs.sendMessage(tab.id, {
+              type: 'MERGEN_PII_ALLOWLIST',
+              allowlist: Array.from(_piiAllowlist),
+            }).catch(() => {});
+          }
+        });
+      });
+    });
+  } catch { /* server unreachable */ }
+}
+
+const btnPii   = document.getElementById('btn-pii');
+const piiPanel = document.getElementById('pii-panel');
+const piiClose = document.getElementById('pii-close');
+
+btnPii.addEventListener('click', async () => {
+  const isOpen = piiPanel.classList.toggle('open');
+  if (isOpen) {
+    await refreshPiiPanel(parseInt(portInput.value, 10));
+  }
+});
+
+piiClose.addEventListener('click', () => piiPanel.classList.remove('open'));
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 (async () => {

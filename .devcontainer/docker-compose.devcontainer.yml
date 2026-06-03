@@ -1,0 +1,66 @@
+version: "3.8"
+
+# ── Central Local Ingress & Shared Network Setup ──────────────────────────────
+# Traefik acts as the single ingress point for all local microservices.
+# Each microservice repo has its own devcontainer that attaches to shared-network
+# and declares its routing labels. This eliminates port conflicts across teams.
+#
+# Developer access points:
+#   http://localhost:3000       → Mergen server / MCP / dashboard
+#   http://localhost:8080       → Traefik admin dashboard
+#   http://localhost:80/svcN    → any attached microservice via label routing
+#
+# Performance note: on macOS/Windows, running inside WSL2 avoids disk-I/O
+# performance degradation from host-container filesystem crossing.
+
+services:
+  traefik-proxy:
+    image: traefik:v2.11.0
+    container_name: mergen-traefik
+    restart: unless-stopped
+    ports:
+      - "80:80"           # Main ingress
+      - "8080:8080"       # Traefik admin dashboard
+    volumes:
+      # Docker socket (read-only) — allows Traefik to discover containers dynamically
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik.yml:/etc/traefik/traefik.yml:ro
+    networks:
+      - shared-network
+
+  mergen-dev:
+    image: node:22.12.0
+    container_name: mergen-dev
+    command: sleep infinity
+    user: node
+    volumes:
+      # Source code — "cached" mode: host is authoritative, max read-write speed
+      - ../../:/workspaces/Mergen:cached
+      # Docker socket for Testcontainers (Docker-from-Docker / DinD)
+      - /var/run/docker.sock:/var/run/docker.sock
+      # SSH credentials from host for authenticated Git operations
+      - ~/.ssh:/home/node/.ssh:ro
+    environment:
+      - MERGEN_PORT=3000
+      - MERGEN_BIND=0.0.0.0
+      - MERGEN_DOCKER_LOGS=false
+    networks:
+      - shared-network
+    labels:
+      - "traefik.enable=true"
+      # Route /mergen/* to the Mergen server on port 3000
+      - "traefik.http.routers.mergen.rule=(Host(`localhost`) || Host(`host.docker.internal`)) && PathPrefix(`/mergen`)"
+      - "traefik.http.routers.mergen.entrypoints=web"
+      - "traefik.http.services.mergen.loadbalancer.server.port=3000"
+      # Route /otlp/* to the OTLP receiver on port 4318
+      - "traefik.http.routers.otlp.rule=(Host(`localhost`) || Host(`host.docker.internal`)) && PathPrefix(`/otlp`)"
+      - "traefik.http.routers.otlp.entrypoints=web"
+      - "traefik.http.services.otlp.loadbalancer.server.port=4318"
+
+networks:
+  shared-network:
+    name: mergen-shared-network
+    # attachable: true allows isolated devcontainers in other repos to attach
+    # via `networks: { mergen-shared-network: { external: true } }`
+    driver: bridge
+    attachable: true

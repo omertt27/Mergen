@@ -1,13 +1,17 @@
-import { Breakpoint, MockResponse, InjectedLog } from './extended-buffer.js';
+import { Breakpoint, MockResponse, InjectedLog, DiagnosticSnapshot } from './extended-buffer.js';
 import { randomBytes } from 'crypto';
+import { store } from './buffer.js';
 
 // ── Layer 3: Better Action Store ──────────────────────────────────────────────
+
+const MAX_SNAPSHOTS = 50;
 
 class Layer3Store {
   private breakpoints = new Map<string, Breakpoint>();
   private mocks = new Map<string, MockResponse>();
   private injectedLogs = new Map<string, InjectedLog>();
-  private pendingCommands = new Map<string, any>(); // Commands to send to extension
+  private pendingCommands = new Map<string, any>();
+  private snapshots: DiagnosticSnapshot[] = [];
 
   /** Set a conditional breakpoint */
   setBreakpoint(condition: string, eventType: Breakpoint['eventType'], pattern: string): string {
@@ -33,15 +37,56 @@ class Layer3Store {
     return Array.from(this.breakpoints.values());
   }
 
-  /** Check if event matches any breakpoint */
+  /** Check if event matches any breakpoint. Captures a snapshot on hit. */
   checkBreakpoint(event: any): Breakpoint | null {
     for (const bp of this.breakpoints.values()) {
       if (this.matchesBreakpoint(event, bp)) {
         bp.hitCount++;
+        this._captureSnapshot(bp, event);
         return bp;
       }
     }
     return null;
+  }
+
+  private _captureSnapshot(bp: Breakpoint, triggeringEvent: any): void {
+    const recentLogs    = store.getLogs(20);
+    const recentNetwork = store.getNetwork(10);
+    const contextSnaps  = store.getContext(1);
+
+    const summary = triggeringEvent.type === 'console'
+      ? (triggeringEvent.args ?? []).map((a: unknown) => typeof a === 'string' ? a : JSON.stringify(a)).join(' ').slice(0, 200)
+      : triggeringEvent.type === 'network'
+        ? `${triggeringEvent.method} ${triggeringEvent.url} → ${triggeringEvent.status}`
+        : triggeringEvent.type;
+
+    const snap: DiagnosticSnapshot = {
+      id:          randomBytes(8).toString('hex'),
+      capturedAt:  Date.now(),
+      trigger:     { breakpointId: bp.id, eventType: triggeringEvent.type, summary },
+      recentLogs,
+      recentNetwork,
+      contextSnapshot: contextSnaps[0] ?? null,
+      stack:       triggeringEvent.stack,
+    };
+
+    this.snapshots.push(snap);
+    if (this.snapshots.length > MAX_SNAPSHOTS) this.snapshots.shift();
+  }
+
+  /** Return all captured snapshots, newest first. */
+  listSnapshots(): DiagnosticSnapshot[] {
+    return [...this.snapshots].reverse();
+  }
+
+  /** Get a single snapshot by id. */
+  getSnapshot(id: string): DiagnosticSnapshot | undefined {
+    return this.snapshots.find(s => s.id === id);
+  }
+
+  /** Clear all snapshots. */
+  clearSnapshots(): void {
+    this.snapshots = [];
   }
 
   /** Register a mock response */

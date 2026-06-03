@@ -245,7 +245,7 @@
   // Poll for commands from server
   function pollCommands() {
     try {
-      fetch(getServerUrl('/commands'))
+      originalFetch(getServerUrl('/commands'))
         .then(res => res.json())
         .then(data => {
           if (data.commands && Array.isArray(data.commands)) {
@@ -327,7 +327,7 @@
           const result = eval(payload.expression);
 
           // Send captured data to server
-          fetch(getServerUrl('/log-capture'), {
+          originalFetch(getServerUrl('/log-capture'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id: payload.id, data: result }),

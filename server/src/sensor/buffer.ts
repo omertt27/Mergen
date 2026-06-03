@@ -13,6 +13,8 @@ export const ConsoleEventSchema = z.object({
   url: z.string(),
   timestamp: z.number(),
   buildSha: z.string().optional(),
+  /** SDK that produced this event — 'node' or 'python' for backend events. */
+  sdk: z.enum(['node', 'python']).optional(),
   /** Identity of the engineer whose browser captured this event. Set once in the
    *  extension popup or auto-read from VS Code git config. Enables per-engineer
    *  filtering in team mode. */
@@ -179,6 +181,25 @@ export const DeploymentEventSchema = z.object({
   timestamp: z.number(),
 });
 
+export const BackendSpanEventSchema = z.object({
+  type: z.literal('backend_span'),
+  /** Service name — set via MERGEN_NAME env var or auto-detected from package.json */
+  service: z.string(),
+  /** Matched route pattern, e.g. "/api/users/:id" */
+  route: z.string(),
+  method: z.string(),
+  statusCode: z.number().int(),
+  durationMs: z.number(),
+  /** W3C traceId (32 hex chars) — the join key linking this span to a browser network event */
+  traceId: z.string(),
+  spanId: z.string(),
+  parentSpanId: z.string().optional(),
+  userId: z.string().optional(),
+  error: z.string().optional(),
+  sdk: z.enum(['node', 'python']),
+  timestamp: z.number(),
+});
+
 export const BrowserEventSchema = z.discriminatedUnion('type', [
   ConsoleEventSchema,
   NetworkEventSchema,
@@ -191,6 +212,7 @@ export const BrowserEventSchema = z.discriminatedUnion('type', [
   ProcessExitEventSchema,
   CIEventSchema,
   DeploymentEventSchema,
+  BackendSpanEventSchema,
 ]);
 
 export type ConsoleEvent = z.infer<typeof ConsoleEventSchema>;
@@ -204,6 +226,7 @@ export type TestResultEvent = z.infer<typeof TestResultEventSchema>;
 export type ProcessExitEvent = z.infer<typeof ProcessExitEventSchema>;
 export type CIEvent = z.infer<typeof CIEventSchema>;
 export type DeploymentEvent = z.infer<typeof DeploymentEventSchema>;
+export type BackendSpanEvent = z.infer<typeof BackendSpanEventSchema>;
 export type WebSocketFrame = z.infer<typeof WebSocketFrameSchema>;
 export type BrowserEvent = z.infer<typeof BrowserEventSchema>;
 
@@ -269,6 +292,7 @@ export interface BufferStore {
   getProcessExits(limit?: number, reason?: ProcessExitEvent['reason'], since?: number): ProcessExitEvent[];
   getCIEvents(limit?: number, status?: CIEvent['status'], since?: number): CIEvent[];
   getDeployments(limit?: number, environment?: string, since?: number): DeploymentEvent[];
+  getBackendSpans(limit?: number, service?: string, since?: number): BackendSpanEvent[];
   /** Lightweight pattern scan — no credit cost. Used by /health and quick_check. */
   getSignals(): SessionSignal[];
   /** O(1) counters for health endpoint — no iteration needed. */
@@ -513,6 +537,18 @@ class RingBuffer implements BufferStore {
     for (const e of this._iterate()) {
       if (e.type !== 'deployment') continue;
       if (environment && e.environment !== environment) continue;
+      if (since !== undefined && e.timestamp < since) continue;
+      results.push(e);
+    }
+    return results.slice(-cap);
+  }
+
+  getBackendSpans(limit = 50, service?: string, since?: number): BackendSpanEvent[] {
+    const cap = Math.min(limit, _getEffectiveBufferSize());
+    const results: BackendSpanEvent[] = [];
+    for (const e of this._iterate()) {
+      if (e.type !== 'backend_span') continue;
+      if (service && e.service !== service) continue;
       if (since !== undefined && e.timestamp < since) continue;
       results.push(e);
     }

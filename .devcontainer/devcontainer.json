@@ -1,0 +1,49 @@
+{
+  "name": "Mergen Dev",
+  "dockerComposeFile": "docker-compose.devcontainer.yml",
+  "service": "mergen-dev",
+  "workspaceFolder": "/workspaces/Mergen",
+
+  // ── IDE extensions auto-installed inside the container ───────────────────
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "ms-vscode.vscode-typescript-next",
+        "bradlc.vscode-tailwindcss",
+        "GitHub.copilot",
+        "anthropic.claude-code"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "typescript.tsdk": "node_modules/typescript/lib",
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  },
+
+  // ── Lifecycle hooks ──────────────────────────────────────────────────────
+  "postCreateCommand": "cd server && npm install && npm run build && cd ../website && npm install",
+  "postStartCommand": "cd server && npm start &",
+
+  // ── Container options ────────────────────────────────────────────────────
+  "containerEnv": {
+    "MERGEN_PORT": "3000",
+    "MERGEN_BIND": "0.0.0.0"
+  },
+
+  // ── Forward ports ────────────────────────────────────────────────────────
+  // 3000 → Mergen MCP server + dashboard
+  // 4318 → OTLP HTTP receiver
+  // 5173 → Vite dev server (typical frontend)
+  "forwardPorts": [3000, 4318, 5173],
+  "portsAttributes": {
+    "3000": { "label": "Mergen Server", "onAutoForward": "notify" },
+    "4318": { "label": "OTLP Receiver", "onAutoForward": "silent" },
+    "5173": { "label": "Frontend Dev Server", "onAutoForward": "openBrowser" }
+  },
+
+  "remoteUser": "node"
+}

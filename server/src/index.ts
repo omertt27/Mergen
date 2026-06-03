@@ -115,6 +115,19 @@ async function main(): Promise<void> {
     logger.info({ port, host: BIND_HOST }, `HTTP ingest listening on http://${BIND_HOST}:${port}`);
   });
 
+  // ── OTLP HTTP receiver on standard port 4318 ──────────────────────────────
+  // Any OpenTelemetry SDK can point OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+  // and Mergen will ingest its traces and logs without any SDK changes.
+  // Only started if port 4318 is available; fails silently if already occupied.
+  if (await isPortAvailable(4318)) {
+    const otlpApp = createApp({ serverVersion: SERVER_VERSION, localSecret, port: 4318, bindHost: BIND_HOST });
+    otlpApp.listen(4318, BIND_HOST, () => {
+      logger.info('OTLP HTTP receiver listening on http://127.0.0.1:4318');
+    });
+  } else {
+    logger.warn('port 4318 in use — OTLP receiver not started on dedicated port (still available on main port)');
+  }
+
   // ── MCP stdio server ───────────────────────────────────────────────────────
   const mcp = new McpServer(
     { name: 'mergen', version: SERVER_VERSION },

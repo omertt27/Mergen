@@ -82,6 +82,21 @@ function buildDashboardHtml(version: string, nonce: string): string {
   .tl-src.ci{background:rgba(59,130,246,.15);color:var(--blue)}
   .tl-src.deploy{background:rgba(34,197,94,.15);color:var(--green)}
   .tl-src.backend{background:rgba(249,115,22,.15);color:var(--orange)}
+  .tl-src.node{background:rgba(104,211,145,.15);color:#68d391}
+  .tl-src.python{background:rgba(246,173,85,.15);color:#f6ad55}
+  .tl-joined{font-size:9px;color:var(--green);flex-shrink:0;cursor:pointer;text-decoration:underline}
+  /* Trace detail panel */
+  #trace-panel{display:none;margin-bottom:16px}
+  .trace-section{margin-bottom:10px}
+  .trace-section-title{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+  .trace-row{font-size:11px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);font-family:monospace}
+  .trace-row:last-child{border-bottom:none}
+  /* SDK card */
+  .sdk-row{display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px}
+  .sdk-row:last-child{border-bottom:none}
+  .sdk-badge{font-size:10px;font-weight:700;padding:1px 6px;border-radius:3px}
+  .sdk-badge.node{background:rgba(104,211,145,.15);color:#68d391}
+  .sdk-badge.python{background:rgba(246,173,85,.15);color:#f6ad55}
   .tl-summary{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .tl-sha{flex-shrink:0;font-size:10px;color:var(--muted);font-family:monospace}
   /* Side stats */
@@ -153,6 +168,14 @@ function buildDashboardHtml(version: string, nonce: string): string {
 
   <div class="grid">
     <div>
+      <div class="card" id="trace-panel">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div class="card-title" style="margin:0">Trace Detail <span id="trace-id-label" style="font-family:monospace;font-size:10px;font-weight:400;letter-spacing:0;text-transform:none"></span></div>
+          <button onclick="closeTrace()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px">✕</button>
+        </div>
+        <div id="trace-content"></div>
+      </div>
+
       <div class="card">
         <div class="card-title">Unified Timeline <span style="font-weight:400;text-transform:none;letter-spacing:0" id="tl-window"></span></div>
         <div id="tl-list"><div class="empty">Connecting…</div></div>
@@ -170,12 +193,18 @@ function buildDashboardHtml(version: string, nonce: string): string {
         <div id="ci-list"></div>
       </div>
 
+      <div class="card" id="sdk-card">
+        <div class="card-title">Backend SDKs</div>
+        <div id="sdk-list"><div style="font-size:11px;color:var(--muted)">No SDK connections yet.</div></div>
+      </div>
+
       <div class="card">
         <div class="card-title">Connect more signals</div>
         <div style="font-size:11px;color:var(--muted);line-height:1.8">
+          Node.js: <code style="color:var(--text)">npm install mergen-node</code><br>
+          Python: <code style="color:var(--text)">pip install mergen-python</code><br>
           Stream backend: <code style="color:var(--text)">mergen-server watch npm start</code><br>
           CI results: <code style="color:var(--text)">POST /ci/github</code><br>
-          Deployments: <code style="color:var(--text)">POST /deployments</code><br>
           Docker logs: <code style="color:var(--text)">MERGEN_DOCKER_LOGS=true</code>
         </div>
       </div>
@@ -189,6 +218,7 @@ function buildDashboardHtml(version: string, nonce: string): string {
 const ICON = {
   error:'🔴',warn:'🟡',log:'⬜',request:'🟠',context:'⬜',
   terminal:'💻',process_exit:'💥',ci_failure:'❌',ci_success:'✅',deployment:'🚀',
+  backend_span:'🔷',
 };
 
 function esc(s){
@@ -203,6 +233,62 @@ function rel(ms){
 }
 
 function time(iso){return iso.slice(11,19);}
+
+async function pollSdkStatus(){
+  try{
+    const {services} = await fetch('/sdk-status').then(r=>r.json());
+    const keys = Object.keys(services||{});
+    const el = document.getElementById('sdk-list');
+    if(keys.length===0){
+      el.innerHTML='<div style="font-size:11px;color:var(--muted)">No SDK connections yet.<br>Install <code>mergen-node</code> or <code>mergen-python</code>.</div>';
+      return;
+    }
+    el.innerHTML=keys.map(k=>{
+      const s=services[k];
+      const ago=rel(s.lastSeen);
+      const errBadge=s.errorCount>0?'<span class="badge badge-red">'+s.errorCount+' err</span>':'';
+      return '<div class="sdk-row">'+
+        '<span><span class="sdk-badge '+s.sdk+'">'+s.sdk+'</span> '+esc(k.split('/')[1]||k)+'</span>'+
+        '<span style="display:flex;align-items:center;gap:6px">'+errBadge+'<span style="font-size:10px;color:var(--muted)">'+ago+' ago</span></span>'+
+      '</div>';
+    }).join('');
+  }catch(e){}
+}
+
+async function showTrace(traceId){
+  try{
+    const data = await fetch('/trace/'+traceId).then(r=>r.json());
+    const panel = document.getElementById('trace-panel');
+    const content = document.getElementById('trace-content');
+    document.getElementById('trace-id-label').textContent = traceId;
+    panel.style.display='block';
+
+    let html='';
+    if(data.browserNet&&data.browserNet.length>0){
+      html+='<div class="trace-section"><div class="trace-section-title">Browser (fetch/XHR)</div>';
+      html+=data.browserNet.map(n=>'<div class="trace-row">'+esc(n.method)+' '+esc(n.url)+' → '+n.status+' ('+n.duration+'ms)'+(n.error?' — '+esc(n.error):'')+'</div>').join('');
+      html+='</div>';
+    }
+    if(data.backendSpans&&data.backendSpans.length>0){
+      html+='<div class="trace-section"><div class="trace-section-title">Backend Spans</div>';
+      html+=data.backendSpans.map(s=>'<div class="trace-row"><span class="sdk-badge '+s.sdk+'" style="margin-right:4px">'+s.sdk+'</span>'+esc(s.service)+' — '+esc(s.method)+' '+esc(s.route)+' → '+s.statusCode+' ('+s.durationMs+'ms)'+(s.error?' — '+esc(s.error):'')+'</div>').join('');
+      html+='</div>';
+    }
+    if(data.backendLogs&&data.backendLogs.length>0){
+      html+='<div class="trace-section"><div class="trace-section-title">Backend Logs (traceId in stdout)</div>';
+      html+=data.backendLogs.map(t=>'<div class="trace-row">'+esc('['+t.terminalName+'] '+t.data.slice(0,200))+'</div>').join('');
+      html+='</div>';
+    }
+    const joined = (data.browserNet&&data.browserNet.length>0)&&(data.backendSpans&&data.backendSpans.length>0);
+    html+='<div style="font-size:11px;margin-top:8px;color:'+(joined?'var(--green)':'var(--yellow)')+'">'+
+      (joined?'✅ EXACT JOIN — browser request matched to backend span':'⚠ Partial — check SDK instrumentation')+'</div>';
+    content.innerHTML=html;
+  }catch(e){ console.warn('trace fetch failed',e); }
+}
+
+function closeTrace(){
+  document.getElementById('trace-panel').style.display='none';
+}
 
 async function poll(){
   try{
@@ -242,12 +328,26 @@ async function poll(){
       tlList.innerHTML=rows.slice(-30).reverse().map(r=>{
         const src=r.source||'';
         const sha=r.sha?'<span class="tl-sha">['+esc(r.sha)+']</span>':'';
+        // For backend spans, show sdk badge instead of generic "backend"
+        let srcBadge='';
+        if(r.kind==='backend_span'&&r.summary){
+          const sdkMatch=r.summary.match(/^\[(node|python):/);
+          const sdkName=sdkMatch?sdkMatch[1]:null;
+          srcBadge=sdkName?'<span class="tl-src '+sdkName+'">'+sdkName+'</span>':'<span class="tl-src backend">backend</span>';
+        }else if(src){
+          srcBadge='<span class="tl-src '+src+'">'+src+'</span>';
+        }
+        const joinedLink=r.traceId&&r.confidence>=1.0
+          ?'<span class="tl-joined" onclick="showTrace(\''+esc(r.traceId)+'\')">joined</span>'
+          :r.traceId
+            ?'<span class="tl-joined" style="color:var(--muted)" onclick="showTrace(\''+esc(r.traceId)+'\')">trace</span>'
+            :'';
         return '<div class="tl-row">'+
           '<span class="tl-time">'+time(r.isoTs)+'</span>'+
           '<span class="tl-icon">'+(ICON[r.kind]||'⬜')+'</span>'+
-          (src?'<span class="tl-src '+src+'">'+src+'</span>':'')+
+          srcBadge+
           '<span class="tl-summary">'+esc(r.summary)+'</span>'+
-          sha+
+          sha+joinedLink+
         '</div>';
       }).join('');
     }
@@ -363,7 +463,9 @@ async function ensureIncident(rc) {
 }
 
 poll();
+pollSdkStatus();
 setInterval(poll,5000);
+setInterval(pollSdkStatus,10000);
 </script>
 </body></html>`;
 }

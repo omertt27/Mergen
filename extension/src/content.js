@@ -12,6 +12,8 @@
   const DEFAULT_PORT = 3000;
   let currentPort = DEFAULT_PORT;
   let muted = false;
+  // Values the user has explicitly allowed through PII redaction (set via popup toggle)
+  let _piiAllowlist = new Set();
 
   function getIngestUrl() {
     return `http://127.0.0.1:${currentPort}/ingest`;
@@ -40,6 +42,9 @@
       if (msg.type === 'MERGEN_PING') { sendResponse({ ok: true }); return; }
       if (msg.type === 'MERGEN_PORT_CHANGED' && msg.port) currentPort = msg.port;
       if (msg.type === 'MERGEN_MUTE') muted = msg.muted;
+      if (msg.type === 'MERGEN_PII_ALLOWLIST' && Array.isArray(msg.allowlist)) {
+        _piiAllowlist = new Set(msg.allowlist);
+      }
 
       // Component tree capture request
       if (msg.type === 'MERGEN_CAPTURE_COMPONENT_TREE') {

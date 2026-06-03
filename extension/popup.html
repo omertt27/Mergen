@@ -231,6 +231,69 @@
     }
     .port-input:focus { border-color: var(--accent); }
 
+    /* ── PII Preview panel ── */
+    .pii-panel {
+      display: none;
+      padding: 0.75rem 1rem;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .pii-panel.open { display: block; }
+    .pii-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.6rem;
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+    }
+    .pii-entity {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      font-size: 0.65rem;
+    }
+    .pii-entity:last-child { border-bottom: none; }
+    .pii-type {
+      font-family: var(--mono);
+      color: var(--accent);
+      font-size: 0.6rem;
+      width: 80px;
+      flex-shrink: 0;
+    }
+    .pii-value {
+      flex: 1;
+      color: var(--text-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      padding: 0 6px;
+    }
+    .pii-toggle {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.55rem;
+      color: var(--text-dim);
+    }
+    .pii-count {
+      display: inline-block;
+      background: rgba(239,68,68,.15);
+      color: #ef4444;
+      border-radius: 3px;
+      padding: 1px 5px;
+      font-size: 0.55rem;
+      font-family: var(--mono);
+      cursor: pointer;
+    }
+    .pii-count:empty { display: none; }
+
     /* ── Footer ── */
     footer {
       padding: 1.25rem 1rem;
@@ -318,6 +381,16 @@
     </div>
   </div>
 
+  <div class="pii-panel" id="pii-panel">
+    <div class="pii-header">
+      <span>🛡 PII Shield — Detected Entities</span>
+      <span id="pii-close" style="cursor:pointer;color:var(--text-dim)">✕</span>
+    </div>
+    <div id="pii-list">
+      <div style="font-size:0.65rem;color:var(--text-dim)">No sensitive patterns detected in recent events.</div>
+    </div>
+  </div>
+
   <div class="settings-panel" id="port-row">
     <div class="settings-row">
       <span class="settings-lbl">Nexus Port</span>
@@ -332,6 +405,7 @@
 
   <div class="actions">
     <button class="btn" id="btn-clear" disabled>Clear Buffer</button>
+    <button class="btn btn-gear" id="btn-pii" title="PII Shield — view detected sensitive entities">🛡 <span id="pii-badge" class="pii-count"></span></button>
     <button class="btn btn-gear" id="btn-gear">M</button>
   </div>
 

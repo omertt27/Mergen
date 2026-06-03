@@ -5,10 +5,11 @@ export default function Nav() {
         <div className="nav-inner">
           <a href="/" className="logo">Mergen</a>
           <ul className="nav-links">
-            <li><a href="#how">Engine</a></li>
-            <li><a href="#schematic">Schematic</a></li>
-            <li><a href="#access">Access</a></li>
-            <li><a href="https://github.com/omertt27/Mergen">Source</a></li>
+            <li><a href="#how">How It Works</a></li>
+            <li><a href="#why">Capabilities</a></li>
+            <li><a href="#integrations">Integrations</a></li>
+            <li><a href="#access">Pricing</a></li>
+            <li><a href="https://github.com/omertt27/Mergen">GitHub</a></li>
           </ul>
         </div>
       </div>

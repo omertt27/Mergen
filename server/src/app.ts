@@ -25,6 +25,7 @@ import { createSetupRouter } from './routes/setup-ui.js';
 import { layersRouter } from './routes/layers.js';
 import { sentryRouter } from './routes/sentry.js';
 import { otelRouter } from './routes/otel.js';
+import { otlpReceiverRouter } from './routes/otlp-receiver.js';
 import { createCIRouter } from './routes/ci.js';
 import { createIncidentsRouter } from './routes/incidents.js';
 import { createTicketsRouter } from './routes/tickets.js';
@@ -116,7 +117,8 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(teamRouter);
   app.use(ingestRouter);
   app.use(layersRouter); // Layer 2-4 routes
-  app.use(otelRouter);   // OpenTelemetry export config
+  app.use(otelRouter);         // OpenTelemetry export config
+  app.use(otlpReceiverRouter); // OTLP HTTP receiver (also served on port 4318)
   app.use(createCIRouter());       // CI/CD and deployment events
   app.use(createIncidentsRouter()); // Incident workflow (acknowledge/assign/resolve/note)
   app.use(createTicketsRouter());   // Linear + Jira one-click ticket creation

@@ -1,44 +1,72 @@
 const features = [
   {
-    num: '01.01',
-    title: 'Deterministic Joins',
+    num: '01',
+    title: 'Snapshot Debugging',
     desc: (
       <>
-        Extracts standard <span className="highlight">W3C traceparent headers</span> from raw
-        logs to match OpenTelemetry-compliant backend service layers with 100% certainty. No
-        inference, just ground truth.
+        Set a breakpoint condition. When it fires, Mergen captures the complete state in{' '}
+        <span className="highlight">under 10ms</span> — last 20 console events, 10 network events,
+        localStorage, and component tree. Download the bundle and replay offline in your IDE.
+        No live debugger, no paused threads.
       </>
     ),
   },
   {
-    num: '01.02',
-    title: 'Source-Mapped Context',
+    num: '02',
+    title: 'Dynamic Logpoints',
     desc: (
       <>
-        Automatically resolves production stack traces back to original{' '}
-        <span className="highlight">TypeScript source files</span> using local source-map
-        decoupling. Your AI reads the code you actually wrote.
+        Inject ad-hoc console statements into any running page via MCP —{' '}
+        <span className="highlight">no restart, no redeployment</span>. Attach to any DOM element,
+        fire on any event, evaluate any JS expression. Results stream back within seconds as
+        standard console events.
       </>
     ),
   },
   {
-    num: '01.03',
-    title: 'Zero-Config SDK',
+    num: '03',
+    title: 'OTLP Native',
     desc: (
       <>
-        Attach to any Node, Python, or Go process via a simple <code>--require</code> proxy.
-        Instrument massive repositories without writing a single line of boilerplate code.
+        Point any OpenTelemetry SDK at{' '}
+        <span className="highlight">localhost:4318</span> and Mergen ingests spans and logs
+        automatically. Go, Java, Ruby, .NET — any language, zero Mergen-specific code.
+        Server spans become backend_span events; logs become console events.
       </>
     ),
   },
   {
-    num: '01.04',
+    num: '04',
+    title: 'Deterministic Trace Joins',
+    desc: (
+      <>
+        W3C traceparent links every browser fetch to its exact backend span with{' '}
+        <span className="highlight">100% certainty</span>. Your AI calls{' '}
+        <code>get_correlated_trace</code> and sees the full round-trip: browser request →
+        server route → log lines — no inference, no guessing.
+      </>
+    ),
+  },
+  {
+    num: '05',
+    title: 'PII Shield',
+    desc: (
+      <>
+        Client-side entity detection scans events for JWTs, API keys, emails, and secrets before
+        they reach the ring buffer. The popup shows{' '}
+        <span className="highlight">per-entity toggle overrides</span> — you decide what gets
+        masked. The translation table lives in-memory only, never written to disk.
+      </>
+    ),
+  },
+  {
+    num: '06',
     title: 'Local Sovereignty',
     desc: (
       <>
-        All telemetry stays on your loopback. <span className="highlight">127.0.0.1</span> is
-        the only destination. Absolute data protection for enterprise PII and environmental
-        variables.
+        Every byte stays on <span className="highlight">127.0.0.1</span>. No cloud backend, no
+        accounts, no data leaving your machine. Devcontainer templates include an attachable
+        Traefik proxy so teams can mirror production routing locally — zero port conflicts.
       </>
     ),
   },
@@ -46,16 +74,25 @@ const features = [
 
 export default function Features() {
   return (
-    <section id="how">
-      <span className="section-label">01 // The Thesis</span>
+    <section id="why">
+      <span className="section-label">02 // Capabilities</span>
       <h2>
-        Observability for machines,
+        Enterprise-grade.
         <br />
-        not human dashboards.
+        Zero config.
       </h2>
       <div className="feature-grid">
-        {features.map((f) => (
-          <div key={f.num} className="feature-card">
+        {features.map((f, i) => (
+          <div
+            key={f.num}
+            className="feature-card"
+            style={
+              i === 1 ? { gridColumn: '8 / span 5', marginTop: '5rem' }
+              : i === 3 ? { gridColumn: '8 / span 4', marginTop: '-1rem' }
+              : i === 2 ? { gridColumn: '2 / span 5' }
+              : undefined
+            }
+          >
             <span className="feature-num">{f.num}</span>
             <h3 className="feature-title">{f.title}</h3>
             <p className="feature-desc">{f.desc}</p>

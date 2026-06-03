@@ -1,21 +1,30 @@
 export default function Hero() {
   return (
     <section className="hero">
-      <span className="hero-eyebrow">Local-First · Agent-Native · W3C Compliant</span>
-      <h1>The machine-readable observability stack.</h1>
+      <span className="hero-eyebrow">
+        Browser · Node.js · Python · OpenTelemetry · Zero Cloud
+      </span>
+      <h1>Debug your full stack<br />with AI.</h1>
       <p className="hero-sub">
-        Mergen bridges the gap between static code and runtime execution. It streams{' '}
-        <span className="highlight">O11y-compliant causal links</span> from your browser and
-        microservices directly into AI agents via MCP.
+        Mergen connects your browser, backend services, and any OpenTelemetry-instrumented
+        service into one local MCP server. Your AI IDE sees live console errors, backend spans,
+        OTLP traces, and source-mapped stacks —{' '}
+        <span className="highlight">all correlated end-to-end</span>.
+        Snapshot debugging, dynamic logpoints, PII masking. Everything on 127.0.0.1.
       </p>
       <div className="hero-actions">
         <a
           href="https://github.com/omertt27/Mergen/blob/main/INSTALL.md"
           className="btn btn-white"
         >
-          Get Started — 60s
+          Get Started — 2 min
         </a>
-        <a href="#how" className="btn btn-outline">Explore Engine</a>
+        <a href="#how" className="btn btn-outline">See How It Works</a>
+      </div>
+      <div className="hero-badges">
+        {['Chrome Extension', 'mergen-node', 'mergen-python', 'OTLP :4318', 'MCP Server', 'Snapshot Debugger', 'PII Shield', 'Devcontainers'].map((b) => (
+          <span key={b} className="hero-badge">{b}</span>
+        ))}
       </div>
     </section>
   )

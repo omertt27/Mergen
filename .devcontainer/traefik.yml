@@ -1,0 +1,28 @@
+# traefik.yml — Traefik static configuration for local Mergen dev ingress.
+#
+# This config is mounted read-only into the Traefik container.
+# Traefik auto-discovers microservice routing from Docker label annotations
+# on any container attached to mergen-shared-network.
+
+api:
+  dashboard: true    # Enable admin UI at http://localhost:8080
+  insecure: true     # Local-only — no TLS needed for dev
+
+entryPoints:
+  web:
+    address: ":80"
+  otlp:
+    address: ":4318"   # Standard OTLP HTTP port — forward directly to Mergen
+
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    # Only expose containers that have traefik.enable=true label
+    exposedByDefault: false
+    # Watch only the shared dev network
+    network: mergen-shared-network
+
+log:
+  level: WARN   # Suppress info-level routing spam in terminal
+
+accessLog: {}   # Log all requests (useful for debugging routing issues)
