@@ -11,16 +11,17 @@
   <link href="https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-mono/style.css" rel="stylesheet" />
 
   <style>
-    /* ─── TOKENS (Monolith B&W) ────────────────────────────────────────────── */
+    /* ─── TOKENS (Monolith Refined) ────────────────────────────────────────── */
     :root {
-      --bg: #000000;
+      --bg: #050505;
       --surface: #0a0a0a;
       --surface2: #141414;
       --border: #1a1a1a;
       --border-bright: #ffffff;
-      --text: #ffffff;
+      --text: #f0f0f0;
       --text-muted: #808080;
       --text-dim: #404040;
+      --accent: #a5f3fc;
       --font: 'Geist', sans-serif;
       --mono: 'Geist Mono', monospace;
     }
@@ -52,7 +53,7 @@
       font-size: 0.7rem;
       text-transform: uppercase;
       letter-spacing: 0.4em;
-      color: var(--text-dim);
+      color: var(--accent);
       margin-bottom: 1.5rem;
       display: block;
     }
@@ -84,23 +85,25 @@
       cursor: pointer;
     }
     .toggle-track {
-      width: 40px;
-      height: 20px;
+      width: 44px;
+      height: 22px;
       background: var(--surface);
       border: 1px solid var(--border);
       position: relative;
+      transition: border-color 0.2s;
     }
+    .toggle-track:hover { border-color: var(--accent); }
     .toggle-thumb {
-      width: 14px;
-      height: 14px;
+      width: 16px;
+      height: 16px;
       background: var(--text);
       position: absolute;
       top: 2px;
       left: 2px;
-      transition: transform 0.2s;
+      transition: transform 0.2s, background 0.2s;
     }
-    .annual .toggle-thumb { transform: translateX(20px); }
-    .save-tag { color: var(--text); font-weight: 800; }
+    .annual .toggle-thumb { transform: translateX(22px); background: var(--accent); }
+    .save-tag { color: var(--accent); font-weight: 800; }
 
     /* ── Plan Grid ── */
     .plans-container {
@@ -128,12 +131,15 @@
       padding: 40px;
       display: flex;
       flex-direction: column;
+      transition: background 0.3s;
     }
+    .plan-card:hover { background: #080808; }
     .plan-card.popular {
-      background: var(--surface);
-      border: 1px solid var(--border-bright);
+      background: #080808;
+      border: 1px solid var(--accent);
       z-index: 1;
       margin: -1px;
+      box-shadow: 0 0 30px rgba(165, 243, 252, 0.05);
     }
     .plan-name {
       font-family: var(--mono);
@@ -143,98 +149,106 @@
       letter-spacing: 0.2em;
       margin-bottom: 2rem;
       display: block;
+      color: var(--accent);
     }
     .plan-price {
       font-size: 3rem;
       font-weight: 900;
       margin-bottom: 2rem;
       line-height: 1;
+      color: var(--text);
     }
-    .plan-price span { font-size: 0.8rem; color: var(--text-muted); font-weight: 400; }
+    .plan-price span { font-size: 0.8rem; color: var(--text-dim); font-weight: 400; }
 
     .features {
       list-style: none;
       font-size: 0.8rem;
       color: var(--text-muted);
-      margin-bottom: 3rem;
+      margin-bottom: 3.5rem;
       flex: 1;
     }
-    .features li { margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; }
+    .features li { margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; display: flex; align-items: flex-start; gap: 8px; }
+    .features li::before { content: "—"; color: var(--accent); font-weight: 900; }
     .features li:last-child { border-bottom: none; }
     .features li.no { text-decoration: line-through; color: var(--text-dim); }
+    .features li.no::before { color: var(--text-dim); }
 
     /* ── Buttons ── */
     .btn {
       display: block;
-      padding: 1rem;
-      font-size: 0.7rem;
+      padding: 1.1rem;
+      font-size: 0.65rem;
       font-weight: 800;
       text-transform: uppercase;
       letter-spacing: 0.2em;
       text-align: center;
       text-decoration: none;
-      border: 1px solid var(--border-bright);
+      border: 1px solid rgba(255, 255, 255, 0.1);
       color: var(--text);
       background: transparent;
-      transition: all 0.2s;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      cursor: pointer;
     }
-    .btn:hover { background: var(--text); color: var(--bg); }
-    .btn-filled { background: var(--text); color: var(--bg); }
-    .btn-filled:hover { background: var(--bg); color: var(--text); }
+    .btn:hover { border-color: var(--accent); color: var(--accent); }
+    .btn:active { transform: scale(0.97); }
+    .btn-filled { background: var(--text); color: var(--bg); border-color: var(--text); }
+    .btn-filled:hover { background: var(--accent); color: var(--bg); border-color: var(--accent); box-shadow: 0 0 20px rgba(165, 243, 252, 0.2); }
 
     /* ── Team & License ── */
     .section-split {
       margin-top: 120px;
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 80px;
+      gap: 100px;
       border-top: 1px solid var(--border);
       padding-top: 80px;
     }
-    .form-group { margin-bottom: 2rem; }
+    .form-group { margin-bottom: 2.5rem; }
     .form-label {
       font-family: var(--mono);
       font-size: 0.6rem;
       text-transform: uppercase;
       letter-spacing: 0.2em;
-      color: var(--text-muted);
-      margin-bottom: 0.5rem;
+      color: var(--text-dim);
+      margin-bottom: 0.75rem;
       display: block;
     }
     .form-input {
       width: 100%;
-      background: var(--surface);
+      background: #080808;
       border: 1px solid var(--border);
       color: var(--text);
       font-family: var(--mono);
       font-size: 0.8rem;
-      padding: 0.8rem 1rem;
+      padding: 1rem;
       outline: none;
+      transition: border-color 0.2s;
     }
-    .form-input:focus { border-color: var(--border-bright); }
+    .form-input:focus { border-color: var(--accent); }
 
     /* ── FAQ ── */
-    .faq { margin-top: 120px; border-top: 1px solid var(--border); padding-top: 80px; }
+    .faq { margin-top: 120px; border-top: 1px solid var(--border); padding-top: 100px; }
     .faq-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 60px;
+      gap: 80px;
     }
     .faq-item h4 {
-      font-size: 1rem;
+      font-size: 1.1rem;
       font-weight: 800;
       text-transform: uppercase;
-      margin-bottom: 1rem;
+      margin-bottom: 1.25rem;
+      color: var(--text);
     }
-    .faq-item p { font-size: 0.85rem; color: var(--text-muted); }
+    .faq-item p { font-size: 0.9rem; color: var(--text-muted); line-height: 1.7; }
 
     footer {
       margin-top: 120px;
-      padding: 40px 0;
+      padding: 60px 0;
       border-top: 1px solid var(--border);
       text-align: center;
       font-family: var(--mono);
-      font-size: 0.6rem;
+      font-size: 0.65rem;
       text-transform: uppercase;
       letter-spacing: 0.3em;
       color: var(--text-dim);
@@ -254,9 +268,9 @@
 <div class="page">
 
   <div class="hero">
-    <span class="hero-eyebrow">Allocation // Scale</span>
+    <span class="hero-eyebrow">Allocation // Scale // OTel</span>
     <h1>Machine reasoning credits.</h1>
-    <p class="hero-sub">The telemetry layer is MIT open source. You pay for the causal intelligence that bridges the runtime gap.</p>
+    <p class="hero-sub">The telemetry layer is MIT open source. You pay for the <span style="color:var(--accent)">causal intelligence</span> that bridges the runtime gap between agents and code.</p>
     
     <div class="billing-toggle" id="billing-toggle">
       <span>Monthly</span>
@@ -275,7 +289,7 @@
         <ul class="features">
           <li>500 reasoning calls / month</li>
           <li>Full 200-event ring buffer</li>
-          <li>All local MCP tools</li>
+          <li>W3C-compliant telemetry</li>
           <li class="no">Priority processing</li>
           <li class="no">Team synchronization</li>
         </ul>
@@ -301,7 +315,7 @@
         <ul class="features">
           <li>Everything in Starter</li>
           <li>5,000 reasoning calls / month</li>
-          <li>$0.015 / additional call</li>
+          <li>Source Map resolution</li>
           <li>Priority signal processing</li>
           <li class="no">Team synchronization</li>
         </ul>
@@ -327,28 +341,29 @@
   <div class="section-split">
     <div>
       <span class="plans-label">Activation</span>
-      <h4>🔑 License Key</h4>
-      <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:2rem;">Enter your machine-specific token to unlock the reasoning engine.</p>
+      <h4 style="font-size:1.1rem; text-transform:uppercase; margin-bottom:1rem;">🔑 License Nexus</h4>
+      <p style="font-size:0.9rem; color:var(--text-muted); margin-bottom:3rem;">Enter your machine-specific token to unlock high-volume reasoning.</p>
       <div class="form-group">
+        <label class="form-label">Cluster Token</label>
         <input class="form-input" id="key-input" type="text" placeholder="XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX" />
       </div>
-      <button class="btn" id="key-btn" style="width:100%">Verify License</button>
-      <div id="key-result" style="margin-top:1rem; font-family:var(--mono); font-size:0.7rem; display:none;"></div>
+      <button class="btn" id="key-btn" style="width:100%; border-color:var(--accent); color:var(--accent);">Verify License Node</button>
+      <div id="key-result" style="margin-top:1.5rem; font-family:var(--mono); font-size:0.75rem; display:none;"></div>
     </div>
 
     <div>
       <span class="plans-label">Collaboration</span>
-      <h4>Synchronize Team</h4>
-      <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:2rem;">Link multiple nodes via a shared secret to propagate signals across the fleet.</p>
+      <h4 style="font-size:1.1rem; text-transform:uppercase; margin-bottom:1rem;">Synchronize Fleet</h4>
+      <p style="font-size:0.9rem; color:var(--text-muted); margin-bottom:3rem;">Link multiple developer nodes to propagate runtime signals across the fleet.</p>
       <div class="form-group">
-        <label class="form-label">Team Secret</label>
+        <label class="form-label">Fleet Secret</label>
         <input class="form-input" id="team-token" type="password" placeholder="Shared secret" />
       </div>
       <div class="form-group">
         <label class="form-label">Node Identifier</label>
         <input class="form-input" id="team-member" type="text" placeholder="e.g. node-01" />
       </div>
-      <button class="btn" id="team-join-btn" style="width:100%">Join Cluster</button>
+      <button class="btn btn-filled" id="team-join-btn" style="width:100%">Join Cluster</button>
     </div>
   </div>
 
@@ -357,19 +372,19 @@
     <div class="faq-grid">
       <div class="faq-item">
         <h4>What is a reasoning call?</h4>
-        <p>A reasoning call occurs when the Mergen Causal Engine analyzes the current runtime buffer to construct a verified causal link and proposed fix for an agent.</p>
+        <p>A reasoning call occurs when the Mergen Causal Engine analyzes the runtime buffer to construct a <span style="color:var(--accent)">verified causal link</span> and proposed fix for an agent.</p>
       </div>
       <div class="faq-item">
         <h4>Is my data private?</h4>
-        <p>Yes. Mergen is local-first. Signal processing occurs on your machine. We only receive metadata counts for credit allocation, never your logs or code.</p>
+        <p>Yes. Mergen is local-first. Signal processing occurs on your loopback. We only receive metadata counts for credit allocation, never your logs or code.</p>
       </div>
       <div class="faq-item">
-        <h4>How does team sync work?</h4>
-        <p>Nodes communicate over an encrypted peer-to-peer bridge or a private relay, allowing agents to see signals from teammates' execution environments.</p>
+        <h4>Source Map resolution?</h4>
+        <p>Paid tiers automatically resolve production stack traces back to original TypeScript/JSX source files locally, providing agents with perfect context.</p>
       </div>
       <div class="faq-item">
-        <h4>Unlimited plans?</h4>
-        <p>We prefer metered honest pricing to ensure the engine remains sustainable for high-volume enterprise workloads while remaining free for individuals.</p>
+        <h4>OTel Compatibility?</h4>
+        <p>Mergen respects and propagates W3C traceparents, allowing it to join browser signals to any OpenTelemetry-instrumented backend service automatically.</p>
       </div>
     </div>
   </div>

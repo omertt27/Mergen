@@ -14,31 +14,35 @@
   <style>
     /* ─── RESET ────────────────────────────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    html { scroll-behavior: smooth; font-size: 16px; background: #000; }
+    html { scroll-behavior: smooth; font-size: 16px; background: #050505; }
     body {
-      background: #000;
-      color: #fff;
+      background: #050505; /* Softened from #000 */
+      color: #f0f0f0; /* Softened from #fff */
       font-family: 'Geist', sans-serif;
       line-height: 1.4;
       -webkit-font-smoothing: antialiased;
       overflow-x: hidden;
     }
-    a { color: inherit; text-decoration: none; transition: opacity 0.2s; }
-    a:hover { opacity: 0.7; }
-    code { font-family: 'Geist Mono', monospace; font-size: 0.9em; }
+    a { color: inherit; text-decoration: none; transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1); position: relative; }
+    a:hover { color: var(--accent); }
+    code { font-family: 'Geist Mono', monospace; font-size: 0.9em; color: var(--accent-text); }
 
     /* ─── TOKENS ───────────────────────────────────────────────────────────── */
     :root {
-      --gray-900: #0a0a0a;
+      --bg: #050505;
+      --surface: #0a0a0a;
       --gray-800: #1a1a1a;
       --gray-700: #2a2a2a;
       --gray-600: #404040;
       --gray-400: #808080;
-      --white: #ffffff;
+      --white: #f0f0f0;
+      --accent: #a5f3fc; /* Tech Cyan */
+      --accent-text: #67e8f9;
       --border: 1px solid var(--gray-800);
       --space-sm: 2rem;
       --space-md: 4rem;
       --space-lg: 8rem;
+      --radius: 2px;
     }
 
     /* ─── BACKGROUND ANIMATION ────────────────────────────────────────────── */
@@ -49,7 +53,8 @@
       width: 100%;
       height: 100%;
       z-index: -1;
-      opacity: 0.4;
+      opacity: 0.3;
+      pointer-events: none;
     }
 
     /* ─── LAYOUT ───────────────────────────────────────────────────────────── */
@@ -63,7 +68,9 @@
       width: 100%;
       z-index: 100;
       padding: 1.5rem 0;
-      mix-blend-mode: difference;
+      background: rgba(5, 5, 5, 0.8);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
     }
     .nav-inner {
       display: flex;
@@ -75,16 +82,36 @@
       text-transform: uppercase;
       letter-spacing: 0.2em;
       font-size: 0.9rem;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .logo::before {
+      content: '';
+      width: 8px;
+      height: 8px;
+      background: var(--accent);
+      border-radius: 50%;
+      animation: pulse 2s infinite;
     }
     .nav-links {
       display: flex;
-      gap: 2rem;
+      gap: 2.5rem;
       list-style: none;
-      font-size: 0.7rem;
+      font-size: 0.65rem;
       font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.15em;
+      letter-spacing: 0.2em;
     }
+    .nav-links a::after {
+      content: '';
+      position: absolute;
+      bottom: -4px; left: 0;
+      width: 0; height: 1px;
+      background: var(--accent);
+      transition: width 0.3s ease;
+    }
+    .nav-links a:hover::after { width: 100%; }
 
     /* ─── HERO ─────────────────────────────────────────────────────────────── */
     .hero {
@@ -96,10 +123,10 @@
     }
     .hero-eyebrow {
       font-family: 'Geist Mono', monospace;
-      font-size: 0.7rem;
+      font-size: 0.65rem;
       text-transform: uppercase;
-      letter-spacing: 0.4em;
-      color: var(--gray-400);
+      letter-spacing: 0.5em;
+      color: var(--accent-text);
       margin-bottom: 2rem;
       display: block;
     }
@@ -109,36 +136,42 @@
       line-height: 0.9;
       letter-spacing: -0.05em;
       text-transform: uppercase;
-      margin-left: -0.05em; /* Optical alignment */
-      max-width: 90%;
+      margin-left: -0.05em;
+      max-width: 95%;
+      color: var(--white);
     }
     .hero-sub {
       margin-top: 3rem;
-      max-width: 600px;
+      max-width: 650px;
       font-size: 1.25rem;
       color: var(--gray-400);
       font-weight: 400;
+      line-height: 1.6;
     }
     .hero-actions {
-      margin-top: 4rem;
+      margin-top: 4.5rem;
       display: flex;
       gap: 1.5rem;
     }
     .btn {
-      padding: 1rem 2rem;
-      font-size: 0.7rem;
+      padding: 1.1rem 2.5rem;
+      font-size: 0.65rem;
       font-weight: 800;
       text-transform: uppercase;
-      letter-spacing: 0.2em;
-      border: 1px solid var(--white);
+      letter-spacing: 0.25em;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: var(--radius);
       transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      cursor: pointer;
     }
-    .btn-white { background: var(--white); color: #000; }
-    .btn-white:hover { background: #000; color: var(--white); }
-    .btn-outline:hover { background: var(--white); color: #000; }
+    .btn:active { transform: scale(0.98); }
+    .btn-white { background: var(--white); color: #000; border-color: var(--white); }
+    .btn-white:hover { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 30px rgba(165, 243, 252, 0.2); }
+    .btn-outline { background: transparent; color: var(--white); }
+    .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
 
     /* ─── SECTIONS ─────────────────────────────────────────────────────────── */
-    section { padding: var(--space-lg) 0; }
+    section { padding: var(--space-lg) 0; border-top: 1px solid rgba(255, 255, 255, 0.03); }
     
     .section-label {
       font-family: 'Geist Mono', monospace;
@@ -146,7 +179,7 @@
       text-transform: uppercase;
       letter-spacing: 0.5em;
       color: var(--gray-600);
-      margin-bottom: 2rem;
+      margin-bottom: 2.5rem;
       display: block;
     }
     
@@ -156,28 +189,31 @@
       letter-spacing: -0.03em;
       text-transform: uppercase;
       line-height: 1.1;
-      margin-bottom: 4rem;
+      margin-bottom: 5rem;
+      color: var(--white);
     }
 
-    /* ─── FEATURE GRID (Asymmetric) ────────────────────────────────────────── */
+    /* ─── FEATURE GRID ────────────────────────────────────────────────────── */
     .feature-grid {
       display: grid;
       grid-template-columns: repeat(12, 1fr);
-      gap: 2rem;
+      gap: 3rem;
     }
     .feature-card {
       grid-column: span 6;
       border-top: 1px solid var(--gray-800);
-      padding-top: 2rem;
+      padding-top: 2.5rem;
+      transition: border-color 0.4s;
     }
-    .feature-card:nth-child(2) { grid-column: 8 / span 5; margin-top: 4rem; }
+    .feature-card:hover { border-color: var(--accent); }
+    .feature-card:nth-child(2) { grid-column: 8 / span 5; margin-top: 5rem; }
     .feature-card:nth-child(3) { grid-column: 2 / span 5; }
-    .feature-card:nth-child(4) { grid-column: 8 / span 4; margin-top: -2rem; }
+    .feature-card:nth-child(4) { grid-column: 8 / span 4; margin-top: -1rem; }
 
     .feature-num {
       font-family: 'Geist Mono', monospace;
-      font-size: 0.7rem;
-      color: var(--gray-600);
+      font-size: 0.65rem;
+      color: var(--accent-text);
       margin-bottom: 1.5rem;
       display: block;
     }
@@ -185,29 +221,30 @@
       font-size: 1.5rem;
       font-weight: 700;
       text-transform: uppercase;
-      margin-bottom: 1rem;
+      margin-bottom: 1.25rem;
+      color: var(--white);
     }
     .feature-desc {
       color: var(--gray-400);
-      font-size: 0.9rem;
-      line-height: 1.6;
+      font-size: 0.95rem;
+      line-height: 1.7;
     }
 
     /* ─── ARCHITECTURE (Schematic) ────────────────────────────────────────── */
     .arch-view {
       border: 1px solid var(--gray-800);
-      padding: 4rem;
+      padding: 6rem 4rem;
       position: relative;
       overflow: hidden;
-      background: var(--gray-900);
+      background: #080808;
+      box-shadow: inset 0 0 50px rgba(0,0,0,0.5);
     }
     .arch-grid {
       position: absolute;
       top: 0; left: 0; width: 100%; height: 100%;
-      background-image: linear-gradient(var(--gray-800) 1px, transparent 1px),
-                        linear-gradient(90deg, var(--gray-800) 1px, transparent 1px);
+      background-image: linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+                        linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
       background-size: 40px 40px;
-      opacity: 0.2;
     }
     .arch-content {
       position: relative;
@@ -217,28 +254,32 @@
       align-items: center;
     }
     .arch-box {
-      border: 1px solid var(--white);
-      padding: 2rem;
-      width: 250px;
+      border: 1px solid var(--gray-700);
+      padding: 2.5rem;
+      width: 280px;
       text-align: center;
+      background: var(--bg);
+      transition: all 0.3s;
     }
+    .arch-box:hover { border-color: var(--accent); transform: translateY(-5px); box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
     .arch-box h4 {
-      font-size: 0.7rem;
+      font-size: 0.75rem;
       text-transform: uppercase;
       letter-spacing: 0.2em;
-      margin-bottom: 1rem;
+      margin-bottom: 1.25rem;
     }
     .arch-box .tag {
       font-family: 'Geist Mono', monospace;
       font-size: 0.6rem;
-      background: var(--white);
-      color: #000;
-      padding: 2px 6px;
+      background: var(--gray-700);
+      color: var(--white);
+      padding: 3px 8px;
+      border-radius: 1px;
     }
     .arch-connector {
       flex: 1;
       height: 1px;
-      background: var(--gray-600);
+      background: linear-gradient(90deg, var(--gray-700), var(--accent), var(--gray-700));
       margin: 0 2rem;
       position: relative;
     }
@@ -247,52 +288,57 @@
       position: absolute;
       right: 0; top: -3px;
       width: 7px; height: 7px;
-      background: var(--white);
+      background: var(--accent);
       transform: rotate(45deg);
+      box-shadow: 0 0 10px var(--accent);
     }
 
     /* ─── PRICING ──────────────────────────────────────────────────────────── */
     .price-row {
       display: flex;
-      border-top: 1px solid var(--gray-800);
+      border: 1px solid var(--gray-800);
+      background: #080808;
     }
     .price-col {
       flex: 1;
-      padding: 4rem 2rem;
+      padding: 5rem 3rem;
       border-right: 1px solid var(--gray-800);
+      transition: background 0.3s;
     }
     .price-col:last-child { border-right: none; }
+    .price-col:hover { background: #0c0c0c; }
     .price-name {
       font-size: 0.7rem;
       text-transform: uppercase;
-      letter-spacing: 0.3em;
-      color: var(--gray-400);
-      margin-bottom: 2rem;
+      letter-spacing: 0.4em;
+      color: var(--gray-600);
+      margin-bottom: 2.5rem;
       display: block;
     }
     .price-val {
-      font-size: 3rem;
-      font-weight: 800;
-      margin-bottom: 2rem;
+      font-size: 3.5rem;
+      font-weight: 900;
+      margin-bottom: 2.5rem;
+      color: var(--white);
     }
     .price-val span { font-size: 1rem; color: var(--gray-600); font-weight: 400; }
     .price-list {
       list-style: none;
-      font-size: 0.8rem;
+      font-size: 0.85rem;
       color: var(--gray-400);
-      margin-bottom: 3rem;
+      margin-bottom: 4rem;
     }
-    .price-list li { margin-bottom: 0.75rem; }
-    .price-list li::before { content: "— "; }
+    .price-list li { margin-bottom: 1rem; display: flex; align-items: flex-start; gap: 10px; }
+    .price-list li::before { content: "—"; color: var(--accent); font-weight: 900; }
 
     /* ─── FOOTER ───────────────────────────────────────────────────────────── */
     footer {
-      padding: 4rem 0;
+      padding: 6rem 0;
       border-top: 1px solid var(--gray-800);
-      font-size: 0.7rem;
+      font-size: 0.65rem;
       color: var(--gray-600);
       text-transform: uppercase;
-      letter-spacing: 0.1em;
+      letter-spacing: 0.15em;
     }
     .foot-inner {
       display: flex;
@@ -300,82 +346,24 @@
       align-items: center;
     }
 
-    /* ─── UTILS ────────────────────────────────────────────────────────────── */
-    .text-white { color: var(--white); }
-    .mt-lg { margin-top: var(--space-lg); }
+    /* ─── ANIMATIONS ───────────────────────────────────────────────────────── */
+    @keyframes pulse {
+      0% { opacity: 0.5; transform: scale(0.9); box-shadow: 0 0 0 0 rgba(165, 243, 252, 0.4); }
+      70% { opacity: 1; transform: scale(1.1); box-shadow: 0 0 0 10px rgba(165, 243, 252, 0); }
+      100% { opacity: 0.5; transform: scale(0.9); box-shadow: 0 0 0 0 rgba(165, 243, 252, 0); }
+    }
 
-    /* ─── COMPAT STRIP ─────────────────────────────────────────────────────── */
-    .compat-strip {
-      padding: 4rem 0 5rem;
-      text-align: center;
-    }
-    .compat-label {
-      font-family: 'Geist Mono', monospace;
-      font-size: 0.65rem;
-      text-transform: uppercase;
-      letter-spacing: 0.2em;
-      color: var(--gray-400);
-      margin-bottom: 2.5rem;
-      display: block;
-    }
-    .compat-logos {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 3rem;
-      flex-wrap: wrap;
-    }
-    .compat-item {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 0.6rem;
-      opacity: 0.55;
-      transition: opacity 0.25s;
-      cursor: default;
-    }
-    .compat-item:hover { opacity: 1; }
-    .compat-icon {
-      width: 36px;
-      height: 36px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .compat-icon img {
-      width: 32px;
-      height: 32px;
-      object-fit: contain;
-      filter: invert(1);
-    }
-    .compat-icon svg {
-      width: 32px;
-      height: 32px;
-    }
-    .compat-name {
-      font-family: 'Geist Mono', monospace;
-      font-size: 0.6rem;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-      color: var(--gray-400);
-      white-space: nowrap;
-    }
-    .compat-divider {
-      width: 1px;
-      height: 40px;
-      background: var(--gray-700);
-      flex-shrink: 0;
-    }
+    /* ─── UTILS ────────────────────────────────────────────────────────────── */
+    .highlight { color: var(--accent-text); }
+    .mt-lg { margin-top: var(--space-lg); }
 
     @media (max-width: 1000px) {
       .feature-card, .feature-card:nth-child(n) { grid-column: span 12; margin: 0; }
-      .arch-content { flex-direction: column; gap: 3rem; }
-      .arch-connector { height: 60px; width: 1px; margin: 0; }
+      .arch-content { flex-direction: column; gap: 4rem; }
+      .arch-connector { height: 80px; width: 1px; margin: 0; }
       .arch-connector::after { bottom: 0; top: auto; right: -3px; }
       .price-row { flex-direction: column; }
       .price-col { border-right: none; border-bottom: 1px solid var(--gray-800); }
-      .compat-logos { gap: 2rem; }
-      .compat-divider { display: none; }
     }
   </style>
 </head>
@@ -389,7 +377,8 @@
       <a href="/" class="logo">Mergen</a>
       <ul class="nav-links">
         <li><a href="#how">Engine</a></li>
-        <li><a href="#pricing">Access</a></li>
+        <li><a href="#schematic">Schematic</a></li>
+        <li><a href="#access">Access</a></li>
         <li><a href="https://github.com/omertt27/Mergen">Source</a></li>
       </ul>
     </div>
@@ -398,91 +387,16 @@
 
 <main class="wrap">
   <section class="hero">
-    <span class="hero-eyebrow">Local-First · Agent-Native · Causal</span>
+    <span class="hero-eyebrow">Local-First · Agent-Native · W3C Compliant</span>
     <h1>The machine-readable observability stack.</h1>
     <p class="hero-sub">
-      Mergen bridges the gap between code and runtime. It streams verified causal links from your browser and microservices directly into AI coding agents via MCP.
+      Mergen bridges the gap between static code and runtime execution. It streams <span class="highlight">O11y-compliant causal links</span> from your browser and microservices directly into AI agents via MCP.
     </p>
     <div class="hero-actions">
-      <a href="https://github.com/omertt27/Mergen/blob/main/INSTALL.md" class="btn btn-white">Get Started</a>
+      <a href="https://github.com/omertt27/Mergen/blob/main/INSTALL.md" class="btn btn-white">Get Started — 60s</a>
       <a href="#how" class="btn btn-outline">Explore Engine</a>
     </div>
   </section>
-
-  <!-- ── COMPAT STRIP ─────────────────────────────────────────────────────── -->
-  <div class="compat-strip">
-    <span class="compat-label">Machine-Readable Interface · Works with</span>
-    <div class="compat-logos">
-
-      <!-- Claude Code -->
-      <div class="compat-item">
-        <div class="compat-icon">
-          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M17.304 1.273a.527.527 0 0 0-.993 0L14.92 5.61a.527.527 0 0 1-.332.316l-4.4 1.377a.527.527 0 0 0 0 1.003l4.4 1.376a.527.527 0 0 1 .332.317l1.391 4.336a.527.527 0 0 0 .993 0l1.391-4.336a.527.527 0 0 1 .332-.317l4.4-1.376a.527.527 0 0 0 0-1.003l-4.4-1.377a.527.527 0 0 1-.332-.316zm-9.2 9.803a.395.395 0 0 0-.745 0l-.87 2.713a.396.396 0 0 1-.25.238l-2.772.868a.395.395 0 0 0 0 .752l2.773.867a.396.396 0 0 1 .249.238l.87 2.714a.395.395 0 0 0 .745 0l.87-2.714a.396.396 0 0 1 .249-.238l2.773-.867a.395.395 0 0 0 0-.752l-2.772-.868a.396.396 0 0 1-.25-.238z" fill="#D97757"/>
-          </svg>
-        </div>
-        <span class="compat-name">Claude Code</span>
-      </div>
-
-      <div class="compat-divider"></div>
-
-      <!-- Cursor -->
-      <div class="compat-item">
-        <div class="compat-icon">
-          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M11.925 1 22 6.404v11.192L11.925 23 1.85 17.596V6.404z" stroke="#fff" stroke-width="1.6" fill="none"/>
-            <path d="M1.85 6.404 11.925 12M11.925 12 22 6.404M11.925 12v11" stroke="#fff" stroke-width="1.6"/>
-          </svg>
-        </div>
-        <span class="compat-name">Cursor</span>
-      </div>
-
-      <div class="compat-divider"></div>
-
-      <!-- Windsurf -->
-      <div class="compat-item">
-        <div class="compat-icon">
-          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M3 17c3.5-8 7-12 10.5-12C17 5 20 8.5 21 12c-2-2-4.5-3-7-2C11.5 11 8.5 13.5 3 17z" fill="#fff"/>
-            <path d="M3 17c2-1 5-3.5 8-4.5 2-.7 4.2-.5 6 .5-1 2.5-3.5 5-7 5.5C7 19 4.5 18.5 3 17z" fill="#fff" opacity="0.5"/>
-          </svg>
-        </div>
-        <span class="compat-name">Windsurf</span>
-      </div>
-
-      <div class="compat-divider"></div>
-
-      <!-- GitHub Copilot -->
-      <div class="compat-item">
-        <div class="compat-icon">
-          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="#fff">
-            <path d="M9.75 14.5a2.75 2.75 0 1 1-5.5 0 2.75 2.75 0 0 1 5.5 0zm9.5 0a2.75 2.75 0 1 1-5.5 0 2.75 2.75 0 0 1 5.5 0z"/>
-            <path d="M12 2C7.03 2 3 5.86 3 10.6c0 2.3.87 4.41 2.3 6.04.34.39.56.9.56 1.42V19a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-.94c0-.52.22-1.03.56-1.42A9.15 9.15 0 0 0 21 10.6C21 5.86 16.97 2 12 2zm0 2c3.87 0 7 2.96 7 6.6 0 1.83-.7 3.49-1.84 4.73-.6.67-1.16 1.55-1.16 2.67H8c0-1.12-.56-2-.16-2.67A7.04 7.04 0 0 1 5 10.6C5 6.96 8.13 4 12 4z"/>
-            <path d="M9 20h6v1.5A1.5 1.5 0 0 1 13.5 23h-3A1.5 1.5 0 0 1 9 21.5V20z"/>
-          </svg>
-        </div>
-        <span class="compat-name">Copilot</span>
-      </div>
-
-      <div class="compat-divider"></div>
-
-      <!-- Any MCP -->
-      <div class="compat-item">
-        <div class="compat-icon">
-          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="12" cy="12" r="2.5" fill="#fff"/>
-            <circle cx="4" cy="7" r="2" fill="#fff" opacity="0.7"/>
-            <circle cx="20" cy="7" r="2" fill="#fff" opacity="0.7"/>
-            <circle cx="4" cy="17" r="2" fill="#fff" opacity="0.7"/>
-            <circle cx="20" cy="17" r="2" fill="#fff" opacity="0.7"/>
-            <path d="M6 7.5 10 11M14 13l4 3.5M6 16.5 10 13M14 11l4-3.5" stroke="#fff" stroke-width="1" opacity="0.5"/>
-          </svg>
-        </div>
-        <span class="compat-name">Any MCP</span>
-      </div>
-
-    </div>
-  </div>
 
   <section id="how">
     <span class="section-label">01 // The Thesis</span>
@@ -492,27 +406,27 @@
       <div class="feature-card">
         <span class="feature-num">01.01</span>
         <h3 class="feature-title">Deterministic Joins</h3>
-        <p class="feature-desc">W3C traceparents link browser events to backend logs with 100% certainty. No guessing, just ground truth for your AI.</p>
+        <p class="feature-desc">Extracts standard <span class="highlight">W3C traceparent headers</span> from raw logs to match OpenTelemetry-compliant backend service layers with 100% certainty. No inference, just ground truth.</p>
       </div>
       <div class="feature-card">
         <span class="feature-num">01.02</span>
-        <h3 class="feature-title">Causal Identity</h3>
-        <p class="feature-desc">We build a structural graph between signals, providing agents the certainty required to autonomously resolve system failures.</p>
+        <h3 class="feature-title">Source-Mapped Context</h3>
+        <p class="feature-desc">Automatically resolves production stack traces back to original <span class="highlight">TypeScript source files</span> using local source-map decoupling. Your AI reads the code you actually wrote.</p>
       </div>
       <div class="feature-card">
         <span class="feature-num">01.03</span>
-        <h3 class="feature-title">Local Sovereignty</h3>
-        <p class="feature-desc">All telemetry stays on your machine. 127.0.0.1 is the only destination. Data is redacted before it even hits the buffer.</p>
+        <h3 class="feature-title">Zero-Config SDK</h3>
+        <p class="feature-desc">Attach to any Node, Python, or Go process via a simple <code style="color:var(--accent-text)">--require</code> proxy. Instrument massive repositories without writing a single line of boilerplate code.</p>
       </div>
       <div class="feature-card">
         <span class="feature-num">01.04</span>
-        <h3 class="feature-title">Zero-Config SDK</h3>
-        <p class="feature-desc">Attach to any Node, Python, or Go process via a simple proxy. No manual instrumentation or code changes required.</p>
+        <h3 class="feature-title">Local Sovereignty</h3>
+        <p class="feature-desc">All telemetry stays on your loopback. <span class="highlight">127.0.0.1</span> is the only destination. Absolute data protection for enterprise PII and environmental variables.</p>
       </div>
     </div>
   </section>
 
-  <section>
+  <section id="schematic">
     <span class="section-label">02 // The Schematic</span>
     <h2>Verified Causal Chain.</h2>
     
@@ -525,10 +439,10 @@
           <code style="font-size:0.6rem; color:var(--gray-400)">POST /api/checkout</code>
         </div>
         <div class="arch-connector"></div>
-        <div class="arch-box">
-          <span class="tag" style="background:var(--gray-400)">MERGEN</span>
+        <div class="arch-box" style="border-color: var(--accent); box-shadow: 0 0 20px rgba(165, 243, 252, 0.1);">
+          <span class="tag" style="background:var(--accent); color:#000;">NEXUS</span>
           <h4>Causal Engine</h4>
-          <code style="font-size:0.6rem; color:var(--gray-400)">TRACE_ID: 8a2f...</code>
+          <code style="font-size:0.6rem; color:var(--accent-text)">TRACE_ID: 8a2f...</code>
         </div>
         <div class="arch-connector"></div>
         <div class="arch-box">
@@ -540,7 +454,7 @@
     </div>
   </section>
 
-  <section id="pricing">
+  <section id="access">
     <span class="section-label">03 // The Access</span>
     <h2>Machine Reasoning Credits.</h2>
     
@@ -556,14 +470,14 @@
         </ul>
         <a href="#" class="btn btn-outline" style="display:block; text-align:center;">Join Waitlist</a>
       </div>
-      <div class="price-col" style="background: #050505;">
-        <span class="price-name" style="color:var(--white)">Solo Pro</span>
+      <div class="price-col" style="background: #080808; border-color: var(--accent); box-shadow: inset 0 0 50px rgba(165, 243, 252, 0.05);">
+        <span class="price-name" style="color:var(--accent-text)">Solo Pro</span>
         <div class="price-val">$29<span>/mo</span></div>
         <ul class="price-list">
           <li style="color:var(--white)">Unlimited reasoning calls</li>
           <li>Microservice fleet tracing</li>
-          <li>Custom detector logic</li>
-          <li>Advanced Causal Pack</li>
+          <li>Native Source Map resolution</li>
+          <li>OTel-compliant telemetry</li>
         </ul>
         <a href="#" class="btn btn-white" style="display:block; text-align:center;">Start Free Trial</a>
       </div>
@@ -574,7 +488,7 @@
           <li>Air-gapped deployment</li>
           <li>Team-wide causal graph</li>
           <li>Custom security policies</li>
-          <li>24/7 dedicated support</li>
+          <li>DLP-compliant redaction</li>
         </ul>
         <a href="#" class="btn btn-outline" style="display:block; text-align:center;">Contact Sales</a>
       </div>
@@ -585,7 +499,7 @@
 <footer class="wrap">
   <div class="foot-inner">
     <div>© 2026 Mergen · Agent-Native Telemetry</div>
-    <div style="display:flex; gap: 2rem;">
+    <div style="display:flex; gap: 3rem;">
       <a href="https://github.com/omertt27/Mergen">GitHub</a>
       <a href="https://github.com/omertt27/Mergen/blob/main/docs/ENTERPRISE_SECURITY.md">Security</a>
       <a href="https://github.com/omertt27/Mergen/blob/main/ARCHITECTURE.md">Architecture</a>
@@ -596,14 +510,14 @@
 <script>
   /**
    * CAUSAL CANVAS
-   * A delicate web of nodes representing the causal graph.
    */
   const canvas = document.getElementById('causal-canvas');
   const ctx = canvas.getContext('2d');
   
   let width, height, nodes = [];
-  const nodeCount = 60;
-  const maxDistance = 200;
+  const nodeCount = 70;
+  const maxDistance = 180;
+  let mouse = { x: null, y: null };
 
   function init() {
     width = canvas.width = window.innerWidth;
@@ -613,17 +527,17 @@
       nodes.push({
         x: Math.random() * width,
         y: Math.random() * height,
-        vx: (Math.random() - 0.5) * 0.5,
-        vy: (Math.random() - 0.5) * 0.5,
-        size: Math.random() * 2 + 1
+        vx: (Math.random() - 0.5) * 0.4,
+        vy: (Math.random() - 0.5) * 0.4,
+        size: Math.random() * 1.5 + 0.5
       });
     }
   }
 
   function draw() {
     ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = '#fff';
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.fillStyle = '#f0f0f0';
+    ctx.strokeStyle = 'rgba(165, 243, 252, 0.15)';
     ctx.lineWidth = 0.5;
 
     for (let i = 0; i < nodes.length; i++) {
@@ -633,6 +547,17 @@
 
       if (n1.x < 0 || n1.x > width) n1.vx *= -1;
       if (n1.y < 0 || n1.y > height) n1.vy *= -1;
+
+      // Mouse reaction
+      if (mouse.x) {
+        const dxm = n1.x - mouse.x;
+        const dym = n1.y - mouse.y;
+        const distm = Math.sqrt(dxm * dxm + dym * dym);
+        if (distm < 150) {
+          n1.x += dxm * 0.01;
+          n1.y += dym * 0.01;
+        }
+      }
 
       ctx.beginPath();
       ctx.arc(n1.x, n1.y, n1.size, 0, Math.PI * 2);
@@ -645,7 +570,7 @@
         const dist = Math.sqrt(dx * dx + dy * dy);
 
         if (dist < maxDistance) {
-          ctx.globalAlpha = 1 - (dist / maxDistance);
+          ctx.globalAlpha = (1 - (dist / maxDistance)) * 0.6;
           ctx.beginPath();
           ctx.moveTo(n1.x, n1.y);
           ctx.lineTo(n2.x, n2.y);
@@ -658,6 +583,15 @@
   }
 
   window.addEventListener('resize', init);
+  window.addEventListener('mousemove', (e) => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+  });
+  window.addEventListener('mouseleave', () => {
+    mouse.x = null;
+    mouse.y = null;
+  });
+
   init();
   draw();
 </script>

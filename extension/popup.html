@@ -11,20 +11,18 @@
   <link href="https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-mono/style.css" rel="stylesheet" />
 
   <style>
-    /* ─── TOKENS (Monolith B&W) ────────────────────────────────────────────── */
+    /* ─── TOKENS (Monolith Refined) ────────────────────────────────────────── */
     :root {
-      --bg: #000000;
+      --bg: #050505; /* Softened */
       --surface: #0a0a0a;
-      --surface2: #1a1a1a;
-      --border: #262626;
+      --surface2: #141414;
+      --border: #1a1a1a;
       --border-bright: #ffffff;
-      --text: #ffffff;
+      --text: #f0f0f0; /* Softened */
       --text-muted: #808080;
       --text-dim: #404040;
-      --accent: #ffffff;
-      --red: #ffffff; /* We keep it B&W but maybe use weight/borders for errors */
-      --green: #ffffff;
-      --yellow: #ffffff;
+      --accent: #a5f3fc; /* Tech Cyan */
+      --accent-dim: #0891b2;
       --font: 'Geist', sans-serif;
       --mono: 'Geist Mono', monospace;
     }
@@ -47,24 +45,37 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+      background: var(--surface);
     }
     .logo-text {
       font-weight: 800;
       text-transform: uppercase;
       letter-spacing: 0.2em;
       font-size: 0.8rem;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .logo-text::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      background: var(--accent);
+      border-radius: 50%;
+      animation: pulse 2s infinite;
     }
     .status-pill {
       font-family: var(--mono);
-      font-size: 0.6rem;
+      font-size: 0.55rem;
       text-transform: uppercase;
       letter-spacing: 0.1em;
       padding: 2px 6px;
       border: 1px solid var(--border-bright);
+      color: var(--text);
     }
     .status-pill.disconnected { border-color: var(--text-dim); color: var(--text-dim); }
 
-    /* ── Server Info ── */
+    /* ── Info Bar ── */
     .info-bar {
       padding: 0.75rem 1rem;
       border-bottom: 1px solid var(--border);
@@ -73,6 +84,7 @@
       color: var(--text-muted);
       text-transform: uppercase;
       letter-spacing: 0.05em;
+      background: #080808;
     }
 
     /* ── Plan & Credits ── */
@@ -89,11 +101,13 @@
       font-weight: 800;
       text-transform: uppercase;
       letter-spacing: 0.2em;
+      color: var(--accent);
     }
     .credit-count {
       font-family: var(--mono);
       font-size: 0.7rem;
       font-weight: 600;
+      color: var(--text-muted);
     }
 
     /* ── Stats Grid ── */
@@ -103,23 +117,26 @@
       border-bottom: 1px solid var(--border);
     }
     .stat {
-      padding: 1.25rem 0.5rem;
+      padding: 1.5rem 0.5rem;
       text-align: center;
       border-right: 1px solid var(--border);
+      transition: background 0.2s;
     }
+    .stat:hover { background: #0c0c0c; }
     .stat:last-child { border-right: none; }
     .stat-val {
       font-size: 1.25rem;
       font-weight: 800;
       line-height: 1;
       margin-bottom: 0.25rem;
+      color: var(--text);
     }
     .stat-lbl {
       font-family: var(--mono);
       font-size: 0.5rem;
       text-transform: uppercase;
       letter-spacing: 0.2em;
-      color: var(--text-muted);
+      color: var(--text-dim);
     }
 
     /* ── Signals ── */
@@ -137,8 +154,10 @@
     .signal {
       padding: 0.75rem 1rem;
       border-top: 1px solid var(--border);
+      transition: background 0.2s;
     }
-    .signal-msg { font-size: 0.75rem; font-weight: 600; margin-bottom: 0.25rem; }
+    .signal:hover { background: #0c0c0c; }
+    .signal-msg { font-size: 0.75rem; font-weight: 600; margin-bottom: 0.25rem; color: var(--accent); }
     .signal-cta {
       display: inline-block;
       margin-top: 0.25rem;
@@ -146,9 +165,12 @@
       font-size: 0.55rem;
       text-transform: uppercase;
       padding: 2px 6px;
-      border: 1px solid var(--border-bright);
+      border: 1px solid var(--accent);
+      color: var(--accent);
       cursor: pointer;
+      transition: all 0.2s;
     }
+    .signal-cta:hover { background: var(--accent); color: var(--bg); }
 
     /* ── Actions ── */
     .actions {
@@ -158,7 +180,7 @@
     }
     .btn {
       flex: 1;
-      padding: 0.6rem;
+      padding: 0.7rem;
       font-family: var(--font);
       font-size: 0.65rem;
       font-weight: 800;
@@ -166,13 +188,14 @@
       letter-spacing: 0.15em;
       background: transparent;
       color: var(--text);
-      border: 1px solid var(--border-bright);
+      border: 1px solid rgba(255, 255, 255, 0.1);
       cursor: pointer;
       transition: all 0.2s;
     }
-    .btn:hover { background: var(--text); color: var(--bg); }
+    .btn:hover { border-color: var(--accent); color: var(--accent); }
+    .btn:active { transform: scale(0.97); }
     .btn:disabled { border-color: var(--text-dim); color: var(--text-dim); cursor: not-allowed; }
-    .btn-gear { flex: 0; padding: 0.6rem 0.8rem; }
+    .btn-gear { flex: 0; padding: 0.7rem 0.9rem; }
 
     /* ── Settings ── */
     .settings-panel {
@@ -197,20 +220,20 @@
       color: var(--text-muted);
     }
     .port-input {
-      width: 60px;
-      background: transparent;
+      width: 65px;
+      background: var(--bg);
       border: 1px solid var(--border);
       color: var(--text);
       font-family: var(--mono);
       font-size: 0.75rem;
-      padding: 2px 4px;
+      padding: 3px 6px;
       outline: none;
     }
-    .port-input:focus { border-color: var(--border-bright); }
+    .port-input:focus { border-color: var(--accent); }
 
     /* ── Footer ── */
     footer {
-      padding: 1rem;
+      padding: 1.25rem 1rem;
       text-align: center;
       font-family: var(--mono);
       font-size: 0.5rem;
@@ -218,38 +241,46 @@
       letter-spacing: 0.2em;
       color: var(--text-dim);
     }
-    footer a { color: var(--text-muted); }
+    footer a { color: var(--text-muted); transition: color 0.2s; }
+    footer a:hover { color: var(--accent); }
 
     /* ── Utils ── */
     #muted-banner {
       padding: 0.5rem 1rem;
-      background: var(--surface2);
-      color: var(--text);
+      background: #1a1a00; /* Subtle warning yellow-ish dark */
+      color: #fbbf24;
       font-family: var(--mono);
       font-size: 0.55rem;
       text-transform: uppercase;
       text-align: center;
       display: none;
+      border-bottom: 1px solid #453000;
     }
     #no-cs-banner {
-      padding: 0.75rem 1rem;
-      background: var(--text);
+      padding: 0.8rem 1rem;
+      background: var(--accent);
       color: var(--bg);
       font-weight: 800;
       text-transform: uppercase;
-      font-size: 0.6rem;
+      font-size: 0.65rem;
       text-align: center;
       width: 100%;
       border: none;
       display: none;
       cursor: pointer;
     }
+
+    @keyframes pulse {
+      0% { opacity: 0.5; transform: scale(0.9); }
+      70% { opacity: 1; transform: scale(1.1); }
+      100% { opacity: 0.5; transform: scale(0.9); }
+    }
   </style>
 </head>
 <body>
 
   <button id="no-cs-banner">CAPTURING DISABLED // RELOAD TAB</button>
-  <div id="muted-banner">RECORDING PAUSED</div>
+  <div id="muted-banner">RECORDING PAUSED ON THIS TAB</div>
 
   <div class="header">
     <div class="logo-text">Mergen</div>
@@ -289,14 +320,14 @@
 
   <div class="settings-panel" id="port-row">
     <div class="settings-row">
-      <span class="settings-lbl">Port</span>
+      <span class="settings-lbl">Nexus Port</span>
       <input class="port-input" type="number" id="port-input" value="3000" />
     </div>
     <div class="settings-row">
-      <span class="settings-lbl">Capture</span>
+      <span class="settings-lbl">Active Capture</span>
       <input type="checkbox" id="mute-toggle" checked />
     </div>
-    <button class="btn" id="port-save" style="margin-top:0.5rem">Save Configuration</button>
+    <button class="btn" id="port-save" style="margin-top:0.5rem; border-color:var(--accent); color:var(--accent);">Save Cluster Config</button>
   </div>
 
   <div class="actions">

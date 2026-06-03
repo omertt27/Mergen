@@ -11,15 +11,16 @@
   <link href="https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-mono/style.css" rel="stylesheet" />
 
   <style>
-    /* ─── TOKENS (Monolith B&W) ────────────────────────────────────────────── */
+    /* ─── TOKENS (Monolith Refined) ────────────────────────────────────────── */
     :root {
-      --bg: #000000;
+      --bg: #050505;
       --surface: #0a0a0a;
       --border: #1a1a1a;
       --border-bright: #ffffff;
-      --text: #ffffff;
+      --text: #f0f0f0;
       --text-muted: #808080;
       --text-dim: #404040;
+      --accent: #a5f3fc;
       --font: 'Geist', sans-serif;
       --mono: 'Geist Mono', monospace;
     }
@@ -50,17 +51,18 @@
       font-size: 0.7rem;
       text-transform: uppercase;
       letter-spacing: 0.4em;
-      color: var(--text-dim);
+      color: var(--accent);
       margin-bottom: 1rem;
       display: block;
     }
     h1 {
-      font-size: 3rem;
+      font-size: 3.5rem;
       font-weight: 900;
       text-transform: uppercase;
       letter-spacing: -0.04em;
       line-height: 1;
       margin-bottom: 1.5rem;
+      color: var(--text);
     }
     .hero-sub {
       font-size: 1.25rem;
@@ -80,7 +82,9 @@
       gap: 30px;
       padding-top: 40px;
       border-top: 1px solid var(--border);
+      transition: border-color 0.3s;
     }
+    .step:hover { border-color: var(--accent); }
     .step-num {
       font-family: var(--mono);
       font-size: 1rem;
@@ -106,6 +110,7 @@
       background: var(--surface);
       padding: 0.2rem 0.4rem;
       border: 1px solid var(--border);
+      color: var(--accent);
     }
     pre {
       font-family: var(--mono);
@@ -115,6 +120,7 @@
       border: 1px solid var(--border);
       overflow-x: auto;
       margin: 1.5rem 0;
+      color: var(--text);
     }
 
     /* ── Tabs ── */
@@ -131,13 +137,15 @@
       font-size: 0.65rem;
       text-transform: uppercase;
       letter-spacing: 0.1em;
-      padding: 6px 12px;
+      padding: 8px 14px;
       cursor: pointer;
+      transition: all 0.2s;
     }
+    .ide-tab:hover { color: var(--text); border-color: var(--gray-600); }
     .ide-tab.active {
-      border-color: var(--border-bright);
-      color: var(--text);
-      background: var(--surface);
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(165, 243, 252, 0.05);
     }
     .tab-panel { display: none; }
     .tab-panel.active { display: block; }
@@ -145,30 +153,32 @@
     /* ── Buttons ── */
     .btn {
       display: inline-block;
-      padding: 0.8rem 1.5rem;
-      font-size: 0.7rem;
+      padding: 0.9rem 1.8rem;
+      font-size: 0.65rem;
       font-weight: 800;
       text-transform: uppercase;
       letter-spacing: 0.2em;
-      border: 1px solid var(--border-bright);
+      border: 1px solid rgba(255, 255, 255, 0.1);
       background: transparent;
       color: var(--text);
       cursor: pointer;
       text-decoration: none;
-      transition: all 0.2s;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     }
-    .btn:hover { background: var(--text); color: var(--bg); }
-    .btn-sm { padding: 0.4rem 1rem; font-size: 0.6rem; }
+    .btn:hover { border-color: var(--accent); color: var(--accent); }
+    .btn:active { transform: scale(0.97); }
+    .btn-sm { padding: 0.5rem 1.2rem; font-size: 0.6rem; }
 
     /* ── Status Check ── */
     .status-check {
       margin-top: 80px;
       padding: 40px;
       border: 1px solid var(--border);
-      background: var(--surface);
+      background: #080808;
       display: flex;
       justify-content: space-between;
       align-items: center;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.3);
     }
     .status-check h4 {
       font-size: 1rem;
@@ -176,28 +186,28 @@
       text-transform: uppercase;
       margin-bottom: 0.5rem;
     }
-    .status-check p { font-size: 0.8rem; color: var(--text-muted); }
+    .status-check p { font-size: 0.85rem; color: var(--text-muted); }
 
     /* ── Result ── */
     .result {
       margin-top: 1rem;
       font-family: var(--mono);
-      font-size: 0.7rem;
+      font-size: 0.65rem;
       text-transform: uppercase;
       display: none;
     }
-    .result.ok { color: var(--text); font-weight: 800; display: block; }
-    .result.fail { color: var(--text-muted); display: block; }
+    .result.ok { color: var(--accent); font-weight: 800; display: block; }
+    .result.fail { color: var(--text-dim); display: block; }
 
     footer {
-      margin-top: 80px;
+      margin-top: 100px;
       padding-top: 40px;
       border-top: 1px solid var(--border);
       text-align: center;
       font-family: var(--mono);
       font-size: 0.6rem;
       text-transform: uppercase;
-      letter-spacing: 0.2em;
+      letter-spacing: 0.3em;
       color: var(--text-dim);
     }
 
@@ -211,20 +221,20 @@
   <div class="page">
 
     <div class="hero">
-      <span class="hero-eyebrow">Initializing System</span>
+      <span class="hero-eyebrow">Initializing Cluster Node</span>
       <h1>Welcome to Mergen.</h1>
-      <p class="hero-sub">Stream live browser telemetry into any AI IDE. Everything stays on 127.0.0.1.</p>
+      <p class="hero-sub">Stream live, <span style="color:var(--accent)">W3C-compliant</span> telemetry into any AI agent environment.</p>
     </div>
 
     <div class="steps">
       <div class="step">
         <div class="step-num">01</div>
         <div class="step-body">
-          <h3>Boot the Server</h3>
-          <p>Initialize the machine-readable stack via CLI:</p>
+          <h3>Boot the Nexus</h3>
+          <p>Initialize the machine-readable server via CLI. This acts as the local nexus for all telemetry streams.</p>
           <pre>npx mergen-server@latest setup</pre>
-          <div style="display:flex; align-items:center; gap:15px;">
-            <button class="btn btn-sm" id="step1-check-btn">Ping Server</button>
+          <div style="display:flex; align-items:center; gap:20px;">
+            <button class="btn btn-sm" id="step1-check-btn">Ping Nexus</button>
             <span class="result" id="step1-result"></span>
           </div>
         </div>
@@ -233,7 +243,7 @@
       <div class="step">
         <div class="step-num">02</div>
         <div class="step-body">
-          <h3>Link MCP IDE</h3>
+          <h3>Bridge to Agent</h3>
           <div class="ide-tabs">
             <button class="ide-tab active" data-target="tab-claude">Claude</button>
             <button class="ide-tab" data-target="tab-cursor">Cursor</button>
@@ -242,11 +252,11 @@
           </div>
 
           <div class="tab-panel active" id="tab-claude">
-            <p>Register the MCP server with Claude Code:</p>
+            <p>Register the MCP bridge with Claude Code to enable runtime visibility.</p>
             <pre>claude mcp add mergen --transport stdio -- node "$(pwd)/server/dist/index.js"</pre>
           </div>
           <div class="tab-panel" id="tab-cursor">
-            <p>Ensure <code>.cursor/mcp.json</code> contains the mergen entry:</p>
+            <p>Ensure <code>.cursor/mcp.json</code> provides the correct node path for the server dist.</p>
             <pre>{
   "mergen": {
     "command": "node",
@@ -255,7 +265,7 @@
 }</pre>
           </div>
           <div class="tab-panel" id="tab-windsurf">
-            <p>Update <code>~/.codeium/windsurf/mcp_config.json</code>:</p>
+            <p>Inject the mergen configuration into <code>mcp_config.json</code>.</p>
             <pre>{
   "mcpServers": {
     "mergen": {
@@ -266,7 +276,7 @@
 }</pre>
           </div>
           <div class="tab-panel" id="tab-vscode">
-            <p>Enable Agent mode in Copilot Chat and ensure the <code>mergen</code> tool is active via the <code>mcp.json</code> configuration.</p>
+            <p>Activate Agent mode and verify the <code>mergen</code> toolset is initialized via the <code>mcp.json</code> protocol.</p>
           </div>
         </div>
       </div>
@@ -274,31 +284,31 @@
       <div class="step">
         <div class="step-num">03</div>
         <div class="step-body">
-          <h3>Instrument Runtime</h3>
-          <p>Mergen records all <code>console.*</code>, <code>fetch</code>, and <code>XHR</code> signals automatically on any open tab.</p>
+          <h3>Instrument Execution</h3>
+          <p>The agent-native extension automatically intercepts all <span style="color:var(--accent)">console</span>, <span style="color:var(--accent)">fetch</span>, and <span style="color:var(--accent)">XHR</span> signals across the current tab.</p>
         </div>
       </div>
 
       <div class="step">
         <div class="step-num">04</div>
         <div class="step-body">
-          <h3>Consult Agent</h3>
-          <p>Ask your AI about the runtime state. It now has eyes on your execution flow.</p>
+          <h3>Consult Reasoning</h3>
+          <p>Query your agent about the runtime state. It now has access to the full causal graph of your application.</p>
         </div>
       </div>
     </div>
 
     <div class="status-check">
       <div>
-        <h4>Connection Status</h4>
-        <p>Verifying full-stack signal propagation.</p>
+        <h4>Nexus Connectivity</h4>
+        <p>Verifying full-stack signal propagation from capture to reasoning.</p>
         <span class="result" id="check-result"></span>
       </div>
-      <button class="btn" id="check-btn">Check Nexus</button>
+      <button class="btn" id="check-btn">Validate Link</button>
     </div>
 
     <footer>
-      © 2026 MERGEN // INSTRUMENTED BY MACHINE
+      MERGEN // INSTRUMENTED BY MACHINE // © 2026
     </footer>
 
   </div>
