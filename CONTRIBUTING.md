@@ -2,6 +2,14 @@
 
 Thank you for your interest in contributing to Mergen! We welcome contributions of all kinds.
 
+## 🔁 Community Feedback Loop
+
+Mergen improves fastest when runtime issues, false positives, and detector feedback are shared back with the project.
+
+- **GitHub Discussions** — use for questions, debugging patterns, and early design discussions.
+- **GitHub Issues** — use for confirmed bugs and scoped feature requests.
+- **VS Code feedback buttons** — when you rate a hypothesis 👍/👎 in the panel, you help calibrate which detectors are trustworthy.
+
 ---
 
 ## 🚀 Quick Start

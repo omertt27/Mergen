@@ -68,6 +68,7 @@ Mergen tracks agent actions across complex enterprise microservices using a **ze
   - `analyze_runtime` — **The Core:** Emits a causal graph with EXACT/STRUCTURAL evidence.
   - `get_recent_logs`, `get_network_activity`, `get_dom_context` (Free).
 - **CLI** — `mergen status`, `mergen doctor`, `mergen setup`.
+- **Checkpoint-on-Save** — turn every save into a debugging timeline marker your AI can diff against.
 
 ---
 
@@ -133,6 +134,44 @@ uncaught exceptions. **No browser extension required.**
 
 Captures: console, fetch/XHR, WebSocket, DOM snapshots, React/Vue hierarchies.
 Works alongside the Node Proxy for full-stack causal joins.
+
+---
+
+## Power Workflows
+
+### Checkpoint on Save (Automatic Debugging Timeline)
+
+Every time you save a file, Mergen can automatically create a debugging checkpoint — a marker in the causal timeline your AI can reference.
+
+```bash
+# Install the git pre-commit hook (surfaces signals before every commit):
+node scripts/setup.mjs   # choose option 6
+
+# Or trigger manually:
+curl -X POST http://127.0.0.1:3000/checkpoint \
+  -H 'Content-Type: application/json' \
+  -d '{"label": "before login refactor"}'
+```
+
+Then ask your AI: *"What changed between the last checkpoint and this error?"*
+
+The VS Code task `.vscode/tasks.json` already includes a `mergen: checkpoint on save` task — enable it once and every Ctrl+S becomes a timeline marker.
+
+### Capture + Reproduce Bug
+
+1. Click the ▶ **"Start Capture"** button in the Mergen sidebar (or run `mark_capture_start`)
+2. Reproduce the bug
+3. Ask your AI: *"What happened since capture?"*
+
+Your AI sees only the events from the reproduction window — no noise from earlier in the session.
+
+---
+
+## Community
+
+- **GitHub Discussions** — [Ask questions, share patterns, report false positives →](https://github.com/omertt27/Mergen/discussions)
+- **Issues** — [Bug reports and feature requests →](https://github.com/omertt27/Mergen/issues)
+- **Feedback** — In the VS Code panel: every hypothesis has a 👍/👎 button that teaches Mergen which detectors are trustworthy.
 
 ---
 

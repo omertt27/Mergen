@@ -34,6 +34,47 @@ export function registerActivityNotifier(n: ActivityNotifier): void {
   _notifier = n;
 }
 
+class DedupWindow {
+  private readonly _seen = new Map<string, { count: number; lastTs: number }>();
+  private readonly _windowMs: number;
+
+  constructor(windowMs = 5_000) {
+    this._windowMs = windowMs;
+  }
+
+  /** Returns true if this fingerprint was seen within the window (duplicate).
+   *  Side effect: records the fingerprint and increments its count. */
+  isDuplicate(fp: string, ts: number): boolean {
+    const entry = this._seen.get(fp);
+    if (entry && ts - entry.lastTs < this._windowMs) {
+      entry.count++;
+      entry.lastTs = ts;
+      return true;
+    }
+    this._seen.set(fp, { count: 1, lastTs: ts });
+    if (this._seen.size > 500) {
+      const cutoff = ts - this._windowMs * 2;
+      for (const [k, v] of this._seen) {
+        if (v.lastTs < cutoff) this._seen.delete(k);
+      }
+    }
+    return false;
+  }
+}
+
+const _dedup = new DedupWindow(5_000);
+
+function eventFingerprint(event: BrowserEvent): string | null {
+  if (event.type === 'network') {
+    return `net:${event.method}:${event.url}:${event.status}`;
+  }
+  if (event.type === 'console' && event.level === 'error') {
+    const msg = typeof event.args[0] === 'string' ? event.args[0].slice(0, 100) : '';
+    return `err:${msg}`;
+  }
+  return null;
+}
+
 export const ingestRouter = Router();
 
 const SHARED_SECRET = process.env.MERGEN_SECRET;
@@ -172,6 +213,11 @@ ingestRouter.post('/ingest', (req: Request, res: Response): void => {
   }
 
   const event = redactEvent(clampNetworkBodies(result.data));
+  const fp = eventFingerprint(event);
+  if (fp && _dedup.isDuplicate(fp, event.timestamp)) {
+    res.status(204).end();
+    return;
+  }
 
   // Respond immediately so the extension is never blocked on sourcemap I/O
   res.status(204).end();

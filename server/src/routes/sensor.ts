@@ -17,7 +17,7 @@ import { buildCausalChain } from '../intelligence/causal.js';
 import { hypothesisHistory } from '../intelligence/hypothesis-history.js';
 import { getStats } from '../intelligence/calibration.js';
 import { getUsageSnapshot } from '../intelligence/usage.js';
-import { toolCallCounts, lastMcpCallAt } from '../intelligence/tools.js';
+import { toolCallCounts, lastMcpCallAt, firstAnalyzeAt } from '../intelligence/tools.js';
 import { listActiveSessions } from '../intelligence/debug-sessions.js';
 import { getTeamState, isTeamEnabled } from '../intelligence/team.js';
 
@@ -28,16 +28,26 @@ export function createSensorRouter(serverVersion: string): Router {
   router.get('/health', (_req, res) => {
     const teamState = getTeamState();
     const counters = store.getCounters();
+    const buffered = store.size();
+    const signals = store.getSignals();
+    const allClear = counters.errors === 0
+      && counters.networkErrors === 0
+      && signals.length === 0
+      && buffered > 0;
     res.json({
       ok: true,
-      buffered: store.size(),
+      buffered,
       errors: counters.errors,
       warnings: counters.warnings,
       networkErrors: counters.networkErrors,
       lastEventAt: store.lastEventAt(),
       clearedAt: store.clearedAt(),
       mcpLastCallAt: lastMcpCallAt,
-      signals: store.getSignals(),
+      firstAnalyzeAt,
+      signals,
+      allClear,
+      allClearMessage: allClear ? `✅ 0 errors in the last session (${buffered} events captured)` : null,
+      allClearSince: allClear ? (store.clearedAt() ?? store.lastEventAt()) : null,
       name: 'mergen',
       version: serverVersion,
       teamSync: isTeamEnabled()

@@ -107,7 +107,99 @@ async function refreshAnnotations(port: number): Promise<void> {
   } catch { /* server down — clear annotations */ mergenDiagnostics.clear(); }
 }
 
+async function checkMcpConfiguration(): Promise<void> {
+  const home = os.homedir();
+  const mcpConfigPaths = [
+    path.join(home, '.cursor', 'mcp.json'),
+    path.join(home, '.codeium', 'windsurf', 'mcp_config.json'),
+  ];
+  const workspaceMcpPaths = vscode.workspace.workspaceFolders?.flatMap((f) => [
+    path.join(f.uri.fsPath, '.vscode', 'mcp.json'),
+    path.join(f.uri.fsPath, '.cursor', 'mcp.json'),
+  ]) ?? [];
+
+  const allPaths = [...mcpConfigPaths, ...workspaceMcpPaths];
+  const anyExists = allPaths.some((p) => { try { return fs.existsSync(p); } catch { return false; } });
+
+  if (anyExists) return;
+
+  const MCP_DETECTED_KEY = 'mergen.mcpConfigOffered';
+  const ctx = (global as { __mergenContext?: vscode.ExtensionContext }).__mergenContext;
+  if (ctx?.globalState.get(MCP_DETECTED_KEY)) return;
+
+  const action = await vscode.window.showInformationMessage(
+    'Mergen is running! To let your AI agent call Mergen tools, register it as an MCP server.',
+    'Configure for Cursor',
+    'Configure for VS Code',
+    'Later',
+  );
+
+  if (action === 'Configure for Cursor') {
+    const cursorPath = path.join(home, '.cursor', 'mcp.json');
+    try {
+      const entry = resolveServerEntry();
+      if (!entry) {
+        vscode.window.showWarningMessage('Mergen: build the server first (cd server && npm run build).');
+        return;
+      }
+      const dir = path.dirname(cursorPath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      let existing: Record<string, unknown> = {};
+      try { existing = JSON.parse(fs.readFileSync(cursorPath, 'utf8')) as Record<string, unknown>; } catch { /* new file */ }
+      const existingMcpServers = typeof existing.mcpServers === 'object' && existing.mcpServers !== null
+        ? existing.mcpServers as Record<string, unknown>
+        : {};
+      const merged = {
+        ...existing,
+        mcpServers: {
+          ...existingMcpServers,
+          mergen: { command: 'node', args: [entry] },
+        },
+      };
+      fs.writeFileSync(cursorPath, JSON.stringify(merged, null, 2) + '\n', 'utf8');
+      vscode.window.showInformationMessage(`Mergen: MCP config written to ${cursorPath}. Restart Cursor to apply.`);
+    } catch (err) {
+      vscode.window.showErrorMessage(`Mergen: could not write Cursor config — ${(err as Error).message}`);
+    }
+  } else if (action === 'Configure for VS Code') {
+    const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspace) {
+      vscode.window.showWarningMessage('Mergen: open a workspace folder first.');
+      return;
+    }
+    const vscodePath = path.join(workspace, '.vscode', 'mcp.json');
+    try {
+      const entry = resolveServerEntry();
+      if (!entry) {
+        vscode.window.showWarningMessage('Mergen: build the server first (cd server && npm run build).');
+        return;
+      }
+      const dir = path.dirname(vscodePath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      let existing: Record<string, unknown> = {};
+      try { existing = JSON.parse(fs.readFileSync(vscodePath, 'utf8')) as Record<string, unknown>; } catch { /* new file */ }
+      const existingServers = typeof existing.servers === 'object' && existing.servers !== null
+        ? existing.servers as Record<string, unknown>
+        : {};
+      const merged = {
+        ...existing,
+        servers: {
+          ...existingServers,
+          mergen: { type: 'stdio', command: 'node', args: [entry] },
+        },
+      };
+      fs.writeFileSync(vscodePath, JSON.stringify(merged, null, 2) + '\n', 'utf8');
+      vscode.window.showInformationMessage(`Mergen: MCP config written to ${vscodePath}. Reload VS Code to apply.`);
+    } catch (err) {
+      vscode.window.showErrorMessage(`Mergen: could not write VS Code config — ${(err as Error).message}`);
+    }
+  }
+
+  await ctx?.globalState.update(MCP_DETECTED_KEY, true);
+}
+
 export function activate(context: vscode.ExtensionContext): void {
+  (global as { __mergenContext?: vscode.ExtensionContext }).__mergenContext = context;
   console.log('[Mergen] activate() called');
   context.subscriptions.push(mergenDiagnostics);
 
@@ -155,6 +247,12 @@ export function activate(context: vscode.ExtensionContext): void {
   if (cfg.get<boolean>('autoStartServer', true)) {
     void startServer(context, /*explicit*/ false);
   }
+  setTimeout(() => {
+    const port = vscode.workspace.getConfiguration('mergen').get<number>('serverPort', 3000);
+    void isServerRunning(port).then((running) => {
+      if (running) void checkMcpConfiguration();
+    });
+  }, 5000);
 
   // ── Inline gutter annotations — refresh every 30s ─────────────────────────
   const annotationPort = () => vscode.workspace.getConfiguration('mergen').get<number>('serverPort', 3000);
