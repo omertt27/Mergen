@@ -120,6 +120,12 @@ function buildDashboardHtml(version: string, nonce: string): string {
   /* Refresh bar */
   .refresh{position:fixed;bottom:16px;right:16px;font-size:11px;color:var(--muted);background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:4px 12px}
   .empty{text-align:center;padding:32px;color:var(--muted);font-size:12px}
+  /* Fix validation */
+  .vld-status{font-weight:700;font-size:13px}
+  .vld-status.resolved{color:var(--green)}.vld-status.partial{color:var(--yellow)}.vld-status.wrong{color:var(--red)}
+  .vld-watch{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-bottom:8px}
+  .vld-watch-dot{width:6px;height:6px;border-radius:50%;background:var(--blue);box-shadow:0 0 4px var(--blue);animation:pulse 2s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
   a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}
   /* Incident actions */
   .inc-bar{display:flex;align-items:center;gap:8px;padding:10px 14px;background:rgba(59,130,246,.06);border-left:3px solid var(--blue);border-radius:0 var(--radius) var(--radius) 0;margin-bottom:16px}
@@ -206,6 +212,11 @@ function buildDashboardHtml(version: string, nonce: string): string {
       <div class="card" id="sdk-card">
         <div class="card-title">Backend SDKs</div>
         <div id="sdk-list"><div style="font-size:11px;color:var(--muted)">No SDK connections yet.</div></div>
+      </div>
+
+      <div class="card" id="validate-card" style="display:none">
+        <div class="card-title">Fix Validation</div>
+        <div id="validate-list"></div>
       </div>
 
       <div class="card">
@@ -508,10 +519,40 @@ async function ensureIncident(rc) {
   } catch {}
 }
 
+async function pollValidateState() {
+  try {
+    const state = await fetch('/validate/state').then(r=>r.json());
+    const card = document.getElementById('validate-card');
+    const list = document.getElementById('validate-list');
+    if (!state.watching && !state.lastValidation) { card.style.display='none'; return; }
+    card.style.display = 'block';
+    let html = '';
+    if (state.watching) {
+      const n = state.paths ? state.paths.length : 0;
+      html += '<div class="vld-watch"><span class="vld-watch-dot"></span>Watching '+n+' file'+(n!==1?'s':'')+'…</div>';
+    }
+    if (state.lastValidation) {
+      const v = state.lastValidation;
+      const cls = v.verdict==='correct'?'resolved':v.verdict==='partial'?'partial':'wrong';
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'+
+        '<span class="vld-status '+cls+'">'+esc(v.status)+'</span>'+
+        '<span style="font-size:10px;color:var(--muted)">'+rel(v.timestamp)+' ago</span>'+
+        '</div>'+
+        '<div style="font-size:11px;color:var(--muted)">'+
+        'Before: <strong>'+v.errsBefore+'</strong> error'+(v.errsBefore!==1?'s':'')+
+        ' &nbsp;→&nbsp; After: <strong>'+v.errsAfter+'</strong>'+
+        '</div>';
+    }
+    list.innerHTML = html;
+  } catch(e) {}
+}
+
 poll();
 pollSdkStatus();
+pollValidateState();
 setInterval(poll,5000);
 setInterval(pollSdkStatus,10000);
+setInterval(pollValidateState,5000);
 </script>
 </body></html>`;
 }

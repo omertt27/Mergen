@@ -24,6 +24,40 @@ const MAX_LINES_PER_SEC = 30;
 const MAX_LINE_LENGTH   = 2_000;
 const RATE_WINDOW_MS    = 1_000;
 
+// ── ANSI stripping ────────────────────────────────────────────────────────────
+// Spring Boot, Rails, and Django dev servers write ANSI escape codes when they
+// detect a TTY. Even with stdio:'pipe' some frameworks force colors. Strip them
+// before storing so buffer events contain clean text for LLM consumption.
+const ANSI_RE = /\x1b(?:\[[0-9;]*[A-Za-z]|\][^\x07]*(?:\x07|\x1b\\)|\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e])/g;
+
+function stripAnsi(s: string): string {
+  return s.replace(ANSI_RE, '');
+}
+
+// ── Framework-specific env ────────────────────────────────────────────────────
+// Force pipe-safe output for common dev server frameworks.
+// NO_COLOR and TERM=dumb are the baseline; each framework adds its own flag.
+// User-supplied env (opts.env) always wins — never override explicit settings.
+function frameworkEnv(command: string, args: string[]): Record<string, string> {
+  const full = [command, ...args].join(' ').toLowerCase();
+  const env: Record<string, string> = { NO_COLOR: '1', TERM: 'dumb' };
+
+  if (/python|manage\.py|django|gunicorn|uvicorn|fastapi/.test(full)) {
+    env.PYTHONUNBUFFERED = '1';
+  }
+  if (/\bjava\b|mvn|gradle|spring-boot|bootrun/.test(full)) {
+    const existing = process.env.JAVA_TOOL_OPTIONS ?? '';
+    const flag = '-Dspring.output.ansi.enabled=never';
+    env.JAVA_TOOL_OPTIONS = existing.includes(flag) ? existing : (existing ? `${existing} ${flag}` : flag);
+  }
+  if (/\bruby\b|rails|puma|unicorn|rackup/.test(full)) {
+    env.DISABLE_SPRING = '1';
+    env.RAILS_LOG_TO_STDOUT = '1';
+  }
+
+  return env;
+}
+
 // ── TraceId extraction ────────────────────────────────────────────────────────
 // Scan each log line for a W3C traceparent or a structured trace ID key-value
 // pair. When found, the 32-char hex traceId is stored on the TerminalOutputEvent
@@ -76,7 +110,8 @@ export function startProcessWatcher(opts: WatcherOptions): void {
     proc = spawn(command, args, {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, ...env },
+      // frameworkEnv provides safe defaults; caller opts.env always wins
+      env: { ...process.env, ...frameworkEnv(command, args), ...env },
     });
   } catch (err) {
     logger.warn({ name, err }, 'process-watcher: failed to spawn process');
@@ -110,7 +145,7 @@ export function startProcessWatcher(opts: WatcherOptions): void {
     }
     watcher.lineCount++;
 
-    const line = raw.slice(0, MAX_LINE_LENGTH);
+    const line = stripAnsi(raw).slice(0, MAX_LINE_LENGTH);
     const data = isStderr ? `[stderr] ${line}` : line;
     pushTerminal(watcher, data);
   }

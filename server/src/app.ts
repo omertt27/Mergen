@@ -29,6 +29,7 @@ import { otlpReceiverRouter } from './routes/otlp-receiver.js';
 import { createCIRouter } from './routes/ci.js';
 import { createIncidentsRouter } from './routes/incidents.js';
 import { createTicketsRouter } from './routes/tickets.js';
+import { createValidateRouter } from './routes/validate.js';
 import { createDashboardRouter } from './routes/dashboard.js';
 import { createDemoRouter } from './routes/demo.js';
 import { createSdkRouter } from './routes/sdk.js';
@@ -126,6 +127,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createCIRouter());       // CI/CD and deployment events
   app.use(createIncidentsRouter()); // Incident workflow (acknowledge/assign/resolve/note)
   app.use(createTicketsRouter());   // Linear + Jira one-click ticket creation
+  app.use(createValidateRouter()); // Fix validation state
 
   // ── Prometheus metrics endpoint ───────────────────────────────────────────
   // Exposes browser error rates, network failure counts, and request durations

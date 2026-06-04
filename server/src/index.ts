@@ -30,6 +30,7 @@ import { startDockerMonitor, startHeapMonitor, stopDockerMonitor } from './senso
 import { startDockerLogStream, stopDockerLogStream } from './sensor/docker-log-stream.js';
 import { incidentStore } from './sensor/incident-store.js';
 import { stopAllProcessWatchers } from './sensor/process-watcher.js';
+import { stopFileWatch } from './sensor/fs-watcher.js';
 import { saveSession, loadSession } from './sensor/session-persist.js';
 
 import { initLicense, getActivePlanId } from './intelligence/license.js';
@@ -237,6 +238,7 @@ async function main(): Promise<void> {
       stopDockerMonitor();
       stopDockerLogStream();
       stopAllProcessWatchers();
+      stopFileWatch();
       httpServer.close(() => { logger.info('HTTP server closed'); process.exit(0); });
       setTimeout(() => process.exit(1), 5_000).unref();
     });
