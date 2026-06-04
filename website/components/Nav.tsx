@@ -9,10 +9,11 @@ export default function Nav() {
             <li><a href="#why">Capabilities</a></li>
             <li><a href="#integrations">Integrations</a></li>
             <li><a href="#access">Pricing</a></li>
+            <li><a href="/install">Install</a></li>
             <li><a href="https://github.com/omertt27/Mergen">GitHub</a></li>
           </ul>
           <a
-            href="https://github.com/omertt27/Mergen/blob/main/INSTALL.md"
+            href="/install"
             className="btn btn-white nav-cta"
           >
             Get Started
