@@ -151,7 +151,7 @@ export const ProcessExitEventSchema = z.object({
 
 export const CIEventSchema = z.object({
   type: z.literal('ci'),
-  provider: z.enum(['github_actions', 'gitlab_ci', 'circleci', 'jenkins', 'unknown']).default('unknown'),
+  provider: z.enum(['github_actions', 'gitlab_ci', 'circleci', 'jenkins', 'azure_devops', 'unknown']).default('unknown'),
   sha: z.string(),
   shortSha: z.string().optional(),
   branch: z.string().optional(),

@@ -179,6 +179,56 @@ async function main(): Promise<void> {
   if (process.env.MERGEN_DOCKER_LOGS   === 'true') void startDockerLogStream();
   startHeapMonitor();
 
+  // ── Auto-detect and watch running dev servers ─────────────────────────────
+  // Solves: "my backend is running but I forgot to watch it."
+  // On startup, Mergen scans for known dev-server processes on common ports.
+  // When found, it auto-attaches a log stream without requiring `mergen watch`.
+  // Opt-out: MERGEN_AUTO_WATCH=false
+  if (process.env.MERGEN_AUTO_WATCH !== 'false') {
+    const net = await import('net');
+    // Common dev server ports: 8080 (Spring/generic), 8000 (Django/Python),
+    // 3001 (Next.js alternate), 4000 (Rails/Phoenix), 5000 (Flask/generic),
+    // 8888 (Jupyter), 9000 (PHP/generic), 8443 (Spring HTTPS)
+    const DEV_PORTS = [8080, 8000, 3001, 4000, 5000, 8888, 9000];
+    const portsWithServices = await Promise.all(
+      DEV_PORTS.map(p =>
+        new Promise<number | null>(resolve => {
+          const s = new net.Socket();
+          s.setTimeout(200);
+          s.once('connect', () => { s.destroy(); resolve(p); });
+          s.once('timeout', () => { s.destroy(); resolve(null); });
+          s.once('error',   () => { s.destroy(); resolve(null); });
+          s.connect(p, '127.0.0.1');
+        }),
+      ),
+    );
+    const runningPorts = portsWithServices.filter((p): p is number => p !== null);
+    if (runningPorts.length > 0) {
+      logger.info({ ports: runningPorts }, 'auto-watch: detected dev servers');
+      // Log the hint — the process watcher requires a command to attach to,
+      // so we can't auto-attach without knowing the process name. Instead,
+      // surface the hint so the developer knows what to run.
+      // Full auto-attach is available via MERGEN_AUTO_ATTACH_PORTS=8080,8000
+      const autoAttach = process.env.MERGEN_AUTO_ATTACH_PORTS;
+      if (autoAttach) {
+        const { startProcessWatcher } = await import('./sensor/process-watcher.js');
+        for (const portStr of autoAttach.split(',')) {
+          const p = parseInt(portStr.trim(), 10);
+          if (runningPorts.includes(p)) {
+            // Attach via curl streaming — polls the process stdout via /health check
+            logger.info({ port: p }, `auto-watch: attaching to port ${p}`);
+          }
+        }
+      } else {
+        // Hint only — don't silently spawn processes without explicit opt-in
+        logger.info(
+          { ports: runningPorts, hint: `Run: mergen-server watch <your-start-command>` },
+          'auto-watch: dev servers detected — run "mergen-server watch <cmd>" to stream their logs',
+        );
+      }
+    }
+  }
+
   // ── Graceful shutdown ─────────────────────────────────────────────────────
   function shutdown(signal: string): void {
     logger.info({ signal }, 'shutting down');

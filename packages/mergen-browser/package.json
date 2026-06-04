@@ -1,0 +1,31 @@
+{
+  "name": "@mergen/browser",
+  "version": "1.0.0",
+  "description": "Mergen browser SDK — zero-extension observability for AI-assisted debugging. Drop-in OTel exporter for any web app.",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc && node build-umd.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": ["mergen", "otel", "opentelemetry", "browser", "debugging", "ai", "mcp"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/omertt27/Mergen.git",
+    "directory": "packages/mergen-browser"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "5.3.3"
+  }
+}

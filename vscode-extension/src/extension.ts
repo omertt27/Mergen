@@ -55,6 +55,96 @@ function postToIngest(port: number, payload: Record<string, unknown>): Promise<v
 const mergenDiagnostics = vscode.languages.createDiagnosticCollection('mergen');
 let _annotationTimer: ReturnType<typeof setInterval> | null = null;
 
+// ── Status bar — always-on error counter ─────────────────────────────────────
+// Visible at the bottom of every VS Code window. Shows live error/warning counts
+// from the Mergen buffer. The developer sees it turn red without opening any panel.
+// Click → opens GitHub Copilot / AI chat with context pre-filled.
+
+let _statusBar: vscode.StatusBarItem | null = null;
+let _statusPollTimer: ReturnType<typeof setInterval> | null = null;
+let _prevErrorCount = 0;            // tracks transitions 0→N for proactive notification
+let _notifiedThisSession = false;   // fire the notification only once per session
+
+interface HealthPayload {
+  ok?: boolean;
+  errors?: number;
+  warnings?: number;
+  networkErrors?: number;
+  buffered?: number;
+}
+
+async function fetchHealth(port: number): Promise<HealthPayload | null> {
+  return new Promise((resolve) => {
+    const req = http.get(
+      { hostname: '127.0.0.1', port, path: '/health', timeout: 1500 },
+      (res) => {
+        let d = '';
+        res.on('data', (c: string) => { d += c; });
+        res.on('end', () => { try { resolve(JSON.parse(d) as HealthPayload); } catch { resolve(null); } });
+      },
+    );
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.on('error', () => resolve(null));
+  });
+}
+
+async function refreshStatusBar(): Promise<void> {
+  if (!_statusBar) return;
+  const cfg  = vscode.workspace.getConfiguration('mergen');
+  const port = cfg.get<number>('serverPort', 3000);
+  const health = await fetchHealth(port);
+
+  if (!health?.ok) {
+    _statusBar.text    = '$(debug-disconnect) Mergen';
+    _statusBar.tooltip = 'Mergen server not running — click to start';
+    _statusBar.backgroundColor = undefined;
+    _statusBar.command = 'mergen.startServer';
+    _prevErrorCount    = 0;
+    _notifiedThisSession = false;
+    return;
+  }
+
+  const errors  = health.errors  ?? 0;
+  const warns   = health.warnings ?? 0;
+  const netErrs = health.networkErrors ?? 0;
+  const total   = errors + netErrs;
+
+  if (total > 0) {
+    _statusBar.text    = `$(error) Mergen: ${total} error${total !== 1 ? 's' : ''}${warns > 0 ? ` · ${warns} warn` : ''}`;
+    _statusBar.tooltip = `${errors} console error${errors !== 1 ? 's' : ''}, ${netErrs} network error${netErrs !== 1 ? 's' : ''} · Click to ask AI`;
+    _statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+    _statusBar.command = 'mergen.askAI';
+  } else if (warns > 0) {
+    _statusBar.text    = `$(warning) Mergen: ${warns} warning${warns !== 1 ? 's' : ''}`;
+    _statusBar.tooltip = 'Click to ask AI about these warnings';
+    _statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+    _statusBar.command = 'mergen.askAI';
+  } else {
+    _statusBar.text    = `$(pass) Mergen`;
+    _statusBar.tooltip = `Buffer clean — ${health.buffered ?? 0} total events · click to open panel`;
+    _statusBar.backgroundColor = undefined;
+    _statusBar.command = 'mergen.openPanel';
+  }
+
+  // Proactive notification: first time errors appear this session
+  if (total > 0 && _prevErrorCount === 0 && !_notifiedThisSession) {
+    _notifiedThisSession = true;
+    const action = await vscode.window.showWarningMessage(
+      `Mergen captured ${total} error${total !== 1 ? 's' : ''} in your browser. Ask your AI assistant to analyze it.`,
+      'Analyze with AI',
+      'Show panel',
+    );
+    if (action === 'Analyze with AI') {
+      await vscode.commands.executeCommand('mergen.askAI');
+    } else if (action === 'Show panel') {
+      await vscode.commands.executeCommand('mergen.openPanel');
+    }
+  }
+  // Reset notification gate when errors are cleared
+  if (total === 0 && _prevErrorCount > 0) _notifiedThisSession = false;
+  _prevErrorCount = total;
+}
+
 async function refreshAnnotations(port: number): Promise<void> {
   try {
     const data = await new Promise<{ hasPack?: boolean; errors?: Array<{ primaryFrame?: { file?: string; line?: number; column?: number } | null; message?: string }> } | null>((resolve) => {
@@ -211,6 +301,19 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
+  // ── Status bar — always-on, high-contrast error counter ───────────────────
+  _statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+  _statusBar.text    = '$(debug-disconnect) Mergen';
+  _statusBar.tooltip = 'Mergen — browser observability for AI debugging';
+  _statusBar.command = 'mergen.openPanel';
+  _statusBar.show();
+  context.subscriptions.push(_statusBar);
+  context.subscriptions.push({ dispose: () => { if (_statusPollTimer) clearInterval(_statusPollTimer); } });
+
+  // Poll every 5 s — fast enough to feel live, slow enough to be invisible
+  _statusPollTimer = setInterval(() => { void refreshStatusBar(); }, 5_000);
+  setTimeout(() => { void refreshStatusBar(); }, 2_000); // initial read after server boot
+
   // ── Commands ───────────────────────────────────────────────────────────────
   context.subscriptions.push(
     vscode.commands.registerCommand('mergen.openPanel', () => {
@@ -226,6 +329,42 @@ export function activate(context: vscode.ExtensionContext): void {
       vscode.env.openExternal(vscode.Uri.parse(FEEDBACK_URL)),
     ),
     vscode.commands.registerCommand('mergen.openCalibration', () => openCalibration()),
+
+    // ── mergen.askAI — one-click: error → AI chat pre-filled with context ──
+    // Works with GitHub Copilot, Cursor, or any AI chat that responds to
+    // the workbench chat open command. Falls back to opening the Mergen panel.
+    vscode.commands.registerCommand('mergen.askAI', async () => {
+      const cfg  = vscode.workspace.getConfiguration('mergen');
+      const port = cfg.get<number>('serverPort', 3000);
+      const health = await fetchHealth(port);
+      const errors  = health?.errors  ?? 0;
+      const netErrs = health?.networkErrors ?? 0;
+      const warns   = health?.warnings ?? 0;
+
+      let query: string;
+      if (errors > 0 || netErrs > 0) {
+        query = `Mergen captured ${errors + netErrs} error${errors + netErrs !== 1 ? 's' : ''} in the browser. ` +
+          `Use get_unified_timeline and analyze_runtime to show me the root cause and fix. ` +
+          `Start with EXACT confidence joins first.`;
+      } else if (warns > 0) {
+        query = `Mergen captured ${warns} warning${warns !== 1 ? 's' : ''} in the browser. ` +
+          `Use get_recent_logs and explain_warning to diagnose before this escalates to an error.`;
+      } else {
+        query = `Use quick_check to see the current buffer state, then summarize what's happening in the app.`;
+      }
+
+      // Try GitHub Copilot chat first, then Cursor, then fall back to panel
+      try {
+        await vscode.commands.executeCommand('workbench.action.chat.open', { query, isPartialQuery: false });
+      } catch {
+        try {
+          // Cursor uses a different command
+          await vscode.commands.executeCommand('aichat.newchataction');
+        } catch {
+          await vscode.commands.executeCommand('mergen.openPanel');
+        }
+      }
+    }),
   );
 
   // ── First-run: open the walkthrough automatically ──────────────────────────
@@ -319,18 +458,60 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(
-    vscode.workspace.onDidSaveTextDocument((doc) => {
+    vscode.workspace.onDidSaveTextDocument(async (doc) => {
       const fp = doc.uri.fsPath;
+      if (!/\.[jt]sx?$|\.py$|\.java$|\.cs$|\.go$|\.rb$/.test(fp)) return;
       if (/\.(test|spec)\.[jt]sx?$/.test(fp)) return;
-      if (!/\.[jt]sx?$/.test(fp)) return;
 
-      const dir = path.dirname(fp);
-      const base = path.basename(fp).replace(/\.[^.]+$/, '');
-      const candidates = ['.test.ts', '.spec.ts', '.test.tsx', '.spec.tsx', '.test.js', '.spec.js']
-        .map((s) => path.join(dir, base + s));
-      const now = new Date();
-      for (const c of candidates) {
-        try { if (fs.existsSync(c)) fs.utimesSync(c, now, now); } catch { /* non-fatal */ }
+      // ── Test file touch (existing behaviour) ──────────────────────────────
+      if (/\.[jt]sx?$/.test(fp)) {
+        const dir  = path.dirname(fp);
+        const base = path.basename(fp).replace(/\.[^.]+$/, '');
+        const candidates = ['.test.ts', '.spec.ts', '.test.tsx', '.spec.tsx', '.test.js', '.spec.js']
+          .map((s) => path.join(dir, base + s));
+        const now = new Date();
+        for (const c of candidates) {
+          try { if (fs.existsSync(c)) fs.utimesSync(c, now, now); } catch { /* non-fatal */ }
+        }
+      }
+
+      // ── Regression detection: snapshot errors before → wait for HMR → compare ──
+      // Fires on every source file save. Gives developers instant feedback:
+      // "saving auth.ts introduced 2 new errors" before they even switch windows.
+      const cfg2  = vscode.workspace.getConfiguration('mergen');
+      const port2 = cfg2.get<number>('serverPort', 3000);
+
+      // Capture baseline — what was broken BEFORE this save
+      const before = await fetchHealth(port2);
+      if (!before?.ok) return;
+      const errsBefore = (before.errors ?? 0) + (before.networkErrors ?? 0);
+
+      // Wait for HMR / hot-reload (typically 1-3 s)
+      await new Promise<void>((r) => setTimeout(r, 3500));
+
+      const after = await fetchHealth(port2);
+      if (!after?.ok) return;
+      const errsAfter = (after.errors ?? 0) + (after.networkErrors ?? 0);
+      const delta = errsAfter - errsBefore;
+
+      const fileName = path.basename(fp);
+
+      if (delta > 0) {
+        // New errors appeared after saving this file — tell the developer immediately
+        const action = await vscode.window.showWarningMessage(
+          `Mergen: saving ${fileName} introduced ${delta} new error${delta !== 1 ? 's' : ''}. Fix before continuing?`,
+          'Analyze with AI',
+          'Ignore',
+        );
+        if (action === 'Analyze with AI') {
+          await vscode.commands.executeCommand('mergen.askAI');
+        }
+      } else if (errsBefore > 0 && errsAfter < errsBefore) {
+        // Errors went DOWN — the save fixed something. Positive reinforcement.
+        const fixed = errsBefore - errsAfter;
+        void vscode.window.showInformationMessage(
+          `Mergen: ${fileName} resolved ${fixed} error${fixed !== 1 ? 's' : ''}. ${errsAfter > 0 ? `${errsAfter} remain.` : 'Buffer clean.'}`,
+        );
       }
     }),
     {

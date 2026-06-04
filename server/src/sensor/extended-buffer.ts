@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ConsoleEvent, NetworkEvent, ContextSnapshot } from './buffer.js';
 
 // ── Layer 1: Better Context — Extended event schemas ──────────────────────────
 
@@ -114,9 +115,9 @@ export interface DiagnosticSnapshot {
     eventType: string;
     summary: string;
   };
-  recentLogs:    any[];   // last 20 console events before trigger
-  recentNetwork: any[];   // last 10 network events before trigger
-  contextSnapshot: any | null; // most recent context (localStorage, component tree)
+  recentLogs:      ConsoleEvent[];
+  recentNetwork:   NetworkEvent[];
+  contextSnapshot: ContextSnapshot | null;
   stack: string | undefined;
 }
 

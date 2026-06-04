@@ -30,6 +30,8 @@ import { createCIRouter } from './routes/ci.js';
 import { createIncidentsRouter } from './routes/incidents.js';
 import { createTicketsRouter } from './routes/tickets.js';
 import { createDashboardRouter } from './routes/dashboard.js';
+import { createDemoRouter } from './routes/demo.js';
+import { createSdkRouter } from './routes/sdk.js';
 import { handleSlackActions, handleFeedbackLink } from './intelligence/slack.js';
 import { getPrometheusMetrics } from './sensor/otel-exporter.js';
 
@@ -110,6 +112,8 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   // ── Route modules ─────────────────────────────────────────────────────────
   app.use(createDashboardRouter(serverVersion)); // Read-only web dashboard
   app.use(createSetupRouter()); // Setup wizard UI
+  app.use(createDemoRouter()); // 3-minute interactive demo
+  app.use(createSdkRouter()); // serves @mergen/browser as /sdk.js — one <script> tag install
   app.use(createSensorRouter(serverVersion));
   app.use(createLicenseRouter());
   app.use(createCalibrationRouter());

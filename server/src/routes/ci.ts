@@ -1,12 +1,12 @@
 /**
  * routes/ci.ts — CI/CD and deployment event ingestion.
  *
- * Three surfaces:
- *
- *   POST /ci/github     — GitHub Actions webhook (X-GitHub-Event header)
- *   POST /ci/gitlab     — GitLab CI webhook
- *   POST /ci/generic    — Universal JSON format (any CI system)
- *   POST /deployments   — Deployment notifications (any system)
+ *   POST /ci/github        — GitHub Actions webhook (X-GitHub-Event header)
+ *   POST /ci/gitlab        — GitLab CI webhook
+ *   POST /ci/azure-devops  — Azure DevOps Pipelines webhook
+ *   POST /ci/jenkins       — Jenkins Notification Plugin webhook
+ *   POST /ci/generic       — Universal JSON format (any CI system)
+ *   POST /deployments      — Deployment notifications (any system)
  *
  * All routes push structured CIEvent / DeploymentEvent into the shared buffer
  * so the causal engine can correlate browser errors with the CI run that
@@ -139,6 +139,120 @@ export function createCIRouter(): Router {
       res.json({ ok: true, sha: event.sha, status: event.status });
     } catch (err) {
       logger.warn({ err }, 'ci/gitlab: parse error');
+      res.status(400).json({ error: 'parse error' });
+    }
+  });
+
+  // ── Azure DevOps Pipelines ────────────────────────────────────────────────
+  // Configure a Service Hook in Azure DevOps:
+  //   Project Settings → Service Hooks → Web Hooks → Build completed
+  //   URL: http(s)://<mergen-host>/ci/azure-devops
+  //
+  // Payload shape (Azure DevOps "Build completed" event):
+  //   { eventType: "build.complete", resource: { buildNumber, result, sourceVersion, ... } }
+  router.post('/ci/azure-devops', (req, res) => {
+    try {
+      const body = req.body as Record<string, unknown>;
+      const resource = (body.resource ?? body) as Record<string, unknown>;
+      const eventType = String(body.eventType ?? body.event ?? '');
+
+      // Only process build.complete events (skip build.queued, build.started)
+      if (eventType && eventType !== 'build.complete' && eventType !== 'ms.vss-build.build-completed-event') {
+        res.json({ ok: true, skipped: true, reason: `eventType ${eventType} not processed` });
+        return;
+      }
+
+      const sha        = String(resource.sourceVersion ?? resource.sourceVersionId ?? resource.commitId ?? '');
+      const definition = (resource.definition ?? resource.plan ?? {}) as Record<string, unknown>;
+      const project    = (resource.project ?? (body.resourceContainers as Record<string,unknown>|undefined)?.project ?? {}) as Record<string, unknown>;
+      const links      = (resource._links ?? {}) as Record<string, Record<string, string>>;
+
+      const resultRaw = String(resource.result ?? resource.buildResult ?? 'unknown').toLowerCase();
+      const status: CIEvent['status'] =
+        resultRaw === 'succeeded'                    ? 'success'
+        : resultRaw === 'failed' || resultRaw === 'partiallySucceeded' ? 'failure'
+        : resultRaw === 'canceled' || resultRaw === 'cancelled'         ? 'cancelled'
+        : 'failure';
+
+      // Duration from startTime / finishTime ISO strings
+      const startMs  = resource.startTime  ? new Date(String(resource.startTime)).getTime()  : null;
+      const finishMs = resource.finishTime ? new Date(String(resource.finishTime)).getTime() : null;
+      const durationMs = startMs && finishMs && finishMs > startMs ? finishMs - startMs : undefined;
+
+      const event: CIEvent = {
+        type:     'ci',
+        provider: 'azure_devops',
+        sha,
+        shortSha: sha.slice(0, 7),
+        branch:   String(resource.sourceBranch ?? resource.branch ?? '').replace('refs/heads/', ''),
+        workflow: String(project.name ?? definition.name ?? 'pipeline'),
+        job:      String(resource.buildNumber ?? definition.name ?? 'build'),
+        status,
+        durationMs,
+        url: links.web?.href ?? String(resource.url ?? resource.buildUrl ?? ''),
+        failedTests: [],
+        timestamp: finishMs ?? Date.now(),
+      };
+
+      store.push(event);
+      logger.info({ sha: event.sha.slice(0, 7), status: event.status }, 'ci/azure-devops: event ingested');
+      res.json({ ok: true, sha: event.sha, status: event.status });
+    } catch (err) {
+      logger.warn({ err }, 'ci/azure-devops: parse error');
+      res.status(400).json({ error: 'parse error' });
+    }
+  });
+
+  // ── Jenkins ────────────────────────────────────────────────────────────────
+  // Requires the Jenkins Notification Plugin (jenkins-notifier-plugin).
+  // Configure: Jenkins job → Post-build Actions → Notification → Endpoint URL
+  //   URL: http(s)://<mergen-host>/ci/jenkins
+  //   Format: JSON
+  //
+  // Payload shape:
+  //   { name: "job-name", build: { number, status, phase, url, scm: { commit, branch } } }
+  router.post('/ci/jenkins', (req, res) => {
+    try {
+      const body  = req.body as Record<string, unknown>;
+      const build = (body.build ?? body) as Record<string, unknown>;
+      const scm   = (build.scm   ?? {}) as Record<string, unknown>;
+      const phase = String(build.phase ?? '').toUpperCase();
+
+      // Only process COMPLETED phase — skip QUEUED, STARTED, FINALIZED
+      if (phase && phase !== 'COMPLETED' && phase !== 'FINISHED') {
+        res.json({ ok: true, skipped: true, reason: `phase ${phase} not processed` });
+        return;
+      }
+
+      const sha       = String(scm.commit ?? scm.sha ?? build.sha ?? '');
+      const statusRaw = String(build.status ?? build.result ?? 'UNKNOWN').toUpperCase();
+      const status: CIEvent['status'] =
+        statusRaw === 'SUCCESS'                         ? 'success'
+        : statusRaw === 'FAILURE' || statusRaw === 'FAILED'  ? 'failure'
+        : statusRaw === 'ABORTED'                       ? 'cancelled'
+        : statusRaw === 'UNSTABLE'                      ? 'failure'
+        : 'failure';
+
+      const event: CIEvent = {
+        type:     'ci',
+        provider: 'jenkins',
+        sha,
+        shortSha: sha.slice(0, 7),
+        branch:   String(scm.branch ?? build.branch ?? '').replace('refs/heads/', ''),
+        workflow: String(body.name ?? body.job ?? 'pipeline'),
+        job:      `${body.name ?? 'build'} #${build.number ?? '?'}`,
+        status,
+        durationMs: typeof build.duration === 'number' ? build.duration : undefined,
+        url:      String(build.full_url ?? build.url ?? ''),
+        failedTests: parseFailedTests(build.test_summary ?? build.failedTests),
+        timestamp: Date.now(),
+      };
+
+      store.push(event);
+      logger.info({ sha: event.sha.slice(0, 7), status: event.status }, 'ci/jenkins: event ingested');
+      res.json({ ok: true, sha: event.sha, status: event.status });
+    } catch (err) {
+      logger.warn({ err }, 'ci/jenkins: parse error');
       res.status(400).json({ error: 'parse error' });
     }
   });

@@ -1163,6 +1163,222 @@ async function guardCommand(args: string[]): Promise<void> {
   process.exit(0);
 }
 
+// ── PR command — auto-generate a PR description from Mergen debug history ────────
+// Reads the calibration history, recent error patterns, and git log to produce
+// a structured PR description the developer can paste directly into GitHub/GitLab/Jira.
+// Solves: "PR descriptions take 20 minutes and nobody reads them."
+
+async function prCommand(args: string[]): Promise<void> {
+  const copyFlag   = args.includes('--copy');
+  const outputFile = args.find(a => a.startsWith('--out='))?.slice(6) ?? null;
+
+  // Discover server
+  let port = 3000;
+  for (let p = 3000; p <= 3010; p++) {
+    try {
+      const r = await fetch(`http://127.0.0.1:${p}/health`, { signal: AbortSignal.timeout(500) });
+      if (r.ok) { port = p; break; }
+    } catch {}
+  }
+
+  // Fetch data from multiple endpoints in parallel
+  type HealthData    = { errors?: number; warnings?: number; networkErrors?: number; buffered?: number };
+  type CalibData     = { perDetector?: Array<{ tag: string; accuracy: number; verdicts: number; trusted: boolean }> };
+  type FreqEntry     = { fingerprint: string; count: number; sample: string };
+  type FreqData      = { console?: FreqEntry[]; network?: FreqEntry[] };
+
+  const [health, calibRaw, freqRaw] = await Promise.all([
+    fetch(`http://127.0.0.1:${port}/health`,          { signal: AbortSignal.timeout(1500) }).then(r => r.json() as Promise<HealthData>).catch(() => ({} as HealthData)),
+    fetch(`http://127.0.0.1:${port}/calibration`,      { signal: AbortSignal.timeout(1500) }).then(r => r.json() as Promise<CalibData>).catch(() => ({} as CalibData)),
+    fetch(`http://127.0.0.1:${port}/error-frequency`, { signal: AbortSignal.timeout(1500) }).then(r => r.json() as Promise<FreqData>).catch(() => ({} as FreqData)),
+  ]);
+
+  // Git context — current branch, last N commits
+  let branch = 'unknown-branch';
+  let commits: string[] = [];
+  let changedFiles: string[] = [];
+  try {
+    branch       = execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf8' }).trim();
+    commits      = execSync('git log origin/main..HEAD --oneline --no-merges 2>/dev/null || git log HEAD~5..HEAD --oneline --no-merges', { encoding: 'utf8' }).trim().split('\n').filter(Boolean);
+    changedFiles = execSync('git diff --name-only origin/main 2>/dev/null || git diff --name-only HEAD~1', { encoding: 'utf8' }).trim().split('\n').filter(Boolean);
+  } catch { /* not a git repo or no remote */ }
+
+  // Current errors in buffer
+  const errors  = health.errors  ?? 0;
+  const netErrs = health.networkErrors ?? 0;
+  const warns   = health.warnings ?? 0;
+
+  // Trusted detector accuracy — did the AI predictions hold up during this work?
+  const detectors = calibRaw.perDetector ?? [];
+  const trusted   = detectors.filter(d => d.trusted && d.accuracy >= 0.5);
+  const suppressed = detectors.filter(d => d.trusted && d.accuracy < 0.2);
+
+  // Build PR description
+  const lines: string[] = [];
+
+  lines.push(`## Summary`);
+  lines.push('');
+
+  // Derive bullet points from commits
+  if (commits.length > 0) {
+    for (const c of commits.slice(0, 5)) {
+      // Remove the SHA prefix and format as bullet
+      const msg = c.replace(/^[0-9a-f]+\s+/, '').replace(/^(fix|feat|chore|refactor|docs|test):\s*/i, '');
+      lines.push(`- ${msg}`);
+    }
+  } else {
+    lines.push(`- Changes on branch \`${branch}\``);
+  }
+
+  lines.push('');
+  lines.push(`## Runtime verification`);
+  lines.push('');
+  lines.push(`_Captured by Mergen during development on branch \`${branch}\`_`);
+  lines.push('');
+
+  if (errors === 0 && netErrs === 0 && warns === 0) {
+    lines.push('✅ **Buffer clean** — no console errors, network failures, or warnings at time of PR creation.');
+  } else {
+    if (errors > 0 || netErrs > 0) {
+      lines.push(`⚠️ **${errors + netErrs} error(s) remain in buffer** — review before merging.`);
+    }
+    if (warns > 0) {
+      lines.push(`⚠️ **${warns} warning(s)** in buffer.`);
+    }
+  }
+
+  // Active error patterns
+  const consoleFreq = freqRaw.console ?? [];
+  const netFreq     = freqRaw.network ?? [];
+  if (consoleFreq.length > 0 || netFreq.length > 0) {
+    lines.push('');
+    lines.push('**Error patterns seen during development:**');
+    for (const e of consoleFreq.slice(0, 3)) {
+      lines.push(`- \`${e.fingerprint}\` — ${e.count}× — "${e.sample.slice(0, 80)}"`);
+    }
+    for (const n of netFreq.slice(0, 2)) {
+      lines.push(`- ${n.sample.slice(0, 100)} — ${n.count}×`);
+    }
+  }
+
+  // Suppressed detectors = patterns Mergen learned to ignore (proof of calibration)
+  if (suppressed.length > 0) {
+    lines.push('');
+    lines.push(`**Suppressed noise patterns:** ${suppressed.map(d => `\`${d.tag}\``).join(', ')}`);
+    lines.push('_(Mergen suppresses detectors with < 20% accuracy — these fired but were consistently wrong)_');
+  }
+
+  lines.push('');
+  lines.push(`## Files changed (${changedFiles.length})`);
+  lines.push('');
+  const grouped: Record<string, string[]> = {};
+  for (const f of changedFiles.slice(0, 20)) {
+    const dir = f.includes('/') ? f.split('/').slice(0, 2).join('/') : '.';
+    grouped[dir] = grouped[dir] ?? [];
+    grouped[dir].push(f);
+  }
+  for (const [dir, files] of Object.entries(grouped)) {
+    lines.push(`**${dir}/**`);
+    for (const f of files) lines.push(`- \`${f}\``);
+  }
+  if (changedFiles.length > 20) lines.push(`_...and ${changedFiles.length - 20} more_`);
+
+  lines.push('');
+  lines.push(`## Test plan`);
+  lines.push('');
+  lines.push('- [ ] Manually reproduced the scenario in the browser');
+  lines.push('- [ ] Mergen buffer clean before merge (`mergen-server guard`)');
+  lines.push('- [ ] Unit tests pass');
+  if (changedFiles.some(f => /api|route|endpoint|controller|handler/i.test(f))) {
+    lines.push('- [ ] API contract unchanged (or migration included)');
+  }
+  if (changedFiles.some(f => /auth|login|token|session/i.test(f))) {
+    lines.push('- [ ] Auth flow tested (login, logout, token refresh)');
+  }
+  lines.push('');
+  lines.push(`---`);
+  lines.push(`_Generated by [Mergen](https://github.com/omertt27/Mergen) — runtime context captured automatically during development._`);
+
+  const output = lines.join('\n');
+
+  if (outputFile) {
+    writeFileSync(outputFile, output, 'utf8');
+    success(`PR description written to ${outputFile}`);
+  } else if (copyFlag) {
+    // Copy to clipboard via pbcopy (macOS), xclip (Linux), clip (Windows)
+    try {
+      const clipCmd = process.platform === 'darwin' ? 'pbcopy'
+        : process.platform === 'win32' ? 'clip'
+        : 'xclip -selection clipboard';
+      const { execSync: exec2 } = await import('child_process');
+      exec2(`echo ${JSON.stringify(output)} | ${clipCmd}`);
+      success('PR description copied to clipboard.');
+    } catch {
+      console.log(output);
+      log('(Could not copy to clipboard — output above)');
+    }
+  } else {
+    console.log('\n' + output + '\n');
+    log('Tip: --copy to copy to clipboard, --out=pr.md to write to file');
+  }
+}
+
+// ── Demo command ───────────────────────────────────────────────────────────────
+
+async function demoCommand(): Promise<void> {
+  const { createServer } = await import('http');
+  const { createApp } = await import('./app.js');
+
+  console.log('\n🔭 Mergen Demo\n');
+  console.log('Starting server...');
+
+  const port = 3000;
+  const app = createApp({
+    serverVersion: VERSION,
+    localSecret: 'demo',
+    port,
+    bindHost: '127.0.0.1',
+  });
+
+  const server = createServer(app);
+
+  await new Promise<void>((resolve, reject) => {
+    server.listen(port, '127.0.0.1', resolve);
+    server.on('error', reject);
+  });
+
+  const url = `http://localhost:${port}/demo`;
+
+  console.log(`\n✓ Server running at http://localhost:${port}`);
+  console.log(`\n→ Opening demo: ${url}\n`);
+  console.log('────────────────────────────────────────');
+  console.log('No Chrome extension needed.');
+  console.log('@mergen/browser is already active on the demo page.');
+  console.log('Click "Run demo" in the browser, then ask your AI:');
+  console.log('  get_unified_timeline');
+  console.log('  analyze_runtime');
+  console.log('────────────────────────────────────────\n');
+
+  // Open browser — try platform-specific commands.
+  const open = process.platform === 'darwin' ? 'open'
+    : process.platform === 'win32' ? 'start'
+    : 'xdg-open';
+
+  try {
+    const { exec } = await import('child_process');
+    exec(`${open} "${url}"`);
+  } catch { /* ignore if browser open fails */ }
+
+  // Keep running until Ctrl-C.
+  process.on('SIGINT', () => {
+    console.log('\nDemo server stopped.');
+    server.close();
+    process.exit(0);
+  });
+
+  await new Promise<void>(() => { /* keep alive */ });
+}
+
 // ── Main ───────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -1170,6 +1386,14 @@ async function main(): Promise<void> {
   const command = args[0];
 
   switch (command) {
+    case 'demo':
+      await demoCommand();
+      break;
+
+    case 'pr':
+      await prCommand(args.slice(1));
+      break;
+
     case 'setup':
       await setupCommand();
       break;
@@ -1236,6 +1460,9 @@ async function main(): Promise<void> {
 Mergen — Local-first browser observability for AI
 
 Usage:
+  mergen-server pr                 Generate a PR description from your debug session (paste into GitHub/Jira)
+  mergen-server pr --copy          Same, but copies to clipboard
+  mergen-server demo               3-minute demo: no extension needed, open in any browser
   mergen-server status             Live snapshot: server health, buffer, errors, MCP activity
   mergen-server setup              Interactive setup wizard
   mergen-server start              Start the server
