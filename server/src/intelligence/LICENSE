@@ -1,0 +1,29 @@
+Mergen Hypothesis Engine — Proprietary Software License
+
+Copyright (c) 2026 Mergen. All rights reserved.
+
+This directory contains the Mergen Hypothesis Engine: causal chain
+reconstruction, hypothesis detectors, calibration feedback loop, anomaly
+baseline, and all commercial and billing logic ("Proprietary Code").
+
+The Proprietary Code is NOT open source. It is distributed in compiled form
+as part of the mergen-server npm package under a separate commercial license.
+
+You may:
+  - Run the compiled binary as part of the mergen-server package
+  - Inspect source files that appear in this repository for audit purposes
+  - Contribute to the open-source layer (sensor/, routes/, extensions, SDKs)
+
+You may NOT:
+  - Copy, modify, or distribute the Proprietary Code or derivatives
+  - Use the Proprietary Code to build a competing observability or MCP service
+  - Remove, bypass, or modify the license enforcement in the compiled binary
+  - Sublicense the Proprietary Code to any third party
+
+Commercial licenses are available at https://mergen.dev/pricing
+
+All other Mergen components (browser extensions, SDKs, sensor layer, MCP
+infrastructure, VS Code extension) are licensed under the MIT License. See
+the root LICENSE file.
+
+THE PROPRIETARY CODE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND.
