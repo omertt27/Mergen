@@ -51,6 +51,23 @@ function postEmpty(p, port) {
   );
 }
 
+function postJson(p, port, body) {
+  const json = JSON.stringify(body);
+  const raw = execSync(
+    `node -e "const h=require('http');const b=${JSON.stringify(json)};const o={hostname:'127.0.0.1',port:${port},path:'${p}',method:'POST',headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(b)}};const r=h.request(o,res=>{let d='';res.on('data',c=>d+=c);res.on('end',()=>{process.stdout.write(d);process.exit(0)})});r.on('error',e=>{console.error(e.message);process.exit(1)});r.setTimeout(8000,()=>process.exit(1));r.write(b);r.end();"`,
+    { timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] },
+  ).toString();
+  return JSON.parse(raw);
+}
+
+function deleteReq(p, port) {
+  const raw = execSync(
+    `node -e "const h=require('http');const o={hostname:'127.0.0.1',port:${port},path:'${p}',method:'DELETE'};const r=h.request(o,res=>{let d='';res.on('data',c=>d+=c);res.on('end',()=>{process.stdout.write(d);process.exit(0)})});r.on('error',e=>{console.error(e.message);process.exit(1)});r.end();"`,
+    { timeout: 4000, stdio: ['pipe', 'pipe', 'pipe'] },
+  ).toString();
+  return JSON.parse(raw);
+}
+
 const dim    = s => `\x1b[2m${s}\x1b[0m`;
 const bold   = s => `\x1b[1m${s}\x1b[0m`;
 const green  = s => `\x1b[32m${s}\x1b[0m`;
@@ -294,20 +311,68 @@ if (cmd === 'start') {
   console.log('');
   process.exit(warnMode ? 0 : 1);
 
+} else if (cmd === 'activate') {
+  const key = args[1];
+  if (!key) {
+    console.error(red('✗') + ' Usage: mergen activate <license-key>');
+    console.error(dim('  Your key was emailed to you after purchase.'));
+    process.exit(1);
+  }
+  const port = findPort();
+  if (!port) {
+    console.error(red('✗') + ' Mergen server is not running. Start it first: mergen start');
+    process.exit(1);
+  }
+  console.log(dim('Activating license…'));
+  try {
+    const res = postJson('/license', port, { key });
+    if (res.ok) {
+      console.log(green('✓') + ` License activated — plan: ${bold(res.plan)}, email: ${res.email}`);
+    } else {
+      console.error(red('✗') + ` Activation failed: ${res.error ?? 'unknown error'}`);
+      process.exit(1);
+    }
+  } catch (e) {
+    console.error(red('✗') + ` Activation failed: ${e.message ?? e}`);
+    process.exit(1);
+  }
+
+} else if (cmd === 'deactivate') {
+  const port = findPort();
+  if (!port) {
+    console.error(red('✗') + ' Mergen server is not running. Start it first: mergen start');
+    process.exit(1);
+  }
+  console.log(dim('Deactivating license…'));
+  try {
+    const res = deleteReq('/license', port);
+    if (res.ok) {
+      console.log(green('✓') + ` License deactivated — reverted to ${bold(res.plan)}`);
+    } else {
+      console.error(red('✗') + ` Deactivation failed: ${res.error ?? 'unknown error'}`);
+      process.exit(1);
+    }
+  } catch (e) {
+    console.error(red('✗') + ` Deactivation failed: ${e.message ?? e}`);
+    process.exit(1);
+  }
+
 } else {
   console.log(`
 ${bold('mergen')} — Mergen MCP server CLI
 
 ${bold('Commands:')}
-  ${blue('mergen start')}    Start the MCP server in the background
-  ${blue('mergen stop')}     Stop the background server
-  ${blue('mergen status')}   Show plan, credits, and buffer stats
-  ${blue('mergen doctor')}   End-to-end install health check
-  ${blue('mergen clear')}    Clear the event buffer
-  ${blue('mergen guard')}    Pre-commit: fail if a HIGH-confidence runtime
-                  anomaly is unresolved. Flags:
-                    --warn                 do not fail, just print
-                    --min-confidence LOW|MEDIUM|HIGH  (default HIGH)
+  ${blue('mergen start')}               Start the MCP server in the background
+  ${blue('mergen stop')}                Stop the background server
+  ${blue('mergen status')}              Show plan, credits, and buffer stats
+  ${blue('mergen doctor')}              End-to-end install health check
+  ${blue('mergen clear')}               Clear the event buffer
+  ${blue('mergen activate <key>')}      Activate a license key (upgrades from free)
+  ${blue('mergen deactivate')}          Deactivate license and revert to free plan
+  ${blue('mergen guard')}               Pre-commit: fail if a HIGH-confidence runtime
+                             anomaly is unresolved. Flags:
+                               --warn                 do not fail, just print
+                               --min-confidence LOW|MEDIUM|HIGH  (default HIGH)
 
 ${bold('Environment:')}
   LS_API_KEY              LemonSqueezy API key
