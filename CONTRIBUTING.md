@@ -1,6 +1,27 @@
 # Contributing to Mergen
 
-Thank you for your interest in contributing to Mergen! We welcome contributions of all kinds.
+Thank you for your interest in contributing to Mergen!
+
+## What you can contribute
+
+Mergen is open-core. The distribution layer is MIT and fully open to contributions. The Hypothesis Engine is proprietary and not open to external PRs.
+
+**Open for contributions (MIT):**
+- `extension/` — Chrome/Edge browser extension
+- `extension-firefox/` — Firefox browser extension
+- `vscode-extension/` — VS Code sidebar extension
+- `packages/` — mergen-node and mergen-python SDKs
+- `server/src/sensor/` — Ingest, ring buffer, event schemas
+- `server/src/routes/` — HTTP API routes
+- `scripts/` — Setup and tooling scripts
+- Documentation, tests, and bug fixes for the above
+
+**Not open for external contributions:**
+- `server/src/intelligence/` — Hypothesis Engine (causal chain, detectors, calibration). This directory is not fully published to GitHub and accepts contributions only from the core team.
+
+If you have ideas for improving the analysis or detection logic, open a GitHub Discussion. We review all suggestions and incorporate the good ones.
+
+---
 
 ## 🔁 Community Feedback Loop
 

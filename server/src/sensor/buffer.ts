@@ -305,6 +305,10 @@ export interface BufferStore {
   lastEventAt(): number | null;
   /** Unix ms timestamp of the most recent clear(), or null if never cleared. */
   clearedAt(): number | null;
+  /** Return all events in insertion order. Used for session persistence. */
+  serialize(): BrowserEvent[];
+  /** Bulk-load events (e.g. from a persisted session). Calls push() for each. */
+  rehydrate(events: BrowserEvent[]): void;
 }
 
 // ── Plan-aware read limit ─────────────────────────────────────────────────────
@@ -774,6 +778,14 @@ class RingBuffer implements BufferStore {
 
   size(): number {
     return this._count;
+  }
+
+  serialize(): BrowserEvent[] {
+    return Array.from(this._iterate());
+  }
+
+  rehydrate(events: BrowserEvent[]): void {
+    for (const event of events) this.push(event);
   }
 
   lastEventAt(): number | null { return this._lastEventAt; }

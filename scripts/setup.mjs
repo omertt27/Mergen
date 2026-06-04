@@ -149,6 +149,74 @@ function setupVSCode() {
   console.log('  3. Click the tools button — "mergen" tools will appear.\n');
 }
 
+// ── Agent directive injection ─────────────────────────────────────────────────
+// Writes one sentence to the project's AI context file so the agent reaches
+// for Mergen data automatically instead of guessing.
+//
+// Files written (IDE-specific):
+//   Claude Code  →  CLAUDE.md
+//   Cursor       →  .cursorrules
+//   Windsurf     →  .windsurfrules
+//
+// The directive is appended under a clearly-labelled section so it can be
+// found and removed with a single line delete. Opt-out: just remove the block.
+
+const AGENT_DIRECTIVE =
+  'When diagnosing unexpected behavior or errors, call get_correlated_trace before suggesting fixes.';
+
+const IDE_DIRECTIVE_FILES = {
+  claude:   'CLAUDE.md',
+  cursor:   '.cursorrules',
+  windsurf: '.windsurfrules',
+};
+
+async function injectAgentDirective(ideName, projectDir) {
+  const fileName = IDE_DIRECTIVE_FILES[ideName];
+  if (!fileName) return;
+
+  const filePath = resolve(projectDir, fileName);
+  const block =
+    '\n\n# Mergen — runtime context\n' +
+    `# ${AGENT_DIRECTIVE}\n` +
+    '# Remove this block to opt out.\n';
+
+  // Skip if the directive is already present
+  if (existsSync(filePath)) {
+    const existing = readFileSync(filePath, 'utf8');
+    if (existing.includes('Mergen — runtime context')) {
+      console.log(`  Directive already present in ${fileName} — skipping.`);
+      return;
+    }
+  }
+
+  writeFileSync(filePath, existsSync(filePath)
+    ? readFileSync(filePath, 'utf8') + block
+    : block.trimStart(), 'utf8');
+  console.log(`  Wrote agent directive to ${filePath}`);
+}
+
+async function setupDirectives(rl, ideKeys) {
+  hr();
+  console.log('Agent directive injection (optional)\n');
+  console.log('This writes one line to your project\'s AI context file:');
+  console.log(`  "${AGENT_DIRECTIVE}"\n`);
+  console.log('The agent will call get_correlated_trace automatically instead of');
+  console.log('asking you to paste logs. Remove the block at any time to opt out.\n');
+
+  const projectDir = (await ask(rl,
+    `Project directory to inject into (Enter for current dir: ${process.cwd()}): `
+  )).trim() || process.cwd();
+
+  if (!existsSync(projectDir)) {
+    console.log(`  Directory not found: ${projectDir} — skipping.`);
+    return;
+  }
+
+  for (const ideKey of ideKeys) {
+    await injectAgentDirective(ideKey, projectDir);
+  }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 const IDES = [
@@ -238,20 +306,39 @@ IDES.forEach(({ key, label }) => console.log(`  ${key}) ${label}`));
 
 const rl = createInterface({ input: process.stdin, output: process.stdout });
 const answer = (await ask(rl, '\nChoice [1-6]: ')).trim();
-rl.close();
 
 const chosen = IDES.find((ide) => ide.key === answer);
 
 if (!chosen) {
+  rl.close();
   console.error('\nInvalid choice. Run the script again.\n');
   process.exit(1);
 }
 
+const ideKeysChosen = [];
 if (chosen.key === '5') {
   for (const ide of IDES.slice(0, 4)) ide.fn();
+  ideKeysChosen.push('claude', 'cursor', 'windsurf');
 } else {
   chosen.fn();
+  if (chosen.key === '1') ideKeysChosen.push('claude');
+  if (chosen.key === '2') ideKeysChosen.push('cursor');
+  if (chosen.key === '3') ideKeysChosen.push('windsurf');
 }
+
+// Offer agent directive injection for IDE setups (not git hook)
+if (ideKeysChosen.length > 0) {
+  const injectAnswer = (await ask(rl,
+    '\nInject a one-line agent directive into your project? [y/N]: '
+  )).trim().toLowerCase();
+  if (injectAnswer === 'y' || injectAnswer === 'yes') {
+    await setupDirectives(rl, ideKeysChosen);
+  } else {
+    console.log('\nSkipped. You can run this step later with: node scripts/setup.mjs');
+  }
+}
+
+rl.close();
 
 hr();
 console.log('Next: load the Chrome extension\n');

@@ -73,6 +73,10 @@ function buildDashboardHtml(version: string, nonce: string): string {
   .rc-hyp{font-size:14px;font-weight:600;color:var(--text);line-height:1.4}
   .rc-fix{font-size:12px;color:var(--muted);margin-top:6px}
   .rc-conf{font-size:11px;color:var(--red);margin-top:4px;font-weight:600}
+  .rc-feedback{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:11px;color:var(--muted)}
+  .btn-verdict{padding:2px 8px;border:1px solid rgba(255,255,255,.1);border-radius:4px;cursor:pointer;font-size:11px;font-family:inherit;background:transparent;transition:background .15s}
+  .btn-verdict:hover{background:rgba(255,255,255,.08)}
+  .btn-verdict.yes{color:var(--green)}.btn-verdict.no{color:var(--red)}.btn-verdict.partial{color:var(--yellow)}
   /* Timeline */
   .tl-row{display:flex;align-items:baseline;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px}
   .tl-row:last-child{border-bottom:none}
@@ -152,6 +156,12 @@ function buildDashboardHtml(version: string, nonce: string): string {
     <div class="rc-label">Root Cause · <span id="rc-pct"></span></div>
     <div class="rc-hyp" id="rc-hyp"></div>
     <div class="rc-fix" id="rc-fix"></div>
+    <div id="rc-feedback" class="rc-feedback" style="display:none">
+      Did this fix it?
+      <button class="btn-verdict yes"     data-verdict="correct">✓ Yes</button>
+      <button class="btn-verdict partial" data-verdict="partial">~ Partially</button>
+      <button class="btn-verdict no"      data-verdict="wrong">✗ No</button>
+    </div>
   </div>
 
   <div id="inc-bar" style="display:none" class="inc-bar">
@@ -215,6 +225,34 @@ function buildDashboardHtml(version: string, nonce: string): string {
 <div class="refresh" id="refresh-bar">Refreshing…</div>
 
 <script nonce="${nonce}">
+// Fetch local secret once — used for mutating endpoints (/feedback, /clear).
+// The /local-secret endpoint is protected by the Host-header check so only
+// callers on 127.0.0.1:<port> can read it.
+let _localSecret = '';
+fetch('/local-secret').then(r=>r.json()).then(d=>{ _localSecret=d.secret||''; }).catch(()=>{});
+
+// Track which pids the user has already rated to avoid double-submission.
+const _ratedPids = new Set(JSON.parse(localStorage.getItem('mergenRated')||'[]'));
+
+document.getElementById('rc-feedback').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-verdict]');
+  if (!btn || !_currentPid || _ratedPids.has(_currentPid)) return;
+  const verdict = btn.dataset.verdict;
+  try {
+    const r = await fetch('/feedback', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-mergen-secret':_localSecret},
+      body: JSON.stringify({ pid: _currentPid, verdict }),
+    });
+    if (r.ok || r.status === 207) {
+      _ratedPids.add(_currentPid);
+      localStorage.setItem('mergenRated', JSON.stringify([..._ratedPids]));
+      const fb = document.getElementById('rc-feedback');
+      fb.innerHTML = '<span style="color:var(--muted)">Thanks — this improves future diagnoses.</span>';
+    }
+  } catch {}
+});
+
 const ICON = {
   error:'🔴',warn:'🟡',log:'⬜',request:'🟠',context:'⬜',
   terminal:'💻',process_exit:'💥',ci_failure:'❌',ci_success:'✅',deployment:'🚀',
@@ -315,6 +353,14 @@ async function poll(){
       document.getElementById('rc-hyp').textContent=rc.hypothesis;
       const fix=document.getElementById('rc-fix');
       if(rc.fixHint){fix.textContent='💡 '+rc.fixHint;fix.style.display='block';}else{fix.style.display='none';}
+      // Show feedback buttons for new pids; hide if already rated
+      const fb=document.getElementById('rc-feedback');
+      if(rc.pid && !_ratedPids.has(rc.pid)){
+        fb.style.display='flex';
+        fb.innerHTML='Did this fix it? <button class="btn-verdict yes" data-verdict="correct">✓ Yes</button><button class="btn-verdict partial" data-verdict="partial">~ Partially</button><button class="btn-verdict no" data-verdict="wrong">✗ No</button>';
+      }else if(rc.pid){
+        fb.style.display='none';
+      }
       ensureIncident(rc);
     }else{rcBox.style.display='none';}
 

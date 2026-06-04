@@ -7,7 +7,7 @@
 **Stream browser, backend, and microservice signals into Cursor, Claude Code, Copilot, or Windsurf via MCP.**
 
 [![Tests](https://img.shields.io/badge/tests-142%20passing-brightgreen)](./server)
-[![License](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
+[![License](https://img.shields.io/badge/license-MIT%20%2B%20Proprietary-blue)](./LICENSE)
 [![MCP](https://img.shields.io/badge/Model%20Context%20Protocol-stdio-black)](https://modelcontextprotocol.io)
 [![Local-only](https://img.shields.io/badge/data-127.0.0.1%20only-success)](#privacy)
 [![Agent-Native](https://img.shields.io/badge/telemetry-agent--native-black)](./docs/HONESTY.md)
@@ -164,6 +164,28 @@ The VS Code task `.vscode/tasks.json` already includes a `mergen: checkpoint on 
 3. Ask your AI: *"What happened since capture?"*
 
 Your AI sees only the events from the reproduction window — no noise from earlier in the session.
+
+---
+
+## Open-Core Model
+
+Mergen uses a dual-license model. The **distribution layer** is MIT. The **Hypothesis Engine** is proprietary.
+
+| Component | License | What it is |
+|---|---|---|
+| Browser extensions (Chrome, Firefox) | MIT | Captures console, network, DOM events |
+| VS Code extension | MIT | Sidebar panel and status bar |
+| SDKs (mergen-node, mergen-python) | MIT | Backend trace correlation |
+| MCP server — sensor layer | MIT | Ingest, ring buffer, HTTP API |
+| MCP tools — observation (`get_recent_logs`, `get_network_activity`, `get_dom_context`, `get_websocket_activity`) | MIT | Free forever |
+| **MCP tool — `analyze_runtime`** | **Proprietary** | Causal chain reconstruction, root cause diagnosis, fix hints |
+| Hypothesis Engine (`causal.ts`, `detectors.ts`, `calibration.ts`) | Proprietary | Not published to GitHub; ships as compiled binary |
+
+**Why this split?** The observation tools give you raw telemetry. `analyze_runtime` is the layer that joins signals into a causal verdict and tells your agent what to fix. That layer is what we build, maintain, and calibrate — it's the only part that costs us money and the only part competitors can't replicate with a weekend fork.
+
+Everything you install on your machine (extensions, SDKs, the sensor layer) is open source and auditable. The analysis logic ships as a compiled binary in the npm package.
+
+See [LICENSE](./LICENSE) and [CONTRIBUTING.md](./CONTRIBUTING.md) for details.
 
 ---
 

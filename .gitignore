@@ -21,3 +21,8 @@ server/src/intelligence/license.ts
 server/src/intelligence/team.ts
 server/src/intelligence/telemetry.ts
 server/src/intelligence/tools.ts
+server/src/intelligence/baseline.ts
+server/src/intelligence/error-fingerprint.ts
+server/src/intelligence/repro-steps.ts
+server/src/intelligence/layer-tools.ts
+server/src/intelligence/calibration.test.ts

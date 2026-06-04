@@ -19,3 +19,6 @@ export const SECRET_FILE  = path.join(DATA_DIR, 'secret');
 
 /** SQLite database for 1-hour event history (beyond the 200-event ring buffer). */
 export const HISTORY_DB   = path.join(DATA_DIR, 'history.db');
+
+/** In-memory ring buffer snapshot — survives restarts within SESSION_MAX_AGE_MS. */
+export const SESSION_FILE = path.join(DATA_DIR, 'session.json');

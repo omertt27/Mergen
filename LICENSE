@@ -1,4 +1,23 @@
-MIT License
+Mergen — Open-Core License
+
+This repository uses a dual-license model:
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ MIT License (open-source layer)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The following components are MIT-licensed:
+
+  extension/             Chrome and Edge browser extension
+  extension-firefox/     Firefox browser extension
+  vscode-extension/      VS Code sidebar extension
+  packages/              mergen-node and mergen-python SDKs
+  sdk/                   Integration helpers and plugins
+  server/src/sensor/     Ingest, ring buffer, event schemas
+  server/src/routes/     HTTP API routes
+  server/src/app.ts      Express application factory
+  server/src/index.ts    Boot entrypoint
+  scripts/               Setup and tooling scripts
 
 Copyright (c) 2026 Mergen contributors
 
@@ -19,3 +38,20 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ Proprietary License (Hypothesis Engine)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The following components are proprietary and all rights are reserved:
+
+  server/src/intelligence/   Causal chain reconstruction, hypothesis
+                             detectors, calibration feedback loop,
+                             anomaly baseline, billing, and licensing
+
+These components are distributed in compiled form only as part of the
+mergen-server npm package. They may not be copied, modified, redistributed,
+or used to build a competing service. See server/src/intelligence/LICENSE
+for the full proprietary license terms.
+
+Commercial licenses and pricing: https://mergen.dev/pricing

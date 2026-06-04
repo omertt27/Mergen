@@ -30,6 +30,7 @@ import { startDockerMonitor, startHeapMonitor, stopDockerMonitor } from './senso
 import { startDockerLogStream, stopDockerLogStream } from './sensor/docker-log-stream.js';
 import { incidentStore } from './sensor/incident-store.js';
 import { stopAllProcessWatchers } from './sensor/process-watcher.js';
+import { saveSession, loadSession } from './sensor/session-persist.js';
 
 import { initLicense, getActivePlanId } from './intelligence/license.js';
 import { initUsage, flushOverageOnShutdown } from './intelligence/usage.js';
@@ -104,6 +105,14 @@ async function main(): Promise<void> {
   await incidentStore.init();
   setBufferSizeGetter(() => getPlan(getActivePlanId()).bufferSize);
 
+  // ── Session rehydration ────────────────────────────────────────────────────
+  // Restores the last buffer snapshot so debugging context survives restarts.
+  const savedEvents = loadSession();
+  if (savedEvents && savedEvents.length > 0) {
+    store.rehydrate(savedEvents);
+    logger.info({ count: savedEvents.length }, 'session rehydrated from disk');
+  }
+
   // Wire team broadcast: events ingested by the sensor layer are fanned out
   // to all connected SSE peers that share the same team token.
   registerTeamBroadcaster(broadcastToTeam);
@@ -173,6 +182,7 @@ async function main(): Promise<void> {
   // ── Graceful shutdown ─────────────────────────────────────────────────────
   function shutdown(signal: string): void {
     logger.info({ signal }, 'shutting down');
+    saveSession(store.serialize());
     flushOverageOnShutdown().finally(() => {
       stopDockerMonitor();
       stopDockerLogStream();
