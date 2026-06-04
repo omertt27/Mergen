@@ -19,7 +19,10 @@ export default function Hero() {
         >
           Get Started — 2 min
         </a>
-        <a href="#how" className="btn btn-outline">See How It Works</a>
+        <div className="hero-command" onClick={() => navigator.clipboard.writeText('npx mergen-setup')}>
+          <code>npx mergen-setup</code>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+        </div>
       </div>
       <div className="hero-badges">
         {['Chrome Extension', 'mergen-node', 'mergen-python', 'OTLP :4318', 'MCP Server', 'Snapshot Debugger', 'PII Shield', 'Devcontainers'].map((b) => (

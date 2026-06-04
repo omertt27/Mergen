@@ -11,6 +11,12 @@ export default function Nav() {
             <li><a href="#access">Pricing</a></li>
             <li><a href="https://github.com/omertt27/Mergen">GitHub</a></li>
           </ul>
+          <a
+            href="https://github.com/omertt27/Mergen/blob/main/INSTALL.md"
+            className="btn btn-white nav-cta"
+          >
+            Get Started
+          </a>
         </div>
       </div>
     </nav>

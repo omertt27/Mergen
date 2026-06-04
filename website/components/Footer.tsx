@@ -11,6 +11,8 @@ export default function Footer() {
           <a href="https://github.com/omertt27/Mergen/blob/main/ARCHITECTURE.md">
             Architecture
           </a>
+          <a href="/privacy">Privacy</a>
+          <a href="/account">Account</a>
         </div>
       </div>
     </footer>

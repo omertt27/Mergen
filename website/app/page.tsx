@@ -1,6 +1,7 @@
 import CausalCanvas from '@/components/CausalCanvas'
 import Nav from '@/components/Nav'
 import Hero from '@/components/Hero'
+import Terminal from '@/components/Terminal'
 import Architecture from '@/components/Architecture'
 import Features from '@/components/Features'
 import Integrations from '@/components/Integrations'
@@ -14,6 +15,7 @@ export default function Home() {
       <Nav />
       <main className="wrap">
         <Hero />
+        <Terminal />
         <Architecture />
         <Features />
         <Integrations />
