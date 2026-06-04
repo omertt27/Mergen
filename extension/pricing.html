@@ -3,21 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Mergen — Access & Scaling</title>
-  
-  <!-- Geist + Geist Mono -->
+  <title>Mergen — Pricing</title>
+
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
   <link href="https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-sans/style.css" rel="stylesheet" />
   <link href="https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-mono/style.css" rel="stylesheet" />
 
   <style>
-    /* ─── TOKENS (Monolith Refined) ────────────────────────────────────────── */
     :root {
       --bg: #050505;
       --surface: #0a0a0a;
       --surface2: #141414;
       --border: #1a1a1a;
-      --border-bright: #ffffff;
       --text: #f0f0f0;
       --text-muted: #808080;
       --text-dim: #404040;
@@ -37,103 +34,62 @@
       -webkit-font-smoothing: antialiased;
     }
 
-    .page {
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 80px 40px;
-    }
+    .page { max-width: 1000px; margin: 0 auto; padding: 60px 40px; }
 
-    /* ── Hero ── */
-    .hero {
-      margin-bottom: 80px;
-      text-align: left;
-    }
+    .hero { margin-bottom: 60px; }
     .hero-eyebrow {
       font-family: var(--mono);
-      font-size: 0.7rem;
+      font-size: 0.65rem;
       text-transform: uppercase;
       letter-spacing: 0.4em;
       color: var(--accent);
-      margin-bottom: 1.5rem;
+      margin-bottom: 1.25rem;
       display: block;
     }
     h1 {
-      font-size: 3.5rem;
+      font-size: 2.8rem;
       font-weight: 900;
       text-transform: uppercase;
       letter-spacing: -0.04em;
       line-height: 1;
-      margin-bottom: 2rem;
+      margin-bottom: 1.5rem;
     }
-    .hero-sub {
-      font-size: 1.25rem;
-      color: var(--text-muted);
-      max-width: 600px;
-    }
+    .hero-sub { font-size: 1rem; color: var(--text-muted); max-width: 560px; }
 
-    /* ── Billing Toggle ── */
-    .billing-toggle {
-      display: inline-flex;
+    /* ── Current plan banner ── */
+    #current-plan-banner {
+      display: none;
       align-items: center;
-      gap: 15px;
-      margin-top: 3rem;
-      font-family: var(--mono);
-      font-size: 0.65rem;
-      text-transform: uppercase;
-      letter-spacing: 0.15em;
-      color: var(--text-muted);
-      cursor: pointer;
-    }
-    .toggle-track {
-      width: 44px;
-      height: 22px;
-      background: var(--surface);
+      gap: 16px;
+      background: var(--surface2);
       border: 1px solid var(--border);
-      position: relative;
-      transition: border-color 0.2s;
+      padding: 16px 20px;
+      margin-bottom: 40px;
+      font-size: 0.85rem;
     }
-    .toggle-track:hover { border-color: var(--accent); }
-    .toggle-thumb {
-      width: 16px;
-      height: 16px;
-      background: var(--text);
-      position: absolute;
-      top: 2px;
-      left: 2px;
-      transition: transform 0.2s, background 0.2s;
-    }
-    .annual .toggle-thumb { transform: translateX(22px); background: var(--accent); }
-    .save-tag { color: var(--accent); font-weight: 800; }
+    #current-plan-banner strong { color: var(--accent); }
+    .meter-wrap { flex: 1; max-width: 200px; }
+    .meter-bar { height: 4px; background: var(--border); margin-top: 6px; }
+    .meter-fill { height: 100%; background: linear-gradient(90deg,#a78bfa,#7c3aed); transition: width 0.4s; }
+    .banner-overage { font-size: 0.75rem; color: #f87171; display: none; }
+    .deactivate-link { margin-left: auto; font-size: 0.75rem; color: var(--text-dim); cursor: pointer; text-decoration: underline; }
+    .deactivate-link:hover { color: #f87171; }
 
-    /* ── Plan Grid ── */
-    .plans-container {
-      margin-top: 80px;
-    }
-    .plans-label {
-      font-family: var(--mono);
-      font-size: 0.6rem;
-      text-transform: uppercase;
-      letter-spacing: 0.4em;
-      color: var(--text-dim);
-      margin-bottom: 2rem;
-      display: block;
-    }
+    /* ── Plan grid ── */
     .plans-grid {
       display: grid;
-      grid-template-columns: repeat(12, 1fr);
+      grid-template-columns: repeat(3, 1fr);
       gap: 1px;
       background: var(--border);
       border: 1px solid var(--border);
+      margin-bottom: 80px;
     }
     .plan-card {
-      grid-column: span 3;
       background: var(--bg);
-      padding: 40px;
+      padding: 36px 32px;
       display: flex;
       flex-direction: column;
-      transition: background 0.3s;
     }
-    .plan-card:hover { background: #080808; }
     .plan-card.popular {
       background: #080808;
       border: 1px solid var(--accent);
@@ -143,74 +99,87 @@
     }
     .plan-name {
       font-family: var(--mono);
-      font-size: 0.7rem;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.2em;
-      margin-bottom: 2rem;
-      display: block;
-      color: var(--accent);
-    }
-    .plan-price {
-      font-size: 3rem;
-      font-weight: 900;
-      margin-bottom: 2rem;
-      line-height: 1;
-      color: var(--text);
-    }
-    .plan-price span { font-size: 0.8rem; color: var(--text-dim); font-weight: 400; }
-
-    .features {
-      list-style: none;
-      font-size: 0.8rem;
-      color: var(--text-muted);
-      margin-bottom: 3.5rem;
-      flex: 1;
-    }
-    .features li { margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; display: flex; align-items: flex-start; gap: 8px; }
-    .features li::before { content: "—"; color: var(--accent); font-weight: 900; }
-    .features li:last-child { border-bottom: none; }
-    .features li.no { text-decoration: line-through; color: var(--text-dim); }
-    .features li.no::before { color: var(--text-dim); }
-
-    /* ── Buttons ── */
-    .btn {
-      display: block;
-      padding: 1.1rem;
       font-size: 0.65rem;
       font-weight: 800;
       text-transform: uppercase;
       letter-spacing: 0.2em;
+      color: var(--accent);
+      margin-bottom: 1.5rem;
+      display: block;
+    }
+    .plan-price {
+      font-size: 2.5rem;
+      font-weight: 900;
+      line-height: 1;
+      margin-bottom: 1.5rem;
+      color: var(--text);
+    }
+    .plan-price span { font-size: 0.8rem; color: var(--text-dim); font-weight: 400; }
+    .features {
+      list-style: none;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 2.5rem;
+      flex: 1;
+    }
+    .features li {
+      margin-bottom: 0.85rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.85rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .features li::before { content: "—"; color: var(--accent); font-weight: 900; flex-shrink: 0; }
+    .features li:last-child { border-bottom: none; }
+
+    .cta-btn {
+      display: block;
+      padding: 1rem;
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
       text-align: center;
-      text-decoration: none;
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255,255,255,0.1);
       color: var(--text);
       background: transparent;
-      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
       cursor: pointer;
+      transition: all 0.2s;
+      text-decoration: none;
     }
-    .btn:hover { border-color: var(--accent); color: var(--accent); }
-    .btn:active { transform: scale(0.97); }
-    .btn-filled { background: var(--text); color: var(--bg); border-color: var(--text); }
-    .btn-filled:hover { background: var(--accent); color: var(--bg); border-color: var(--accent); box-shadow: 0 0 20px rgba(165, 243, 252, 0.2); }
+    .cta-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .cta-paid { border-color: var(--accent); color: var(--accent); }
+    .cta-current { border-color: var(--accent); color: var(--accent); opacity: 0.6; cursor: default; }
+    .cta-free { opacity: 0.5; }
 
-    /* ── Team & License ── */
+    /* ── License activation ── */
     .section-split {
-      margin-top: 120px;
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 100px;
+      gap: 80px;
       border-top: 1px solid var(--border);
-      padding-top: 80px;
+      padding-top: 60px;
+      margin-bottom: 80px;
     }
-    .form-group { margin-bottom: 2.5rem; }
+    .section-label {
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      text-transform: uppercase;
+      letter-spacing: 0.3em;
+      color: var(--text-dim);
+      display: block;
+      margin-bottom: 1.5rem;
+    }
+    .form-group { margin-bottom: 2rem; }
     .form-label {
       font-family: var(--mono);
       font-size: 0.6rem;
       text-transform: uppercase;
-      letter-spacing: 0.2em;
+      letter-spacing: 0.15em;
       color: var(--text-dim);
-      margin-bottom: 0.75rem;
+      margin-bottom: 0.6rem;
       display: block;
     }
     .form-input {
@@ -220,47 +189,57 @@
       color: var(--text);
       font-family: var(--mono);
       font-size: 0.8rem;
-      padding: 1rem;
+      padding: 0.9rem;
       outline: none;
       transition: border-color 0.2s;
     }
     .form-input:focus { border-color: var(--accent); }
-
-    /* ── FAQ ── */
-    .faq { margin-top: 120px; border-top: 1px solid var(--border); padding-top: 100px; }
-    .faq-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 80px;
-    }
-    .faq-item h4 {
-      font-size: 1.1rem;
+    .btn-action {
+      width: 100%;
+      padding: 1rem;
+      font-family: var(--mono);
+      font-size: 0.6rem;
       font-weight: 800;
       text-transform: uppercase;
-      margin-bottom: 1.25rem;
-      color: var(--text);
+      letter-spacing: 0.2em;
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      background: transparent;
+      cursor: pointer;
+      transition: all 0.2s;
     }
-    .faq-item p { font-size: 0.9rem; color: var(--text-muted); line-height: 1.7; }
+    .btn-action:hover { background: var(--accent); color: var(--bg); }
+    .key-result, .team-result {
+      margin-top: 1rem;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      display: none;
+      padding: 0.75rem;
+    }
+    .key-result.ok, .team-result.ok { background: rgba(165,243,252,0.08); color: var(--accent); }
+    .key-result.fail, .team-result.fail { background: rgba(248,113,113,0.08); color: #f87171; }
+
+    /* ── Team section ── */
+    #team-section { display: none; }
+    .team-status { display: flex; align-items: center; gap: 10px; margin-bottom: 1.5rem; font-size: 0.85rem; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); flex-shrink: 0; }
+    .status-dot.active { background: #4ade80; box-shadow: 0 0 8px rgba(74,222,128,0.5); }
 
     footer {
-      margin-top: 120px;
-      padding: 60px 0;
+      padding: 40px 0;
       border-top: 1px solid var(--border);
       text-align: center;
       font-family: var(--mono);
-      font-size: 0.65rem;
+      font-size: 0.6rem;
       text-transform: uppercase;
       letter-spacing: 0.3em;
       color: var(--text-dim);
     }
 
-    @media (max-width: 1000px) {
-      .plan-card { grid-column: span 6; }
-      .section-split, .faq-grid { grid-template-columns: 1fr; }
-    }
-    @media (max-width: 600px) {
-      .plan-card { grid-column: span 12; }
-      h1 { font-size: 2.5rem; }
+    @media (max-width: 800px) {
+      .plans-grid { grid-template-columns: 1fr; }
+      .section-split { grid-template-columns: 1fr; gap: 40px; }
+      h1 { font-size: 2rem; }
     }
   </style>
 </head>
@@ -268,133 +247,112 @@
 <div class="page">
 
   <div class="hero">
-    <span class="hero-eyebrow">Allocation // Scale // OTel</span>
-    <h1>Machine reasoning credits.</h1>
-    <p class="hero-sub">The telemetry layer is MIT open source. You pay for the <span style="color:var(--accent)">causal intelligence</span> that bridges the runtime gap between agents and code.</p>
-    
-    <div class="billing-toggle" id="billing-toggle">
-      <span>Monthly</span>
-      <div class="toggle-track"><div class="toggle-thumb"></div></div>
-      <span>Annual <span class="save-tag">// SAVE 20%</span></span>
-    </div>
+    <span class="hero-eyebrow">Access // Pricing</span>
+    <h1>Reasoning credits.</h1>
+    <p class="hero-sub">The telemetry layer is MIT open source. You pay for the <span style="color:var(--accent)">causal intelligence</span> — analyze_runtime, WebSocket inspection, and component tree.</p>
   </div>
 
-  <div class="plans-container">
-    <span class="plans-label">Available Tiers</span>
-    <div class="plans-grid">
-      
-      <div class="plan-card">
-        <span class="plan-name">Developer</span>
-        <div class="plan-price">$0<span>/mo</span></div>
-        <ul class="features">
-          <li>500 reasoning calls / month</li>
-          <li>Full 200-event ring buffer</li>
-          <li>W3C-compliant telemetry</li>
-          <li class="no">Priority processing</li>
-          <li class="no">Team synchronization</li>
-        </ul>
-        <a href="#" class="btn">Current State</a>
-      </div>
-
-      <div class="plan-card">
-        <span class="plan-name">Solo Starter</span>
-        <div class="plan-price">$<span class="price-val" data-monthly="15" data-annual="12">15</span><span>/mo</span></div>
-        <ul class="features">
-          <li>Everything in Developer</li>
-          <li>1,000 reasoning calls / month</li>
-          <li>$0.03 / additional call</li>
-          <li class="no">Priority processing</li>
-          <li class="no">Team synchronization</li>
-        </ul>
-        <a href="#" class="btn btn-filled">Select Tier</a>
-      </div>
-
-      <div class="plan-card popular">
-        <span class="plan-name">Solo Pro // NEXUS</span>
-        <div class="plan-price">$<span class="price-val" data-monthly="29" data-annual="23">29</span><span>/mo</span></div>
-        <ul class="features">
-          <li>Everything in Starter</li>
-          <li>5,000 reasoning calls / month</li>
-          <li>Source Map resolution</li>
-          <li>Priority signal processing</li>
-          <li class="no">Team synchronization</li>
-        </ul>
-        <a href="#" class="btn btn-filled">Select Tier</a>
-      </div>
-
-      <div class="plan-card">
-        <span class="plan-name">Team // SYNC</span>
-        <div class="plan-price">$<span class="price-val" data-monthly="39" data-annual="31">39</span><span>/seat</span></div>
-        <ul class="features">
-          <li>Pooled reasoning credits</li>
-          <li>Shared team context pack</li>
-          <li>Team-wide causal graph</li>
-          <li>Priority processing</li>
-          <li>Full team synchronization</li>
-        </ul>
-        <a href="#" class="btn btn-filled">Select Tier</a>
-      </div>
-
+  <!-- Current plan banner (shown when logged in) -->
+  <div id="current-plan-banner">
+    <div>
+      Active plan: <strong id="banner-plan">—</strong>
     </div>
+    <div class="meter-wrap" id="banner-meter" style="display:none">
+      <span id="banner-meter-count" style="font-size:0.75rem; color:var(--text-muted)"></span>
+      <div class="meter-bar"><div class="meter-fill" id="banner-usage-fill" style="width:0%"></div></div>
+    </div>
+    <div class="banner-overage" id="banner-overage"></div>
+    <span class="deactivate-link" id="deactivate-btn">Deactivate</span>
   </div>
 
+  <!-- Plan cards -->
+  <div class="plans-grid">
+
+    <div class="plan-card">
+      <span class="plan-name">Free</span>
+      <div class="plan-price">$0<span>/mo</span></div>
+      <ul class="features">
+        <li>500 reasoning calls / month</li>
+        <li>10 calls / hour burst cap</li>
+        <li>Full 200-event ring buffer</li>
+        <li>Console, network &amp; DOM capture</li>
+        <li>Source map de-minification</li>
+      </ul>
+      <a href="#" class="cta-btn cta-free" id="cta-free">Current plan</a>
+    </div>
+
+    <div class="plan-card popular">
+      <span class="plan-name">Pro // Nexus</span>
+      <div class="plan-price">$29<span>/mo</span></div>
+      <ul class="features">
+        <li>2,000 reasoning calls / month</li>
+        <li>$0.02 / call · no burst cap</li>
+        <li>WebSocket &amp; SSE inspection</li>
+        <li>React / Vue component tree</li>
+        <li>OTLP export to any OTel collector</li>
+        <li>Backend spans + trace correlation</li>
+      </ul>
+      <a href="#" class="cta-btn cta-paid" data-plan="solo_pro" id="cta-solo_pro">Get Pro →</a>
+    </div>
+
+    <div class="plan-card">
+      <span class="plan-name">Enterprise</span>
+      <div class="plan-price" style="font-size:1.8rem; padding-top:0.6rem">Contact us</div>
+      <ul class="features">
+        <li>Everything in Pro, per seat</li>
+        <li>Pooled credits across the team</li>
+        <li>Team sync — shared debug context</li>
+        <li>Priority support</li>
+      </ul>
+      <a href="mailto:hello@mergen.dev" class="cta-btn">Contact Sales →</a>
+    </div>
+
+  </div>
+
+  <!-- License activation + Team sync -->
   <div class="section-split">
     <div>
-      <span class="plans-label">Activation</span>
-      <h4 style="font-size:1.1rem; text-transform:uppercase; margin-bottom:1rem;">🔑 License Nexus</h4>
-      <p style="font-size:0.9rem; color:var(--text-muted); margin-bottom:3rem;">Enter your machine-specific token to unlock high-volume reasoning.</p>
+      <span class="section-label">Activation</span>
+      <h4 style="font-size:1rem; text-transform:uppercase; margin-bottom:0.75rem;">License Key</h4>
+      <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:2rem;">Enter your key to unlock Pro features.</p>
       <div class="form-group">
-        <label class="form-label">Cluster Token</label>
+        <label class="form-label">License Key</label>
         <input class="form-input" id="key-input" type="text" placeholder="XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX" />
       </div>
-      <button class="btn" id="key-btn" style="width:100%; border-color:var(--accent); color:var(--accent);">Verify License Node</button>
-      <div id="key-result" style="margin-top:1.5rem; font-family:var(--mono); font-size:0.75rem; display:none;"></div>
+      <button class="btn-action" id="key-btn">Activate</button>
+      <div id="key-result"></div>
     </div>
 
-    <div>
-      <span class="plans-label">Collaboration</span>
-      <h4 style="font-size:1.1rem; text-transform:uppercase; margin-bottom:1rem;">Synchronize Fleet</h4>
-      <p style="font-size:0.9rem; color:var(--text-muted); margin-bottom:3rem;">Link multiple developer nodes to propagate runtime signals across the fleet.</p>
-      <div class="form-group">
-        <label class="form-label">Fleet Secret</label>
-        <input class="form-input" id="team-token" type="password" placeholder="Shared secret" />
+    <div id="team-section">
+      <span class="section-label">Team Sync</span>
+      <h4 style="font-size:1rem; text-transform:uppercase; margin-bottom:0.75rem;">Share Context</h4>
+      <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:2rem;">Share runtime signals with teammates on the same project.</p>
+      <div class="team-status">
+        <div class="status-dot" id="team-status-dot"></div>
+        <span id="team-status-text">Not configured</span>
+        <span id="team-peers" style="font-size:0.75rem; color:var(--text-dim); margin-left:auto"></span>
       </div>
       <div class="form-group">
-        <label class="form-label">Node Identifier</label>
-        <input class="form-input" id="team-member" type="text" placeholder="e.g. node-01" />
+        <label class="form-label">Shared Secret</label>
+        <input class="form-input" id="team-token" type="password" placeholder="Shared secret (min 8 chars)" />
       </div>
-      <button class="btn btn-filled" id="team-join-btn" style="width:100%">Join Cluster</button>
+      <div class="form-group">
+        <label class="form-label">Your Name</label>
+        <input class="form-input" id="team-member" type="text" placeholder="e.g. alice" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Relay URL <span style="color:var(--text-dim)">(optional)</span></label>
+        <input class="form-input" id="team-relay" type="text" placeholder="https://relay.example.com" />
+      </div>
+      <button class="btn-action" id="team-join-btn">Join / Update</button>
+      <button class="btn-action" id="team-leave-btn" style="display:none; margin-top:8px; border-color:#f87171; color:#f87171;">Leave Team</button>
+      <div id="team-result"></div>
     </div>
   </div>
 
-  <div class="faq">
-    <span class="plans-label">Intelligence / Logic</span>
-    <div class="faq-grid">
-      <div class="faq-item">
-        <h4>What is a reasoning call?</h4>
-        <p>A reasoning call occurs when the Mergen Causal Engine analyzes the runtime buffer to construct a <span style="color:var(--accent)">verified causal link</span> and proposed fix for an agent.</p>
-      </div>
-      <div class="faq-item">
-        <h4>Is my data private?</h4>
-        <p>Yes. Mergen is local-first. Signal processing occurs on your loopback. We only receive metadata counts for credit allocation, never your logs or code.</p>
-      </div>
-      <div class="faq-item">
-        <h4>Source Map resolution?</h4>
-        <p>Paid tiers automatically resolve production stack traces back to original TypeScript/JSX source files locally, providing agents with perfect context.</p>
-      </div>
-      <div class="faq-item">
-        <h4>OTel Compatibility?</h4>
-        <p>Mergen respects and propagates W3C traceparents, allowing it to join browser signals to any OpenTelemetry-instrumented backend service automatically.</p>
-      </div>
-    </div>
-  </div>
-
-  <footer>
-    MERGEN // INSTRUMENTED BY MACHINE // © 2026
-  </footer>
+  <footer>MERGEN // © 2026</footer>
 
 </div>
-
 <script src="src/pricing.js"></script>
 </body>
 </html>

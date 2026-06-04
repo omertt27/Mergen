@@ -12,6 +12,7 @@ const mcpSub        = document.getElementById('mcp-sub');
 const statErrors    = document.getElementById('stat-errors');
 const statWarns     = document.getElementById('stat-warns');
 const statNet       = document.getElementById('stat-net');
+const statWs        = document.getElementById('stat-ws');
 const statsGrid     = document.getElementById('stats-grid');
 const activityRow   = document.getElementById('activity-row');
 const lastEventText = document.getElementById('last-event-text');
@@ -222,7 +223,7 @@ async function refresh(port) {
 
   if (!health?.ok) {
     setStatus('disconnected', 'Offline');
-    statErrors.textContent = statWarns.textContent = statNet.textContent = '—';
+    statErrors.textContent = statWarns.textContent = statNet.textContent = statWs.textContent = '—';
     btnClear.disabled = true;
     creditWrap.style.display = 'none';
     renderSignals([]);
@@ -241,6 +242,7 @@ async function refresh(port) {
   statErrors.textContent = health.errors ?? 0;
   statWarns.textContent  = health.warnings ?? 0;
   statNet.textContent    = health.networkErrors ?? 0;
+  statWs.textContent     = health.websocketConnections ?? 0;
   statsGrid.style.display = 'grid'; // reveal stats on first successful poll
   btnClear.disabled = false;
 

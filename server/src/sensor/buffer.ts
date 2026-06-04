@@ -285,6 +285,8 @@ export interface BufferStore {
   getNetwork(limit?: number, statusFilter?: number, since?: number): NetworkEvent[];
   getContext(limit?: number, since?: number): ContextSnapshot[];
   getWebSockets(limit?: number, connectionUrl?: string, since?: number): WebSocketEvent[];
+  /** Count of distinct WebSocket connections in the buffer — used by /health. */
+  getWebSocketCount(): number;
   getSSE(limit?: number, connectionUrl?: string, since?: number): SSEEvent[];
   getDiagnostics(limit?: number, severity?: DiagnosticEvent['severity'], since?: number): DiagnosticEvent[];
   getTerminalOutput(limit?: number, terminalName?: string, since?: number): TerminalOutputEvent[];
@@ -461,6 +463,14 @@ class RingBuffer implements BufferStore {
       results.push(e);
     }
     return results.slice(-cap);
+  }
+
+  getWebSocketCount(): number {
+    let count = 0;
+    for (const e of this._iterate()) {
+      if (e.type === 'websocket') count++;
+    }
+    return count;
   }
 
   getSSE(limit = 50, connectionUrl?: string, since?: number): SSEEvent[] {

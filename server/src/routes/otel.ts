@@ -16,13 +16,13 @@ import {
   type OtelConfig,
 } from '../sensor/otel-exporter.js';
 import { getActivePlanId } from '../intelligence/license.js';
+import { getPlan } from '../intelligence/plans.js';
 import logger from '../sensor/logger.js';
 
 export const otelRouter = Router();
 
 function isOtelPlan(): boolean {
-  const plan = getActivePlanId();
-  return plan === 'solo_pro' || plan === 'team';
+  return getPlan(getActivePlanId()).backendObservability;
 }
 
 /** GET /otel-config */

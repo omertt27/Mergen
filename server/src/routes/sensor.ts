@@ -41,6 +41,7 @@ export function createSensorRouter(serverVersion: string): Router {
       errors: counters.errors,
       warnings: counters.warnings,
       networkErrors: counters.networkErrors,
+      websocketConnections: store.getWebSocketCount(),
       lastEventAt: store.lastEventAt(),
       clearedAt: store.clearedAt(),
       mcpLastCallAt: lastMcpCallAt,

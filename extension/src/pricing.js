@@ -1,30 +1,12 @@
 (async () => {
-  // ── Config ─────────────────────────────────────────────────────────────────
   const DEFAULT_PORT = 3000;
   const { mergenPort = DEFAULT_PORT } = await chrome.storage.local.get('mergenPort').catch(() => ({}));
   const BASE = `http://127.0.0.1:${mergenPort}`;
 
   const LS_URLS = {
-    solo_starter:  'https://mergen.lemonsqueezy.com/buy/solo-starter',
-    solo_pro:      'https://mergen.lemonsqueezy.com/buy/solo-pro',
-    solo_power:    'https://mergen.lemonsqueezy.com/buy/solo-power',
-    team:          'https://mergen.lemonsqueezy.com/buy/team',
-    team_pro:      'https://mergen.lemonsqueezy.com/buy/team-pro',
-    pay_as_you_go: 'https://mergen.lemonsqueezy.com/buy/payg',
+    solo_pro:  'https://mergen.lemonsqueezy.com/buy/solo-pro',
+    team_pro:  'https://mergen.lemonsqueezy.com/buy/team-pro',
   };
-
-  // ── Billing toggle ─────────────────────────────────────────────────────────
-  let annual = false;
-  document.getElementById('billing-toggle').addEventListener('click', () => {
-    annual = !annual;
-    document.getElementById('billing-toggle').classList.toggle('annual', annual);
-    document.querySelectorAll('.price-val').forEach((el) => {
-      el.textContent = annual ? el.dataset.annual : el.dataset.monthly;
-    });
-    document.querySelectorAll('.billing-period').forEach((el) => {
-      el.textContent = annual ? 'annually' : 'monthly';
-    });
-  });
 
   // ── Load plan & usage ──────────────────────────────────────────────────────
   let currentPlanId = 'free';
@@ -56,12 +38,12 @@
         if (usage.overage > 0) {
           const el = document.getElementById('banner-overage');
           el.style.display = 'block';
-          const dollars = ((usage.overage * (usage.overageCentsPerCredit ?? 5)) / 100).toFixed(2);
+          const dollars = ((usage.overage * (usage.overageCentsPerCredit ?? 2)) / 100).toFixed(2);
           el.textContent = `+${usage.overage} overage • ~$${dollars} this month`;
         }
       }
 
-      if (currentPlanId === 'team' || currentPlanId === 'team_pro') {
+      if (lic.plan?.teamSync) {
         document.getElementById('team-section').style.display = 'block';
         loadTeamState();
       }
@@ -69,21 +51,17 @@
   } catch { /* server offline */ }
 
   function markCurrentPlan(planId) {
+    // Reset all paid buttons
     document.querySelectorAll('.cta-btn[data-plan]').forEach((btn) => {
-      const plan = btn.dataset.plan;
-      const labels = {
-        solo_starter: 'Get Starter →',
-        solo_pro:     'Get Pro →',
-        solo_power:   'Get Power →',
-        team:         'Get Team →',
-        team_pro:     'Get Team Pro →',
-      };
-      btn.textContent = labels[plan] ?? 'Get plan →';
+      btn.textContent = btn.dataset.plan === 'solo_pro' ? 'Get Pro →' : 'Get Enterprise →';
       btn.className = 'cta-btn cta-paid';
     });
-    document.getElementById('cta-free').className = 'cta-btn cta-free';
-    document.getElementById('cta-free').textContent = planId === 'free' ? '✓ Current plan' : 'Downgrade';
+    // Reset free button
+    const freeBtn = document.getElementById('cta-free');
+    freeBtn.className = 'cta-btn cta-free';
+    freeBtn.textContent = planId === 'free' ? '✓ Current plan' : 'Downgrade';
 
+    // Mark active paid plan
     if (planId !== 'free') {
       const btn = document.getElementById(`cta-${planId}`);
       if (btn) {
@@ -101,11 +79,6 @@
       const url = LS_URLS[btn.dataset.plan];
       if (url) chrome.tabs.create({ url });
     });
-  });
-
-  document.getElementById('payg-link').addEventListener('click', (e) => {
-    e.preventDefault();
-    chrome.tabs.create({ url: LS_URLS.pay_as_you_go });
   });
 
   // ── License activation ─────────────────────────────────────────────────────
@@ -132,8 +105,8 @@
       keyResult.textContent = `✓ Activated! Plan: ${data.plan} — welcome, ${data.email}`;
       keyResult.style.display = 'block';
       keyInput.value = '';
-      markCurrentPlan(data.plan);
-      if (data.plan === 'team' || data.plan === 'team_pro') {
+      markCurrentPlan(data.planId ?? data.plan);
+      if (data.teamSync) {
         document.getElementById('team-section').style.display = 'block';
         loadTeamState();
       }
@@ -171,10 +144,9 @@
 
       if (data.enabled) {
         dot.classList.add('active');
-        text.textContent = `Active — member: ${data.memberName}`;
-        peers.textContent = `${data.connectedPeers} peer${data.connectedPeers === 1 ? '' : 's'} connected`;
-        leaveBtn.style.display = 'inline-block';
-        document.getElementById('team-token').value = '';
+        text.textContent = `Active — ${data.memberName}`;
+        peers.textContent = `${data.connectedPeers} peer${data.connectedPeers === 1 ? '' : 's'} online`;
+        leaveBtn.style.display = 'block';
         document.getElementById('team-member').value = data.memberName ?? '';
         document.getElementById('team-relay').value = data.relayUrl ?? '';
       } else {
@@ -214,7 +186,7 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'failed');
       resultEl.className = 'team-result ok';
-      resultEl.textContent = `✓ Team sync active — ${data.relayUrl}`;
+      resultEl.textContent = `✓ Team sync active`;
       resultEl.style.display = 'block';
       loadTeamState();
     } catch (err) {

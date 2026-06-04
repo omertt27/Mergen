@@ -378,6 +378,35 @@
     return undefined;
   }
 
+  // ── React render-count tracking via DevTools hook ────────────────────────────
+  // Intercepts onCommitFiberRoot to count per-component-type commits.
+  // Called at document_start so it installs before React checks for the hook.
+
+  const _reactRenderCounts = new Map(); // component function → commit count
+
+  (function setupReactRenderTracking() {
+    try {
+      if (!window.__REACT_DEVTOOLS_GLOBAL_HOOK__) {
+        window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = { inject: function() {}, _renderers: new Map() };
+      }
+      const hook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+      const orig = hook.onCommitFiberRoot;
+      hook.onCommitFiberRoot = function(rendererID, root, priority) {
+        try {
+          (function walkFiber(fiber) {
+            if (!fiber) return;
+            if ((fiber.tag === 0 || fiber.tag === 1) && typeof fiber.type === 'function') {
+              _reactRenderCounts.set(fiber.type, (_reactRenderCounts.get(fiber.type) || 0) + 1);
+            }
+            walkFiber(fiber.child);
+            walkFiber(fiber.sibling);
+          })(root.current);
+        } catch { /* ignore fiber walk errors */ }
+        if (orig) return orig.call(this, rendererID, root, priority);
+      };
+    } catch { /* DevTools hook unavailable */ }
+  })();
+
   // ── React component tree serialization ───────────────────────────────────────
 
   function serializeReactFiber(fiber, maxDepth, currentDepth) {
@@ -390,6 +419,7 @@
         props: null,
         state: null,
         hooks: null,
+        renderCount: (typeof fiber.type === 'function' ? _reactRenderCounts.get(fiber.type) : undefined) || 0,
         children: [],
       };
 
@@ -554,9 +584,103 @@
     }
   }
 
+  // ── Vue 3 component tree serialization ───────────────────────────────────────
+
+  function collectVue3ChildInstances(vnode, depth, maxCollect) {
+    var result = [];
+    if (!vnode || depth > 6 || result.length >= maxCollect) return result;
+    try {
+      if (vnode.component) {
+        result.push(vnode.component);
+        return result;
+      }
+      var children = vnode.children;
+      if (Array.isArray(children)) {
+        for (var i = 0; i < children.length && result.length < maxCollect; i++) {
+          var found = collectVue3ChildInstances(children[i], depth + 1, maxCollect - result.length);
+          for (var j = 0; j < found.length; j++) result.push(found[j]);
+        }
+      } else if (children && typeof children === 'object' && typeof children.default === 'function') {
+        try {
+          var slotNodes = children.default();
+          if (Array.isArray(slotNodes)) {
+            for (var k = 0; k < slotNodes.length && result.length < maxCollect; k++) {
+              var sf = collectVue3ChildInstances(slotNodes[k], depth + 1, maxCollect - result.length);
+              for (var l = 0; l < sf.length; l++) result.push(sf[l]);
+            }
+          }
+        } catch { /* ignore slot errors */ }
+      }
+    } catch { /* ignore */ }
+    return result;
+  }
+
+  function serializeVue3Component(instance, maxDepth, currentDepth) {
+    if (!instance || currentDepth >= maxDepth) return null;
+    try {
+      var node = {
+        name: 'Unknown',
+        type: 'Vue3',
+        props: null,
+        state: null,
+        children: [],
+      };
+
+      // Component name from type definition (__name is set by Vite's SFC transform)
+      var typeDef = instance.type;
+      if (typeDef) {
+        node.name = typeDef.__name || typeDef.name || typeDef.displayName || 'Anonymous';
+      }
+
+      // Props (may be a Proxy — Object.keys works on Proxy)
+      if (instance.props && typeof instance.props === 'object') {
+        try {
+          node.props = {};
+          var propKeys = Object.keys(instance.props).slice(0, 10);
+          for (var i = 0; i < propKeys.length; i++) {
+            var pk = propKeys[i];
+            try {
+              var pv = instance.props[pk];
+              var ps = typeof pv === 'string' ? pv : JSON.stringify(pv);
+              node.props[pk] = ps.length > 500 ? ps.slice(0, 500) + '...' : ps;
+            } catch { node.props[pk] = '[unserializable]'; }
+          }
+        } catch { node.props = null; }
+      }
+
+      // setupState — reactive data returned from setup() function
+      if (instance.setupState && typeof instance.setupState === 'object') {
+        try {
+          node.state = {};
+          var stateKeys = Object.keys(instance.setupState).slice(0, 10);
+          for (var si = 0; si < stateKeys.length; si++) {
+            var sk = stateKeys[si];
+            if (sk.startsWith('__')) continue;
+            try {
+              var sv = instance.setupState[sk];
+              var ss = typeof sv === 'string' ? sv : JSON.stringify(sv);
+              node.state[sk] = ss.length > 500 ? ss.slice(0, 500) + '...' : ss;
+            } catch { node.state[sk] = '[unserializable]'; }
+          }
+        } catch { node.state = null; }
+      }
+
+      // Child component instances via subTree VNode walk
+      if (instance.subTree) {
+        var childInstances = collectVue3ChildInstances(instance.subTree, 0, 5);
+        for (var ci = 0; ci < childInstances.length; ci++) {
+          var childNode = serializeVue3Component(childInstances[ci], maxDepth, currentDepth + 1);
+          if (childNode) node.children.push(childNode);
+        }
+      }
+
+      return node;
+    } catch { return null; }
+  }
+
   function captureVueComponentTree(maxDepth) {
     try {
-      const root = document.querySelector('#app,[data-v-app]');
+      var root = document.querySelector('#app,[data-v-app]');
       if (!root) return null;
 
       // Vue 2
@@ -564,19 +688,13 @@
         return serializeVueComponent(root.__vue__, maxDepth || 5, 0);
       }
 
-      // Vue 3 (simplified)
+      // Vue 3
       if (root.__vueParentComponent) {
-        return {
-          name: root.__vueParentComponent.type?.name || 'App',
-          framework: 'Vue3',
-          note: 'Vue 3 detailed tree capture coming soon',
-        };
+        return serializeVue3Component(root.__vueParentComponent, maxDepth || 5, 0);
       }
 
       return null;
-    } catch {
-      return null;
-    }
+    } catch { return null; }
   }
 
   function postContext(trigger) {
