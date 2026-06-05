@@ -12,6 +12,7 @@ const plans = [
     ],
     cta: 'Get Started',
     ctaClass: 'btn btn-outline',
+    href: '/install',
   },
   {
     name: 'Pro',
@@ -28,6 +29,7 @@ const plans = [
     cta: 'Get Pro',
     ctaClass: 'btn btn-white',
     featured: true,
+    href: 'https://mergen.lemonsqueezy.com/buy/solo-pro',
   },
   {
     name: 'Enterprise',
@@ -37,10 +39,11 @@ const plans = [
       'Everything in Pro, per seat',
       'Pooled credits across the team',
       'Team sync — shared debug context',
-      'Priority support',
+      'Priority support + audit logs + SSO',
     ],
     cta: 'Contact Sales',
     ctaClass: 'btn btn-outline',
+    href: 'mailto:hello@mergen.dev',
   },
 ]
 
@@ -85,7 +88,7 @@ export default function Pricing() {
                 </li>
               ))}
             </ul>
-            <a href="#" className={plan.ctaClass} style={{ display: 'block', textAlign: 'center' }}>
+            <a href={plan.href} className={plan.ctaClass} style={{ display: 'block', textAlign: 'center' }}>
               {plan.cta}
             </a>
           </div>

@@ -5,6 +5,7 @@ import { getUsageSnapshot } from './usage.js';
 import { getLicenseState } from './license.js';
 import { layer3Store } from '../sensor/layer3-store.js';
 import { trackCall, buildCreditBar, setLastClearAt } from './tools-state.js';
+import { saveSessionToHistory } from '../sensor/session-history.js';
 
 export function registerUtilityTools(server: McpServer): void {
   // ── get_status ─────────────────────────────────────────────────────────────
@@ -62,12 +63,14 @@ export function registerUtilityTools(server: McpServer): void {
   // ── clear_buffer ───────────────────────────────────────────────────────────
   server.registerTool(
     'clear_buffer',
-    { description: 'Clears all events from the in-memory buffer.' },
+    { description: 'Clears all events from the in-memory buffer. The current session is archived to disk before clearing so it can be replayed later via get_session_replay.' },
     async () => {
+      const events = store.serialize();
+      saveSessionToHistory(events, 'mcp-clear');
       const was = store.size();
       store.clear();
       setLastClearAt(Date.now());
-      return { content: [{ type: 'text', text: `Cleared ${was} event(s) from buffer.` }] };
+      return { content: [{ type: 'text', text: `Cleared ${was} event(s) from buffer. Session archived to history.` }] };
     },
   );
 

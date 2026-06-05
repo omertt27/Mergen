@@ -13,6 +13,7 @@ import { store } from '../sensor/buffer.js';
 import { getMetricCounters } from '../sensor/otel-exporter.js';
 import { startProcessWatcher, stopProcessWatcher, listProcessWatchers } from '../sensor/process-watcher.js';
 import { startDockerLogStream, stopDockerLogStream, listStreamedContainers } from '../sensor/docker-log-stream.js';
+import { saveSessionToHistory } from '../sensor/session-history.js';
 import { historyStore } from '../sensor/sqlite-store.js';
 import { buildCausalChain } from '../intelligence/causal.js';
 import { hypothesisHistory } from '../intelligence/hypothesis-history.js';
@@ -62,7 +63,9 @@ export function createSensorRouter(serverVersion: string): Router {
 
   // ── Clear ─────────────────────────────────────────────────────────────────
   router.post('/clear', (_req, res) => {
-    const was = store.size();
+    const was    = store.size();
+    const events = store.serialize();
+    saveSessionToHistory(events, 'manual-clear');
     store.clear();
     historyStore.clear();
     hypothesisHistory.clear();

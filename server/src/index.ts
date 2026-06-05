@@ -32,6 +32,7 @@ import { incidentStore } from './sensor/incident-store.js';
 import { stopAllProcessWatchers } from './sensor/process-watcher.js';
 import { stopFileWatch } from './sensor/fs-watcher.js';
 import { saveSession, loadSession } from './sensor/session-persist.js';
+import { saveSessionToHistory } from './sensor/session-history.js';
 
 import { initLicense, getActivePlanId } from './intelligence/license.js';
 import { initUsage, flushOverageOnShutdown } from './intelligence/usage.js';
@@ -234,7 +235,9 @@ async function main(): Promise<void> {
   // ── Graceful shutdown ─────────────────────────────────────────────────────
   function shutdown(signal: string): void {
     logger.info({ signal }, 'shutting down');
-    saveSession(store.serialize());
+    const events = store.serialize();
+    saveSessionToHistory(events, `shutdown-${signal.toLowerCase()}`);
+    saveSession(events);
     flushOverageOnShutdown().finally(() => {
       stopDockerMonitor();
       stopDockerLogStream();

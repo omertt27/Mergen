@@ -22,3 +22,9 @@ export const HISTORY_DB   = path.join(DATA_DIR, 'history.db');
 
 /** In-memory ring buffer snapshot — survives restarts within SESSION_MAX_AGE_MS. */
 export const SESSION_FILE = path.join(DATA_DIR, 'session.json');
+
+/** Directory of timestamped session archives for replay ("what happened at 3pm?"). */
+export const SESSIONS_DIR = path.join(DATA_DIR, 'sessions');
+
+/** Append-only audit log for enterprise compliance (JSONL, rolls at 10 MB). */
+export const AUDIT_LOG = path.join(DATA_DIR, 'audit.log');

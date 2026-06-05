@@ -33,8 +33,11 @@ import { createValidateRouter } from './routes/validate.js';
 import { createDashboardRouter } from './routes/dashboard.js';
 import { createDemoRouter } from './routes/demo.js';
 import { createSdkRouter } from './routes/sdk.js';
+import { createSessionsRouter } from './routes/sessions.js';
 import { handleSlackActions, handleFeedbackLink } from './intelligence/slack.js';
 import { getPrometheusMetrics } from './sensor/otel-exporter.js';
+import { auditMiddleware } from './sensor/audit-log.js';
+import { ssoMiddleware } from './sensor/sso.js';
 
 /** Paths that require the x-mergen-secret header on non-GET requests. */
 const MUTATING_PATHS = ['/feedback', '/license', '/clear', '/checkpoint', '/telemetry', '/otel-config'];
@@ -53,6 +56,11 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(sentryRouter);
 
   app.use(express.json({ strict: true, limit: '1mb' }));
+
+  // ── Audit log ─────────────────────────────────────────────────────────────
+  // Records every non-trivial request to ~/.mergen/audit.log (JSONL).
+  // Always-on; overhead is an async appendFileSync on response finish.
+  app.use(auditMiddleware);
 
   // ── CORS ──────────────────────────────────────────────────────────────────
   // Binding to 127.0.0.1 means only local processes connect, so wildcard is
@@ -96,6 +104,11 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
     res.json({ secret: localSecret });
   });
 
+  // ── SSO guard (enterprise) ────────────────────────────────────────────────
+  // Only active when MERGEN_SSO_REQUIRED=true + MERGEN_SSO_TOKEN is set.
+  // Validates Authorization: Bearer <token> on all mutating requests.
+  app.use(ssoMiddleware);
+
   // ── Local-secret guard ────────────────────────────────────────────────────
   // VS Code / Cursor extensions read ~/.mergen/secret and send it as
   // x-mergen-secret. The Host check above blocks DNS rebinding for routes not
@@ -128,6 +141,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createIncidentsRouter()); // Incident workflow (acknowledge/assign/resolve/note)
   app.use(createTicketsRouter());   // Linear + Jira one-click ticket creation
   app.use(createValidateRouter()); // Fix validation state
+  app.use(createSessionsRouter()); // Session history + audit log
 
   // ── Prometheus metrics endpoint ───────────────────────────────────────────
   // Exposes browser error rates, network failure counts, and request durations
