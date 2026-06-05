@@ -16,6 +16,8 @@ import { startDockerLogStream, stopDockerLogStream, listStreamedContainers } fro
 import { saveSessionToHistory } from '../sensor/session-history.js';
 import { historyStore } from '../sensor/sqlite-store.js';
 import { buildCausalChain } from '../intelligence/causal.js';
+import { buildCausalGraph } from '../intelligence/causal-graph.js';
+import { serviceTopology } from '../sensor/service-topology.js';
 import { hypothesisHistory } from '../intelligence/hypothesis-history.js';
 import { getStats } from '../intelligence/calibration.js';
 import { getUsageSnapshot } from '../intelligence/usage.js';
@@ -199,6 +201,36 @@ export function createSensorRouter(serverVersion: string): Router {
         : null,
     }));
     res.json({ ok: true, entries });
+  });
+
+  // ── Graph ─────────────────────────────────────────────────────────────────
+  // Pure structural causal graph — typed nodes and edges, no LLM formatting.
+  // Any consumer (model, dashboard, script) can traverse this without prompting.
+  //   GET /graph?seconds=60&limit=200
+  router.get('/graph', async (req, res) => {
+    const seconds = Math.min(600, Math.max(1, Number(req.query.seconds ?? 60)));
+    const since   = Date.now() - seconds * 1000;
+
+    const logs         = store.getLogs(200, undefined, since);
+    const network      = store.getNetwork(200, undefined, since);
+    const contexts     = store.getContext(20, since);
+    const terminal     = store.getTerminalOutput(100, undefined, since);
+    const processExits = store.getProcessExits(20, undefined, since);
+    const ciEvents     = store.getCIEvents(20, undefined, since);
+    const deployments  = store.getDeployments(10, undefined, since);
+
+    const causal = await buildCausalChain(logs, network, contexts, since, terminal, processExits, ciEvents, deployments);
+    const graph  = buildCausalGraph(causal);
+
+    res.json({ ok: true, windowSeconds: seconds, graph });
+  });
+
+  // ── Service Topology ──────────────────────────────────────────────────────
+  // Persistent service dependency graph — built incrementally from backend spans
+  // and traceId joins. Survives restarts. No LLM formatting.
+  // Any monitoring tool, alert system, or AI agent can query this directly.
+  router.get('/topology', (_req, res) => {
+    res.json({ ok: true, ...serviceTopology.snapshot() });
   });
 
   // ── Timeline ──────────────────────────────────────────────────────────────

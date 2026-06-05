@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { store, LogLevel } from '../sensor/buffer.js';
+import { serviceTopology } from '../sensor/service-topology.js';
 import { truncateToTokenBudget } from './token-budget.js';
 import { getActivePlanId } from './license.js';
 import { getPlan } from './plans.js';
@@ -504,6 +505,79 @@ export function registerBrowserTools(server: McpServer): void {
       const { result, truncated, omitted, estimatedTokens } = truncateToTokenBudget(lines, max_tokens, '\n');
       if (truncated) logger.info({ tool: 'get_component_tree', omitted, estimatedTokens }, 'response truncated');
       return { content: [{ type: 'text', text: result }] };
+    },
+  );
+
+  // ── get_service_topology ───────────────────────────────────────────────────
+  server.registerTool(
+    'get_service_topology',
+    {
+      description:
+        '⚡ FREE · Returns the persistent service dependency graph as structured JSON — ' +
+        'every service Mergen has observed (browser, API, database, queue, cache, infra), ' +
+        'their dependencies, call counts, error rates, and p99 latencies. ' +
+        'Built incrementally from backend spans and W3C trace joins. Survives server restarts. ' +
+        'Use this to understand system structure before diagnosing an incident: ' +
+        '"what services exist?", "what calls what?", "which service has the most errors?". ' +
+        'Returns empty graph if no backend spans have been received yet — ' +
+        'install the Node.js or Python SDK to start populating it.',
+    },
+    async () => {
+      trackCall('get_service_topology');
+      const snap = serviceTopology.snapshot();
+
+      if (snap.nodes.length === 0) {
+        return {
+          content: [{
+            type: 'text',
+            text: [
+              '## Service Topology\n',
+              '> No services observed yet. The topology is built from backend spans.',
+              '> Install the Mergen SDK in your backend services to start populating it:',
+              '> - Node.js: `npm install @mergen/node`',
+              '> - Python: `pip install mergen`',
+              '',
+              'Browser-side network events are already captured.',
+              'Service-to-service edges appear once backend spans arrive.',
+            ].join('\n'),
+          }],
+        };
+      }
+
+      const lines: string[] = ['## Service Topology\n'];
+
+      lines.push(`**${snap.summary.totalServices} services · ${snap.summary.totalEdges} edges**\n`);
+
+      if (snap.summary.criticalPath.length > 0) {
+        lines.push(`**Critical path:** ${snap.summary.criticalPath.join(' → ')}\n`);
+      }
+      if (snap.summary.errorHotspot) {
+        lines.push(`**Error hotspot:** \`${snap.summary.errorHotspot}\``);
+      }
+      if (snap.summary.slowestEdge) {
+        const e = snap.summary.slowestEdge;
+        lines.push(`**Slowest edge:** \`${e.from} → ${e.to}\` (${e.avgDurationMs}ms avg)\n`);
+      }
+
+      lines.push('### Services\n');
+      lines.push('| Service | Type | Calls | Errors | Avg ms | p99 ms |');
+      lines.push('|---------|------|-------|--------|--------|--------|');
+      for (const n of snap.nodes.sort((a, b) => b.spanCount - a.spanCount)) {
+        const errPct = n.spanCount > 0 ? ((n.errorCount / n.spanCount) * 100).toFixed(1) : '0.0';
+        const errCell = n.errorCount > 0 ? `${n.errorCount} (${errPct}%)` : '0';
+        lines.push(`| \`${n.id}\` | ${n.type} | ${n.spanCount} | ${errCell} | ${n.avgDurationMs} | ${n.p99DurationMs} |`);
+      }
+
+      lines.push('\n### Dependencies\n');
+      for (const e of snap.edges.sort((a, b) => b.callCount - a.callCount)) {
+        const errInfo = e.errorCount > 0 ? ` · ⚠️ ${e.errorCount} errors` : '';
+        lines.push(`- \`${e.from}\` → \`${e.to}\` (${e.callCount} calls · ${e.avgDurationMs}ms avg${errInfo})`);
+      }
+
+      lines.push('\n---');
+      lines.push(`*Updated: ${snap.capturedAt} · Raw JSON: GET /topology*`);
+
+      return { content: [{ type: 'text', text: lines.join('\n') }] };
     },
   );
 }

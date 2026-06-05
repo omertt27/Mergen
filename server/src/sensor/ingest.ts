@@ -8,6 +8,7 @@ import { layer3Store } from './layer3-store.js';
 import { layer4Store } from './layer4-store.js';
 import { historyStore } from './sqlite-store.js';
 import { exportToOtel } from './otel-exporter.js';
+import { serviceTopology } from './service-topology.js';
 
 // ── Team broadcast hook ───────────────────────────────────────────────────────
 // Registered by intelligence/team.ts at startup to avoid a circular import.
@@ -312,9 +313,36 @@ ingestRouter.post('/ingest', (req: Request, res: Response): void => {
     historyStore.push(event);
     maybeTeamBroadcast(event);
     exportToOtel(event);
+    updateTopology(event);
     triggerActivity();
   }
 });
+
+function updateTopology(event: BrowserEvent): void {
+  if (event.type === 'backend_span') {
+    serviceTopology.updateFromSpan(event);
+
+    // Resolve service-to-service edges within this trace (parentSpanId links).
+    const siblings = store.getBackendSpans(50).filter(s => s.traceId === event.traceId);
+    if (siblings.length > 1) serviceTopology.updateFromTraceGroup(siblings);
+    return;
+  }
+
+  if (event.type === 'network' && event.traceId) {
+    // Look for a backend span that was instrumented on the other side of this request.
+    const matchingSpan = store.getBackendSpans(50).find(s => s.traceId === event.traceId);
+    if (matchingSpan) {
+      serviceTopology.updateFromTraceJoin(
+        event.url,
+        matchingSpan.service,
+        event.duration,
+        event.status >= 500 || !!event.error,
+        event.traceId,
+        event.timestamp,
+      );
+    }
+  }
+}
 
 // Exported for unit tests.
 export { clampBody, clampNetworkBodies, MAX_BODY_BYTES };

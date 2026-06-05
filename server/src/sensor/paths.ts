@@ -28,3 +28,6 @@ export const SESSIONS_DIR = path.join(DATA_DIR, 'sessions');
 
 /** Append-only audit log for enterprise compliance (JSONL, rolls at 10 MB). */
 export const AUDIT_LOG = path.join(DATA_DIR, 'audit.log');
+
+/** Persistent service dependency graph — built from backend spans and traceId joins. */
+export const TOPOLOGY_FILE = path.join(DATA_DIR, 'topology.json');

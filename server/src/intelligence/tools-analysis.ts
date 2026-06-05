@@ -4,6 +4,7 @@ import { store } from '../sensor/buffer.js';
 import { truncateToTokenBudget } from './token-budget.js';
 import { consumeCredit, getUsageSnapshot } from './usage.js';
 import { buildCausalChain } from './causal.js';
+import { buildCausalGraph } from './causal-graph.js';
 import { hypothesisHistory } from './hypothesis-history.js';
 import { computeErrorFrequency, computeNetworkFrequency } from './error-fingerprint.js';
 import { computeAnomaly, getAnomalousPatterns } from './baseline.js';
@@ -382,6 +383,40 @@ export function registerAnalysisTools(server: McpServer): void {
       const contexts = store.getContext(20, since);
       const repro    = generateReproSteps(logs, network, contexts);
       return { content: [{ type: 'text', text: `## Reproduction Steps (confidence: ${repro.confidence})\n\n${repro.markdown}` }] };
+    },
+  );
+
+  // ── get_causal_graph ───────────────────────────────────────────────────────
+  server.registerTool(
+    'get_causal_graph',
+    {
+      description:
+        '⚡ FREE · Returns the causal graph of the current session as structured JSON — ' +
+        'typed nodes (error, warn, network_fail, network_ok, state, process_exit) and ' +
+        'typed edges (TRACE_JOINED, CAUSED_BY, STATE_AT, CORRELATED_WITH, PRECEDED_BY). ' +
+        'Model-agnostic: any consumer can traverse this graph without relying on natural-language summaries. ' +
+        'Edge kinds are ordered by determinism: TRACE_JOINED is exact (W3C traceparent match), ' +
+        'CAUSED_BY is detector-validated, CORRELATED_WITH is temporal proximity only. ' +
+        'Use this to reason about event causality programmatically, build visualizations, ' +
+        'or feed structured data to a custom pipeline — without spending analyze_runtime credits.',
+      inputSchema: {
+        since: z.number().int().optional().describe('Only include events after this Unix timestamp in ms'),
+      },
+    },
+    async ({ since }) => {
+      trackCall('get_causal_graph');
+      const logs         = store.getLogs(200, undefined, since);
+      const network      = store.getNetwork(200, undefined, since);
+      const contexts     = store.getContext(20, since);
+      const terminal     = store.getTerminalOutput(100, undefined, since);
+      const processExits = store.getProcessExits(20, undefined, since);
+      const ciEvents     = store.getCIEvents(20, undefined, since);
+      const deployments  = store.getDeployments(10, undefined, since);
+
+      const causal = await buildCausalChain(logs, network, contexts, since, terminal, processExits, ciEvents, deployments);
+      const graph  = buildCausalGraph(causal);
+
+      return { content: [{ type: 'text', text: JSON.stringify(graph, null, 2) }] };
     },
   );
 
