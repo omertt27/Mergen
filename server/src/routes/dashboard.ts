@@ -234,6 +234,11 @@ function buildDashboardHtml(version: string, nonce: string): string {
         <div id="validate-list"></div>
       </div>
 
+      <div class="card" id="calib-card">
+        <div class="card-title">Calibration Health</div>
+        <div id="calib-list"><div style="font-size:11px;color:var(--muted)">Loading…</div></div>
+      </div>
+
       <div class="card">
         <div class="card-title">Connect more signals</div>
         <div style="font-size:11px;color:var(--muted);line-height:1.8">
@@ -610,12 +615,66 @@ async function pollValidateState() {
   } catch(e) {}
 }
 
+async function pollCalibrationHealth() {
+  try {
+    const [sm, cal, unc] = await Promise.all([
+      fetch('/session-metrics').then(r => r.json()),
+      fetch('/calibration').then(r => r.json()),
+      fetch('/calibration/unclassified?minCount=3').then(r => r.json()),
+    ]);
+    const el = document.getElementById('calib-list');
+    if (!el) return;
+    let html = '';
+
+    // First-attempt fix success rate
+    const rate = sm.firstAttemptSuccessRate;
+    const rateStr = rate !== null && rate !== undefined
+      ? Math.round(rate * 100) + '%'
+      : sm.withOutcome < 3 ? 'n/a (' + sm.withOutcome + ' sessions)' : '—';
+    const rateColor = rate === null ? 'var(--muted)' : rate >= 0.6 ? 'var(--green)' : rate >= 0.4 ? 'var(--yellow)' : 'var(--red)';
+    html += '<div class="stat"><span class="stat-label">1st-attempt success</span><span class="stat-val" style="color:' + rateColor + '">' + esc(rateStr) + '</span></div>';
+    html += '<div class="stat"><span class="stat-label">Total sessions</span><span class="stat-val">' + (sm.total || 0) + '</span></div>';
+
+    // Overall calibration accuracy
+    if (cal.overallAccuracy !== null && cal.overallAccuracy !== undefined) {
+      const acc = Math.round(cal.overallAccuracy * 100);
+      const accColor = acc >= 70 ? 'var(--green)' : acc >= 50 ? 'var(--yellow)' : 'var(--red)';
+      html += '<div class="stat"><span class="stat-label">Detector accuracy</span><span class="stat-val" style="color:' + accColor + '">' + acc + '%</span></div>';
+    }
+    html += '<div class="stat"><span class="stat-label">Trusted detectors</span><span class="stat-val">' + (cal.trustedDetectors || 0) + ' / ' + (cal.totalDetectors || 0) + '</span></div>';
+
+    // Unclassified clusters
+    if (unc.total > 0) {
+      html += '<div class="stat"><span class="stat-label" style="color:var(--yellow)">Unclassified patterns</span><span class="stat-val" style="color:var(--yellow)">' + unc.total + '</span></div>';
+    }
+
+    // Per-detector breakdown (top 5 trusted)
+    const trusted = (cal.perDetector || []).filter(d => d.trusted).slice(0, 5);
+    if (trusted.length > 0) {
+      html += '<div style="margin-top:8px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Detectors</div>';
+      for (const d of trusted) {
+        const acc = Math.round(d.accuracy * 100);
+        const trend = d.trendDelta !== null ? (d.trendDelta > 0 ? ' ↑' : d.trendDelta < 0 ? ' ↓' : '') : '';
+        const color = acc >= 70 ? 'var(--green)' : acc >= 50 ? 'var(--yellow)' : 'var(--red)';
+        html += '<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:11px">'
+          + '<span style="color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px" title="' + esc(d.tag) + '">' + esc(d.tag.replace(/_/g,' ')) + '</span>'
+          + '<span style="color:' + color + ';flex-shrink:0">' + acc + '%' + esc(trend) + '</span>'
+          + '</div>';
+      }
+    }
+
+    el.innerHTML = html;
+  } catch(e) {}
+}
+
 poll();
 pollSdkStatus();
 pollValidateState();
+pollCalibrationHealth();
 setInterval(poll,5000);
 setInterval(pollSdkStatus,10000);
 setInterval(pollValidateState,5000);
+setInterval(pollCalibrationHealth,30000);
 </script>
 </body></html>`;
 }

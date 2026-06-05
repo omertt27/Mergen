@@ -9,6 +9,7 @@ import { computeErrorFrequency, computeNetworkFrequency } from './error-fingerpr
 import { computeAnomaly, getAnomalousPatterns } from './baseline.js';
 import { generateReproSteps } from './repro-steps.js';
 import { trackCall, buildCreditBar, getLastClearAt, setFirstAnalyzeAt, setLastTimeToFirstAnalysisMs } from './tools-state.js';
+import { startSession } from './session-metrics.js';
 import logger from '../sensor/logger.js';
 
 export function registerAnalysisTools(server: McpServer): void {
@@ -443,6 +444,11 @@ export function registerAnalysisTools(server: McpServer): void {
       const deployments  = store.getDeployments(10, undefined, since);
       const causal       = await buildCausalChain(logs, network, contexts, since, terminal, processExits, ciEvents, deployments);
       setFirstAnalyzeAt(Date.now());
+
+      // Open a debug session for each hypothesis pid — tracks first-attempt fix success rate.
+      for (const h of causal.hypotheses) {
+        if (h.pid) startSession(h.pid, h.tag);
+      }
 
       const usage       = getUsageSnapshot();
       const usageFooter = usage.included === null

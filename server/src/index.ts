@@ -36,7 +36,7 @@ import { saveSession, loadSession } from './sensor/session-persist.js';
 import { initLicense, getActivePlanId } from './intelligence/license.js';
 import { initUsage, flushOverageOnShutdown } from './intelligence/usage.js';
 import { initTeam, broadcastToTeam } from './intelligence/team.js';
-import { initTelemetry, maybeSendTelemetry } from './intelligence/telemetry.js';
+import { initTelemetry, maybeSendTelemetry, uploadCalibrationBatch } from './intelligence/telemetry.js';
 import { getPlan } from './intelligence/plans.js';
 import { registerTools, toolCallCounts } from './intelligence/tools.js';
 import { registerResources } from './intelligence/mcp-resources.js';
@@ -168,6 +168,7 @@ async function main(): Promise<void> {
       toolCallCounts,
       bufferedEvents: store.size(),
     });
+    void uploadCalibrationBatch();
   };
   setTimeout(telemetryTick, 60_000).unref();
   setInterval(telemetryTick, 60 * 60 * 1000).unref();

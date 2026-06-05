@@ -2,6 +2,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { store } from '../sensor/buffer.js';
 import { getRecords, recordVerdict } from './calibration.js';
+import { layer4Store } from '../sensor/layer4-store.js';
+import { closeSession } from './session-metrics.js';
 import { trackCall } from './tools-state.js';
 
 export function registerValidateTools(server: McpServer): void {
@@ -56,7 +58,18 @@ export function registerValidateTools(server: McpServer): void {
         status = errsAfter > errsBefore ? 'REGRESSED' : 'UNRESOLVED';
       }
 
-      if (prediction && !prediction.verdict) recordVerdict(pid, verdict);
+      if (prediction && !prediction.verdict) {
+        recordVerdict(pid, verdict);
+
+        // Wire verdict into Layer 4 error memory.
+        if (prediction.errorFingerprint) {
+          layer4Store.linkFix(prediction.errorFingerprint, pid, prediction.tag, verdict);
+        }
+
+        // Close the debug session — records first-attempt fix success rate.
+        const outcome = verdict === 'correct' ? 'resolved' : verdict === 'partial' ? 'partial' : 'unresolved';
+        closeSession(pid, outcome);
+      }
 
       const tag = prediction?.tag ?? 'unknown';
       const lines = [

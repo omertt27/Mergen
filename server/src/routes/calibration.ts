@@ -17,9 +17,12 @@ import {
   getStats,
   exportCsv,
   getPendingFeedback,
+  getGlobalStats,
   CALIBRATION_CONFIG,
   type VerdictDimension,
 } from '../intelligence/calibration.js';
+import { getClusters } from '../intelligence/unclassified-clusters.js';
+import { getSessionMetrics } from '../intelligence/session-metrics.js';
 
 const VALID_VERDICT_DIMENSIONS = new Set<VerdictDimension>(['root_cause', 'fix_hint', 'both']);
 
@@ -107,6 +110,37 @@ export function createCalibrationRouter(): Router {
       `attachment; filename="mergen-calibration-${new Date().toISOString().slice(0, 10)}.csv"`,
     );
     res.send(csv);
+  });
+
+  // GET /calibration/unclassified ─────────────────────────────────────────────
+  // Error patterns that fired zero detectors, grouped by structural fingerprint.
+  // Clusters with count >= minCount are candidates for new detector rules.
+  router.get('/calibration/unclassified', (req, res) => {
+    const minCount = Math.max(1, parseInt(String(req.query['minCount'] ?? '3'), 10) || 3);
+    const clusters = getClusters(minCount);
+    res.json({
+      ok: true,
+      total: clusters.length,
+      minCount,
+      clusters,
+    });
+  });
+
+  // GET /calibration/global ───────────────────────────────────────────────────
+  // Global accuracy stats from the aggregation server (requires opt-in telemetry
+  // and MERGEN_TELEMETRY_URL to be configured). Returns empty array when no
+  // global data has been fetched yet.
+  router.get('/calibration/global', (_req, res) => {
+    res.json({
+      ok: true,
+      stats: getGlobalStats(),
+    });
+  });
+
+  // GET /session-metrics ──────────────────────────────────────────────────────
+  // First-attempt fix success rate — the board-slide metric.
+  router.get('/session-metrics', (_req, res) => {
+    res.json({ ok: true, ...getSessionMetrics() });
   });
 
   return router;
