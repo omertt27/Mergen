@@ -606,7 +606,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   /* ── Stat row ── */
   .stats {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
     gap: 6px;
   }
   .stat {
@@ -1126,6 +1126,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
 <!-- Live Context Pack — promoted to first: root cause is the primary question -->
 <div class="card" id="card-pack" style="display:none">
   <div class="card-title">Context Pack <span id="pack-time" class="pack-time"></span></div>
+  <div style="font-size:10px;color:var(--vscode-descriptionForeground);margin-bottom:6px">Live snapshot of errors, root cause, and traces — send directly to AI Chat.</div>
   <div class="pack-trigger" id="pack-trigger"></div>
   <div class="hyp" id="pack-hyp" style="display:none">
     <div class="hyp-head">

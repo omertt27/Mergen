@@ -127,6 +127,14 @@ function buildDashboardHtml(version: string, nonce: string): string {
   .vld-watch-dot{width:6px;height:6px;border-radius:50%;background:var(--blue);box-shadow:0 0 4px var(--blue);animation:pulse 2s infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
   a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}
+  /* Signal status bar */
+  .signals-bar{display:flex;gap:16px;padding:7px 24px;background:var(--surface);border-bottom:1px solid var(--border);font-size:11px;flex-wrap:wrap;align-items:center}
+  .sig{display:flex;align-items:center;gap:5px}
+  .sig-dot{width:6px;height:6px;border-radius:50%;background:var(--muted);flex-shrink:0}
+  .sig-dot.on{background:var(--green);box-shadow:0 0 4px var(--green)}
+  .sig-lbl{color:var(--muted)}
+  .sig-lbl.on{color:var(--text)}
+  .sig-setup{margin-left:auto;font-size:10px;color:var(--muted);cursor:pointer;text-decoration:underline}
   /* Incident actions */
   .inc-bar{display:flex;align-items:center;gap:8px;padding:10px 14px;background:rgba(59,130,246,.06);border-left:3px solid var(--blue);border-radius:0 var(--radius) var(--radius) 0;margin-bottom:16px}
   .inc-bar.acked{border-left-color:var(--yellow);background:rgba(245,158,11,.06)}
@@ -153,9 +161,16 @@ function buildDashboardHtml(version: string, nonce: string): string {
     <div>Errors: <span id="h-errors" class="badge badge-muted">—</span></div>
     <div>Warnings: <span id="h-warns" class="badge badge-muted">—</span></div>
     <div>Net errors: <span id="h-net" class="badge badge-muted">—</span></div>
-    <div>Buffered: <span id="h-buf" style="color:var(--text)">—</span></div>
+    <div>Captured: <span id="h-buf" style="color:var(--text)">—</span></div>
   </div>
 </header>
+<div class="signals-bar">
+  <span class="sig"><span class="sig-dot" id="sig-browser"></span><span class="sig-lbl" id="sig-browser-lbl">Browser</span></span>
+  <span class="sig"><span class="sig-dot" id="sig-backend"></span><span class="sig-lbl" id="sig-backend-lbl">Backend</span></span>
+  <span class="sig"><span class="sig-dot" id="sig-ci"></span><span class="sig-lbl" id="sig-ci-lbl">CI/CD</span></span>
+  <span class="sig"><span class="sig-dot" id="sig-process"></span><span class="sig-lbl" id="sig-process-lbl">Process</span></span>
+  <span class="sig-setup" id="sig-setup-hint" style="display:none" onclick="window.open('http://127.0.0.1:3000/setup','_blank')"></span>
+</div>
 
 <main>
   <div id="rc-box" style="display:none" class="rc">
@@ -240,6 +255,43 @@ function buildDashboardHtml(version: string, nonce: string): string {
 // The /local-secret endpoint is protected by the Host-header check so only
 // callers on 127.0.0.1:<port> can read it.
 let _localSecret = '';
+let _sdkServices = {};
+
+function setSignal(id, on, label) {
+  const dot = document.getElementById('sig-' + id);
+  const lbl = document.getElementById('sig-' + id + '-lbl');
+  if (!dot || !lbl) return;
+  dot.className = 'sig-dot' + (on ? ' on' : '');
+  lbl.className = 'sig-lbl' + (on ? ' on' : '');
+  lbl.textContent = label;
+}
+
+function updateSignalStatus(health, sdkServices, rows) {
+  const browserOn = health && (health.buffered > 0 || (health.lastEventAt && Date.now() - health.lastEventAt < 300000));
+  setSignal('browser', browserOn, 'Browser' + (browserOn ? '' : ' — inactive'));
+
+  const backendKeys = Object.keys(sdkServices || {});
+  const backendOn = backendKeys.length > 0;
+  setSignal('backend', backendOn, backendOn ? 'Backend (' + backendKeys.length + ')' : 'Backend — not connected');
+
+  const ciOn = (rows || []).some(r => r.kind === 'ci_failure' || r.kind === 'ci_success' || r.kind === 'deployment');
+  setSignal('ci', ciOn, ciOn ? 'CI/CD' : 'CI/CD — not connected');
+
+  const processOn = (rows || []).some(r => r.kind === 'terminal');
+  setSignal('process', processOn, processOn ? 'Process' : 'Process — not connected');
+
+  const inactive = [];
+  if (!backendOn) inactive.push('backend');
+  if (!ciOn) inactive.push('CI/CD');
+  if (!processOn) inactive.push('process');
+  const hint = document.getElementById('sig-setup-hint');
+  if (inactive.length > 0) {
+    hint.textContent = 'Connect: ' + inactive.join(', ') + ' →';
+    hint.style.display = '';
+  } else {
+    hint.style.display = 'none';
+  }
+}
 fetch('/local-secret').then(r=>r.json()).then(d=>{ _localSecret=d.secret||''; }).catch(()=>{});
 
 // Track which pids the user has already rated to avoid double-submission.
@@ -286,6 +338,8 @@ function time(iso){return iso.slice(11,19);}
 async function pollSdkStatus(){
   try{
     const {services} = await fetch('/sdk-status').then(r=>r.json());
+    _sdkServices = services || {};
+    updateSignalStatus(null, _sdkServices, null);
     const keys = Object.keys(services||{});
     const el = document.getElementById('sdk-list');
     if(keys.length===0){
@@ -358,9 +412,11 @@ async function poll(){
     // Root cause
     const rc=unified.rootCause;
     const rcBox=document.getElementById('rc-box');
-    if(rc&&rc.confidence>=0.7){
+    if(rc&&rc.confidence>=0.45){
       rcBox.style.display='block';
-      document.getElementById('rc-pct').textContent=Math.round(rc.confidence*100)+'% confidence';
+      const lowConf=rc.confidence<0.7;
+      rcBox.style.opacity=lowConf?'0.6':'1';
+      document.getElementById('rc-pct').textContent=Math.round(rc.confidence*100)+'% confidence'+(lowConf?' (low)':'');
       document.getElementById('rc-hyp').textContent=rc.hypothesis;
       const fix=document.getElementById('rc-fix');
       if(rc.fixHint){fix.textContent='💡 '+rc.fixHint;fix.style.display='block';}else{fix.style.display='none';}
@@ -368,11 +424,12 @@ async function poll(){
       const fb=document.getElementById('rc-feedback');
       if(rc.pid && !_ratedPids.has(rc.pid)){
         fb.style.display='flex';
-        fb.innerHTML='Did this fix it? <button class="btn-verdict yes" data-verdict="correct">✓ Yes</button><button class="btn-verdict partial" data-verdict="partial">~ Partially</button><button class="btn-verdict no" data-verdict="wrong">✗ No</button>';
+        const hypSnippet=rc.hypothesis?rc.hypothesis.slice(0,60)+(rc.hypothesis.length>60?'…':''):'';
+        fb.innerHTML='Did this fix it?'+(hypSnippet?' <span style="color:var(--muted);font-size:10px">('+esc(hypSnippet)+')</span>':'')+' <button class="btn-verdict yes" data-verdict="correct">✓ Yes</button><button class="btn-verdict partial" data-verdict="partial">~ Partially</button><button class="btn-verdict no" data-verdict="wrong">✗ No</button>';
       }else if(rc.pid){
         fb.style.display='none';
       }
-      ensureIncident(rc);
+      if(!lowConf)ensureIncident(rc);
     }else{rcBox.style.display='none';}
 
     // Timeline
@@ -394,8 +451,13 @@ async function poll(){
         }else if(src){
           srcBadge='<span class="tl-src '+src+'">'+src+'</span>';
         }
+        const confBadge=r.confidence>=1.0
+          ?'<span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;background:rgba(34,197,94,.15);color:var(--green);flex-shrink:0">EXACT</span>'
+          :r.confidence>=0.8
+            ?'<span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;background:rgba(59,130,246,.12);color:var(--blue);flex-shrink:0">LINKED</span>'
+            :'';
         const joinedLink=r.traceId&&r.confidence>=1.0
-          ?'<span class="tl-joined" onclick="showTrace(\''+esc(r.traceId)+'\')">joined</span>'
+          ?'<span class="tl-joined" onclick="showTrace(\''+esc(r.traceId)+'\')">trace</span>'
           :r.traceId
             ?'<span class="tl-joined" style="color:var(--muted)" onclick="showTrace(\''+esc(r.traceId)+'\')">trace</span>'
             :'';
@@ -404,7 +466,7 @@ async function poll(){
           '<span class="tl-icon">'+(ICON[r.kind]||'⬜')+'</span>'+
           srcBadge+
           '<span class="tl-summary">'+esc(r.summary)+'</span>'+
-          sha+joinedLink+
+          sha+confBadge+joinedLink+
         '</div>';
       }).join('');
     }
@@ -414,7 +476,7 @@ async function poll(){
       ['Errors',health.errors??0,'red'],
       ['Warnings',health.warnings??0,'yellow'],
       ['Net errors',health.networkErrors??0,'red'],
-      ['Buffered',health.buffered??0,''],
+      ['Captured',health.buffered??0,''],
       ['Last event',health.lastEventAt?rel(health.lastEventAt)+' ago':'—',''],
     ].map(([l,v,c])=>'<div class="stat"><span class="stat-label">'+l+'</span><span class="stat-val '+(c||'')+'">'+v+'</span></div>').join('');
 
@@ -433,10 +495,11 @@ async function poll(){
       }).join('');
     }else{ciCard.style.display='none';}
 
+    updateSignalStatus(health, _sdkServices, rows);
     document.getElementById('refresh-bar').textContent='Updated '+new Date().toLocaleTimeString();
   }catch(e){
     document.getElementById('dot').className='dot err';
-    document.getElementById('refresh-bar').textContent='Server unreachable — retrying…';
+    document.getElementById('refresh-bar').textContent='Server unreachable — run: cd server && npm start';
   }
 }
 

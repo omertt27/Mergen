@@ -191,9 +191,11 @@ function renderSignals(signals) {
 // ── Settings ──────────────────────────────────────────────────────────────────
 
 async function loadSettings() {
-  const { mergenPort = DEFAULT_PORT } = await chrome.storage.local.get('mergenPort');
+  const { mergenPort = DEFAULT_PORT, mergenTraceDomains = [] } = await chrome.storage.local.get(['mergenPort', 'mergenTraceDomains']);
   portInput.value = mergenPort;
   serverUrl.textContent = getBaseUrl(mergenPort);
+  const domainsEl = document.getElementById('trace-domains-input');
+  if (domainsEl) domainsEl.value = mergenTraceDomains.join('\n');
   return mergenPort;
 }
 
@@ -361,13 +363,22 @@ if (userIdInput && userIdSave) {
 portSave.addEventListener('click', async () => {
   const port = parseInt(portInput.value, 10);
   if (isNaN(port) || port < 1024 || port > 65535) return;
-  await chrome.storage.local.set({ mergenPort: port });
+
+  const domainsEl = document.getElementById('trace-domains-input');
+  const domains = domainsEl
+    ? domainsEl.value.split('\n').map(s => s.trim().toLowerCase()).filter(s => s.length > 0)
+    : [];
+  await chrome.storage.local.set({ mergenPort: port, mergenTraceDomains: domains });
+
   serverUrl.textContent = getBaseUrl(port);
   portSaved.style.display = 'inline';
   setTimeout(() => { portSaved.style.display = 'none'; }, 2000);
   const tabs = await chrome.tabs.query({});
   for (const tab of tabs) {
-    if (tab.id) chrome.tabs.sendMessage(tab.id, { type: 'MERGEN_PORT_CHANGED', port }).catch(() => {});
+    if (tab.id) {
+      chrome.tabs.sendMessage(tab.id, { type: 'MERGEN_PORT_CHANGED', port }).catch(() => {});
+      chrome.tabs.sendMessage(tab.id, { type: 'MERGEN_TRACE_DOMAINS', domains }).catch(() => {});
+    }
   }
   refresh(port);
 });

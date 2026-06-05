@@ -120,13 +120,18 @@ export function registerValidateTools(server: McpServer): void {
         content: [{
           type: 'text',
           text: [
-            `Watching ${paths.length} path${paths.length !== 1 ? 's' : ''} — validate_fix runs automatically on each save.`,
+            `Watching ${paths.length} path${paths.length !== 1 ? 's' : ''} for changes.`,
             '',
             `Paths: ${paths.slice(0, 5).join(', ')}${paths.length > 5 ? ` +${paths.length - 5} more` : ''}`,
             `Prediction: \`${pid}\``,
             '',
-            `Results visible at http://127.0.0.1:3000/dashboard`,
-            `Stop manually: call stop_file_watch()`,
+            `**Next steps:**`,
+            `1. Tell the user: "Apply your fix and save the file."`,
+            `2. After they save, call \`validate_fix(pid: "${pid}", since: ${since})\` to get the RESOLVED/PARTIAL/REGRESSED verdict.`,
+            `3. Report the verdict clearly: "✅ RESOLVED — 0 errors after fix" or "❌ UNRESOLVED — N errors remain".`,
+            `4. If RESOLVED, call \`stop_file_watch()\`. If not, show remaining errors and suggest next steps.`,
+            '',
+            `Dashboard: http://127.0.0.1:3000/dashboard (shows live validation state)`,
           ].join('\n'),
         }],
       };

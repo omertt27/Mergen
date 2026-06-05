@@ -14,6 +14,8 @@
   let muted = false;
   // Values the user has explicitly allowed through PII redaction (set via popup toggle)
   let _piiAllowlist = new Set();
+  // Extra hostnames where traceparent injection is allowed (user-configured staging/API domains)
+  let _traceDomains = new Set();
 
   function getIngestUrl() {
     return `http://127.0.0.1:${currentPort}/ingest`;
@@ -26,6 +28,12 @@
       if (mergenPort) currentPort = mergenPort;
     });
   } catch { /* ignore — storage not available on some pages */ }
+
+  try {
+    chrome.storage.local.get('mergenTraceDomains', ({ mergenTraceDomains }) => {
+      if (Array.isArray(mergenTraceDomains)) _traceDomains = new Set(mergenTraceDomains);
+    });
+  } catch { /* ignore */ }
 
   try {
     chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
@@ -44,6 +52,9 @@
       if (msg.type === 'MERGEN_MUTE') muted = msg.muted;
       if (msg.type === 'MERGEN_PII_ALLOWLIST' && Array.isArray(msg.allowlist)) {
         _piiAllowlist = new Set(msg.allowlist);
+      }
+      if (msg.type === 'MERGEN_TRACE_DOMAINS' && Array.isArray(msg.domains)) {
+        _traceDomains = new Set(msg.domains);
       }
 
       // Component tree capture request
@@ -286,7 +297,11 @@
       var parsed = new URL(url, window.location.href);
       if (parsed.origin === window.location.origin) return true;
       var h = parsed.hostname;
-      return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h.endsWith('.local');
+      if (h === 'localhost' || h === '127.0.0.1' || h === '::1' || h.endsWith('.local')) return true;
+      // User-configured staging/API domains (set via extension popup)
+      if (_traceDomains.has(h)) return true;
+      for (var d of _traceDomains) { if (h.endsWith('.' + d)) return true; }
+      return false;
     } catch { return false; }
   }
 

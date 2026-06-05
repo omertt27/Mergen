@@ -89,7 +89,7 @@
 
     /* ── Plan & Credits ── */
     .plan-banner {
-      padding: 1rem;
+      padding: 0.5rem 1rem;
       border-bottom: 1px solid var(--border);
       display: flex;
       justify-content: space-between;
@@ -97,27 +97,62 @@
     }
     .plan-label {
       font-family: var(--mono);
-      font-size: 0.6rem;
-      font-weight: 800;
+      font-size: 0.55rem;
+      font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.2em;
-      color: var(--accent);
+      letter-spacing: 0.15em;
+      color: var(--text-muted);
     }
+    .credit-wrap { display: none; }
     .credit-count {
       font-family: var(--mono);
-      font-size: 0.7rem;
+      font-size: 0.6rem;
       font-weight: 600;
       color: var(--text-muted);
+    }
+    .credit-bar-bg {
+      width: 60px; height: 3px; background: var(--border);
+      border-radius: 2px; margin-top: 3px;
+    }
+    .credit-bar-fill { height: 100%; border-radius: 2px; background: var(--accent); transition: width .3s; }
+    /* ── Activity / last-event row ── */
+    .activity-row {
+      display: none;
+      padding: 0.5rem 1rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.6rem;
+      color: var(--text-muted);
+      font-family: var(--mono);
+      align-items: center;
+      justify-content: space-between;
+    }
+    /* ── Disconnect hint ── */
+    .disconnect-hint {
+      display: none;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.65rem;
+      line-height: 1.6;
+      color: var(--text-muted);
+    }
+    .disconnect-hint code {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      color: var(--text);
     }
 
     /* ── Stats Grid ── */
     .stats {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       border-bottom: 1px solid var(--border);
     }
     .stat {
-      padding: 1.5rem 0.5rem;
+      padding: 1.25rem 0.25rem;
       text-align: center;
       border-right: 1px solid var(--border);
       transition: background 0.2s;
@@ -125,7 +160,7 @@
     .stat:hover { background: #0c0c0c; }
     .stat:last-child { border-right: none; }
     .stat-val {
-      font-size: 1.25rem;
+      font-size: 1.1rem;
       font-weight: 800;
       line-height: 1;
       margin-bottom: 0.25rem;
@@ -133,9 +168,9 @@
     }
     .stat-lbl {
       font-family: var(--mono);
-      font-size: 0.5rem;
+      font-size: 0.48rem;
       text-transform: uppercase;
-      letter-spacing: 0.2em;
+      letter-spacing: 0.1em;
       color: var(--text-dim);
     }
 
@@ -357,8 +392,12 @@
   </div>
 
   <div class="plan-banner">
-    <div class="plan-label" id="plan-badge">Standard</div>
-    <div class="credit-count" id="credit-count">0/500</div>
+    <div class="plan-label" id="plan-badge">Free</div>
+    <div class="credit-wrap" id="credit-wrap">
+      <div class="credit-count" id="credit-count"></div>
+      <div class="credit-bar-bg"><div class="credit-bar-fill" id="credit-fill" style="width:0%"></div></div>
+      <div id="credit-overage" style="display:none;font-size:0.5rem;color:#f87171;margin-top:2px;font-family:var(--mono)"></div>
+    </div>
   </div>
 
   <div id="signals-wrap">
@@ -369,20 +408,31 @@
   <div class="stats" id="stats-grid">
     <div class="stat">
       <div class="stat-val" id="stat-errors">0</div>
-      <div class="stat-lbl">Err</div>
+      <div class="stat-lbl">Errors</div>
     </div>
     <div class="stat">
       <div class="stat-val" id="stat-warns">0</div>
-      <div class="stat-lbl">Wrn</div>
+      <div class="stat-lbl">Warnings</div>
     </div>
     <div class="stat">
       <div class="stat-val" id="stat-net">0</div>
-      <div class="stat-lbl">Net</div>
+      <div class="stat-lbl">Failed Req</div>
     </div>
     <div class="stat">
       <div class="stat-val" id="stat-ws">0</div>
-      <div class="stat-lbl">WS</div>
+      <div class="stat-lbl">WebSocket</div>
     </div>
+  </div>
+
+  <div class="activity-row" id="activity-row">
+    <span id="last-event-text">No events yet</span>
+    <span id="toggle-sub" style="font-size:0.55rem"></span>
+  </div>
+
+  <div class="disconnect-hint" id="disconnect-hint">
+    Server offline. To restart:<br>
+    <code>cd Mergen/server &amp;&amp; npm start</code><br>
+    or run <code>npx mergen-server start</code>
   </div>
 
   <div class="pii-panel" id="pii-panel">
@@ -397,14 +447,19 @@
 
   <div class="settings-panel" id="port-row">
     <div class="settings-row">
-      <span class="settings-lbl">Nexus Port</span>
+      <span class="settings-lbl">Server Port</span>
       <input class="port-input" type="number" id="port-input" value="3000" />
     </div>
     <div class="settings-row">
       <span class="settings-lbl">Active Capture</span>
       <input type="checkbox" id="mute-toggle" checked />
     </div>
-    <button class="btn" id="port-save" style="margin-top:0.5rem; border-color:var(--accent); color:var(--accent);">Save Cluster Config</button>
+    <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:4px">
+      <span class="settings-lbl">Trace Domains</span>
+      <span style="font-size:10px;color:var(--text-muted)">Add staging/API hostnames for traceparent injection (one per line)</span>
+      <textarea id="trace-domains-input" rows="3" style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:4px 6px;font-family:var(--mono);font-size:10px;resize:vertical;border-radius:2px" placeholder="api.staging.example.com"></textarea>
+    </div>
+    <button class="btn" id="port-save" style="margin-top:0.5rem; border-color:var(--accent); color:var(--accent);">Save Settings</button>
   </div>
 
   <div class="actions">

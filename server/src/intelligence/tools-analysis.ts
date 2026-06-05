@@ -414,10 +414,20 @@ export function registerAnalysisTools(server: McpServer): void {
         return {
           content: [{
             type: 'text',
-            text:
-              `⛔ Monthly limit reached on the **Free** plan.\n\n` +
-              `**Upgrade to Pro** ($29/mo) for 2,000 analyze_runtime credits/month + $0.02/call overage — no hard cap.\n\n` +
+            text: [
+              `⛔ Monthly limit reached on the **Free** plan.`,
+              ``,
+              `**Upgrade to Pro** ($29/mo) for 2,000 analyze_runtime credits/month + $0.02/call overage.`,
               `→ https://mergen.dev/pricing`,
+              ``,
+              `**Continue debugging with free tools:**`,
+              `1. \`quick_check\` — error/warning counts and detected patterns (always free)`,
+              `2. \`get_unified_timeline\` — full cross-signal causal timeline (always free)`,
+              `3. \`get_recent_logs\` + \`get_network_activity\` — raw events for manual analysis (always free)`,
+              `4. \`get_backend_spans\` + \`get_correlated_trace\` — backend trace correlation (always free)`,
+              ``,
+              `Call \`quick_check\` now to see the current buffer state.`,
+            ].join('\n'),
           }],
           isError: true,
         };
