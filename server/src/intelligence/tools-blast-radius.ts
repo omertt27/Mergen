@@ -22,8 +22,14 @@
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { store, type BlastRadiusReport } from '../sensor/buffer.js';
+import { memoryStore } from '../datadog/memory-store.js';
 
 export function registerBlastRadiusTools(server: McpServer): void {
+  _registerBlastRadius(server);
+  _registerAttributionAccuracy(server);
+}
+
+function _registerBlastRadius(server: McpServer): void {
   server.tool(
     'get_blast_radius',
     'Quantify the user impact of current errors: unique sessions affected, user count, browser/OS segments, first-seen time, and the likely causal deploy. Use this to answer "how many users are broken right now?" during an incident.',
@@ -64,8 +70,12 @@ function formatBlastRadius(
   const hasUserIds    = r.affectedUsers > 0;
 
   if (hasSessionIds) {
+    const dedupNote = r.returningUserSessions > 0
+      ? ` (~${r.affectedSessions - r.returningUserSessions} deduplicated — ${r.returningUserSessions} extra session${r.returningUserSessions !== 1 ? 's' : ''} from returning users)`
+      : '';
     lines.push(`**${r.affectedSessions} session${r.affectedSessions !== 1 ? 's' : ''} affected**` +
-      (hasUserIds ? ` (${r.affectedUsers} authenticated user${r.affectedUsers !== 1 ? 's' : ''})` : ''));
+      (hasUserIds ? ` (${r.affectedUsers} authenticated user${r.affectedUsers !== 1 ? 's' : ''})` : '') +
+      dedupNote);
   } else {
     lines.push(`**${r.errorCount} error event${r.errorCount !== 1 ? 's' : ''}** (no session IDs — count is occurrences, not unique users)`);
   }
@@ -125,4 +135,66 @@ function formatDuration(ms: number): string {
   if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
   if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
   return `${(ms / 3_600_000).toFixed(1)}h`;
+}
+
+// ── Attribution accuracy tool ─────────────────────────────────────────────────
+
+function _registerAttributionAccuracy(server: McpServer): void {
+  server.tool(
+    'get_attribution_accuracy',
+    'Show the historical accuracy of Mergen\'s causal blame attribution. Displays how often the attributed deploy SHA matched the actual fix PR SHA, broken down by confidence band. Use this to validate whether attribution scores are trustworthy for your codebase.',
+    {},
+    async () => {
+      const all = memoryStore.findSimilar('', 200); // get recent records
+      // Actually query all resolved records with attribution
+      const resolved = all.filter(
+        (r) => r.attributionConfidence !== null && r.attributionValidated !== null,
+      );
+
+      if (resolved.length === 0) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: '## Attribution Accuracy\n\nNo validated attributions yet. Attribution accuracy is recorded automatically when incidents resolve with a correlated GitHub PR.\n\nAccuracy data accumulates as incidents are resolved.',
+          }],
+        };
+      }
+
+      // Band breakdown
+      const bands = [
+        { label: 'HIGH (≥0.80)', min: 0.80, max: 1.01 },
+        { label: 'MEDIUM (0.60–0.79)', min: 0.60, max: 0.80 },
+        { label: 'LOW (<0.60)', min: 0, max: 0.60 },
+      ];
+
+      const lines = ['## Attribution Accuracy', ''];
+      let totalCorrect = 0;
+      let totalValidated = 0;
+
+      for (const band of bands) {
+        const inBand = resolved.filter(
+          (r) => r.attributionConfidence! >= band.min && r.attributionConfidence! < band.max,
+        );
+        if (inBand.length === 0) continue;
+        const correct = inBand.filter((r) => r.attributionValidated === 1).length;
+        const pct = Math.round((correct / inBand.length) * 100);
+        totalCorrect += correct;
+        totalValidated += inBand.length;
+        lines.push(`**${band.label}:** ${correct}/${inBand.length} correct (${pct}%)`);
+      }
+
+      const overallPct = Math.round((totalCorrect / totalValidated) * 100);
+      lines.push('', `**Overall:** ${totalCorrect}/${totalValidated} (${overallPct}%)`);
+
+      if (overallPct >= 80) {
+        lines.push('', '✅ Attribution accuracy is strong — HIGH confidence scores are reliable enough for autonomous action.');
+      } else if (overallPct >= 60) {
+        lines.push('', '⚠️ Attribution accuracy is moderate — use HIGH confidence for suggestions, require human approval for actions.');
+      } else {
+        lines.push('', '❌ Attribution accuracy is low — review signal weights. Possible causes: missing buildSha, git not available, or deploys not posted to Mergen.');
+      }
+
+      return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+    },
+  );
 }

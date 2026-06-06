@@ -49,7 +49,7 @@ export function registerFileContextResource(server: McpServer): void {
         if (isImplicated) {
           sections.push(
             `## 🚨 ACTIVE INCIDENT — THIS FILE IS IMPLICATED\n\n` +
-            `**Alert:** ${active.pdAlertTitle}\n` +
+            `**Alert:** ${active.alertTitle}\n` +
             `**Trace:** \`${active.traceId}\`\n` +
             `**File/Line:** \`${active.implicatedFile}:${active.implicatedLine ?? '?'}\`\n` +
             `**Fired:** ${new Date(active.firedAt).toISOString()}\n\n` +
@@ -58,7 +58,7 @@ export function registerFileContextResource(server: McpServer): void {
         } else {
           sections.push(
             `## ⚠️ ACTIVE INCIDENT (different file)\n\n` +
-            `**Alert:** ${active.pdAlertTitle} — implicated: \`${active.implicatedFile ?? 'unknown'}\`\n`,
+            `**Alert:** ${active.alertTitle} — implicated: \`${active.implicatedFile ?? 'unknown'}\`\n`,
           );
         }
       }

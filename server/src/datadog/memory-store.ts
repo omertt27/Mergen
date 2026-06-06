@@ -56,6 +56,12 @@ export interface IncidentMemoryRecord {
   fixSummary: string | null;
   resolutionType: ResolutionType;
   rawFact: string | null;
+  /** Confidence score from blame attribution (0.0–1.0). null if not computed. */
+  attributionConfidence: number | null;
+  /** SHA of the deploy blamed by attribution. */
+  attributionSha: string | null;
+  /** 1 = fix PR SHA matched blame SHA (correct), 0 = mismatch, null = unresolved. */
+  attributionValidated: number | null;
 }
 
 export interface BenchmarkStats {
@@ -136,6 +142,16 @@ class IncidentMemoryStore {
         CREATE INDEX IF NOT EXISTS idx_bench_fingerprint ON incident_benchmarks(fingerprint);
       `);
 
+      // Schema migration: add attribution columns added in Move 1
+      // These fail silently if they already exist (expected on fresh schema)
+      for (const col of [
+        'ALTER TABLE incident_memory ADD COLUMN attribution_confidence REAL',
+        'ALTER TABLE incident_memory ADD COLUMN attribution_sha TEXT',
+        'ALTER TABLE incident_memory ADD COLUMN attribution_validated INTEGER',
+      ]) {
+        try { this.db.run(col); } catch { /* column already exists */ }
+      }
+
       this._flush();
       logger.info({ path: MEMORY_DB }, 'incident memory store initialised');
     } catch (err) {
@@ -160,6 +176,8 @@ class IncidentMemoryStore {
     traceId: string;
     rawFact?: string;
     firedAt?: number;
+    attributionConfidence?: number;
+    attributionSha?: string;
   }): number {
     if (!this.db) return -1;
     this.db.run(
@@ -167,8 +185,8 @@ class IncidentMemoryStore {
          (fingerprint, service, endpoint, error_type, error_message,
           implicated_file, implicated_line, deployed_sha,
           fired_at, pd_incident_id, pd_alert_title, pd_alert_url,
-          trace_id, raw_fact)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          trace_id, raw_fact, attribution_confidence, attribution_sha)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         fields.fingerprint,
         fields.service,
@@ -184,6 +202,8 @@ class IncidentMemoryStore {
         fields.pdAlertUrl ?? null,
         fields.traceId,
         fields.rawFact ?? null,
+        fields.attributionConfidence ?? null,
+        fields.attributionSha ?? null,
       ],
     );
     const idRes = this.db.exec('SELECT last_insert_rowid()');
@@ -217,10 +237,24 @@ class IncidentMemoryStore {
     const [recId, firedAt, fingerprint] = openRec[0].values[0] as [number, number, string];
     const mttrMs = resolvedAt - firedAt;
 
+    // Accuracy feedback: did the fix PR SHA match the attribution?
+    let attributionValidated: number | null = null;
+    if (opts.fixPrSha) {
+      const attrRes = this.db.exec(
+        'SELECT attribution_sha FROM incident_memory WHERE id = ?', [recId],
+      );
+      const attrSha = attrRes[0]?.values[0]?.[0] as string | null;
+      if (attrSha && opts.fixPrSha) {
+        attributionValidated =
+          (opts.fixPrSha.startsWith(attrSha) || attrSha.startsWith(opts.fixPrSha)) ? 1 : 0;
+        logger.info({ recId, attributionValidated }, 'attribution accuracy recorded');
+      }
+    }
+
     this.db.run(
       `UPDATE incident_memory
        SET resolved_at=?, mttr_ms=?, fix_pr_url=?, fix_pr_title=?, fix_pr_sha=?,
-           fix_summary=?, resolution_type=?
+           fix_summary=?, resolution_type=?, attribution_validated=?
        WHERE id=?`,
       [
         resolvedAt,
@@ -230,6 +264,7 @@ class IncidentMemoryStore {
         opts.fixPrSha ?? null,
         opts.fixSummary ?? null,
         resolutionType,
+        attributionValidated,
         recId,
       ],
     );
@@ -327,6 +362,17 @@ class IncidentMemoryStore {
     return this._rows(res);
   }
 
+  /** Store explicit attribution feedback from `mergen-server resolved` prompt. */
+  recordAttributionFeedback(id: number, validated: 0 | 1): void {
+    if (!this.db) return;
+    this.db.run(
+      'UPDATE incident_memory SET attribution_validated = ? WHERE id = ?',
+      [validated, id],
+    );
+    this._flush();
+    logger.info({ id, validated }, 'attribution feedback stored');
+  }
+
   /** Find recent incidents (open or resolved) that implicate a specific file path. */
   findByFile(filePath: string, limit = 10): IncidentMemoryRecord[] {
     if (!this.db) return [];
@@ -396,6 +442,9 @@ class IncidentMemoryStore {
         fixSummary: r.fix_summary ? String(r.fix_summary) : null,
         resolutionType: (r.resolution_type as ResolutionType) ?? 'unknown',
         rawFact: r.raw_fact ? String(r.raw_fact) : null,
+        attributionConfidence: r.attribution_confidence ? Number(r.attribution_confidence) : null,
+        attributionSha: r.attribution_sha ? String(r.attribution_sha) : null,
+        attributionValidated: r.attribution_validated != null ? Number(r.attribution_validated) : null,
       };
     });
   }

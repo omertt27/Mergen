@@ -5,7 +5,12 @@ import { compact } from '../datadog/compactor.js';
 import { setActiveIncident } from '../datadog/incident-state.js';
 import { memoryStore } from '../datadog/memory-store.js';
 import { fingerprintFromFact } from '../datadog/fingerprinter.js';
+import { computeBlameAttribution } from '../datadog/blame-attribution.js';
+import { postIncidentAlert } from '../intelligence/slack.js';
+import { store } from '../sensor/buffer.js';
 import logger from '../sensor/logger.js';
+
+const DASHBOARD_URL = process.env.MERGEN_DASHBOARD_URL ?? 'http://127.0.0.1:3000';
 
 const PdMessageSchema = z.object({
   messages: z.array(
@@ -93,6 +98,22 @@ export function createPagerDutyRouter(): Router {
 
             const fingerprint = fingerprintFromFact(fact);
 
+            // ── Blame attribution (must run before openIncident) ───────────────
+            const deploys = store.getDeployments(50);
+            const blame = computeBlameAttribution({
+              implicatedFile: fact.failingFile ?? null,
+              deployedSha: fact.deployedSha ?? null,
+              firedAt,
+              candidates: deploys,
+            });
+
+            if (blame) {
+              logger.info(
+                { confidence: blame.confidence, label: blame.confidenceLabel, sha: blame.topCandidate?.sha },
+                'blame attribution computed',
+              );
+            }
+
             // Open persistent memory record
             memoryStore.openIncident({
               fingerprint,
@@ -109,9 +130,11 @@ export function createPagerDutyRouter(): Router {
               traceId: fact.traceId,
               rawFact: fact.markdown,
               firedAt,
+              attributionConfidence: blame?.confidence,
+              attributionSha: blame?.topCandidate?.sha,
             });
 
-            // Update active incident with full context
+            // Update active incident with full context + attribution
             setActiveIncident({
               service,
               traceId: result.traceId,
@@ -119,6 +142,22 @@ export function createPagerDutyRouter(): Router {
               alertUrl,
               firedAt,
               runtimeFact: fact.markdown,
+              implicatedFile: fact.failingFile ?? null,
+              implicatedLine: fact.failingLine ?? null,
+              blameAttribution: blame,
+            });
+
+            // ── Slack incident alert ──────────────────────────────────────────
+            const blastRadius = store.getBlastRadius({ since: firedAt });
+            void postIncidentAlert({
+              alertTitle,
+              service,
+              firedAt,
+              incidentId: memoryStore.listOpen()[0]?.id,
+              pdUrl: alertUrl,
+              blame,
+              blastRadius,
+              dashboardUrl: DASHBOARD_URL,
             });
 
             logger.info({ service, traceId: result.traceId, fingerprint }, 'runtime fact pre-computed');

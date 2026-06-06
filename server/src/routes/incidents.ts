@@ -131,7 +131,26 @@ export function createIncidentsRouter(): Router {
 
     clearActiveIncident();
     logger.info({ id: target?.id, fixSummary }, 'incident resolved via CLI');
-    res.json({ ok: true, id: target?.id });
+
+    // Return attribution context so the CLI can prompt for explicit feedback
+    res.json({
+      ok: true,
+      id: target?.id,
+      attributionSha: target?.attributionSha ?? null,
+      attributionConfidence: target?.attributionConfidence ?? null,
+    });
+  });
+
+  // ── Attribution explicit feedback — called by `mergen-server resolved` after prompt ─
+  router.post('/incidents/resolve-active/attribution-feedback', (req, res) => {
+    const { id, attributionCorrect } = (req.body ?? {}) as { id?: number; attributionCorrect?: boolean };
+    if (id == null || attributionCorrect == null) {
+      res.status(400).json({ error: 'id and attributionCorrect are required' });
+      return;
+    }
+    memoryStore.recordAttributionFeedback(Number(id), attributionCorrect ? 1 : 0);
+    logger.info({ id, attributionCorrect }, 'explicit attribution feedback recorded');
+    res.json({ ok: true });
   });
 
   // ── Add note ──────────────────────────────────────────────────────────────────

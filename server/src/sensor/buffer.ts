@@ -611,6 +611,8 @@ class RingBuffer implements BufferStore {
 
     const sessions = new Set<string>();
     const users    = new Set<string>();
+    // Map: userId → Set of sessionIds — detects multi-tab same user
+    const userSessions = new Map<string, Set<string>>();
     const browserCounts: Record<string, number> = {};
     const osCounts: Record<string, number>      = {};
     const errorMsgCounts: Record<string, number> = {};
@@ -622,7 +624,6 @@ class RingBuffer implements BufferStore {
       if (e.type !== 'console' || e.level !== 'error') continue;
       if (since !== undefined && e.timestamp < since) continue;
 
-      // Pattern filter
       if (patternRe) {
         const msgText = e.args
           .map((a) => (typeof a === 'string' ? a : JSON.stringify(a)))
@@ -635,7 +636,15 @@ class RingBuffer implements BufferStore {
       if (lastSeenAt === null  || e.timestamp > lastSeenAt)  lastSeenAt  = e.timestamp;
 
       if (e.sessionId) sessions.add(e.sessionId);
-      if (e.userId)    users.add(e.userId);
+      if (e.userId) {
+        users.add(e.userId);
+        // Track which sessions each userId appears in
+        if (e.sessionId) {
+          let set = userSessions.get(e.userId);
+          if (!set) { set = new Set(); userSessions.set(e.userId, set); }
+          set.add(e.sessionId);
+        }
+      }
 
       if (e.userAgent) {
         const browser = parseBrowser(e.userAgent);
@@ -651,7 +660,13 @@ class RingBuffer implements BufferStore {
       errorMsgCounts[msg] = (errorMsgCounts[msg] ?? 0) + 1;
     }
 
-    // Correlated deploy: most recent deployment whose timestamp ≤ firstSeenAt
+    // Count extra sessions from returning users (userId in 2+ sessions = N-1 duplicates)
+    let returningUserSessions = 0;
+    for (const sessionSet of userSessions.values()) {
+      if (sessionSet.size > 1) returningUserSessions += sessionSet.size - 1;
+    }
+
+    // Correlated deploy: most recent successful deployment prior to firstSeenAt
     let correlatedDeploy: string | null = null;
     if (firstSeenAt !== null) {
       const deploys = this.getDeployments(50);
@@ -669,6 +684,7 @@ class RingBuffer implements BufferStore {
     return {
       affectedSessions: sessions.size,
       affectedUsers: users.size,
+      returningUserSessions,
       errorCount,
       firstSeenAt,
       lastSeenAt,

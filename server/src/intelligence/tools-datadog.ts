@@ -94,16 +94,46 @@ export function registerDatadogTools(server: McpServer): void {
       const active = getActiveIncident();
       if (active?.runtimeFact) {
         const ageMin = Math.round((Date.now() - active.firedAt) / 60_000);
+        const parts: string[] = [
+          `## Active Incident: ${active.alertTitle}`,
+          `*Fired ${ageMin}m ago · Service: \`${active.service}\`*`,
+          active.alertUrl ? `*PagerDuty: ${active.alertUrl}*` : '',
+          '',
+        ];
+
+        // Blame attribution block
+        const blame = active.blameAttribution;
+        if (blame?.topCandidate) {
+          const sha8 = blame.topCandidate.sha.slice(0, 8);
+          const pct  = Math.round(blame.confidence * 100);
+          const label = blame.confidenceLabel;
+          parts.push('### Causal Attribution');
+          parts.push(
+            `**Deploy \`${sha8}\` — ${pct}% confidence [${label}]**  ` +
+            (blame.lowConfidence ? '⚠️ Below threshold — investigate before acting.' : ''),
+          );
+          parts.push('');
+          parts.push('**Signal breakdown:**');
+          for (const [name, sig] of Object.entries(blame.signals) as [string, typeof blame.signals.timing][]) {
+            const bar = sig.available ? `${Math.round(sig.score * 100)}%` : 'n/a';
+            parts.push(`- **${name}** (${bar} × ${sig.weight} = +${sig.contribution.toFixed(2)}): ${sig.detail}`);
+          }
+          parts.push('');
+          parts.push(`> ${blame.explanation}`);
+          if (blame.changedFiles.length > 0) {
+            parts.push('');
+            parts.push(`**Files in deploy:** ${blame.changedFiles.slice(0, 8).join(', ')}${blame.changedFiles.length > 8 ? ` (+${blame.changedFiles.length - 8} more)` : ''}`);
+          }
+          if (blame.topCandidate.prUrl) parts.push(`**PR:** ${blame.topCandidate.prUrl}`);
+          parts.push('', '---', '');
+        }
+
+        parts.push(active.runtimeFact);
+
         return {
           content: [{
-            type: 'text',
-            text: [
-              `## Active Incident: ${active.alertTitle}`,
-              `*Fired ${ageMin}m ago · Service: \`${active.service}\`*`,
-              active.alertUrl ? `*PagerDuty: ${active.alertUrl}*` : '',
-              '',
-              active.runtimeFact,
-            ].filter(Boolean).join('\n'),
+            type: 'text' as const,
+            text: parts.filter(Boolean).join('\n'),
           }],
         };
       }

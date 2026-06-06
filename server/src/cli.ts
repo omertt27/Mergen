@@ -1348,7 +1348,7 @@ async function resolvedCommand(args: string[]): Promise<void> {
     } catch {}
   }
 
-  const body: Record<string, string> = { resolvedAt: String(Date.now()) };
+  const body: Record<string, string | boolean> = { resolvedAt: String(Date.now()) };
   if (summary) body.fixSummary = summary;
   if (prUrl)   body.fixPrUrl   = prUrl;
 
@@ -1359,11 +1359,48 @@ async function resolvedCommand(args: string[]): Promise<void> {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(3000),
     });
-    if (r.ok) {
-      success('Incident marked resolved. MTTR recorded.');
-      if (summary) log(`Summary: ${summary}`);
-    } else {
+
+    if (!r.ok) {
       error(`Server returned ${r.status}`);
+      process.exit(1);
+    }
+
+    const data = await r.json() as {
+      ok: boolean;
+      id?: number;
+      attributionSha?: string;
+      attributionConfidence?: number;
+    };
+
+    success('Incident marked resolved. MTTR recorded.');
+    if (summary) log(`Summary: ${summary}`);
+
+    // Attribution explicit feedback — only prompt when no PR SHA is available
+    // (if a PR was provided, SHA comparison is automatic and more reliable)
+    if (!prUrl && data.attributionSha && data.attributionConfidence !== undefined) {
+      const pct   = Math.round(data.attributionConfidence * 100);
+      const sha8  = data.attributionSha.slice(0, 8);
+      console.log('');
+      console.log(`⬡ Mergen attributed this incident to deploy \`${sha8}\` (${pct}% confidence).`);
+      const answer = await ask('  Was that correct? [y/n/skip]: ');
+      const lower  = answer.toLowerCase();
+      if (lower === 'y' || lower === 'yes' || lower === 'n' || lower === 'no') {
+        const attributionCorrect = lower === 'y' || lower === 'yes';
+        try {
+          await fetch(`http://127.0.0.1:${port}/incidents/resolve-active/attribution-feedback`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: data.id, attributionCorrect }),
+            signal: AbortSignal.timeout(3000),
+          });
+          success(`Attribution feedback recorded: ${attributionCorrect ? 'correct' : 'incorrect'}`);
+          if (!attributionCorrect) {
+            log('Feedback stored. Attribution weights will improve as more incidents are validated.');
+          }
+        } catch { /* non-fatal */ }
+      } else {
+        log('Attribution feedback skipped.');
+      }
     }
   } catch {
     error('Server not running or unreachable. Start with: mergen-server start');

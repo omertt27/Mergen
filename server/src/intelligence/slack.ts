@@ -16,6 +16,9 @@ import https from 'https';
 import crypto from 'crypto';
 import type { Request, Response } from 'express';
 import type { Hypothesis } from './causal.js';
+import type { BlameAttribution } from '../datadog/blame-attribution.js';
+import type { BlastRadiusReport } from '../sensor/buffer.js';
+import { memoryStore } from '../datadog/memory-store.js';
 import { recordVerdict } from './calibration.js';
 import logger from '../sensor/logger.js';
 
@@ -129,7 +132,163 @@ export async function postSlackAlert(
   ];
 
   const payload = JSON.stringify({ attachments: [{ color, blocks }] });
+  return _postWebhook(payload);
+}
 
+// ── Incident alert ────────────────────────────────────────────────────────────
+// Called by pagerduty.ts after blame attribution and blast radius are computed.
+// This is the primary design-partner-visible surface: the Slack message that
+// shows up in the war room channel when a P1 fires.
+
+export async function postIncidentAlert(opts: {
+  alertTitle: string;
+  service: string;
+  firedAt: number;
+  incidentId?: number | null;
+  pdUrl?: string | null;
+  blame: BlameAttribution | null;
+  blastRadius?: BlastRadiusReport | null;
+  dashboardUrl?: string;
+}): Promise<void> {
+  if (!WEBHOOK) return;
+
+  const { alertTitle, service, firedAt, incidentId, pdUrl, blame, blastRadius, dashboardUrl } = opts;
+  const ageMin  = Math.round((Date.now() - firedAt) / 60_000);
+  const ageTxt  = ageMin < 2 ? 'just now' : `${ageMin}m ago`;
+
+  const blocks: unknown[] = [
+    {
+      type: 'header',
+      text: { type: 'plain_text', text: `🚨 Production Incident — ${service}`, emoji: true },
+    },
+    {
+      type: 'section',
+      text: { type: 'mrkdwn', text: `*${alertTitle}*\nFired *${ageTxt}*${pdUrl ? `  |  <${pdUrl}|PagerDuty>` : ''}` },
+    },
+  ];
+
+  // Blame attribution block
+  if (blame?.topCandidate) {
+    const sha8   = blame.topCandidate.sha.slice(0, 8);
+    const pct    = Math.round(blame.confidence * 100);
+    const label  = blame.confidenceLabel;
+    const color  = label === 'HIGH' ? '✅' : label === 'MEDIUM' ? '⚠️' : '❓';
+    const signals = [blame.signals.timing, blame.signals.shaMatch, blame.signals.fileOverlap]
+      .filter((s) => s.available && s.score > 0)
+      .map((s) => `• ${s.detail.slice(0, 80)}`);
+
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: [
+          `*${color} Causal Attribution — ${pct}% [${label}]*`,
+          `Deploy \`${sha8}\` • ${blame.topCandidate.environment}`,
+          ...signals.slice(0, 3),
+          blame.lowConfidence ? '_⚠️ Below confidence threshold — manual investigation recommended_' : '',
+        ].filter(Boolean).join('\n'),
+      },
+    });
+  } else {
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn', text: '_Attribution pending — no deploy events found. Post deployments to `/deployments` or connect CI._' },
+    });
+  }
+
+  // Blast radius block
+  if (blastRadius && blastRadius.errorCount > 0) {
+    const sessions = blastRadius.affectedSessions > 0
+      ? `*${blastRadius.affectedSessions}* session${blastRadius.affectedSessions !== 1 ? 's' : ''} affected`
+      : `*${blastRadius.errorCount}* error events`;
+    const users = blastRadius.affectedUsers > 0
+      ? ` (${blastRadius.affectedUsers} authenticated users)` : '';
+    const browsers = Object.entries(blastRadius.browserSegments)
+      .sort((a, b) => b[1] - a[1]).slice(0, 3)
+      .map(([b, n]) => `${b}: ${n}`).join(' | ');
+    const durationTxt = blastRadius.durationMs
+      ? ` • Active *${_fmtDuration(blastRadius.durationMs)}*` : '';
+
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: [
+          `*📊 Blast Radius*`,
+          `${sessions}${users}${durationTxt}`,
+          browsers ? `Browsers: ${browsers}` : '',
+        ].filter(Boolean).join('\n'),
+      },
+    });
+  }
+
+  // Action buttons
+  const actions: unknown[] = [];
+
+  if (dashboardUrl) {
+    actions.push({
+      type: 'button',
+      text: { type: 'plain_text', text: '🗂 War Room', emoji: true },
+      url: `${dashboardUrl}#war-room`,
+      style: 'primary',
+    });
+  }
+
+  if (incidentId != null && blame?.topCandidate && isInteractive) {
+    actions.push(
+      {
+        type: 'button',
+        action_id: `inc_attr_correct_${incidentId}`,
+        text: { type: 'plain_text', text: '✅ Attribution Correct', emoji: true },
+        value: String(incidentId),
+        style: 'primary',
+      },
+      {
+        type: 'button',
+        action_id: `inc_attr_wrong_${incidentId}`,
+        text: { type: 'plain_text', text: '❌ Wrong', emoji: true },
+        value: String(incidentId),
+        style: 'danger',
+      },
+    );
+  } else if (incidentId != null && blame?.topCandidate && dashboardUrl) {
+    // Link-based fallback when no bot token
+    actions.push(
+      {
+        type: 'button',
+        text: { type: 'plain_text', text: '✅ Attribution Correct', emoji: true },
+        url: `${dashboardUrl}/attribution-feedback?id=${incidentId}&correct=1`,
+      },
+      {
+        type: 'button',
+        text: { type: 'plain_text', text: '❌ Wrong', emoji: true },
+        url: `${dashboardUrl}/attribution-feedback?id=${incidentId}&correct=0`,
+      },
+    );
+  }
+
+  if (actions.length > 0) {
+    blocks.push({ type: 'actions', elements: actions });
+  }
+
+  blocks.push({
+    type: 'context',
+    elements: [{ type: 'mrkdwn', text: `Mergen · ${service} · <${dashboardUrl ?? 'http://127.0.0.1:3000'}/dashboard|Dashboard>` }],
+  });
+
+  const color = blame?.confidenceLabel === 'HIGH' ? '#d32f2f' :
+                blame?.confidenceLabel === 'MEDIUM' ? '#f57c00' : '#64748b';
+
+  return _postWebhook(JSON.stringify({ attachments: [{ color, blocks }] }));
+}
+
+function _fmtDuration(ms: number): string {
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
+  return `${(ms / 3_600_000).toFixed(1)}h`;
+}
+
+function _postWebhook(payload: string): Promise<void> {
   return new Promise((resolve) => {
     try {
       const url = new URL(WEBHOOK);
@@ -142,7 +301,7 @@ export async function postSlackAlert(
       req.write(payload);
       req.end();
     } catch (err) {
-      logger.warn({ err }, 'slack: failed to post alert');
+      logger.warn({ err }, 'slack: failed to post');
       resolve();
     }
   });
@@ -181,6 +340,7 @@ export async function handleSlackActions(req: Request, res: Response): Promise<v
     };
 
     for (const action of payload.actions ?? []) {
+      // Calibration hypothesis feedback
       if (action.action_id.startsWith('feedback_')) {
         try {
           const { pid, verdict } = JSON.parse(action.value) as { pid: string; verdict: string };
@@ -188,6 +348,16 @@ export async function handleSlackActions(req: Request, res: Response): Promise<v
           logger.info({ pid, verdict }, 'slack: feedback submitted via button');
         } catch (err) {
           logger.warn({ err, action }, 'slack: failed to parse action value');
+        }
+      }
+
+      // Attribution accuracy feedback (inc_attr_correct_{id} / inc_attr_wrong_{id})
+      if (action.action_id.startsWith('inc_attr_correct_') || action.action_id.startsWith('inc_attr_wrong_')) {
+        const correct = action.action_id.startsWith('inc_attr_correct_');
+        const id = parseInt(action.value, 10);
+        if (!isNaN(id)) {
+          memoryStore.recordAttributionFeedback(id, correct ? 1 : 0);
+          logger.info({ id, correct }, 'slack: attribution feedback via button');
         }
       }
     }
