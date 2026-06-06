@@ -138,8 +138,12 @@ export function registerDatadogTools(server: McpServer): void {
         };
       }
 
+      // Multi-service: MERGEN_SERVICES=svc1,svc2 — try each when no explicit service
+      const configuredServices = (process.env.MERGEN_SERVICES ?? '')
+        .split(',').map((s) => s.trim()).filter(Boolean);
+
       const targetService = service ?? active?.service;
-      if (!targetService) {
+      if (!targetService && configuredServices.length === 0) {
         return {
           content: [{
             type: 'text',
@@ -151,6 +155,9 @@ export function registerDatadogTools(server: McpServer): void {
               'get_incident_context(service: "payment-gateway")',
               '```',
               '',
+              'Or configure monitored services with:',
+              '`MERGEN_SERVICES=payment-gateway,auth-service node dist/index.js`',
+              '',
               'Or connect PagerDuty by adding this webhook URL to your PagerDuty service:',
               '`POST http://127.0.0.1:3000/webhooks/pagerduty`',
               '',
@@ -160,19 +167,34 @@ export function registerDatadogTools(server: McpServer): void {
         };
       }
 
+      // When no explicit service and no active PD incident, try all configured services
+      // and return the first one that has errors.
+      const servicesToTry: string[] = targetService
+        ? [targetService]
+        : configuredServices;
+
       try {
         const to = new Date();
         const from = new Date(to.getTime() - since_minutes * 60 * 1000);
 
-        const result = await fetchLatestErrorTrace(targetService, since_minutes);
+        let result = null;
+        let resolvedService = servicesToTry[0] ?? 'unknown';
+        for (const svc of servicesToTry) {
+          const r = await fetchLatestErrorTrace(svc, since_minutes);
+          if (r) { result = r; resolvedService = svc; break; }
+        }
+        const checkedServices = servicesToTry.join(', ');
         if (!result) {
           return {
             content: [{
               type: 'text',
               text:
-                `No error traces found for service \`${targetService}\` in the last ${since_minutes} minutes.\n\n` +
+                `No error traces found for service(s) \`${checkedServices}\` in the last ${since_minutes} minutes.\n\n` +
                 `Either the service is healthy or the service name doesn't match Datadog exactly.\n` +
-                `Check your Datadog APM service list at: https://app.datadoghq.com/apm/services`,
+                `Check your Datadog APM service list at: https://app.datadoghq.com/apm/services\n\n` +
+                (servicesToTry.length > 1
+                  ? `Checked ${servicesToTry.length} services. Add more with MERGEN_SERVICES=svc1,svc2.`
+                  : `Set MERGEN_SERVICES=svc1,svc2 to auto-scan multiple services.`),
             }],
           };
         }

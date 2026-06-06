@@ -362,6 +362,15 @@ class IncidentMemoryStore {
     return this._rows(res);
   }
 
+  listAll(limit = 100): IncidentMemoryRecord[] {
+    if (!this.db) return [];
+    const res = this.db.exec(
+      'SELECT * FROM incident_memory ORDER BY fired_at DESC LIMIT ?',
+      [limit],
+    );
+    return this._rows(res);
+  }
+
   /** Store explicit attribution feedback from `mergen-server resolved` prompt. */
   recordAttributionFeedback(id: number, validated: 0 | 1): void {
     if (!this.db) return;

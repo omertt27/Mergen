@@ -36,6 +36,7 @@ import { createSdkRouter } from './routes/sdk.js';
 import { createSessionsRouter } from './routes/sessions.js';
 import { createPagerDutyRouter } from './routes/pagerduty.js';
 import { createGitHubWebhookRouter } from './routes/github-webhook.js';
+import { createWarRoomRouter } from './routes/war-room.js';
 import { handleSlackActions, handleFeedbackLink } from './intelligence/slack.js';
 import { getPrometheusMetrics } from './sensor/otel-exporter.js';
 import { auditMiddleware } from './sensor/audit-log.js';
@@ -146,6 +147,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createSessionsRouter()); // Session history + audit log
   app.use(createPagerDutyRouter());    // PagerDuty incident webhooks → Datadog auto-fetch
   app.use(createGitHubWebhookRouter()); // GitHub PR merge → causality correlation
+  app.use(createWarRoomRouter());       // War room API + attribution feedback
 
   // ── Prometheus metrics endpoint ───────────────────────────────────────────
   // Exposes browser error rates, network failure counts, and request durations

@@ -150,6 +150,32 @@ function buildDashboardHtml(version: string, nonce: string): string {
   .btn-assign{background:rgba(59,130,246,.2);color:var(--blue)}
   .note-input{background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:4px 8px;font-size:11px;font-family:inherit;width:200px}
   .note-input:focus{outline:1px solid var(--blue)}
+  /* War room */
+  #war-room{display:none;margin-bottom:20px}
+  .wr-grid{display:grid;grid-template-columns:1fr 1fr 300px;gap:16px;align-items:start}
+  @media(max-width:900px){.wr-grid{grid-template-columns:1fr 1fr}}
+  @media(max-width:600px){.wr-grid{grid-template-columns:1fr}}
+  .wr-active{border-left:3px solid var(--red);background:rgba(239,68,68,.06);padding:12px 14px;border-radius:0 var(--radius) var(--radius) 0;margin-bottom:12px}
+  .wr-active-title{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--red);margin-bottom:4px}
+  .wr-active-body{font-size:13px;font-weight:600;line-height:1.4}
+  .wr-active-meta{font-size:11px;color:var(--muted);margin-top:4px}
+  .conf-badge{display:inline-block;padding:1px 7px;border-radius:3px;font-size:10px;font-weight:700;letter-spacing:.04em}
+  .conf-badge.HIGH{background:rgba(34,197,94,.18);color:var(--green)}
+  .conf-badge.MEDIUM{background:rgba(245,158,11,.18);color:var(--yellow)}
+  .conf-badge.LOW{background:rgba(100,116,139,.18);color:var(--muted)}
+  .acc-table{width:100%;border-collapse:collapse;font-size:12px}
+  .acc-table th{text-align:left;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:4px 0;border-bottom:1px solid var(--border)}
+  .acc-table td{padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);vertical-align:middle}
+  .acc-table tr:last-child td{border-bottom:none}
+  .acc-bar-wrap{background:rgba(255,255,255,.06);border-radius:2px;height:4px;width:80px;overflow:hidden;display:inline-block;vertical-align:middle;margin-left:6px}
+  .acc-bar{height:4px;border-radius:2px;background:var(--green)}
+  .inc-open-row{display:flex;align-items:baseline;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px}
+  .inc-open-row:last-child{border-bottom:none}
+  .inc-open-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .inc-open-svc{flex-shrink:0;font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:1px 5px;border-radius:3px;background:rgba(239,68,68,.18);color:var(--red)}
+  .blast-stat{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px}
+  .blast-stat:last-child{border-bottom:none}
+  .blast-val{font-weight:600}
 </style>
 </head>
 <body>
@@ -170,6 +196,30 @@ function buildDashboardHtml(version: string, nonce: string): string {
   <span class="sig"><span class="sig-dot" id="sig-ci"></span><span class="sig-lbl" id="sig-ci-lbl">CI/CD</span></span>
   <span class="sig"><span class="sig-dot" id="sig-process"></span><span class="sig-lbl" id="sig-process-lbl">Process</span></span>
   <span class="sig-setup" id="sig-setup-hint" style="display:none" onclick="window.open('http://127.0.0.1:3000/setup','_blank')"></span>
+</div>
+
+<div id="war-room" style="background:var(--surface);border-bottom:1px solid var(--border);padding:16px 24px">
+  <div style="max-width:1100px;margin:0 auto">
+    <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:12px">⚔ War Room</div>
+    <div id="wr-active-box"></div>
+    <div class="wr-grid">
+      <div>
+        <div style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Open Incidents</div>
+        <div id="wr-open-list"><span style="font-size:11px;color:var(--muted)">No open incidents</span></div>
+      </div>
+      <div>
+        <div style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Attribution Accuracy</div>
+        <table class="acc-table">
+          <thead><tr><th>Band</th><th>Correct</th><th>Total</th><th>Rate</th></tr></thead>
+          <tbody id="wr-accuracy-body"><tr><td colspan="4" style="color:var(--muted);padding:8px 0">No validated incidents yet</td></tr></tbody>
+        </table>
+      </div>
+      <div>
+        <div style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Blast Radius</div>
+        <div id="wr-blast-list"><span style="font-size:11px;color:var(--muted)">No active incident</span></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <main>
@@ -667,14 +717,120 @@ async function pollCalibrationHealth() {
   } catch(e) {}
 }
 
+// ── War Room ──────────────────────────────────────────────────────────────────
+function fmtRelTime(ts) {
+  if (!ts) return '—';
+  const diff = Date.now() - ts;
+  if (diff < 60000) return 'just now';
+  if (diff < 3600000) return Math.round(diff/60000)+'m ago';
+  return Math.round(diff/3600000)+'h ago';
+}
+function fmtDurationMs(ms) {
+  if (!ms) return '—';
+  if (ms < 60000) return Math.round(ms/1000)+'s';
+  if (ms < 3600000) return Math.round(ms/60000)+'m';
+  return (ms/3600000).toFixed(1)+'h';
+}
+async function pollWarRoom() {
+  try {
+    const d = await fetch('/api/war-room').then(r=>r.json());
+    if (!d.ok) return;
+
+    const wr = document.getElementById('war-room');
+    if (!wr) return;
+
+    const hasActivity = d.activeIncident || (d.openIncidents && d.openIncidents.length > 0)
+      || (d.mttrHistory && d.mttrHistory.length > 0);
+    wr.style.display = hasActivity ? '' : 'none';
+
+    // Active incident banner
+    const activeBox = document.getElementById('wr-active-box');
+    if (d.activeIncident && activeBox) {
+      const a = d.activeIncident;
+      const conf = a.blameConfidence !== null ? Math.round(a.blameConfidence*100)+'%' : null;
+      const label = a.blameLabel || '';
+      activeBox.innerHTML = '<div class="wr-active">'
+        + '<div class="wr-active-title">🔴 Active — ' + esc(a.service) + '</div>'
+        + '<div class="wr-active-body">' + esc(a.alertTitle) + '</div>'
+        + '<div class="wr-active-meta">Fired '+ fmtRelTime(a.firedAt)
+        + (a.blameSha ? ' · Deploy <code style="font-family:monospace">'+esc(a.blameSha)+'</code>' : '')
+        + (conf ? ' · <span class="conf-badge '+esc(label)+'">'+conf+' '+esc(label)+'</span>' : '')
+        + (a.blameExplanation ? '<br><span style="font-size:10px;color:var(--muted)">'+esc(a.blameExplanation)+'</span>' : '')
+        + '</div></div>';
+    } else if (activeBox) {
+      activeBox.innerHTML = '';
+    }
+
+    // Open incidents
+    const openList = document.getElementById('wr-open-list');
+    if (openList) {
+      if (!d.openIncidents || d.openIncidents.length === 0) {
+        openList.innerHTML = '<span style="font-size:11px;color:var(--muted)">No open incidents ✓</span>';
+      } else {
+        openList.innerHTML = d.openIncidents.map(inc => {
+          const conf = inc.attributionConfidence !== null
+            ? '<span class="conf-badge '+(inc.attributionConfidence>=.8?'HIGH':inc.attributionConfidence>=.6?'MEDIUM':'LOW')+'">'
+              +Math.round(inc.attributionConfidence*100)+'%</span>' : '';
+          return '<div class="inc-open-row">'
+            + '<span class="inc-open-svc">'+esc(inc.service)+'</span>'
+            + '<span class="inc-open-title" title="'+esc(inc.alertTitle)+'">'+esc(inc.alertTitle)+'</span>'
+            + conf
+            + '<span style="font-size:10px;color:var(--muted);flex-shrink:0">'+fmtRelTime(inc.firedAt)+'</span>'
+            + '</div>';
+        }).join('');
+      }
+    }
+
+    // Attribution accuracy table
+    const accBody = document.getElementById('wr-accuracy-body');
+    if (accBody && d.attributionAccuracy) {
+      const acc = d.attributionAccuracy;
+      const bands = [['HIGH','high','var(--green)'],['MEDIUM','medium','var(--yellow)'],['LOW','low','var(--muted)']];
+      const rows = bands.map(([label,key,color]) => {
+        const b = acc[key] || {correct:0,total:0,pct:null};
+        if (b.total === 0) return '<tr><td><span class="conf-badge '+label+'">'+label+'</span></td><td style="color:var(--muted)">—</td><td style="color:var(--muted)">0</td><td style="color:var(--muted)">—</td></tr>';
+        const pct = b.pct ?? 0;
+        return '<tr><td><span class="conf-badge '+label+'">'+label+'</span></td>'
+          +'<td style="color:'+color+'">'+b.correct+'</td>'
+          +'<td style="color:var(--muted)">'+b.total+'</td>'
+          +'<td><span style="color:'+color+'">'+pct+'%</span>'
+          +'<span class="acc-bar-wrap"><span class="acc-bar" style="width:'+pct+'%;background:'+color+'"></span></span></td></tr>';
+      });
+      accBody.innerHTML = rows.join('');
+    }
+
+    // Blast radius panel
+    const blastEl = document.getElementById('wr-blast-list');
+    if (blastEl && d.blastRadius) {
+      const br = d.blastRadius;
+      if (!br.errorCount) {
+        blastEl.innerHTML = '<span style="font-size:11px;color:var(--muted)">No active errors</span>';
+      } else {
+        let html = '';
+        if (br.affectedSessions > 0) html += '<div class="blast-stat"><span style="color:var(--muted)">Sessions</span><span class="blast-val" style="color:var(--red)">'+br.affectedSessions+'</span></div>';
+        if (br.affectedUsers > 0)    html += '<div class="blast-stat"><span style="color:var(--muted)">Users</span><span class="blast-val">'+br.affectedUsers+'</span></div>';
+        html += '<div class="blast-stat"><span style="color:var(--muted)">Errors</span><span class="blast-val">'+br.errorCount+'</span></div>';
+        if (br.durationMs) html += '<div class="blast-stat"><span style="color:var(--muted)">Duration</span><span class="blast-val">'+fmtDurationMs(br.durationMs)+'</span></div>';
+        if (br.browserSegments) {
+          const topBrowsers = Object.entries(br.browserSegments).sort((a,b)=>b[1]-a[1]).slice(0,3);
+          if (topBrowsers.length > 0) html += '<div class="blast-stat"><span style="color:var(--muted)">Browsers</span><span class="blast-val" style="font-size:10px">'+topBrowsers.map(([b,n])=>b+':'+n).join(' ')+'</span></div>';
+        }
+        blastEl.innerHTML = html;
+      }
+    }
+  } catch(e) {}
+}
+
 poll();
 pollSdkStatus();
 pollValidateState();
 pollCalibrationHealth();
+pollWarRoom();
 setInterval(poll,5000);
 setInterval(pollSdkStatus,10000);
 setInterval(pollValidateState,5000);
 setInterval(pollCalibrationHealth,30000);
+setInterval(pollWarRoom,10000);
 </script>
 </body></html>`;
 }

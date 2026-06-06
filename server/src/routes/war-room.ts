@@ -24,7 +24,7 @@ export function createWarRoomRouter(): Router {
     const blastRadius = store.getBlastRadius({ since: active?.firedAt });
 
     // MTTR history — last 20 resolved incidents
-    const allRecs = memoryStore.findSimilar('', 100);
+    const allRecs = memoryStore.listAll(100);
     const resolved = allRecs
       .filter((r) => r.mttrMs !== null)
       .sort((a, b) => b.firedAt - a.firedAt)
