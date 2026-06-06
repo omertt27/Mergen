@@ -162,6 +162,25 @@
     });
   } catch { /* not available in all frames */ }
 
+  // Stable per-tab session ID — persists across navigations within the tab,
+  // resets when the tab is closed. Used for blast radius quantification.
+  let _sessionId = null;
+  try {
+    _sessionId = sessionStorage.getItem('__mergen_sid__');
+    if (!_sessionId) {
+      var _sidBytes = new Uint8Array(16);
+      crypto.getRandomValues(_sidBytes);
+      _sessionId = Array.from(_sidBytes, function(b) {
+        return b.toString(16).padStart(2, '0');
+      }).join('');
+      sessionStorage.setItem('__mergen_sid__', _sessionId);
+    }
+  } catch { _sessionId = null; }
+
+  // Raw user agent — parsed server-side for browser/OS segmentation.
+  var _userAgent = null;
+  try { _userAgent = navigator.userAgent ? navigator.userAgent.slice(0, 500) : null; } catch { }
+
   let _buildSha = null;
   const SHA_RE = /^[0-9a-f]{7,40}$/i;
 
@@ -316,8 +335,10 @@
       const needsEnrich = event.type === 'console' || event.type === 'network';
       const enriched = needsEnrich
         ? Object.assign({}, event,
-            _buildSha ? { buildSha: _buildSha } : {},
-            _userId   ? { userId: _userId }     : {},
+            _buildSha   ? { buildSha: _buildSha }   : {},
+            _userId     ? { userId: _userId }        : {},
+            _sessionId  ? { sessionId: _sessionId } : {},
+            _userAgent  ? { userAgent: _userAgent }  : {},
           )
         : event;
       _nativeFetch(getIngestUrl(), {

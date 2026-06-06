@@ -16,6 +16,8 @@
 
 import { Router } from 'express';
 import { incidentStore } from '../sensor/incident-store.js';
+import { memoryStore, inferResolutionType } from '../datadog/memory-store.js';
+import { getActiveIncident, clearActiveIncident } from '../datadog/incident-state.js';
 import logger from '../sensor/logger.js';
 
 export function createIncidentsRouter(): Router {
@@ -100,6 +102,36 @@ export function createIncidentsRouter(): Router {
     const updated = incidentStore.get(req.params.pid);
     logger.info({ pid: req.params.pid, by }, 'incident resolved');
     res.json({ ok: true, incident: updated });
+  });
+
+  // ── Resolve active — called by `mergen-server resolved` CLI command ───────────
+  // Closes whatever incident is currently open in the memory store and records
+  // the engineer's free-text fix summary. This is Option B explicit capture.
+  router.post('/incidents/resolve-active', (req, res) => {
+    const { fixSummary, fixPrUrl, resolvedAt } = (req.body ?? {}) as Record<string, string | undefined>;
+    const active = getActiveIncident();
+    const resType = fixPrUrl ? inferResolutionType(fixSummary ?? '') : 'unknown';
+
+    const openRecs = memoryStore.listOpen();
+    if (openRecs.length === 0 && !active) {
+      res.status(404).json({ error: 'no open incident found' });
+      return;
+    }
+
+    const target = openRecs[0];
+    if (target) {
+      memoryStore.closeIncident({
+        id: target.id,
+        resolvedAt: resolvedAt ? Number(resolvedAt) : Date.now(),
+        fixSummary: fixSummary ?? undefined,
+        fixPrUrl: fixPrUrl ?? undefined,
+        resolutionType: resType,
+      });
+    }
+
+    clearActiveIncident();
+    logger.info({ id: target?.id, fixSummary }, 'incident resolved via CLI');
+    res.json({ ok: true, id: target?.id });
   });
 
   // ── Add note ──────────────────────────────────────────────────────────────────

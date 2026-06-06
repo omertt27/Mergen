@@ -53,8 +53,8 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc && node scripts/build-cli.mjs",
-    "build:server": "tsc",
+    "build": "NODE_OPTIONS='--max-old-space-size=8192' tsc && node scripts/build-cli.mjs",
+    "build:server": "NODE_OPTIONS='--max-old-space-size=8192' tsc",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
     "test": "vitest run",

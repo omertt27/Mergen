@@ -34,6 +34,8 @@ import { createDashboardRouter } from './routes/dashboard.js';
 import { createDemoRouter } from './routes/demo.js';
 import { createSdkRouter } from './routes/sdk.js';
 import { createSessionsRouter } from './routes/sessions.js';
+import { createPagerDutyRouter } from './routes/pagerduty.js';
+import { createGitHubWebhookRouter } from './routes/github-webhook.js';
 import { handleSlackActions, handleFeedbackLink } from './intelligence/slack.js';
 import { getPrometheusMetrics } from './sensor/otel-exporter.js';
 import { auditMiddleware } from './sensor/audit-log.js';
@@ -142,6 +144,8 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createTicketsRouter());   // Linear + Jira one-click ticket creation
   app.use(createValidateRouter()); // Fix validation state
   app.use(createSessionsRouter()); // Session history + audit log
+  app.use(createPagerDutyRouter());    // PagerDuty incident webhooks → Datadog auto-fetch
+  app.use(createGitHubWebhookRouter()); // GitHub PR merge → causality correlation
 
   // ── Prometheus metrics endpoint ───────────────────────────────────────────
   // Exposes browser error rates, network failure counts, and request durations

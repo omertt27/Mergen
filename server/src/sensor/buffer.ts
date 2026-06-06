@@ -19,6 +19,12 @@ export const ConsoleEventSchema = z.object({
    *  extension popup or auto-read from VS Code git config. Enables per-engineer
    *  filtering in team mode. */
   userId: z.string().optional(),
+  /** Stable per-tab session ID — UUID generated at page load, persisted in
+   *  sessionStorage so it survives navigations but resets on new tab.
+   *  Used to count unique affected sessions for blast radius quantification. */
+  sessionId: z.string().optional(),
+  /** Raw navigator.userAgent string — parsed server-side for browser/OS segmentation. */
+  userAgent: z.string().max(500).optional(),
   /** The git commit that last touched the primary error frame — populated
    *  automatically after sourcemap resolution when a .git repo is present. */
   gitSuspect: z.object({
@@ -43,6 +49,8 @@ export const NetworkEventSchema = z.object({
   timestamp: z.number(),
   buildSha: z.string().optional(),
   userId: z.string().optional(),
+  sessionId: z.string().optional(),
+  userAgent: z.string().max(500).optional(),
   /** W3C traceparent or X-Trace-ID extracted from the response headers.
    *  Links browser network events to backend OTel spans across service boundaries. */
   traceId: z.string().optional(),
@@ -274,6 +282,32 @@ export interface BufferCounters {
   networkErrors: number;
 }
 
+export interface BlastRadiusReport {
+  /** Unique browser sessions (sessionId) that saw at least one matching error. */
+  affectedSessions: number;
+  /** Unique authenticated users (userId) — subset of sessions with identity set. */
+  affectedUsers: number;
+  /** Users who appeared in more than one session during the window (multi-tab openers).
+   *  affectedSessions - returningUserSessions ≈ deduplicated session count. */
+  returningUserSessions: number;
+  /** Total error event count in the window. */
+  errorCount: number;
+  /** Unix ms of the earliest matching error. */
+  firstSeenAt: number | null;
+  /** Unix ms of the most recent matching error. */
+  lastSeenAt: number | null;
+  /** Browser breakdown — { 'Safari': 847, 'Chrome': 12 }. */
+  browserSegments: Record<string, number>;
+  /** OS breakdown — { 'iOS': 301, 'macOS': 546 }. */
+  osSegments: Record<string, number>;
+  /** Top distinct error messages with counts. */
+  topErrors: Array<{ message: string; count: number }>;
+  /** SHA of the deploy event closest (and prior) to firstSeenAt, if one exists. */
+  correlatedDeploy: string | null;
+  /** How long the error has been active (ms from firstSeenAt to now). */
+  durationMs: number | null;
+}
+
 export interface LocalStorageDiff {
   full: Record<string, string>;
   changed: Set<string>;
@@ -283,6 +317,8 @@ export interface BufferStore {
   push(event: BrowserEvent): void;
   getLogs(limit?: number, level?: LogLevel, since?: number): ConsoleEvent[];
   getNetwork(limit?: number, statusFilter?: number, since?: number): NetworkEvent[];
+  /** Aggregate blast radius for matching errors in the time window. */
+  getBlastRadius(opts?: { since?: number; errorPattern?: string }): BlastRadiusReport;
   getContext(limit?: number, since?: number): ContextSnapshot[];
   getWebSockets(limit?: number, connectionUrl?: string, since?: number): WebSocketEvent[];
   /** Count of distinct WebSocket connections in the buffer — used by /health. */
@@ -569,6 +605,81 @@ class RingBuffer implements BufferStore {
     return results.slice(-cap);
   }
 
+  getBlastRadius(opts: { since?: number; errorPattern?: string } = {}): BlastRadiusReport {
+    const { since, errorPattern } = opts;
+    const patternRe = errorPattern ? new RegExp(errorPattern, 'i') : null;
+
+    const sessions = new Set<string>();
+    const users    = new Set<string>();
+    const browserCounts: Record<string, number> = {};
+    const osCounts: Record<string, number>      = {};
+    const errorMsgCounts: Record<string, number> = {};
+    let firstSeenAt: number | null = null;
+    let lastSeenAt: number | null  = null;
+    let errorCount = 0;
+
+    for (const e of this._iterate()) {
+      if (e.type !== 'console' || e.level !== 'error') continue;
+      if (since !== undefined && e.timestamp < since) continue;
+
+      // Pattern filter
+      if (patternRe) {
+        const msgText = e.args
+          .map((a) => (typeof a === 'string' ? a : JSON.stringify(a)))
+          .join(' ');
+        if (!patternRe.test(msgText)) continue;
+      }
+
+      errorCount++;
+      if (firstSeenAt === null || e.timestamp < firstSeenAt) firstSeenAt = e.timestamp;
+      if (lastSeenAt === null  || e.timestamp > lastSeenAt)  lastSeenAt  = e.timestamp;
+
+      if (e.sessionId) sessions.add(e.sessionId);
+      if (e.userId)    users.add(e.userId);
+
+      if (e.userAgent) {
+        const browser = parseBrowser(e.userAgent);
+        const os      = parseOS(e.userAgent);
+        browserCounts[browser] = (browserCounts[browser] ?? 0) + 1;
+        osCounts[os]           = (osCounts[os] ?? 0) + 1;
+      }
+
+      const msg = e.args
+        .map((a) => (typeof a === 'string' ? a : JSON.stringify(a)))
+        .join(' ')
+        .slice(0, 120);
+      errorMsgCounts[msg] = (errorMsgCounts[msg] ?? 0) + 1;
+    }
+
+    // Correlated deploy: most recent deployment whose timestamp ≤ firstSeenAt
+    let correlatedDeploy: string | null = null;
+    if (firstSeenAt !== null) {
+      const deploys = this.getDeployments(50);
+      const prior = deploys
+        .filter((d) => d.timestamp <= firstSeenAt! && d.status === 'success')
+        .sort((a, b) => b.timestamp - a.timestamp);
+      correlatedDeploy = prior[0]?.sha ?? null;
+    }
+
+    const topErrors = Object.entries(errorMsgCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([message, count]) => ({ message, count }));
+
+    return {
+      affectedSessions: sessions.size,
+      affectedUsers: users.size,
+      errorCount,
+      firstSeenAt,
+      lastSeenAt,
+      browserSegments: browserCounts,
+      osSegments: osCounts,
+      topErrors,
+      correlatedDeploy,
+      durationMs: firstSeenAt !== null ? Date.now() - firstSeenAt : null,
+    };
+  }
+
   clear(): void {
     this._ring.fill(undefined);
     this._head = 0;
@@ -800,6 +911,27 @@ class RingBuffer implements BufferStore {
 
   lastEventAt(): number | null { return this._lastEventAt; }
   clearedAt(): number | null { return this._clearedAt; }
+}
+
+// ── User-agent parsers (no deps — regex only) ─────────────────────────────────
+
+export function parseBrowser(ua: string): string {
+  if (/Edg\//.test(ua))         return 'Edge';
+  if (/OPR\//.test(ua))         return 'Opera';
+  if (/Firefox\//.test(ua))     return 'Firefox';
+  if (/Chrome\//.test(ua))      return 'Chrome';
+  if (/Safari\//.test(ua) && !/Chrome/.test(ua)) return 'Safari';
+  if (/MSIE|Trident/.test(ua))  return 'IE';
+  return 'Other';
+}
+
+export function parseOS(ua: string): string {
+  if (/iPhone|iPad/.test(ua))            return 'iOS';
+  if (/Android/.test(ua))                return 'Android';
+  if (/Mac OS X/.test(ua) && !/iPhone|iPad/.test(ua)) return 'macOS';
+  if (/Windows/.test(ua))                return 'Windows';
+  if (/Linux/.test(ua))                  return 'Linux';
+  return 'Other';
 }
 
 export const store: BufferStore = new RingBuffer();

@@ -6,13 +6,17 @@
  * They complement Tools: Resources supply ambient state; Tools perform queries.
  *
  * Registered resources:
- *   mergen://buffer/snapshot        — counters, signals, health state
- *   mergen://buffer/errors          — recent console.error events
+ *   mergen://buffer/snapshot         — counters, signals, health state
+ *   mergen://buffer/errors           — recent console.error events
  *   mergen://buffer/network-failures — recent failed network requests
+ *   mergen://agent/trace-context     — current W3C traceparent for propagation
+ *   mergen://file/{+path}            — production context for the open file
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { store } from '../sensor/buffer.js';
+import { getCurrentTraceContext } from '../datadog/otel-trace.js';
+import { registerFileContextResource } from './resource-file-context.js';
 
 export function registerResources(server: McpServer): void {
   // ── Buffer snapshot ──────────────────────────────────────────────────────────
@@ -90,4 +94,39 @@ export function registerResources(server: McpServer): void {
       }],
     }),
   );
+
+  // ── Agent trace context ───────────────────────────────────────────────────────
+  // Exposes the current W3C traceparent so any AI agent can propagate the trace
+  // into its own outbound calls — creating an unbroken Claude→Mergen→backend chain.
+  server.registerResource(
+    'mergen-agent-trace-context',
+    'mergen://agent/trace-context',
+    {
+      description:
+        'Current W3C traceparent for this Mergen session. ' +
+        'Inject into your own HTTP calls via the traceparent header to extend the trace chain. ' +
+        'Changes each time a new MCP tool call starts a server span.',
+      mimeType: 'application/json',
+    },
+    async (uri) => {
+      const ctx = getCurrentTraceContext();
+      return {
+        contents: [{
+          uri: uri.href,
+          mimeType: 'application/json',
+          text: JSON.stringify({
+            traceparent: ctx.traceparent,
+            traceId: ctx.traceId,
+            spanId: ctx.spanId,
+            usage: 'Inject as HTTP header: traceparent: <value>',
+          }, null, 2),
+        }],
+      };
+    },
+  );
+
+  // ── File production context ───────────────────────────────────────────────────
+  // mergen://file/{+path} — ambient context for the file currently open in the IDE.
+  // The IDE polls this as the developer navigates; no tool call needed.
+  registerFileContextResource(server);
 }

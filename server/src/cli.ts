@@ -1325,6 +1325,148 @@ async function prCommand(args: string[]): Promise<void> {
 
 // ── Demo command ───────────────────────────────────────────────────────────────
 
+// ── Init command — configure Datadog credentials ───────────────────────────────
+
+// ── Resolved command — explicit incident resolution capture (Option B) ─────────
+
+async function resolvedCommand(args: string[]): Promise<void> {
+  const summaryIdx = args.indexOf('--summary');
+  const summary = summaryIdx !== -1 ? args[summaryIdx + 1] : undefined;
+  const prUrl = args.find((a) => a.startsWith('--pr='))?.slice(5);
+
+  if (!summary && !prUrl) {
+    error('Usage: mergen-server resolved --summary "rolled back enable-bulk-capture flag"');
+    error('       mergen-server resolved --pr=https://github.com/... --summary "hotfix"');
+    process.exit(1);
+  }
+
+  let port = 3000;
+  for (let p = 3000; p <= 3010; p++) {
+    try {
+      const r = await fetch(`http://127.0.0.1:${p}/health`, { signal: AbortSignal.timeout(600) });
+      if (r.ok) { port = p; break; }
+    } catch {}
+  }
+
+  const body: Record<string, string> = { resolvedAt: String(Date.now()) };
+  if (summary) body.fixSummary = summary;
+  if (prUrl)   body.fixPrUrl   = prUrl;
+
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/incidents/resolve-active`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(3000),
+    });
+    if (r.ok) {
+      success('Incident marked resolved. MTTR recorded.');
+      if (summary) log(`Summary: ${summary}`);
+    } else {
+      error(`Server returned ${r.status}`);
+    }
+  } catch {
+    error('Server not running or unreachable. Start with: mergen-server start');
+    process.exit(1);
+  }
+}
+
+async function initCommand(): Promise<void> {
+  console.log('⬡ Mergen Init — Connect Datadog\n');
+  hr();
+
+  const { mkdirSync: mkdir2, writeFileSync: write2, readFileSync: read2, existsSync: exists2 } = await import('fs');
+  const { join: join2 } = await import('path');
+  const { homedir: home2 } = await import('os');
+
+  const configDir  = join2(home2(), '.mergen');
+  const configPath = join2(configDir, 'config.json');
+
+  // Load existing config if present
+  let existing: Record<string, unknown> = {};
+  if (exists2(configPath)) {
+    try { existing = JSON.parse(read2(configPath, 'utf8')) as Record<string, unknown>; } catch {}
+  }
+
+  const dd = (existing.datadog ?? {}) as Record<string, string>;
+
+  console.log('You will need:');
+  console.log('  - DD_API_KEY  (Datadog → Organization Settings → API Keys)');
+  console.log('  - DD_APP_KEY  (Datadog → Organization Settings → Application Keys)');
+  console.log('');
+
+  const apiKey = await ask(`Datadog API Key${dd.apiKey ? ' [keep existing]' : ''}: `);
+  const appKey = await ask(`Datadog App Key${dd.appKey ? ' [keep existing]' : ''}: `);
+
+  const sites: Record<string, string> = {
+    '1': 'datadoghq.com',
+    '2': 'datadoghq.eu',
+    '3': 'us3.datadoghq.com',
+    '4': 'us5.datadoghq.com',
+    '5': 'ap1.datadoghq.com',
+  };
+
+  console.log('\nDatadog site:');
+  console.log('  1. US1 - datadoghq.com (default)');
+  console.log('  2. EU  - datadoghq.eu');
+  console.log('  3. US3 - us3.datadoghq.com');
+  console.log('  4. US5 - us5.datadoghq.com');
+  console.log('  5. AP1 - ap1.datadoghq.com');
+  const siteChoice = await ask('\nSite [1]: ');
+  const site = sites[siteChoice.trim() || '1'] ?? 'datadoghq.com';
+
+  const finalApiKey = apiKey.trim() || dd.apiKey || '';
+  const finalAppKey = appKey.trim() || dd.appKey || '';
+
+  if (!finalApiKey || !finalAppKey) {
+    error('API Key and App Key are both required.');
+    process.exit(1);
+  }
+
+  // Test connectivity
+  process.stdout.write('\nTesting Datadog connection... ');
+  try {
+    const res = await fetch(`https://api.${site}/api/v1/validate`, {
+      headers: { 'DD-API-KEY': finalApiKey, 'DD-APPLICATION-KEY': finalAppKey },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!res.ok) {
+      console.log('✗');
+      const body = await res.text();
+      error(`Auth failed (${res.status}): ${body.slice(0, 100)}`);
+      error('Double-check your API Key and App Key in Datadog Organization Settings.');
+      process.exit(1);
+    }
+    console.log('✓');
+  } catch (e) {
+    console.log('✗');
+    error(`Could not reach api.${site}: ${e instanceof Error ? e.message : String(e)}`);
+    process.exit(1);
+  }
+
+  // Save config
+  mkdir2(configDir, { recursive: true });
+  const config = {
+    ...existing,
+    datadog: { apiKey: finalApiKey, appKey: finalAppKey, site },
+  };
+  write2(configPath, JSON.stringify(config, null, 2), { encoding: 'utf8', mode: 0o600 });
+
+  hr();
+  success('Datadog credentials saved to ~/.mergen/config.json');
+  console.log('');
+  console.log('Available MCP tools:');
+  console.log('  get_incident_context   → fetch + compact latest error trace');
+  console.log('  get_datadog_trace      → compact a specific trace by ID');
+  console.log('');
+  console.log('PagerDuty auto-trigger (optional):');
+  console.log('  Add a webhook in PagerDuty → Service → Webhooks:');
+  console.log('  URL: http://127.0.0.1:3000/webhooks/pagerduty');
+  console.log('  Type: V3 webhook');
+  console.log('');
+  log('Restart the server to apply: mergen-server start');
+}
+
 async function demoCommand(): Promise<void> {
   const { createServer } = await import('http');
   const { createApp } = await import('./app.js');
@@ -1386,6 +1528,14 @@ async function main(): Promise<void> {
   const command = args[0];
 
   switch (command) {
+    case 'init':
+      await initCommand();
+      break;
+
+    case 'resolved':
+      await resolvedCommand(args.slice(1));
+      break;
+
     case 'demo':
       await demoCommand();
       break;
@@ -1457,9 +1607,10 @@ async function main(): Promise<void> {
     case '-h':
     case undefined:
       console.log(`
-Mergen — Local-first browser observability for AI
+Mergen — AI-native infrastructure observability
 
 Usage:
+  mergen-server init               Connect Datadog (guided setup — saves DD_API_KEY + DD_APP_KEY)
   mergen-server pr                 Generate a PR description from your debug session (paste into GitHub/Jira)
   mergen-server pr --copy          Same, but copies to clipboard
   mergen-server demo               3-minute demo: no extension needed, open in any browser

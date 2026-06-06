@@ -31,3 +31,6 @@ export const AUDIT_LOG = path.join(DATA_DIR, 'audit.log');
 
 /** Persistent service dependency graph — built from backend spans and traceId joins. */
 export const TOPOLOGY_FILE = path.join(DATA_DIR, 'topology.json');
+
+/** Mergen configuration file — stores integration credentials (Datadog, etc.). */
+export const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
