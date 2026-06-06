@@ -37,6 +37,9 @@ import { createSessionsRouter } from './routes/sessions.js';
 import { createPagerDutyRouter } from './routes/pagerduty.js';
 import { createGitHubWebhookRouter } from './routes/github-webhook.js';
 import { createWarRoomRouter } from './routes/war-room.js';
+import { createSlackRoutingRouter } from './routes/slack-routing.js';
+import { createApiKeysRouter } from './routes/api-keys.js';
+import { cloudAuthMiddleware } from './sensor/cloud-auth.js';
 import { handleSlackActions, handleFeedbackLink } from './intelligence/slack.js';
 import { getPrometheusMetrics } from './sensor/otel-exporter.js';
 import { auditMiddleware } from './sensor/audit-log.js';
@@ -136,6 +139,9 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createCalibrationRouter());
   app.use(createTelemetryRouter());
   app.use(teamRouter);
+  // ── Cloud-mode API key auth — guards ingest in MERGEN_CLOUD_MODE=true ────────
+  app.use('/ingest', cloudAuthMiddleware);
+  app.use('/v1', cloudAuthMiddleware);   // OTLP paths
   app.use(ingestRouter);
   app.use(layersRouter); // Layer 2-4 routes
   app.use(otelRouter);         // OpenTelemetry export config
@@ -148,6 +154,8 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createPagerDutyRouter());    // PagerDuty incident webhooks → Datadog auto-fetch
   app.use(createGitHubWebhookRouter()); // GitHub PR merge → causality correlation
   app.use(createWarRoomRouter());       // War room API + attribution feedback
+  app.use(createSlackRoutingRouter());  // Service-to-Slack webhook routing rules
+  app.use(createApiKeysRouter());       // Cloud-mode API key management
 
   // ── Prometheus metrics endpoint ───────────────────────────────────────────
   // Exposes browser error rates, network failure counts, and request durations

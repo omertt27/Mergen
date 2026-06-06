@@ -29,11 +29,12 @@ export function createSensorRouter(serverVersion: string): Router {
   const router = Router();
 
   // ── Health ────────────────────────────────────────────────────────────────
-  router.get('/health', (_req, res) => {
+  router.get('/health', (req, res) => {
+    const tid = req.tenantId;
     const teamState = getTeamState();
-    const counters = store.getCounters();
-    const buffered = store.size();
-    const signals = store.getSignals();
+    const counters = store.getCounters(tid);
+    const buffered = store.size(tid);
+    const signals = store.getSignals(tid);
     const allClear = counters.errors === 0
       && counters.networkErrors === 0
       && signals.length === 0
@@ -44,8 +45,8 @@ export function createSensorRouter(serverVersion: string): Router {
       errors: counters.errors,
       warnings: counters.warnings,
       networkErrors: counters.networkErrors,
-      websocketConnections: store.getWebSocketCount(),
-      lastEventAt: store.lastEventAt(),
+      websocketConnections: store.getWebSocketCount(tid),
+      lastEventAt: store.lastEventAt(tid),
       clearedAt: store.clearedAt(),
       mcpLastCallAt: lastMcpCallAt,
       firstAnalyzeAt,
@@ -64,9 +65,10 @@ export function createSensorRouter(serverVersion: string): Router {
   });
 
   // ── Clear ─────────────────────────────────────────────────────────────────
-  router.post('/clear', (_req, res) => {
-    const was    = store.size();
-    const events = store.serialize();
+  router.post('/clear', (req, res) => {
+    const tid = req.tenantId;
+    const was    = store.size(tid);
+    const events = store.serialize(tid);
     saveSessionToHistory(events, 'manual-clear');
     store.clear();
     historyStore.clear();
@@ -89,13 +91,13 @@ export function createSensorRouter(serverVersion: string): Router {
       args: [`[mergen:checkpoint] ${name}`],
       url: 'mergen://checkpoint',
       timestamp: Date.now(),
-    });
+    }, req.tenantId);
 
-    const signals = store.getSignals();
+    const signals = store.getSignals(req.tenantId);
     res.json({
       ok: true,
       label: name,
-      buffered: store.size(),
+      buffered: store.size(req.tenantId),
       signals: signals.length,
       topSignal: signals[0] ?? null,
     });
@@ -104,15 +106,16 @@ export function createSensorRouter(serverVersion: string): Router {
   // ── Diagnose ──────────────────────────────────────────────────────────────
   // Returns the current buffer's contextPack + a fully-formed OpenAI request
   // body so callers can pipe it straight into the completions API.
-  router.get('/diagnose', async (_req, res) => {
-    const logs     = store.getLogs(200);
-    const network  = store.getNetwork(200);
-    const contexts = store.getContext(20);
+  router.get('/diagnose', async (req, res) => {
+    const tid      = req.tenantId;
+    const logs     = store.getLogs(200, undefined, undefined, tid);
+    const network  = store.getNetwork(200, undefined, undefined, tid);
+    const contexts = store.getContext(20, undefined, tid);
 
-    const terminal     = store.getTerminalOutput(100);
-    const processExits = store.getProcessExits(20);
-    const ciEvents     = store.getCIEvents(20);
-    const deployments  = store.getDeployments(10);
+    const terminal     = store.getTerminalOutput(100, undefined, undefined, tid);
+    const processExits = store.getProcessExits(20, undefined, undefined, tid);
+    const ciEvents     = store.getCIEvents(20, undefined, undefined, tid);
+    const deployments  = store.getDeployments(10, undefined, undefined, tid);
     const causal = await buildCausalChain(logs, network, contexts, undefined, terminal, processExits, ciEvents, deployments);
 
     const SYSTEM = [
@@ -149,7 +152,7 @@ export function createSensorRouter(serverVersion: string): Router {
 
     res.json({
       ok: true,
-      buffered: store.size(),
+      buffered: store.size(tid),
       hypotheses: causal.hypotheses.length,
       contextPack: causal.contextPack,
       openai_request: openaiRequest,

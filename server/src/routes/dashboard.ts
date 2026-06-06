@@ -289,6 +289,22 @@ function buildDashboardHtml(version: string, nonce: string): string {
         <div id="calib-list"><div style="font-size:11px;color:var(--muted)">Loading…</div></div>
       </div>
 
+      <div class="card" id="corpus-card">
+        <div class="card-title">Accuracy Gate</div>
+        <div id="corpus-progress">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
+            HIGH-confidence verdicts toward partner corpus target
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <div style="flex:1;background:rgba(255,255,255,.06);border-radius:3px;height:6px;overflow:hidden">
+              <div id="corpus-bar" style="height:6px;border-radius:3px;background:var(--green);width:0%;transition:width .4s"></div>
+            </div>
+            <span id="corpus-count" style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap">0 / 20</span>
+          </div>
+          <div id="corpus-status" style="font-size:11px;color:var(--muted)">Loading…</div>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-title">Connect more signals</div>
         <div style="font-size:11px;color:var(--muted);line-height:1.8">
@@ -492,7 +508,7 @@ async function poll(){
     const tlList=document.getElementById('tl-list');
     document.getElementById('tl-window').textContent='· last 5m · '+rows.length+' events';
     if(rows.length===0){
-      tlList.innerHTML='<div class="empty">No significant events. Open your app in the browser with the Mergen extension active.</div>';
+      tlList.innerHTML='<div class="empty">No events yet. Send telemetry via OpenTelemetry (:4318/v1/traces), trigger a PagerDuty test, or stream Docker logs. See <a href="/setup" style="color:var(--blue)">setup guide</a>.</div>';
     }else{
       tlList.innerHTML=rows.slice(-30).reverse().map(r=>{
         const src=r.source||'';
@@ -821,16 +837,40 @@ async function pollWarRoom() {
   } catch(e) {}
 }
 
+async function pollCorpusProgress() {
+  try {
+    const d = await fetch('/calibration/corpus-progress').then(r => r.json());
+    if (!d.ok) return;
+    const bar = document.getElementById('corpus-bar');
+    const count = document.getElementById('corpus-count');
+    const status = document.getElementById('corpus-status');
+    if (bar) bar.style.width = d.pct + '%';
+    if (count) count.textContent = d.highConfidentCorrect + ' / ' + d.target;
+    if (status) {
+      if (d.targetReached) {
+        status.textContent = '✅ Gate reached — corpus ready to publish';
+        status.style.color = 'var(--green)';
+      } else {
+        const remaining = d.target - d.highConfidentCorrect;
+        status.textContent = remaining + ' more needed · ' + d.trustedDetectors + ' trusted detector' + (d.trustedDetectors !== 1 ? 's' : '') + ' · ' + d.totalVerdicts + ' total verdicts';
+        status.style.color = 'var(--muted)';
+      }
+    }
+  } catch {}
+}
+
 poll();
 pollSdkStatus();
 pollValidateState();
 pollCalibrationHealth();
 pollWarRoom();
+pollCorpusProgress();
 setInterval(poll,5000);
 setInterval(pollSdkStatus,10000);
 setInterval(pollValidateState,5000);
 setInterval(pollCalibrationHealth,30000);
 setInterval(pollWarRoom,10000);
+setInterval(pollCorpusProgress,30000);
 </script>
 </body></html>`;
 }

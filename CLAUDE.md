@@ -1,257 +1,249 @@
-# Mergen — Developer Observability Bridge
+# Mergen — AI Operations Layer for Backend & Infrastructure
 
-Stream live browser telemetry (console logs, network errors, de-minified
-stack traces) into any AI IDE — without copy-pasting. All data stays on
-localhost.
+Mergen triages production incidents autonomously. It connects your backend
+telemetry (OpenTelemetry, logs, PagerDuty) to any AI IDE via MCP — then acts:
+diagnoses root cause, executes fixes at ≥85% confidence, validates the result,
+and posts the outcome to your Slack incident thread.
+
+All data stays on your infrastructure. No cloud. No copy-paste.
 
 ---
 
-## Why Mergen vs. chrome-devtools-mcp?
+## Why Mergen vs. existing observability tools?
 
-Mergen is the **runtime context layer** for AI agents. While other tools focus on browser automation, Mergen focuses on **human-in-the-loop debugging**.
-
-| Feature | chrome-devtools-mcp / playwright-mcp | **Mergen** |
+| | Datadog / PagerDuty / Grafana | **Mergen** |
 | :--- | :--- | :--- |
-| **Context** | Headless / Clean Instance | ✅ **Your REAL browser session** |
-| **Auth** | No cookies / Requires re-login | ✅ **Existing REAL cookies & profiles** |
-| **Workflow** | AI drives a robot browser | ✅ **AI observes YOUR dev session** |
-| **Causality** | Raw logs | ✅ **Deterministic Causal Joins** |
-| **Moat** | Automation only | ✅ **Auth-gated debugging** |
+| **Action** | Alert → page engineer | ✅ **Alert → diagnose → fix → validate** |
+| **AI integration** | Dashboard with AI summaries | ✅ **MCP tools your AI IDE calls directly** |
+| **Execution** | Human runs the fix | ✅ **Autonomous execution at ≥85% confidence** |
+| **Learning** | Static rules | ✅ **Calibration corpus — accuracy improves per incident** |
+| **Slack** | One-way webhook | ✅ **Owns the thread — posts progress through resolution** |
 
 ---
 
 ## How it works
 
 ```
-Chrome tab (any page you develop on)
-  └─ extension/src/content.js
-       overrides console.log/warn/error
-       patches fetch + XMLHttpRequest
-       POSTs events to localhost
-             │
-             ▼
-  Express :3000/ingest          ← rate-limited, Zod-validated
+Your backend / infrastructure
+  ├── OpenTelemetry SDK  →  :4318/v1/traces  (OTLP HTTP)
+  ├── PagerDuty webhook  →  /webhooks/pagerduty
+  ├── CI/CD pipeline     →  /ci  (GitHub Actions, etc.)
+  ├── Docker containers  →  log streaming via Docker SDK
+  └── Terminal / process →  process watcher (stdout/stderr)
+              │
+              ▼
+  Express :3000           ← rate-limited, Zod-validated, PII-shielded
        │
-       └── in-memory ring buffer (200 events, O(1) eviction)
+       └── in-memory ring buffer (2000 events, O(1) eviction)
                 │
                 ▼
-  MCP Server (stdio)            ← speaks Model Context Protocol
+  MCP Server (stdio)      ← speaks Model Context Protocol
        │
        ├── Claude Code  ──  claude mcp add mergen ...
        ├── Cursor        ──  .cursor/mcp.json
        ├── Windsurf      ──  ~/.codeium/windsurf/mcp_config.json
        └── VS Code       ──  .vscode/mcp.json
+                │
+                ▼
+  Autonomous triage loop (MERGEN_AUTOPILOT=true)
+       PagerDuty trigger → causal analysis → execute fix → validate → Slack thread reply
 ```
 
-One server. Every AI IDE. Zero cloud.
+One server. Every AI IDE. Full autonomous loop.
 
 ---
 
-## ⚡ Quick Install (2 minutes)
-
-**New simplified installation:**
+## ⚡ Quick Install (SRE / Platform Team)
 
 ```bash
-# 1. Install and configure server (auto-detects your IDE)
-npx mergen-server@latest setup
+# 1. Install server
+npm install -g mergen-server
 
-# 2. Install browser extension
-# Chrome Web Store: https://chrome.google.com/webstore (when published)
-# Or manual: Load unpacked from extension/ folder
+# 2. Configure integrations
+mergen-server setup
+# → connects PagerDuty, Slack, OTLP, and your AI IDE
+
+# 3. Start
+mergen-server start
 ```
 
-✅ **Done!** Ask your AI: *"Get recent logs"*
+### Environment variables
 
-See [QUICKSTART.md](QUICKSTART.md) for detailed walkthrough or [INSTALL.md](INSTALL.md) for alternative methods (Docker, Homebrew, binaries).
+```bash
+# Core
+MERGEN_AUTOPILOT=true              # enable autonomous fix execution
+MERGEN_SLACK_BOT_TOKEN=xoxb-...    # Slack Web API (threads + replies)
+MERGEN_SLACK_CHANNEL=#incidents    # default incident channel
+
+# PagerDuty → Mergen webhook
+# In PagerDuty: Service → Integrations → Webhooks → https://your-server:3000/webhooks/pagerduty
+
+# OpenTelemetry ingest
+# Point your OTLP exporter at http://your-server:3000/v1/traces (HTTP)
+# or http://your-server:4317 (gRPC, if enabled)
+
+# Datadog (for blame attribution)
+DD_API_KEY=...
+DD_APP_KEY=...
+DATADOG_SITE=datadoghq.com
+
+# Cloud mode (multi-tenant SaaS deployment)
+MERGEN_CLOUD_MODE=true
+MERGEN_TLS_CERT=/path/to/cert.pem
+MERGEN_TLS_KEY=/path/to/key.pem
+```
 
 ---
 
-## Alternative: Install from Source
+## Autonomous incident flow
 
-For development or if you prefer building from source:
+When PagerDuty fires `incident.triggered`:
 
-### Step 1 — Build and run the server
-
-```bash
-git clone https://github.com/omertt27/Mergen.git
-cd Mergen/server
-npm install
-npm run build
-npm start
+```
+1. Mergen receives webhook → records incident open time (MTTR clock starts)
+2. Fetches trace from Datadog (if configured)
+3. Posts structured incident alert to Slack thread
+4. [AUTOPILOT] Waits 5s for telemetry → runs causal analysis
+5. [AUTOPILOT] If confidence ≥ 85% → executes fix command
+6. [AUTOPILOT] Waits 5s → validates (compares error counts before/after)
+7. [AUTOPILOT] Posts RESOLVED / PARTIAL / REGRESSED to Slack thread
+8. Records resolvedAutonomously=true → available in /incidents/impact-report
 ```
 
-Expected output:
-```
-{"msg":"HTTP ingest listening on http://127.0.0.1:3000"}
-{"msg":"MCP server ready (stdio transport)"}
-```
-
-### Step 2 — Register with your IDE
-
-Run the interactive setup script:
-
-```bash
-node scripts/setup.mjs
-```
-
-Or use the CLI if you installed via npm:
-
-```bash
-npx mergen-server setup
-```
-
-### Step 3 — Load the Chrome extension
-
-1. Open `chrome://extensions`
-2. Enable **Developer mode** (toggle, top-right corner)
-3. Click **Load unpacked** → select the `extension/` folder
-4. The Mergen icon appears in your toolbar
+**Disable autopilot for diagnosis-only mode:** omit `MERGEN_AUTOPILOT=true`.
+The MCP tool `triage_incident` is still available for on-demand analysis.
 
 ---
 
-## Manual IDE setup
+## MCP tools reference (AI IDE)
 
-### Claude Code
-
-```bash
-# From the repo root:
-claude mcp add mergen --transport stdio -- node "$(pwd)/server/dist/index.js"
-
-# Verify:
-claude mcp list
-```
-
-Ask Claude Code: *"Get recent logs"* — it will call `get_recent_logs` automatically.
-
----
-
-### Cursor
-
-Cursor reads `.cursor/mcp.json` from the project root automatically. This
-file is already committed. Open the Mergen repo in Cursor and the server
-is available immediately after building.
-
-For a global install (available in every project):
-
-```bash
-# writes to ~/.cursor/mcp.json
-node scripts/setup.mjs   # choose option 2
-```
-
-Then in Cursor: **Settings → Tools → MCP** — confirm "mergen" is listed.
-
-Ask the Agent: *"Why did that last request fail?"*
+| Tool | What it does |
+|------|-------------|
+| `triage_incident` | Full autonomous loop on demand — diagnosis + optional fix |
+| `execute_fix` | Execute a specific hypothesis fix (requires `confirm: true`) |
+| `analyze_runtime` | Causal analysis — root cause + fix hint, no execution |
+| `get_recent_logs` | Console events from the buffer |
+| `get_network_activity` | HTTP/fetch events with status, duration, body |
+| `get_unified_timeline` | Browser request joined to backend span (exact causal join) |
+| `validate_fix` | Compare error counts before/after a fix — records verdict |
+| `clear_buffer` | Empties the ring buffer |
 
 ---
 
-### Windsurf
+## Impact metrics
 
 ```bash
-node scripts/setup.mjs   # choose option 3
-# writes to ~/.codeium/windsurf/mcp_config.json
+# Board-deck metric: autonomous resolution rate + MTTR
+curl http://127.0.0.1:3000/incidents/impact-report
 ```
-
-Or manually edit `~/.codeium/windsurf/mcp_config.json`:
 
 ```json
 {
-  "mcpServers": {
-    "mergen": {
-      "command": "node",
-      "args": ["/absolute/path/to/Mergen/server/dist/index.js"]
-    }
+  "totalResolved": 24,
+  "autonomousResolutions": 11,
+  "autonomousRate": 46,
+  "mttr": {
+    "overallMs": 420000,
+    "autonomousMs": 38000,
+    "manualMs": 720000
   }
 }
 ```
 
-Restart Windsurf, then open **Cascade → MCP Servers** to confirm.
-
 ---
 
-### VS Code (GitHub Copilot Chat)
+## Backend instrumentation
 
-`.vscode/mcp.json` is already committed and uses `${workspaceFolder}` so
-it works without any path editing.
+### OpenTelemetry (any language)
 
-Requirements: VS Code 1.99+, GitHub Copilot extension, Agent mode enabled.
-
-1. Open GitHub Copilot Chat (`Ctrl/Cmd+Alt+I`)
-2. Switch to **Agent mode** (robot icon)
-3. Click the **tools** button — Mergen tools appear in the list
-
-For a global install (user-level settings):
+Point your OTLP exporter at Mergen:
 
 ```bash
-node scripts/setup.mjs   # choose option 4
+# Python
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:3000 python app.py
+
+# Node.js
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:3000 node app.js
+
+# Go / Java / Ruby / .NET — same env var
 ```
 
----
+### Node.js SDK (one line)
 
-## MCP tools reference
-
-| Tool | Parameters | What it returns |
-|------|------------|----------------|
-| `get_recent_logs` | `limit?` (1–200), `level?` (`error`\|`warn`\|`log`), `since?` (unix ms) | Console events, sorted oldest→newest |
-| `get_network_activity` | `limit?` (1–200), `status_filter?` (e.g. `404`), `since?` (unix ms) | fetch/XHR events with status, duration, response body |
-| `clear_buffer` | — | Empties the ring buffer |
-
-**The `since` parameter** is especially useful: ask the AI to capture a
-timestamp before reproducing a bug, then filter to only the events that
-happened during the reproduction.
-
----
-
-## Live workflow example
-
-```
-You (in any AI IDE):
-  "I just clicked Login and got an error. What happened?"
-
-AI calls: get_recent_logs(level: "error", since: <timestamp>)
-AI calls: get_network_activity(status_filter: 401, since: <timestamp>)
-
-AI responds:
-  "1 error, 0 warnings. Critical issue:
-   POST /api/auth → 401 Unauthorized (342ms)
-   console.error: 'Token expired'
-   Your JWT refresh logic in auth.ts is not firing before the request.
-   I'll fix it now."
+```js
+// At the top of your entry point
+import 'mergen-server/sdk/node.js';
+// Captures uncaught exceptions, unhandledRejections, and process exits automatically
 ```
 
----
-
-## Source map de-minification (automatic)
-
-Run the Mergen server from your frontend project root so it can find `.map`
-files:
+### Docker containers
 
 ```bash
-cd /path/to/your/frontend
-node /path/to/Mergen/server/dist/index.js
+# Stream logs from all running containers
+curl -X POST http://127.0.0.1:3000/docker/stream
 ```
 
-Stack traces like `at app.bundle.js:1:48291` become:
-```
-at handleLogin (src/pages/Login.tsx:42:8)
+### CI/CD pipelines
+
+```bash
+# GitHub Actions — post build result to Mergen
+curl -X POST http://127.0.0.1:3000/ci \
+  -H 'Content-Type: application/json' \
+  -d '{"status":"failed","branch":"main","sha":"'$GITHUB_SHA'","runUrl":"'$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID'"}'
 ```
 
-If no `.map` file is found, the raw frame is stored with `[no sourcemap found]`.
+---
+
+## IDE setup (manual)
+
+### Claude Code
+
+```bash
+claude mcp add mergen --transport stdio -- node "$(pwd)/server/dist/index.js"
+claude mcp list  # verify
+```
+
+Ask: *"What caused the last incident?"*
+
+### Cursor / Windsurf / VS Code
+
+`.cursor/mcp.json` and `.vscode/mcp.json` are already committed.
+Open the Mergen repo and the server is available immediately.
+
+For a global install: `mergen-server setup` → choose your IDE.
+
+---
+
+## Slack service routing
+
+Route alerts for different services to different channels:
+
+```bash
+# POST /slack/routing
+curl -X POST http://127.0.0.1:3000/slack/routing \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "service": "api",
+    "webhook": "https://hooks.slack.com/...",
+    "channel": "#api-incidents",
+    "minConfidence": 0.7,
+    "escalateAt": 0.9,
+    "oncallMention": "<!oncall>"
+  }'
+```
 
 ---
 
 ## Security
 
-- Ingest endpoint binds to `127.0.0.1` only — unreachable from outside
-- No data is sent to any cloud service
-- Optional shared-secret auth:
+- Ingest binds to `127.0.0.1` by default — unreachable externally
+- Cloud mode: TLS + SHA-256 hashed API keys + sliding-window rate limiting
+- PII shield: always-on regex patterns (email, phone, AWS keys, PEM certs, JWTs, credit cards) + configurable via `~/.mergen/pii-config.json`
+- Tenant isolation: events tagged at ingest, filtered on every read
 
 ```bash
-MERGEN_SECRET=mysecret node server/dist/index.js
-```
-
-Add the header in `extension/src/content.js` if you use this:
-```js
-headers: { 'Content-Type': 'application/json', 'x-mergen-secret': 'mysecret' }
+# Optional shared secret (local mode)
+MERGEN_SECRET=mysecret mergen-server start
 ```
 
 ---
@@ -259,16 +251,19 @@ headers: { 'Content-Type': 'application/json', 'x-mergen-secret': 'mysecret' }
 ## Verify everything works
 
 ```bash
-# 1. Server running? Check health:
+# 1. Health check
 curl -s http://127.0.0.1:3000/health | python3 -m json.tool
 
-# 2. Ingest a test event:
+# 2. Simulate a backend error event
 curl -s -X POST http://127.0.0.1:3000/ingest \
   -H 'Content-Type: application/json' \
-  -d '{"type":"console","level":"error","args":["Mergen test"],"url":"http://test","timestamp":0}'
+  -d '{"type":"console","level":"error","args":["[api] database connection timeout after 30s"],"url":"http://api:8080","timestamp":'$(date +%s000)'}'
 
-# 3. In your AI IDE, ask: "Get recent logs"
-#    You should see the test error above.
+# 3. In your AI IDE: "triage the latest incident"
+#    Mergen calls analyze_runtime → returns root cause + fix hint
+
+# 4. Check impact report
+curl -s http://127.0.0.1:3000/incidents/impact-report | python3 -m json.tool
 ```
 
 ---
@@ -276,9 +271,19 @@ curl -s -X POST http://127.0.0.1:3000/ingest \
 ## Rebuild after changes
 
 ```bash
-# Server (TypeScript source)
 cd server && npm run build
-
-# Extension (plain JS, no build step)
-# Edit extension/src/content.js, then in chrome://extensions → reload
 ```
+
+---
+
+## Browser extension (optional)
+
+The Chrome extension adds browser-side telemetry (console logs, fetch errors,
+localStorage) to Mergen's context. Useful for full-stack debugging where you
+need to correlate frontend errors with backend spans.
+
+```
+chrome://extensions → Developer mode → Load unpacked → extension/ folder
+```
+
+This is optional — Mergen's core value is backend/infra triage, not browser debugging.

@@ -20,10 +20,81 @@ import type { BlameAttribution } from '../datadog/blame-attribution.js';
 import type { BlastRadiusReport } from '../sensor/buffer.js';
 import { memoryStore } from '../datadog/memory-store.js';
 import { recordVerdict } from './calibration.js';
+import { getRoutingForService } from './slack-routing.js';
 import logger from '../sensor/logger.js';
 
 const WEBHOOK        = process.env.MERGEN_SLACK_WEBHOOK ?? '';
 const BOT_TOKEN      = process.env.MERGEN_SLACK_BOT_TOKEN ?? '';
+const SLACK_CHANNEL  = process.env.MERGEN_SLACK_CHANNEL ?? '';
+
+// In-memory thread registry: pid → { channel, ts }
+// Lets the autonomous loop reply to the original incident thread.
+const _threadByPid = new Map<string, { channel: string; ts: string }>();
+
+export function getThread(pid: string): { channel: string; ts: string } | undefined {
+  return _threadByPid.get(pid);
+}
+
+/** Post a message via Slack Web API (chat.postMessage). Returns { ts } or null. */
+async function _postWebApi(
+  channel: string,
+  payload: Record<string, unknown>,
+  threadTs?: string,
+): Promise<{ ts: string } | null> {
+  if (!BOT_TOKEN || !channel) return null;
+  const body = JSON.stringify({ channel, thread_ts: threadTs, ...payload });
+  return new Promise((resolve) => {
+    try {
+      const req = https.request(
+        {
+          hostname: 'slack.com',
+          path: '/api/chat.postMessage',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${BOT_TOKEN}`,
+            'Content-Length': Buffer.byteLength(body),
+          },
+        },
+        (res) => {
+          let data = '';
+          res.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+          res.on('end', () => {
+            try {
+              const parsed = JSON.parse(data) as { ok: boolean; ts?: string; error?: string };
+              if (!parsed.ok) {
+                logger.warn({ error: parsed.error }, 'slack: chat.postMessage failed');
+                resolve(null);
+              } else {
+                resolve({ ts: parsed.ts ?? '' });
+              }
+            } catch { resolve(null); }
+          });
+        },
+      );
+      req.on('error', (err) => { logger.warn({ err }, 'slack: Web API request failed'); resolve(null); });
+      req.write(body);
+      req.end();
+    } catch (err) {
+      logger.warn({ err }, 'slack: failed to post via Web API');
+      resolve(null);
+    }
+  });
+}
+
+/**
+ * Post a reply to an existing Slack thread. Used by the autonomous triage loop
+ * to add progress updates to the original incident thread.
+ */
+export async function postThreadReply(pid: string, text: string): Promise<void> {
+  const thread = _threadByPid.get(pid);
+  if (!thread) {
+    logger.debug({ pid }, 'slack: no thread found for pid — cannot reply');
+    return;
+  }
+  await _postWebApi(thread.channel, { text }, thread.ts);
+}
+
 const SIGNING_SECRET = process.env.MERGEN_SLACK_SIGNING_SECRET ?? '';
 const COOLDOWN       = 5 * 60 * 1_000;
 const MIN_CONFIDENCE = 0.75;
@@ -32,9 +103,28 @@ export const isInteractive = !!BOT_TOKEN && !!SIGNING_SECRET;
 
 const _lastAlertAt = new Map<string, number>();
 
-export function shouldAlert(hyp: Hypothesis): boolean {
-  if (!WEBHOOK) return false;
-  if ((hyp.confidenceScore ?? 0) < MIN_CONFIDENCE) return false;
+/** Returns the effective webhook URL for a given service (routing rule > global env). */
+function _webhookForService(service?: string): string {
+  if (service) {
+    const rule = getRoutingForService(service);
+    if (rule?.webhook) return rule.webhook;
+  }
+  return WEBHOOK;
+}
+
+/** Returns the effective min-confidence for a service (routing rule > global default). */
+function _minConfidenceForService(service?: string): number {
+  if (service) {
+    const rule = getRoutingForService(service);
+    if (typeof rule?.minConfidence === 'number') return rule.minConfidence;
+  }
+  return MIN_CONFIDENCE;
+}
+
+export function shouldAlert(hyp: Hypothesis, service?: string): boolean {
+  const webhook = _webhookForService(service);
+  if (!webhook) return false;
+  if ((hyp.confidenceScore ?? 0) < _minConfidenceForService(service)) return false;
   const last = _lastAlertAt.get(hyp.tag) ?? 0;
   return Date.now() - last > COOLDOWN;
 }
@@ -47,10 +137,16 @@ export async function postSlackAlert(
     owners?: string[];
     environment?: string;
     dashboardUrl?: string;
+    service?: string;
   } = {},
 ): Promise<void> {
-  if (!WEBHOOK || !shouldAlert(hyp)) return;
+  const webhook = _webhookForService(context.service);
+  if (!webhook || !shouldAlert(hyp, context.service)) return;
   _lastAlertAt.set(hyp.tag, Date.now());
+
+  const routingRule = context.service ? getRoutingForService(context.service) : null;
+  const escalate = routingRule?.escalateAt != null && routingRule.oncallMention
+    && (hyp.confidenceScore ?? 0) >= routingRule.escalateAt;
 
   const pct   = Math.round((hyp.confidenceScore ?? 0) * 100);
   const color = pct >= 85 ? '#d32f2f' : '#f57c00';
@@ -85,9 +181,13 @@ export async function postSlackAlert(
         text: `*Evidence:*\n${hyp.evidence.slice(0, 3).map((e) => `• ${e}`).join('\n')}`,
       },
     }] : []),
+    ...(escalate && routingRule?.oncallMention ? [{
+      type: 'section',
+      text: { type: 'mrkdwn', text: `🚨 *Escalation:* ${routingRule.oncallMention} — confidence above threshold` },
+    }] : []),
     {
       type: 'context',
-      elements: [{ type: 'mrkdwn', text: `Detector: \`${hyp.tag}\` · Mergen` }],
+      elements: [{ type: 'mrkdwn', text: `Detector: \`${hyp.tag}\`${context.service ? ` · ${context.service}` : ''} · Mergen` }],
     },
     // Action buttons — feedback + dashboard link
     {
@@ -132,7 +232,7 @@ export async function postSlackAlert(
   ];
 
   const payload = JSON.stringify({ attachments: [{ color, blocks }] });
-  return _postWebhook(payload);
+  return _postWebhook(payload, webhook);
 }
 
 // ── Incident alert ────────────────────────────────────────────────────────────
@@ -145,12 +245,16 @@ export async function postIncidentAlert(opts: {
   service: string;
   firedAt: number;
   incidentId?: number | null;
+  pid?: string | null;
   pdUrl?: string | null;
   blame: BlameAttribution | null;
   blastRadius?: BlastRadiusReport | null;
   dashboardUrl?: string;
 }): Promise<void> {
-  if (!WEBHOOK) return;
+  const webhook = _webhookForService(opts.service);
+  const channel = getRoutingForService(opts.service)?.channel ?? SLACK_CHANNEL;
+  if (!webhook && !(BOT_TOKEN && channel)) return;
+  const routingRule = getRoutingForService(opts.service);
 
   const { alertTitle, service, firedAt, incidentId, pdUrl, blame, blastRadius, dashboardUrl } = opts;
   const ageMin  = Math.round((Date.now() - firedAt) / 60_000);
@@ -271,6 +375,14 @@ export async function postIncidentAlert(opts: {
     blocks.push({ type: 'actions', elements: actions });
   }
 
+  // Escalation mention for high-confidence incidents
+  if (routingRule?.escalateAt != null && routingRule.oncallMention) {
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn', text: `🚨 ${routingRule.oncallMention} — production incident requires attention` },
+    });
+  }
+
   blocks.push({
     type: 'context',
     elements: [{ type: 'mrkdwn', text: `Mergen · ${service} · <${dashboardUrl ?? 'http://127.0.0.1:3000'}/dashboard|Dashboard>` }],
@@ -279,7 +391,18 @@ export async function postIncidentAlert(opts: {
   const color = blame?.confidenceLabel === 'HIGH' ? '#d32f2f' :
                 blame?.confidenceLabel === 'MEDIUM' ? '#f57c00' : '#64748b';
 
-  return _postWebhook(JSON.stringify({ attachments: [{ color, blocks }] }));
+  // Prefer Web API (chat.postMessage) when BOT_TOKEN is configured so we own
+  // the thread and can post autonomous triage progress as replies.
+  if (BOT_TOKEN && channel) {
+    const result = await _postWebApi(channel, { attachments: [{ color, blocks }] });
+    if (result?.ts && opts.pid) {
+      _threadByPid.set(opts.pid, { channel, ts: result.ts });
+      logger.info({ pid: opts.pid, ts: result.ts, channel }, 'slack: thread registered for autonomous replies');
+    }
+    return;
+  }
+
+  return _postWebhook(JSON.stringify({ attachments: [{ color, blocks }] }), webhook);
 }
 
 function _fmtDuration(ms: number): string {
@@ -288,10 +411,10 @@ function _fmtDuration(ms: number): string {
   return `${(ms / 3_600_000).toFixed(1)}h`;
 }
 
-function _postWebhook(payload: string): Promise<void> {
+function _postWebhook(payload: string, webhookUrl: string = WEBHOOK): Promise<void> {
   return new Promise((resolve) => {
     try {
-      const url = new URL(WEBHOOK);
+      const url = new URL(webhookUrl);
       const req = https.request(
         { hostname: url.hostname, path: url.pathname + url.search, method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } },

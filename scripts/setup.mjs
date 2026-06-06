@@ -309,7 +309,11 @@ exit 0
   console.log(`Hook location: ${hookPath}\n`);
 }
 
-console.log('\nMergen Setup');
+console.log('\n' + '═'.repeat(60));
+console.log('  Mergen — AI Operations Layer for Backend & Infrastructure');
+console.log('═'.repeat(60));
+console.log('\n  Triages production incidents autonomously.');
+console.log('  PagerDuty → diagnose → fix → validate → Slack thread reply.\n');
 console.log('Server entry:', SERVER_ENTRY);
 console.log('\nWhich IDE do you want to configure?\n');
 IDES.forEach(({ key, label }) => console.log(`  ${key}) ${label}`));
@@ -348,12 +352,24 @@ if (ideKeysChosen.length > 0) {
   }
 }
 
+// ── SRE integrations ─────────────────────────────────────────────────────────
+hr();
+console.log('Backend integrations (set these env vars before starting):\n');
+console.log('  PagerDuty webhook URL → https://your-server:3000/webhooks/pagerduty');
+console.log('  OpenTelemetry        → OTEL_EXPORTER_OTLP_ENDPOINT=http://your-server:3000');
+console.log('  Slack bot token      → MERGEN_SLACK_BOT_TOKEN=xoxb-...');
+console.log('  Slack channel        → MERGEN_SLACK_CHANNEL=#incidents');
+console.log('  Autonomous triage    → MERGEN_AUTOPILOT=true');
+console.log('\nImpact report (after first incidents):\n');
+console.log('  curl http://127.0.0.1:3000/incidents/impact-report\n');
+
 rl.close();
 
 hr();
-console.log('Next: load the Chrome extension\n');
-console.log('  1. Open chrome://extensions');
-console.log('  2. Enable Developer mode');
-console.log('  3. Load unpacked → select the extension/ folder\n');
-console.log('Then start the Mergen server:\n');
+console.log('Start the Mergen server:\n');
 console.log(`  cd "${REPO_ROOT}/server" && npm start\n`);
+console.log('In your AI IDE, ask:');
+console.log('  "Triage the latest incident"');
+console.log('  "What caused the last 3 backend errors?"\n');
+console.log('Optional — browser extension (for frontend correlation):');
+console.log('  chrome://extensions → Developer mode → Load unpacked → extension/\n');

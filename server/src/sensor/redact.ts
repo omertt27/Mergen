@@ -48,24 +48,68 @@ export function reloadRedactKeys(): void {
   _keys = loadKeys();
 }
 
+/** Re-read ~/.mergen/pii-config.json — for tests and future SIGHUP support. */
+export function reloadPiiConfig(): void {
+  loadPiiConfig();
+}
+
 const REDACTED = '[REDACTED]';
 const MAX_DEPTH = 8;
 
 // Value patterns — always-on
-const RE_JWT     = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g;
-const RE_BEARER  = /\bBearer\s+[A-Za-z0-9._\-+/=]{8,}\b/gi;
-const RE_EMAIL   = /\b[\w.+-]+@[\w-]+\.[\w.-]+\b/g;
-const RE_CARD    = /\b(?:\d[ -]?){13,19}\b/g;
+const RE_JWT      = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g;
+const RE_BEARER   = /\bBearer\s+[A-Za-z0-9._\-+/=]{8,}\b/gi;
+const RE_EMAIL    = /\b[\w.+-]+@[\w-]+\.[\w.-]+\b/g;
+const RE_CARD     = /\b(?:\d[ -]?){13,19}\b/g;
+// Phone: US/international formats — narrow enough to avoid false-positives on version numbers
+const RE_PHONE    = /\b(\+?1[\s.-]?)?\(?[2-9]\d{2}\)?[\s.-]?\d{3}[\s.-]\d{4}\b/g;
+// AWS access key IDs — always 20 uppercase alphanumeric starting with AKIA/AROA/ASIA/AIDA/ANPA/ANVA/APKA
+const RE_AWS_KEY  = /\b(AKIA|AROA|ASIA|AIDA|ANPA|ANVA|APKA)[0-9A-Z]{16}\b/g;
+// PEM private key headers — strip entire key value
+const RE_PEM      = /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----/g;
+
+// ── File-based PII config ─────────────────────────────────────────────────────
+// ~/.mergen/pii-config.json can add { "patterns": ["/regex/flags"] } entries.
+// Loaded once at startup; send SIGHUP or restart to reload.
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+
+const PII_CONFIG_FILE = path.join(os.homedir(), '.mergen', 'pii-config.json');
+let _customPatterns: RegExp[] = [];
+
+function loadPiiConfig(): void {
+  if (!fs.existsSync(PII_CONFIG_FILE)) return;
+  try {
+    const raw = JSON.parse(fs.readFileSync(PII_CONFIG_FILE, 'utf8')) as { patterns?: string[] };
+    _customPatterns = (raw.patterns ?? []).flatMap((p) => {
+      try {
+        const m = p.match(/^\/(.*)\/([gimsuy]*)$/);
+        return m ? [new RegExp(m[1], m[2])] : [];
+      } catch { return []; }
+    });
+  } catch { /* ignore */ }
+}
+
+loadPiiConfig();
 
 function redactString(s: string): string {
   // Fully redact strings that are far beyond any legitimate field length — PII
   // patterns inside a multi-MB blob aren't useful to the LLM anyway.
   if (s.length > 100_000) return REDACTED;
-  return s
+  let out = s
+    .replace(RE_PEM, REDACTED)
     .replace(RE_JWT, REDACTED)
     .replace(RE_BEARER, `Bearer ${REDACTED}`)
+    .replace(RE_AWS_KEY, REDACTED)
     .replace(RE_EMAIL, REDACTED)
-    .replace(RE_CARD, REDACTED);
+    .replace(RE_CARD, REDACTED)
+    .replace(RE_PHONE, REDACTED);
+  for (const re of _customPatterns) {
+    re.lastIndex = 0;
+    out = out.replace(re, REDACTED);
+  }
+  return out;
 }
 
 function isSensitiveKey(key: string): boolean {

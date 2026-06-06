@@ -313,40 +313,49 @@ export interface LocalStorageDiff {
   changed: Set<string>;
 }
 
+// ── Tenant context ────────────────────────────────────────────────────────────
+// In cloud mode (MERGEN_CLOUD_MODE=true) each dedicated server instance sets
+// MERGEN_DEFAULT_TENANT_ID so MCP tools (which have no HTTP context) still
+// query the correct tenant's events. HTTP routes pass req.tenantId explicitly.
+export function getDefaultTenantId(): string | undefined {
+  return process.env.MERGEN_DEFAULT_TENANT_ID ?? undefined;
+}
+
 export interface BufferStore {
-  push(event: BrowserEvent): void;
-  getLogs(limit?: number, level?: LogLevel, since?: number): ConsoleEvent[];
-  getNetwork(limit?: number, statusFilter?: number, since?: number): NetworkEvent[];
+  /** Tag the event with tenantId for cloud-mode isolation. Undefined = local mode (no filtering). */
+  push(event: BrowserEvent, tenantId?: string): void;
+  getLogs(limit?: number, level?: LogLevel, since?: number, tenantId?: string): ConsoleEvent[];
+  getNetwork(limit?: number, statusFilter?: number, since?: number, tenantId?: string): NetworkEvent[];
   /** Aggregate blast radius for matching errors in the time window. */
-  getBlastRadius(opts?: { since?: number; errorPattern?: string }): BlastRadiusReport;
-  getContext(limit?: number, since?: number): ContextSnapshot[];
-  getWebSockets(limit?: number, connectionUrl?: string, since?: number): WebSocketEvent[];
+  getBlastRadius(opts?: { since?: number; errorPattern?: string; tenantId?: string }): BlastRadiusReport;
+  getContext(limit?: number, since?: number, tenantId?: string): ContextSnapshot[];
+  getWebSockets(limit?: number, connectionUrl?: string, since?: number, tenantId?: string): WebSocketEvent[];
   /** Count of distinct WebSocket connections in the buffer — used by /health. */
-  getWebSocketCount(): number;
-  getSSE(limit?: number, connectionUrl?: string, since?: number): SSEEvent[];
-  getDiagnostics(limit?: number, severity?: DiagnosticEvent['severity'], since?: number): DiagnosticEvent[];
-  getTerminalOutput(limit?: number, terminalName?: string, since?: number): TerminalOutputEvent[];
-  getTestResults(limit?: number, status?: TestResultEvent['status'], since?: number): TestResultEvent[];
-  getProcessExits(limit?: number, reason?: ProcessExitEvent['reason'], since?: number): ProcessExitEvent[];
-  getCIEvents(limit?: number, status?: CIEvent['status'], since?: number): CIEvent[];
-  getDeployments(limit?: number, environment?: string, since?: number): DeploymentEvent[];
-  getBackendSpans(limit?: number, service?: string, since?: number): BackendSpanEvent[];
+  getWebSocketCount(tenantId?: string): number;
+  getSSE(limit?: number, connectionUrl?: string, since?: number, tenantId?: string): SSEEvent[];
+  getDiagnostics(limit?: number, severity?: DiagnosticEvent['severity'], since?: number, tenantId?: string): DiagnosticEvent[];
+  getTerminalOutput(limit?: number, terminalName?: string, since?: number, tenantId?: string): TerminalOutputEvent[];
+  getTestResults(limit?: number, status?: TestResultEvent['status'], since?: number, tenantId?: string): TestResultEvent[];
+  getProcessExits(limit?: number, reason?: ProcessExitEvent['reason'], since?: number, tenantId?: string): ProcessExitEvent[];
+  getCIEvents(limit?: number, status?: CIEvent['status'], since?: number, tenantId?: string): CIEvent[];
+  getDeployments(limit?: number, environment?: string, since?: number, tenantId?: string): DeploymentEvent[];
+  getBackendSpans(limit?: number, service?: string, since?: number, tenantId?: string): BackendSpanEvent[];
   /** Lightweight pattern scan — no credit cost. Used by /health and quick_check. */
-  getSignals(): SessionSignal[];
+  getSignals(tenantId?: string): SessionSignal[];
   /** O(1) counters for health endpoint — no iteration needed. */
-  getCounters(): BufferCounters;
+  getCounters(tenantId?: string): BufferCounters;
   /** Returns localStorage with changed keys since last snapshot for this URL */
   getLocalStorageDiff(current: Record<string, string>, url: string): LocalStorageDiff;
-  clear(): void;
-  size(): number;
+  clear(tenantId?: string): void;
+  size(tenantId?: string): number;
   /** Unix ms timestamp of the most recent event pushed, or null if empty. */
-  lastEventAt(): number | null;
+  lastEventAt(tenantId?: string): number | null;
   /** Unix ms timestamp of the most recent clear(), or null if never cleared. */
   clearedAt(): number | null;
   /** Return all events in insertion order. Used for session persistence. */
-  serialize(): BrowserEvent[];
+  serialize(tenantId?: string): BrowserEvent[];
   /** Bulk-load events (e.g. from a persisted session). Calls push() for each. */
-  rehydrate(events: BrowserEvent[]): void;
+  rehydrate(events: BrowserEvent[], tenantId?: string): void;
 }
 
 // ── Plan-aware read limit ─────────────────────────────────────────────────────
@@ -404,7 +413,8 @@ class RingBuffer implements BufferStore {
     }
   }
 
-  push(event: BrowserEvent): void {
+  push(event: BrowserEvent, tenantId?: string): void {
+    if (tenantId !== undefined) (event as any)._tenantId = tenantId;
     this._lastEventAt = event.timestamp;
     if (this._count < MAX_SIZE) {
       // Buffer has space — append normally
@@ -444,8 +454,21 @@ class RingBuffer implements BufferStore {
     }
   }
 
-  getCounters(): BufferCounters {
-    return { errors: this._errors, warnings: this._warnings, networkErrors: this._networkErrors };
+  getCounters(tenantId?: string): BufferCounters {
+    if (tenantId === undefined) {
+      return { errors: this._errors, warnings: this._warnings, networkErrors: this._networkErrors };
+    }
+    let errors = 0, warnings = 0, networkErrors = 0;
+    for (const e of this._iterate()) {
+      if ((e as any)._tenantId !== tenantId) continue;
+      if (e.type === 'console') {
+        if (e.level === 'error') errors++;
+        else if (e.level === 'warn') warnings++;
+      } else if (e.type === 'network' && (e.status >= 400 || e.status === 0 || e.error)) {
+        networkErrors++;
+      }
+    }
+    return { errors, warnings, networkErrors };
   }
 
   private *_iterate(): Iterable<BrowserEvent> {
@@ -454,11 +477,12 @@ class RingBuffer implements BufferStore {
     }
   }
 
-  getLogs(limit = 50, level?: LogLevel, since?: number): ConsoleEvent[] {
+  getLogs(limit = 50, level?: LogLevel, since?: number, tenantId?: string): ConsoleEvent[] {
     const cap = Math.min(limit, _getEffectiveBufferSize());
     const results: ConsoleEvent[] = [];
     for (const e of this._iterate()) {
       if (e.type !== 'console') continue;
+      if (tenantId !== undefined && (e as any)._tenantId !== tenantId) continue;
       if (level && e.level !== level) continue;
       if (since !== undefined && e.timestamp < since) continue;
       results.push(e);
@@ -466,11 +490,12 @@ class RingBuffer implements BufferStore {
     return results.slice(-cap);
   }
 
-  getNetwork(limit = 50, statusFilter?: number, since?: number): NetworkEvent[] {
+  getNetwork(limit = 50, statusFilter?: number, since?: number, tenantId?: string): NetworkEvent[] {
     const cap = Math.min(limit, _getEffectiveBufferSize());
     const results: NetworkEvent[] = [];
     for (const e of this._iterate()) {
       if (e.type !== 'network') continue;
+      if (tenantId !== undefined && (e as any)._tenantId !== tenantId) continue;
       if (statusFilter !== undefined && e.status !== statusFilter) continue;
       if (since !== undefined && e.timestamp < since) continue;
       results.push(e);
@@ -478,22 +503,24 @@ class RingBuffer implements BufferStore {
     return results.slice(-cap);
   }
 
-  getContext(limit = 10, since?: number): ContextSnapshot[] {
+  getContext(limit = 10, since?: number, tenantId?: string): ContextSnapshot[] {
     const cap = Math.min(limit, _getEffectiveBufferSize());
     const results: ContextSnapshot[] = [];
     for (const e of this._iterate()) {
       if (e.type !== 'context') continue;
+      if (tenantId !== undefined && (e as any)._tenantId !== tenantId) continue;
       if (since !== undefined && e.timestamp < since) continue;
       results.push(e);
     }
     return results.slice(-cap);
   }
 
-  getWebSockets(limit = 50, connectionUrl?: string, since?: number): WebSocketEvent[] {
+  getWebSockets(limit = 50, connectionUrl?: string, since?: number, tenantId?: string): WebSocketEvent[] {
     const cap = Math.min(limit, _getEffectiveBufferSize());
     const results: WebSocketEvent[] = [];
     for (const e of this._iterate()) {
       if (e.type !== 'websocket') continue;
+      if (tenantId !== undefined && (e as any)._tenantId !== tenantId) continue;
       if (connectionUrl && !e.url.includes(connectionUrl)) continue;
       if (since !== undefined && e.timestamp < since) continue;
       results.push(e);
@@ -501,19 +528,22 @@ class RingBuffer implements BufferStore {
     return results.slice(-cap);
   }
 
-  getWebSocketCount(): number {
+  getWebSocketCount(tenantId?: string): number {
     let count = 0;
     for (const e of this._iterate()) {
-      if (e.type === 'websocket') count++;
+      if (e.type !== 'websocket') continue;
+      if (tenantId !== undefined && (e as any)._tenantId !== tenantId) continue;
+      count++;
     }
     return count;
   }
 
-  getSSE(limit = 50, connectionUrl?: string, since?: number): SSEEvent[] {
+  getSSE(limit = 50, connectionUrl?: string, since?: number, tenantId?: string): SSEEvent[] {
     const cap = Math.min(limit, _getEffectiveBufferSize());
     const results: SSEEvent[] = [];
     for (const e of this._iterate()) {
       if (e.type !== 'sse') continue;
+      if (tenantId !== undefined && (e as any)._tenantId !== tenantId) continue;
       if (connectionUrl && !e.url.includes(connectionUrl)) continue;
       if (since !== undefined && e.timestamp < since) continue;
       results.push(e);
@@ -521,11 +551,12 @@ class RingBuffer implements BufferStore {
     return results.slice(-cap);
   }
 
-  getDiagnostics(limit = 50, severity?: DiagnosticEvent['severity'], since?: number): DiagnosticEvent[] {
+  getDiagnostics(limit = 50, severity?: DiagnosticEvent['severity'], since?: number, tenantId?: string): DiagnosticEvent[] {
     const cap = Math.min(limit, _getEffectiveBufferSize());
     const results: DiagnosticEvent[] = [];
     for (const e of this._iterate()) {
       if (e.type !== 'diagnostic') continue;
+      if (tenantId !== undefined && (e as any)._tenantId !== tenantId) continue;
       if (severity && e.severity !== severity) continue;
       if (since !== undefined && e.timestamp < since) continue;
       results.push(e);
@@ -533,11 +564,12 @@ class RingBuffer implements BufferStore {
     return results.slice(-cap);
   }
 
-  getTerminalOutput(limit = 50, terminalName?: string, since?: number): TerminalOutputEvent[] {
+  getTerminalOutput(limit = 50, terminalName?: string, since?: number, tenantId?: string): TerminalOutputEvent[] {
     const cap = Math.min(limit, _getEffectiveBufferSize());
     const results: TerminalOutputEvent[] = [];
     for (const e of this._iterate()) {
       if (e.type !== 'terminal') continue;
+      if (tenantId !== undefined && (e as any)._tenantId !== tenantId) continue;
       if (terminalName && e.terminalName !== terminalName) continue;
       if (since !== undefined && e.timestamp < since) continue;
       results.push(e);
@@ -545,11 +577,12 @@ class RingBuffer implements BufferStore {
     return results.slice(-cap);
   }
 
-  getTestResults(limit = 50, status?: TestResultEvent['status'], since?: number): TestResultEvent[] {
+  getTestResults(limit = 50, status?: TestResultEvent['status'], since?: number, tenantId?: string): TestResultEvent[] {
     const cap = Math.min(limit, _getEffectiveBufferSize());
     const results: TestResultEvent[] = [];
     for (const e of this._iterate()) {
       if (e.type !== 'test_result') continue;
+      if (tenantId !== undefined && (e as any)._tenantId !== tenantId) continue;
       if (status && e.status !== status) continue;
       if (since !== undefined && e.timestamp < since) continue;
       results.push(e);
@@ -557,11 +590,12 @@ class RingBuffer implements BufferStore {
     return results.slice(-cap);
   }
 
-  getProcessExits(limit = 50, reason?: ProcessExitEvent['reason'], since?: number): ProcessExitEvent[] {
+  getProcessExits(limit = 50, reason?: ProcessExitEvent['reason'], since?: number, tenantId?: string): ProcessExitEvent[] {
     const cap = Math.min(limit, _getEffectiveBufferSize());
     const results: ProcessExitEvent[] = [];
     for (const e of this._iterate()) {
       if (e.type !== 'process_exit') continue;
+      if (tenantId !== undefined && (e as any)._tenantId !== tenantId) continue;
       if (reason && e.reason !== reason) continue;
       if (since !== undefined && e.timestamp < since) continue;
       results.push(e);
@@ -569,11 +603,12 @@ class RingBuffer implements BufferStore {
     return results.slice(-cap);
   }
 
-  getCIEvents(limit = 50, status?: CIEvent['status'], since?: number): CIEvent[] {
+  getCIEvents(limit = 50, status?: CIEvent['status'], since?: number, tenantId?: string): CIEvent[] {
     const cap = Math.min(limit, _getEffectiveBufferSize());
     const results: CIEvent[] = [];
     for (const e of this._iterate()) {
       if (e.type !== 'ci') continue;
+      if (tenantId !== undefined && (e as any)._tenantId !== tenantId) continue;
       if (status && e.status !== status) continue;
       if (since !== undefined && e.timestamp < since) continue;
       results.push(e);
@@ -581,11 +616,12 @@ class RingBuffer implements BufferStore {
     return results.slice(-cap);
   }
 
-  getDeployments(limit = 50, environment?: string, since?: number): DeploymentEvent[] {
+  getDeployments(limit = 50, environment?: string, since?: number, tenantId?: string): DeploymentEvent[] {
     const cap = Math.min(limit, _getEffectiveBufferSize());
     const results: DeploymentEvent[] = [];
     for (const e of this._iterate()) {
       if (e.type !== 'deployment') continue;
+      if (tenantId !== undefined && (e as any)._tenantId !== tenantId) continue;
       if (environment && e.environment !== environment) continue;
       if (since !== undefined && e.timestamp < since) continue;
       results.push(e);
@@ -593,11 +629,12 @@ class RingBuffer implements BufferStore {
     return results.slice(-cap);
   }
 
-  getBackendSpans(limit = 50, service?: string, since?: number): BackendSpanEvent[] {
+  getBackendSpans(limit = 50, service?: string, since?: number, tenantId?: string): BackendSpanEvent[] {
     const cap = Math.min(limit, _getEffectiveBufferSize());
     const results: BackendSpanEvent[] = [];
     for (const e of this._iterate()) {
       if (e.type !== 'backend_span') continue;
+      if (tenantId !== undefined && (e as any)._tenantId !== tenantId) continue;
       if (service && e.service !== service) continue;
       if (since !== undefined && e.timestamp < since) continue;
       results.push(e);
@@ -605,8 +642,8 @@ class RingBuffer implements BufferStore {
     return results.slice(-cap);
   }
 
-  getBlastRadius(opts: { since?: number; errorPattern?: string } = {}): BlastRadiusReport {
-    const { since, errorPattern } = opts;
+  getBlastRadius(opts: { since?: number; errorPattern?: string; tenantId?: string } = {}): BlastRadiusReport {
+    const { since, errorPattern, tenantId } = opts;
     const patternRe = errorPattern ? new RegExp(errorPattern, 'i') : null;
 
     const sessions = new Set<string>();
@@ -622,6 +659,7 @@ class RingBuffer implements BufferStore {
 
     for (const e of this._iterate()) {
       if (e.type !== 'console' || e.level !== 'error') continue;
+      if (tenantId !== undefined && (e as any)._tenantId !== tenantId) continue;
       if (since !== undefined && e.timestamp < since) continue;
 
       if (patternRe) {
@@ -732,11 +770,11 @@ class RingBuffer implements BufferStore {
     return { full: current, changed };
   }
 
-  getSignals(): SessionSignal[] {
+  getSignals(tenantId?: string): SessionSignal[] {
     const candidates: SessionSignal[] = [];
-    const logs     = this.getLogs(200);
-    const network  = this.getNetwork(200);
-    const contexts = this.getContext(20);
+    const logs     = this.getLogs(200, undefined, undefined, tenantId);
+    const network  = this.getNetwork(200, undefined, undefined, tenantId);
+    const contexts = this.getContext(20, undefined, tenantId);
 
     // Latest storage snapshot — used by cross-correlation detectors below.
     const latestCtx = contexts.length > 0
@@ -913,19 +951,31 @@ class RingBuffer implements BufferStore {
       });
   }
 
-  size(): number {
-    return this._count;
+  size(tenantId?: string): number {
+    if (tenantId === undefined) return this._count;
+    let n = 0;
+    for (const e of this._iterate()) { if ((e as any)._tenantId === tenantId) n++; }
+    return n;
   }
 
-  serialize(): BrowserEvent[] {
-    return Array.from(this._iterate());
+  serialize(tenantId?: string): BrowserEvent[] {
+    if (tenantId === undefined) return Array.from(this._iterate());
+    return Array.from(this._iterate()).filter((e) => (e as any)._tenantId === tenantId);
   }
 
-  rehydrate(events: BrowserEvent[]): void {
-    for (const event of events) this.push(event);
+  rehydrate(events: BrowserEvent[], tenantId?: string): void {
+    for (const event of events) this.push(event, tenantId);
   }
 
-  lastEventAt(): number | null { return this._lastEventAt; }
+  lastEventAt(tenantId?: string): number | null {
+    if (tenantId === undefined) return this._lastEventAt;
+    let last: number | null = null;
+    for (const e of this._iterate()) {
+      if ((e as any)._tenantId !== tenantId) continue;
+      if (last === null || e.timestamp > last) last = e.timestamp;
+    }
+    return last;
+  }
   clearedAt(): number | null { return this._clearedAt; }
 }
 

@@ -1,4 +1,5 @@
 import { Request, Response, Router } from 'express';
+import type {} from './cloud-auth.js';
 import { store, BrowserEventSchema, type BrowserEvent } from './buffer.js';
 import { resolveFrameAndStack } from './sourcemap.js';
 import { redact } from './redact.js';
@@ -295,21 +296,21 @@ ingestRouter.post('/ingest', (req: Request, res: Response): void => {
           stack: resolvedStack,
           ...(primaryFrame?.gitSuspect ? { gitSuspect: primaryFrame.gitSuspect } : {}),
         };
-        store.push(resolved_event);
+        store.push(resolved_event, req.tenantId);
         historyStore.push(resolved_event);
         maybeTeamBroadcast(resolved_event);
         exportToOtel(resolved_event);
       })
       .catch((err) => {
         logger.warn({ err }, 'sourcemap resolution failed or timed out, storing raw event');
-        store.push(event);
+        store.push(event, req.tenantId);
         historyStore.push(event);
         maybeTeamBroadcast(event);
         exportToOtel(event);
       })
       .finally(triggerActivity);
   } else {
-    store.push(event);
+    store.push(event, req.tenantId);
     historyStore.push(event);
     maybeTeamBroadcast(event);
     exportToOtel(event);

@@ -14,6 +14,8 @@
  */
 import fs from 'fs';
 import net from 'net';
+import http from 'http';
+import https from 'https';
 import { randomUUID } from 'crypto';
 import { createRequire } from 'module';
 import type { Server as HttpServer } from 'http';
@@ -121,12 +123,35 @@ async function main(): Promise<void> {
   // to all connected SSE peers that share the same team token.
   registerTeamBroadcaster(broadcastToTeam);
 
-  // ── HTTP server ────────────────────────────────────────────────────────────
+  // ── HTTP / HTTPS server ────────────────────────────────────────────────────
+  // Set MERGEN_TLS_CERT and MERGEN_TLS_KEY env vars to paths of PEM files to
+  // enable HTTPS. Required for cloud ingest (MERGEN_CLOUD_MODE=true) when
+  // receiving events from remote services over the internet.
   const port = await findPort(PORT_RANGE_START, PORT_RANGE_END);
   const app = createApp({ serverVersion: SERVER_VERSION, localSecret, port, bindHost: BIND_HOST });
-  const httpServer: HttpServer = app.listen(port, BIND_HOST, () => {
-    logger.info({ port, host: BIND_HOST }, `HTTP ingest listening on http://${BIND_HOST}:${port}`);
-  });
+
+  const tlsCert = process.env.MERGEN_TLS_CERT;
+  const tlsKey  = process.env.MERGEN_TLS_KEY;
+
+  let httpServer: HttpServer;
+  if (tlsCert && tlsKey) {
+    try {
+      const cert = fs.readFileSync(tlsCert);
+      const key  = fs.readFileSync(tlsKey);
+      httpServer = https.createServer({ cert, key }, app).listen(port, BIND_HOST, () => {
+        logger.info({ port, host: BIND_HOST }, `HTTPS ingest listening on https://${BIND_HOST}:${port}`);
+      });
+    } catch (err) {
+      logger.error({ err }, 'TLS: failed to read cert/key files — falling back to HTTP');
+      httpServer = http.createServer(app).listen(port, BIND_HOST, () => {
+        logger.info({ port, host: BIND_HOST }, `HTTP ingest listening on http://${BIND_HOST}:${port}`);
+      });
+    }
+  } else {
+    httpServer = app.listen(port, BIND_HOST, () => {
+      logger.info({ port, host: BIND_HOST }, `HTTP ingest listening on http://${BIND_HOST}:${port}`);
+    });
+  }
 
   // ── OTLP HTTP receiver on standard port 4318 ──────────────────────────────
   // Any OpenTelemetry SDK can point OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318

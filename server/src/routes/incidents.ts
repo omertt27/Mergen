@@ -153,6 +153,51 @@ export function createIncidentsRouter(): Router {
     res.json({ ok: true });
   });
 
+  // ── MTTR Impact Report ────────────────────────────────────────────────────────
+  // Board-deck metric: how many incidents resolved, how many autonomously, avg MTTR.
+  // Designed to be called by any dashboard or reporting tool.
+  router.get('/incidents/impact-report', (_req, res) => {
+    const all = incidentStore.list(undefined, 500);
+    const resolved = all.filter((i) => i.status === 'resolved' && i.resolvedAt !== null);
+
+    const autonomousCount = resolved.filter((i) => i.resolvedAutonomously).length;
+    const manualCount     = resolved.length - autonomousCount;
+
+    const mttrMs = (incidents: typeof resolved): number | null => {
+      if (incidents.length === 0) return null;
+      const valid = incidents.filter((i) => i.resolvedAt !== null && i.createdAt > 0);
+      if (valid.length === 0) return null;
+      const total = valid.reduce((sum, i) => sum + (i.resolvedAt! - i.createdAt), 0);
+      return Math.round(total / valid.length);
+    };
+
+    const autonomousIncidents = resolved.filter((i) => i.resolvedAutonomously);
+    const manualIncidents     = resolved.filter((i) => !i.resolvedAutonomously);
+
+    res.json({
+      ok: true,
+      totalResolved: resolved.length,
+      autonomousResolutions: autonomousCount,
+      manualResolutions: manualCount,
+      autonomousRate: resolved.length > 0 ? Math.round((autonomousCount / resolved.length) * 100) : 0,
+      mttr: {
+        overallMs: mttrMs(resolved),
+        autonomousMs: mttrMs(autonomousIncidents),
+        manualMs: mttrMs(manualIncidents),
+      },
+      recentResolutions: resolved
+        .sort((a, b) => (b.resolvedAt ?? 0) - (a.resolvedAt ?? 0))
+        .slice(0, 10)
+        .map((i) => ({
+          pid: i.pid,
+          tag: i.tag,
+          resolvedAt: i.resolvedAt,
+          resolvedAutonomously: i.resolvedAutonomously,
+          mttrMs: i.resolvedAt && i.createdAt ? i.resolvedAt - i.createdAt : null,
+        })),
+    });
+  });
+
   // ── Add note ──────────────────────────────────────────────────────────────────
   router.post('/incidents/:pid/note', (req, res) => {
     const { text, author } = (req.body ?? {}) as { text?: string; author?: string };

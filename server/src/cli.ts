@@ -969,20 +969,59 @@ async function doctorCommand(): Promise<void> {
       : { ok: false, detail: 'no IDE configured', fix: 'mergen-server setup' };
   });
 
-  await runCheck('Browser extension (events)', async () => {
+  await runCheck('Telemetry receiving', async () => {
     for (let port = 3000; port <= 3010; port++) {
       try {
         const r = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(800) });
         if (!r.ok) continue;
-        const d = await r.json() as { lastEventAt?: number | null };
+        const d = await r.json() as { lastEventAt?: number | null; buffered?: number };
         const lastMs = d.lastEventAt;
         if (lastMs && Date.now() - lastMs < 24 * 60 * 60 * 1000) {
-          return { ok: true, detail: `event received ${Math.round((Date.now() - lastMs) / 1000)}s ago` };
+          return { ok: true, detail: `${d.buffered ?? 0} events buffered — last received ${Math.round((Date.now() - lastMs) / 1000)}s ago` };
         }
-        return { ok: false, warn: true, detail: 'no events received in last 24h', fix: 'open your app in the browser tab with the Mergen extension active, or paste sdk/devtools-snippet.js into DevTools console' };
+        return { ok: false, warn: true, detail: 'no telemetry in the last 24h', fix: 'point your OTLP exporter at http://127.0.0.1:3000 — or run: mergen-server demo' };
       } catch { /* try next */ }
     }
-    return { ok: false, warn: true, detail: 'server not reachable — skipping extension check', fix: 'start the server first' };
+    return { ok: false, warn: true, detail: 'server not reachable — skipping telemetry check', fix: 'start the server first' };
+  });
+
+  await runCheck('Slack integration', async () => {
+    const token = process.env.MERGEN_SLACK_BOT_TOKEN;
+    const channel = process.env.MERGEN_SLACK_CHANNEL;
+    if (!token) return { ok: false, warn: true, detail: 'MERGEN_SLACK_BOT_TOKEN not set', fix: 'set MERGEN_SLACK_BOT_TOKEN=xoxb-... for autonomous incident thread replies' };
+    if (!channel) return { ok: false, warn: true, detail: 'MERGEN_SLACK_CHANNEL not set', fix: 'set MERGEN_SLACK_CHANNEL=#incidents' };
+    try {
+      const r = await fetch('https://slack.com/api/auth.test', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(3000),
+      });
+      const d = await r.json() as { ok: boolean; team?: string; error?: string };
+      return d.ok
+        ? { ok: true, detail: `connected — workspace: ${d.team ?? 'unknown'}, channel: ${channel}` }
+        : { ok: false, warn: true, detail: `Slack auth failed: ${d.error}`, fix: 'check MERGEN_SLACK_BOT_TOKEN — needs chat:write scope' };
+    } catch {
+      return { ok: false, warn: true, detail: 'could not reach Slack API', fix: 'check network connectivity' };
+    }
+  });
+
+  await runCheck('PagerDuty webhook', async () => {
+    for (let port = 3000; port <= 3010; port++) {
+      try {
+        const r = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(800) });
+        if (r.ok) {
+          return { ok: true, warn: true, detail: `webhook URL: http://your-server:${port}/webhooks/pagerduty`, fix: 'copy this URL into PagerDuty: Services → Integrations → Webhooks' };
+        }
+      } catch { /* try next */ }
+    }
+    return { ok: false, warn: true, detail: 'server not reachable', fix: 'start the server first' };
+  });
+
+  await runCheck('Autopilot', async () => {
+    const enabled = process.env.MERGEN_AUTOPILOT === 'true';
+    return enabled
+      ? { ok: true,  detail: 'MERGEN_AUTOPILOT=true — autonomous execution enabled at ≥85% confidence' }
+      : { ok: false, warn: true, detail: 'MERGEN_AUTOPILOT not set — diagnosis-only mode', fix: 'set MERGEN_AUTOPILOT=true to enable autonomous fix execution' };
   });
 
   hr();
@@ -1531,11 +1570,14 @@ async function demoCommand(): Promise<void> {
   console.log(`\n✓ Server running at http://localhost:${port}`);
   console.log(`\n→ Opening demo: ${url}\n`);
   console.log('────────────────────────────────────────');
-  console.log('No Chrome extension needed.');
-  console.log('@mergen/browser is already active on the demo page.');
-  console.log('Click "Run demo" in the browser, then ask your AI:');
-  console.log('  get_unified_timeline');
-  console.log('  analyze_runtime');
+  console.log('Backend P1 incident demo (primary):');
+  console.log('  Click "Trigger P1 Incident" — injects a PostgreSQL pool');
+  console.log('  exhaustion cascade and runs the autonomous triage loop.');
+  console.log('  In your AI IDE ask: triage_incident');
+  console.log('');
+  console.log('Frontend trace join demo (tab 2):');
+  console.log('  JWT expiry — browser↔backend EXACT traceId join.');
+  console.log('  In your AI IDE ask: get_unified_timeline');
   console.log('────────────────────────────────────────\n');
 
   // Open browser — try platform-specific commands.

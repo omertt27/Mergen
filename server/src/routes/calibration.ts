@@ -15,6 +15,7 @@ import { Router } from 'express';
 import {
   recordVerdict,
   getStats,
+  getRecords,
   exportCsv,
   getPendingFeedback,
   getGlobalStats,
@@ -134,6 +135,28 @@ export function createCalibrationRouter(): Router {
     res.json({
       ok: true,
       stats: getGlobalStats(),
+    });
+  });
+
+  // GET /calibration/corpus-progress ─────────────────────────────────────────
+  // Progress toward the 20 HIGH-confidence verdict gate.
+  // A validated HIGH-confidence verdict = confidence=HIGH + verdict correct/partial.
+  // Partners use this number to know when the accuracy corpus is ready to publish.
+  router.get('/calibration/corpus-progress', (_req, res) => {
+    const TARGET = 20;
+    const records = getRecords();
+    const highCorrect = records.filter(
+      (r) => r.confidence === 'HIGH' && (r.verdict === 'correct' || r.verdict === 'partial'),
+    ).length;
+    const stats = getStats();
+    res.json({
+      ok: true,
+      highConfidentCorrect: highCorrect,
+      target: TARGET,
+      targetReached: highCorrect >= TARGET,
+      pct: Math.min(100, Math.round((highCorrect / TARGET) * 100)),
+      trustedDetectors: stats.filter((s) => s.trusted).length,
+      totalVerdicts: records.filter((r) => r.verdict).length,
     });
   });
 

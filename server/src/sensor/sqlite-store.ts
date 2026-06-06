@@ -92,10 +92,12 @@ class SqliteHistoryStore {
           level      TEXT,
           data       TEXT    NOT NULL,
           timestamp  INTEGER NOT NULL,
-          inserted_at INTEGER NOT NULL
+          inserted_at INTEGER NOT NULL,
+          tenant_id  TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_timestamp ON events(timestamp);
         CREATE INDEX IF NOT EXISTS idx_inserted_at ON events(inserted_at);
+        CREATE INDEX IF NOT EXISTS idx_tenant_id ON events(tenant_id);
       `);
 
       this.flush(); // Persist schema creation immediately
@@ -110,7 +112,7 @@ class SqliteHistoryStore {
     }
   }
 
-  push(event: BrowserEvent): void {
+  push(event: BrowserEvent, tenantId?: string): void {
     if (!this.db) return;
 
     try {
@@ -119,8 +121,8 @@ class SqliteHistoryStore {
         event.type === 'network' ? String(event.status) : null;
 
       this.db.run(
-        'INSERT INTO events (type, level, data, timestamp, inserted_at) VALUES (?,?,?,?,?)',
-        [event.type, level, JSON.stringify(event), event.timestamp, Date.now()],
+        'INSERT INTO events (type, level, data, timestamp, inserted_at, tenant_id) VALUES (?,?,?,?,?,?)',
+        [event.type, level, JSON.stringify(event), event.timestamp, Date.now(), tenantId ?? null],
       );
       this.writeCount++;
 
@@ -139,16 +141,18 @@ class SqliteHistoryStore {
     limit?: number;
     level?: string;
     type?: string;
+    tenantId?: string;
   }): BrowserEvent[] {
     if (!this.db) return [];
 
     try {
-      const { since = 0, limit = 500, level, type } = opts;
+      const { since = 0, limit = 500, level, type, tenantId } = opts;
       const conditions: string[] = ['timestamp >= ?'];
       const params: (number | string)[] = [since];
 
-      if (level) { conditions.push('level = ?'); params.push(level); }
-      if (type)  { conditions.push('type = ?');  params.push(type); }
+      if (level)    { conditions.push('level = ?');     params.push(level); }
+      if (type)     { conditions.push('type = ?');      params.push(type); }
+      if (tenantId) { conditions.push('tenant_id = ?'); params.push(tenantId); }
 
       const sql =
         `SELECT data FROM events WHERE ${conditions.join(' AND ')} ` +

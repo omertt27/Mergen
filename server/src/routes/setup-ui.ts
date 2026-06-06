@@ -70,13 +70,55 @@ export function createSetupRouter(): Router {
 
   // ── GET /api/setup/status — Check setup status ───────────────────────────────
   router.get('/api/setup/status', (_req, res) => {
-    const status = {
-      server: true, // If we're responding, server is running
+    res.json({
+      server: true,
       ide: checkIDEConfigured(),
-      extension: 'unknown', // Can't detect from server side
-    };
+      slack: !!process.env.MERGEN_SLACK_BOT_TOKEN,
+      slackChannel: process.env.MERGEN_SLACK_CHANNEL ?? '',
+      autopilot: process.env.MERGEN_AUTOPILOT === 'true',
+      pagerdutyWebhookUrl: `${process.env.MERGEN_DASHBOARD_URL ?? 'http://your-server:3000'}/webhooks/pagerduty`,
+    });
+  });
 
-    res.json(status);
+  // ── POST /api/setup/test-slack — Validate Slack bot token ────────────────────
+  router.post('/api/setup/test-slack', async (req, res) => {
+    const { token, channel } = (req.body ?? {}) as { token?: string; channel?: string };
+    const tok = token?.trim() || process.env.MERGEN_SLACK_BOT_TOKEN;
+    if (!tok) { res.json({ ok: false, error: 'No token provided' }); return; }
+    try {
+      const r = await fetch('https://slack.com/api/auth.test', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(5000),
+      });
+      const d = await r.json() as { ok: boolean; team?: string; user?: string; error?: string };
+      if (!d.ok) { res.json({ ok: false, error: d.error }); return; }
+      // Test channel write if provided
+      if (channel?.trim()) {
+        const ch = await fetch('https://slack.com/api/chat.postMessage', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ channel: channel.trim(), text: '✅ Mergen connected — autonomous incident triage is active.' }),
+          signal: AbortSignal.timeout(5000),
+        });
+        const cd = await ch.json() as { ok: boolean; error?: string };
+        if (!cd.ok) { res.json({ ok: false, error: `Token valid but channel post failed: ${cd.error}` }); return; }
+      }
+      res.json({ ok: true, team: d.team, user: d.user });
+    } catch (err) {
+      res.json({ ok: false, error: err instanceof Error ? err.message : 'Network error' });
+    }
+  });
+
+  // ── POST /api/setup/test-otlp — Check if OTLP events have arrived ────────────
+  router.get('/api/setup/test-otlp', async (_req, res) => {
+    try {
+      const r = await fetch('http://127.0.0.1:3000/health', { signal: AbortSignal.timeout(1000) });
+      if (!r.ok) { res.json({ ok: false, receiving: false }); return; }
+      const d = await r.json() as { buffered?: number; lastEventAt?: number | null };
+      const hasRecent = d.lastEventAt ? Date.now() - d.lastEventAt < 5 * 60 * 1000 : false;
+      res.json({ ok: true, receiving: hasRecent, buffered: d.buffered ?? 0, lastEventAt: d.lastEventAt });
+    } catch { res.json({ ok: false, receiving: false }); }
   });
 
   return router;
@@ -266,116 +308,152 @@ const SETUP_HTML = `<!DOCTYPE html>
 <body>
   <div class="container">
     <header>
-      <h1>🚀 Mergen Setup Wizard</h1>
-      <p>Get your local-first browser observability up and running</p>
+      <h1>⬡ Mergen Setup</h1>
+      <p>AI operations layer for backend &amp; infrastructure</p>
     </header>
 
     <div class="content">
       <div class="step complete" id="step-1">
         <h2><span class="icon">✅</span> Step 1: Server Running</h2>
-        <p>Your Mergen server is up and running at <code>http://127.0.0.1:3000</code></p>
+        <p>Mergen is running at <code>http://127.0.0.1:3000</code> — ready to receive OpenTelemetry, PagerDuty webhooks, and Docker logs.</p>
       </div>
 
       <div class="step pending" id="step-2">
-        <h2><span class="icon">⏳</span> Step 2: Configure IDE</h2>
-        <p>Which AI IDE are you using?</p>
+        <h2><span class="icon">⏳</span> Step 2: Connect Slack</h2>
+        <p>Mergen needs a Slack bot token to own incident threads and post autonomous resolution updates.</p>
+        <p style="font-size:13px;color:#64748b;margin-bottom:12px">
+          1. Create app at <a href="https://api.slack.com/apps" target="_blank">api.slack.com/apps</a> →
+          OAuth &amp; Permissions → add scope <code>chat:write</code> → Install → copy Bot Token
+        </p>
+        <div style="display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+          <input id="slack-token" type="password" placeholder="xoxb-..." style="flex:1;padding:10px 14px;border:2px solid #e2e8f0;border-radius:8px;font-size:14px;min-width:200px">
+          <input id="slack-channel" type="text" placeholder="#incidents" style="width:140px;padding:10px 14px;border:2px solid #e2e8f0;border-radius:8px;font-size:14px">
+          <button class="primary" onclick="testSlack()" style="flex:0;min-width:120px">Test &amp; Connect</button>
+        </div>
+        <div id="slack-result"></div>
+        <p style="font-size:12px;color:#94a3b8;margin-top:8px">Token is sent only to Slack's API and your own server — never stored in plaintext.</p>
+      </div>
+
+      <div class="step pending" id="step-3">
+        <h2><span class="icon">⏳</span> Step 3: PagerDuty Webhook</h2>
+        <p>Point PagerDuty at Mergen so it can start the autonomous triage loop when an incident fires.</p>
+        <div id="pd-url-box" style="background:#1e293b;color:#e2e8f0;padding:14px 18px;border-radius:8px;font-family:monospace;font-size:13px;margin-bottom:12px;word-break:break-all">
+          Loading webhook URL…
+        </div>
+        <p style="font-size:13px;color:#64748b;margin-bottom:12px">
+          In PagerDuty: <strong>Services → [your service] → Integrations → Add Webhook → paste the URL above</strong>
+        </p>
+        <button class="secondary" onclick="copyWebhookUrl()">Copy URL</button>
+        <div id="pd-result"></div>
+      </div>
+
+      <div class="step pending" id="step-4">
+        <h2><span class="icon">⏳</span> Step 4: Send Telemetry</h2>
+        <p>Point your services at Mergen via OpenTelemetry — no code changes needed.</p>
+        <pre>OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:3000 \\
+OTEL_SERVICE_NAME=api \\
+node app.js</pre>
+        <p style="margin-top:12px;font-size:13px;color:#64748b">Or run the demo to see it working immediately:</p>
+        <button class="success" onclick="runDemo()">Run Demo Incident</button>
+        <div id="otlp-result"></div>
+      </div>
+
+      <div class="step pending" id="step-5">
+        <h2><span class="icon">⏳</span> Step 5: Configure AI IDE</h2>
+        <p>Let your AI assistant call Mergen's MCP tools directly — <em>"triage the latest incident"</em></p>
         <div class="btn-group">
-          <button class="primary" onclick="configureIDE('cursor')">Cursor</button>
           <button class="primary" onclick="configureIDE('claude-code')">Claude Code</button>
+          <button class="primary" onclick="configureIDE('cursor')">Cursor</button>
           <button class="primary" onclick="configureIDE('vscode')">VS Code</button>
           <button class="primary" onclick="configureIDE('windsurf')">Windsurf</button>
         </div>
         <div id="ide-result"></div>
       </div>
-
-      <div class="step pending" id="step-3">
-        <h2><span class="icon">⏳</span> Step 3: Install Extension</h2>
-        <p>Install the Mergen browser extension to capture telemetry:</p>
-        <div class="btn-group">
-          <button class="primary" onclick="window.open('https://chrome.google.com/webstore', '_blank')">
-            Chrome Web Store (Coming Soon)
-          </button>
-        </div>
-        <p style="margin-top: 15px;">Or install manually:</p>
-        <pre>1. Open chrome://extensions
-2. Enable "Developer mode"
-3. Click "Load unpacked"
-4. Select the extension folder</pre>
-      </div>
-
-      <div class="step pending" id="step-4">
-        <h2><span class="icon">⏳</span> Step 4: Test Pipeline</h2>
-        <p>Verify everything is working:</p>
-        <button class="success" onclick="testPipeline()">Run Test</button>
-        <div id="test-result"></div>
-      </div>
     </div>
 
     <footer>
-      <p>Need help? Check the <a href="https://github.com/omertt27/Mergen" target="_blank">documentation</a></p>
-      <p style="margin-top: 10px;">Made with ❤️ by developers, for developers</p>
+      <p>Need help? <a href="https://github.com/omertt27/Mergen" target="_blank">GitHub</a> · <a href="/dashboard">Dashboard →</a></p>
     </footer>
   </div>
 
   <script>
-    async function configureIDE(ide) {
-      const result = document.getElementById('ide-result');
-      result.innerHTML = '<div class="alert alert-info">Configuring...</div>';
+    let _webhookUrl = '';
 
+    async function testSlack() {
+      const token = document.getElementById('slack-token').value.trim();
+      const channel = document.getElementById('slack-channel').value.trim();
+      const result = document.getElementById('slack-result');
+      if (!token) { result.innerHTML = '<div class="alert alert-error">Paste your bot token first.</div>'; return; }
+      result.innerHTML = '<div class="alert alert-info">Testing Slack connection…</div>';
       try {
-        const response = await fetch('/api/setup/ide', {
+        const r = await fetch('/api/setup/test-slack', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ide }),
+          body: JSON.stringify({ token, channel }),
         });
-
-        const data = await response.json();
-
-        if (response.ok) {
-          result.innerHTML = '<div class="alert alert-success">✓ ' + data.message + ' — Restart your IDE to see Mergen tools.</div>';
+        const d = await r.json();
+        if (d.ok) {
+          result.innerHTML = '<div class="alert alert-success">✓ Connected to workspace <strong>' + (d.team||'') + '</strong>' + (channel ? ' — test message posted to ' + channel : '') + '</div>';
           document.getElementById('step-2').className = 'step complete';
           document.getElementById('step-2').querySelector('.icon').textContent = '✅';
         } else {
-          result.innerHTML = '<div class="alert alert-error">✗ ' + data.error + '</div>';
+          result.innerHTML = '<div class="alert alert-error">✗ ' + d.error + ' — check your token has <code>chat:write</code> scope.</div>';
         }
-      } catch (err) {
-        result.innerHTML = '<div class="alert alert-error">✗ Configuration failed: ' + err.message + '</div>';
-      }
+      } catch(e) { result.innerHTML = '<div class="alert alert-error">✗ ' + e.message + '</div>'; }
     }
 
-    async function testPipeline() {
-      const result = document.getElementById('test-result');
-      result.innerHTML = '<div class="alert alert-info">Testing...</div>';
+    function copyWebhookUrl() {
+      if (!_webhookUrl) return;
+      navigator.clipboard.writeText(_webhookUrl).then(() => {
+        document.getElementById('pd-result').innerHTML = '<div class="alert alert-success">✓ Copied to clipboard</div>';
+        document.getElementById('step-3').className = 'step complete';
+        document.getElementById('step-3').querySelector('.icon').textContent = '✅';
+      });
+    }
 
+    async function runDemo() {
+      const result = document.getElementById('otlp-result');
+      result.innerHTML = '<div class="alert alert-info">Injecting demo incident…</div>';
       try {
-        const response = await fetch('/api/setup/test');
-        const data = await response.json();
-
-        if (data.success) {
-          result.innerHTML = '<div class="alert alert-success">✓ ' + data.message + '<br><br><strong>Next step:</strong> In your IDE, ask: "Get recent logs"</div>';
-          document.getElementById('step-4').className = 'step complete';
-          document.getElementById('step-4').querySelector('.icon').textContent = '✅';
-        } else {
-          result.innerHTML = '<div class="alert alert-error">✗ ' + data.message + '</div>';
-        }
-      } catch (err) {
-        result.innerHTML = '<div class="alert alert-error">✗ Test failed: ' + err.message + '</div>';
-      }
+        const ts = Date.now();
+        await fetch('/ingest', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'console', level: 'error', args: ['[api] database connection pool exhausted — 0 connections available after 30s timeout'], url: 'http://api:8080/health', timestamp: ts }) });
+        await fetch('/ingest', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'network', method: 'GET', url: 'http://api:8080/api/users', status: 503, duration: 30421, error: 'upstream connect error', timestamp: ts + 100 }) });
+        await new Promise(r => setTimeout(r, 600));
+        const h = await fetch('/health').then(r => r.json());
+        result.innerHTML = '<div class="alert alert-success">✓ Demo incident injected — ' + (h.buffered||0) + ' events in buffer.<br><strong>In your AI IDE:</strong> "triage the latest incident"<br>Or check the <a href="/dashboard">dashboard →</a></div>';
+        document.getElementById('step-4').className = 'step complete';
+        document.getElementById('step-4').querySelector('.icon').textContent = '✅';
+      } catch(e) { result.innerHTML = '<div class="alert alert-error">✗ ' + e.message + '</div>'; }
     }
 
-    // Check status on load
+    async function configureIDE(ide) {
+      const result = document.getElementById('ide-result');
+      result.innerHTML = '<div class="alert alert-info">Configuring…</div>';
+      try {
+        const r = await fetch('/api/setup/ide', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ide }) });
+        const d = await r.json();
+        if (r.ok) {
+          result.innerHTML = '<div class="alert alert-success">✓ ' + d.message + ' — restart your IDE, then ask: <strong>"Triage the latest incident"</strong></div>';
+          document.getElementById('step-5').className = 'step complete';
+          document.getElementById('step-5').querySelector('.icon').textContent = '✅';
+        } else {
+          result.innerHTML = '<div class="alert alert-error">✗ ' + d.error + '</div>';
+        }
+      } catch(e) { result.innerHTML = '<div class="alert alert-error">✗ ' + e.message + '</div>'; }
+    }
+
     window.addEventListener('load', async () => {
       try {
-        const response = await fetch('/api/setup/status');
-        const status = await response.json();
-
-        if (status.ide) {
-          document.getElementById('step-2').className = 'step complete';
-          document.getElementById('step-2').querySelector('.icon').textContent = '✅';
+        const s = await fetch('/api/setup/status').then(r => r.json());
+        if (s.ide) { document.getElementById('step-5').className = 'step complete'; document.getElementById('step-5').querySelector('.icon').textContent = '✅'; }
+        if (s.slack) { document.getElementById('step-2').className = 'step complete'; document.getElementById('step-2').querySelector('.icon').textContent = '✅'; }
+        if (s.pagerdutyWebhookUrl) {
+          _webhookUrl = s.pagerdutyWebhookUrl;
+          document.getElementById('pd-url-box').textContent = s.pagerdutyWebhookUrl;
         }
-      } catch (err) {
-        console.error('Status check failed:', err);
-      }
+      } catch(e) { console.error('Status load failed:', e); }
     });
   </script>
 </body>

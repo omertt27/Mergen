@@ -8,6 +8,7 @@ import { fingerprintFromFact } from '../datadog/fingerprinter.js';
 import { computeBlameAttribution } from '../datadog/blame-attribution.js';
 import { postIncidentAlert } from '../intelligence/slack.js';
 import { store } from '../sensor/buffer.js';
+import { runIncidentAutopilot } from '../intelligence/incident-autopilot.js';
 import logger from '../sensor/logger.js';
 
 const DASHBOARD_URL = process.env.MERGEN_DASHBOARD_URL ?? 'http://127.0.0.1:3000';
@@ -149,16 +150,23 @@ export function createPagerDutyRouter(): Router {
 
             // ── Slack incident alert ──────────────────────────────────────────
             const blastRadius = store.getBlastRadius({ since: firedAt });
+            const openIncident = memoryStore.listOpen()[0];
             void postIncidentAlert({
               alertTitle,
               service,
               firedAt,
-              incidentId: memoryStore.listOpen()[0]?.id,
+              incidentId: openIncident?.id,
+              pid: fingerprint, // use fingerprint as pid for thread ownership
               pdUrl: alertUrl,
               blame,
               blastRadius,
               dashboardUrl: DASHBOARD_URL,
             });
+
+            // ── Incident autopilot ────────────────────────────────────────────
+            // Runs in the background: causal analysis → autonomous fix if confidence ≥ 0.85.
+            // The MERGEN_AUTOPILOT env var must be set to "true" to enable.
+            void runIncidentAutopilot({ service, pid: fingerprint, firedAt });
 
             logger.info({ service, traceId: result.traceId, fingerprint }, 'runtime fact pre-computed');
           } catch (err) {

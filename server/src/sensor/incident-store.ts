@@ -36,6 +36,7 @@ export interface Incident {
   updatedAt: number;
   acknowledgedBy: string | null;
   resolvedAt: number | null;
+  resolvedAutonomously: boolean;
 }
 
 class IncidentStore {
@@ -69,19 +70,20 @@ class IncidentStore {
 
       this.db.run(`
         CREATE TABLE IF NOT EXISTS incidents (
-          pid           TEXT PRIMARY KEY,
-          hypothesis    TEXT NOT NULL,
-          tag           TEXT NOT NULL DEFAULT '',
-          status        TEXT NOT NULL DEFAULT 'open',
-          assignee      TEXT,
-          notes         TEXT NOT NULL DEFAULT '[]',
-          sha           TEXT,
-          environment   TEXT,
-          confidence    REAL NOT NULL DEFAULT 0,
-          created_at    INTEGER NOT NULL,
-          updated_at    INTEGER NOT NULL,
-          acknowledged_by TEXT,
-          resolved_at   INTEGER
+          pid                    TEXT PRIMARY KEY,
+          hypothesis             TEXT NOT NULL,
+          tag                    TEXT NOT NULL DEFAULT '',
+          status                 TEXT NOT NULL DEFAULT 'open',
+          assignee               TEXT,
+          notes                  TEXT NOT NULL DEFAULT '[]',
+          sha                    TEXT,
+          environment            TEXT,
+          confidence             REAL NOT NULL DEFAULT 0,
+          created_at             INTEGER NOT NULL,
+          updated_at             INTEGER NOT NULL,
+          acknowledged_by        TEXT,
+          resolved_at            INTEGER,
+          resolved_autonomously  INTEGER NOT NULL DEFAULT 0
         );
       `);
       this._flush();
@@ -116,6 +118,7 @@ class IncidentStore {
       updatedAt: Number(row.updated_at ?? 0),
       acknowledgedBy: row.acknowledged_by ? String(row.acknowledged_by) : null,
       resolvedAt: row.resolved_at ? Number(row.resolved_at) : null,
+      resolvedAutonomously: Boolean(row.resolved_autonomously),
     };
   }
 
@@ -125,7 +128,7 @@ class IncidentStore {
       return {
         pid, status: 'open', hypothesis: '', tag: '', assignee: null, notes: [],
         sha: null, environment: null, confidence: 0, createdAt: now, updatedAt: now,
-        acknowledgedBy: null, resolvedAt: null, ...fields,
+        acknowledgedBy: null, resolvedAt: null, resolvedAutonomously: false, ...fields,
       };
     }
 
@@ -134,8 +137,8 @@ class IncidentStore {
 
     if (!existing) {
       this.db.run(
-        `INSERT INTO incidents (pid, hypothesis, tag, status, assignee, notes, sha, environment, confidence, created_at, updated_at, acknowledged_by, resolved_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO incidents (pid, hypothesis, tag, status, assignee, notes, sha, environment, confidence, created_at, updated_at, acknowledged_by, resolved_at, resolved_autonomously)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           pid,
           fields.hypothesis ?? '',
@@ -149,16 +152,18 @@ class IncidentStore {
           now, now,
           fields.acknowledgedBy ?? null,
           fields.resolvedAt ?? null,
+          fields.resolvedAutonomously ? 1 : 0,
         ],
       );
     } else {
       const merged = { ...existing, ...fields };
       this.db.run(
-        `UPDATE incidents SET hypothesis=?,tag=?,status=?,assignee=?,notes=?,sha=?,environment=?,confidence=?,updated_at=?,acknowledged_by=?,resolved_at=? WHERE pid=?`,
+        `UPDATE incidents SET hypothesis=?,tag=?,status=?,assignee=?,notes=?,sha=?,environment=?,confidence=?,updated_at=?,acknowledged_by=?,resolved_at=?,resolved_autonomously=? WHERE pid=?`,
         [
           merged.hypothesis, merged.tag, merged.status, merged.assignee,
           JSON.stringify(merged.notes), merged.sha, merged.environment,
-          merged.confidence, now, merged.acknowledgedBy, merged.resolvedAt, pid,
+          merged.confidence, now, merged.acknowledgedBy, merged.resolvedAt,
+          merged.resolvedAutonomously ? 1 : 0, pid,
         ],
       );
     }
