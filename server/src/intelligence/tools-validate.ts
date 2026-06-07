@@ -6,8 +6,7 @@ import { layer4Store } from '../sensor/layer4-store.js';
 import { closeSession } from './session-metrics.js';
 import { trackCall } from './tools-state.js';
 
-export function registerValidateTools(server: McpServer): void {
-  // ── validate_fix ────────────────────────────────────────────────────────────
+function _registerValidateFix(server: McpServer): void {
   server.registerTool(
     'validate_fix',
     {
@@ -61,12 +60,10 @@ export function registerValidateTools(server: McpServer): void {
       if (prediction && !prediction.verdict) {
         recordVerdict(pid, verdict);
 
-        // Wire verdict into Layer 4 error memory.
         if (prediction.errorFingerprint) {
           layer4Store.linkFix(prediction.errorFingerprint, pid, prediction.tag, verdict);
         }
 
-        // Close the debug session — records first-attempt fix success rate.
         const outcome = verdict === 'correct' ? 'resolved' : verdict === 'partial' ? 'partial' : 'unresolved';
         closeSession(pid, outcome);
       }
@@ -105,6 +102,15 @@ export function registerValidateTools(server: McpServer): void {
       return { content: [{ type: 'text', text: lines.join('\n') }] };
     },
   );
+}
+
+/** Registers only `validate_fix` — used by slim (5-tool) MCP mode. */
+export function registerValidateFix(server: McpServer): void {
+  _registerValidateFix(server);
+}
+
+export function registerValidateTools(server: McpServer): void {
+  _registerValidateFix(server);
 
   // ── watch_for_fix ────────────────────────────────────────────────────────────
   server.registerTool(

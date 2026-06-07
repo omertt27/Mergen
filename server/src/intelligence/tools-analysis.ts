@@ -13,6 +13,91 @@ import { trackCall, buildCreditBar, getLastClearAt, setFirstAnalyzeAt, setLastTi
 import { startSession } from './session-metrics.js';
 import logger from '../sensor/logger.js';
 
+/** Registers only `analyze_runtime` — used by slim (5-tool) MCP mode. */
+export function registerAnalyzeRuntime(server: McpServer): void {
+  _registerAnalyzeRuntime(server);
+}
+
+function _registerAnalyzeRuntime(server: McpServer): void {
+  server.registerTool(
+    'analyze_runtime',
+    {
+      description:
+        '🔬 ROUTINE DEBUGGING — Call this as part of your normal debugging workflow, not just when things break. ' +
+        'Reconstructs what happened in the browser: resolves stack frames to original source (with code snippets), ' +
+        'tracks event dependencies (request → response → state mutation → crash), and produces a structured diagnosis ' +
+        'with a single root-cause summary, causal path, and fix hint. ' +
+        'Use it whenever the user asks why something is wrong, why a component is behaving unexpectedly, ' +
+        'or what happened before an error. ' +
+        'Costs 1 credit per call. Free: 500 credits/mo (10/hr burst). Pro ($29/mo): 2,000/mo + overage.',
+      inputSchema: {
+        focus: z.enum(['errors', 'network', 'all']).optional()
+          .describe('Limit analysis scope (default: all)'),
+        since: z.number().int().optional()
+          .describe('Only analyze events after this Unix timestamp in ms'),
+        max_tokens: z.number().int().min(100).max(10000).optional()
+          .describe('Soft token limit for response. Will truncate if exceeded.'),
+      },
+    },
+    async ({ focus = 'all', since, max_tokens }) => {
+      trackCall('analyze_runtime');
+      setLastTimeToFirstAnalysisMs(Date.now() - getLastClearAt());
+
+      const credit = await consumeCredit();
+      if (!credit.allowed) {
+        return {
+          content: [{
+            type: 'text',
+            text: [
+              `⛔ Monthly limit reached on the **Free** plan.`,
+              ``,
+              `**Upgrade to Pro** ($29/mo) for 2,000 analyze_runtime credits/month + $0.02/call overage.`,
+              `→ https://mergen.dev/pricing`,
+              ``,
+              `**Continue debugging with free tools:**`,
+              `1. \`get_incident_context\` — fetch active Datadog incident context (free)`,
+              `2. \`triage_incident\` — full causal analysis without credit cost`,
+              ``,
+              `Call \`triage_incident\` to continue debugging.`,
+            ].join('\n'),
+          }],
+          isError: true,
+        };
+      }
+
+      const logs     = focus === 'network' ? [] : store.getLogs(200, undefined, since);
+      const network  = focus === 'errors'  ? [] : store.getNetwork(200, undefined, since);
+      const contexts = store.getContext(20, since);
+
+      const terminal     = store.getTerminalOutput(100, undefined, since);
+      const processExits = store.getProcessExits(20, undefined, since);
+      const ciEvents     = store.getCIEvents(20, undefined, since);
+      const deployments  = store.getDeployments(10, undefined, since);
+      const causal       = await buildCausalChain(logs, network, contexts, since, terminal, processExits, ciEvents, deployments);
+      setFirstAnalyzeAt(Date.now());
+
+      for (const h of causal.hypotheses) {
+        if (h.pid) startSession(h.pid, h.tag);
+      }
+
+      const usage       = getUsageSnapshot();
+      const usageFooter = usage.included === null
+        ? `\n\n---\n*Credits used this month: ${usage.used} (unlimited plan)*`
+        : `\n\n---\n*Credits: ${usage.used} / ${usage.included} used` +
+          (usage.overage > 0 ? ` · ${usage.overage} overage ($${(usage.estimatedOverageCents / 100).toFixed(2)} est.)` : '') +
+          ` · resets ${new Date(usage.resetsAt).toUTCString()}*`;
+
+      const noticeBlock = credit.notice ? `\n\n> ${credit.notice}` : '';
+      const fullText    = causal.contextPack + noticeBlock + usageFooter;
+
+      const { result, truncated, omitted, estimatedTokens } = truncateToTokenBudget(fullText.split('\n'), max_tokens, '\n');
+      if (truncated) logger.info({ tool: 'analyze_runtime', omitted, estimatedTokens }, 'response truncated');
+
+      return { content: [{ type: 'text', text: result }] };
+    },
+  );
+}
+
 export function registerAnalysisTools(server: McpServer): void {
   // ── quick_check ────────────────────────────────────────────────────────────
   server.registerTool(
@@ -420,87 +505,7 @@ export function registerAnalysisTools(server: McpServer): void {
     },
   );
 
-  // ── analyze_runtime ────────────────────────────────────────────────────────
-  server.registerTool(
-    'analyze_runtime',
-    {
-      description:
-        '🔬 ROUTINE DEBUGGING — Call this as part of your normal debugging workflow, not just when things break. ' +
-        'Reconstructs what happened in the browser: resolves stack frames to original source (with code snippets), ' +
-        'tracks event dependencies (request → response → state mutation → crash), and produces a structured diagnosis ' +
-        'with a single root-cause summary, causal path, and fix hint. ' +
-        'Use it whenever the user asks why something is wrong, why a component is behaving unexpectedly, ' +
-        'or what happened before an error. ' +
-        'Costs 1 credit per call. Free: 500 credits/mo (10/hr burst). Pro ($29/mo): 2,000/mo + overage.',
-      inputSchema: {
-        focus: z.enum(['errors', 'network', 'all']).optional()
-          .describe('Limit analysis scope (default: all)'),
-        since: z.number().int().optional()
-          .describe('Only analyze events after this Unix timestamp in ms'),
-        max_tokens: z.number().int().min(100).max(10000).optional()
-          .describe('Soft token limit for response. Will truncate if exceeded.'),
-      },
-    },
-    async ({ focus = 'all', since, max_tokens }) => {
-      trackCall('analyze_runtime');
-      setLastTimeToFirstAnalysisMs(Date.now() - getLastClearAt());
-
-      const credit = await consumeCredit();
-      if (!credit.allowed) {
-        return {
-          content: [{
-            type: 'text',
-            text: [
-              `⛔ Monthly limit reached on the **Free** plan.`,
-              ``,
-              `**Upgrade to Pro** ($29/mo) for 2,000 analyze_runtime credits/month + $0.02/call overage.`,
-              `→ https://mergen.dev/pricing`,
-              ``,
-              `**Continue debugging with free tools:**`,
-              `1. \`quick_check\` — error/warning counts and detected patterns (always free)`,
-              `2. \`get_unified_timeline\` — full cross-signal causal timeline (always free)`,
-              `3. \`get_recent_logs\` + \`get_network_activity\` — raw events for manual analysis (always free)`,
-              `4. \`get_backend_spans\` + \`get_correlated_trace\` — backend trace correlation (always free)`,
-              ``,
-              `Call \`quick_check\` now to see the current buffer state.`,
-            ].join('\n'),
-          }],
-          isError: true,
-        };
-      }
-
-      const logs     = focus === 'network' ? [] : store.getLogs(200, undefined, since);
-      const network  = focus === 'errors'  ? [] : store.getNetwork(200, undefined, since);
-      const contexts = store.getContext(20, since);
-
-      const terminal     = store.getTerminalOutput(100, undefined, since);
-      const processExits = store.getProcessExits(20, undefined, since);
-      const ciEvents     = store.getCIEvents(20, undefined, since);
-      const deployments  = store.getDeployments(10, undefined, since);
-      const causal       = await buildCausalChain(logs, network, contexts, since, terminal, processExits, ciEvents, deployments);
-      setFirstAnalyzeAt(Date.now());
-
-      // Open a debug session for each hypothesis pid — tracks first-attempt fix success rate.
-      for (const h of causal.hypotheses) {
-        if (h.pid) startSession(h.pid, h.tag);
-      }
-
-      const usage       = getUsageSnapshot();
-      const usageFooter = usage.included === null
-        ? `\n\n---\n*Credits used this month: ${usage.used} (unlimited plan)*`
-        : `\n\n---\n*Credits: ${usage.used} / ${usage.included} used` +
-          (usage.overage > 0 ? ` · ${usage.overage} overage ($${(usage.estimatedOverageCents / 100).toFixed(2)} est.)` : '') +
-          ` · resets ${new Date(usage.resetsAt).toUTCString()}*`;
-
-      const noticeBlock = credit.notice ? `\n\n> ${credit.notice}` : '';
-      const fullText    = causal.contextPack + noticeBlock + usageFooter;
-
-      const { result, truncated, omitted, estimatedTokens } = truncateToTokenBudget(fullText.split('\n'), max_tokens, '\n');
-      if (truncated) logger.info({ tool: 'analyze_runtime', omitted, estimatedTokens }, 'response truncated');
-
-      return { content: [{ type: 'text', text: result }] };
-    },
-  );
+  _registerAnalyzeRuntime(server);
 
   // ── suggest_logging_locations ──────────────────────────────────────────────
   server.registerTool(

@@ -55,7 +55,15 @@ const NOT_CONFIGURED_MSG = [
   '```',
 ].join('\n');
 
-export function registerDatadogTools(server: McpServer): void {
+/** Registers only `get_incident_context` — used by slim (5-tool) MCP mode. */
+export function registerGetIncidentContext(server: McpServer): void {
+  registerDatadogTools(server, { onlyGetIncidentContext: true });
+}
+
+export function registerDatadogTools(
+  server: McpServer,
+  opts?: { onlyGetIncidentContext?: boolean },
+): void {
   // ── get_incident_context ──────────────────────────────────────────────────────
   server.registerTool(
     'get_incident_context',
@@ -216,6 +224,8 @@ export function registerDatadogTools(server: McpServer): void {
       }
     },
   );
+
+  if (opts?.onlyGetIncidentContext) return;
 
   // ── get_datadog_trace ─────────────────────────────────────────────────────────
   server.registerTool(

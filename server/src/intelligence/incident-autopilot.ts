@@ -25,6 +25,8 @@ import { getRecords, recordVerdict } from './calibration.js';
 import { executeRemediation, extractCommand } from './autonomy.js';
 import { postThreadReply } from './slack.js';
 import { incidentStore } from '../sensor/incident-store.js';
+import { getActiveIncident } from '../datadog/incident-state.js';
+import { normalizeRuntimeFactMarkdown, normalizeProcessExits } from '../sensor/infra-normalizer.js';
 import logger from '../sensor/logger.js';
 
 const AUTO_EXECUTE_THRESHOLD = 0.85;
@@ -48,27 +50,60 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
   const { service, pid, firedAt, cwd } = opts;
   logger.info({ service, pid }, 'incident-autopilot: starting');
 
-  // Let events accumulate
+  // Let telemetry accumulate before analysis
   await new Promise((r) => setTimeout(r, BUFFER_FILL_DELAY_MS));
 
-  const logs        = store.getLogs(200, undefined, firedAt);
-  const network     = store.getNetwork(200, undefined, firedAt);
-  const contexts    = store.getContext(20, firedAt);
-  const terminal    = store.getTerminalOutput(100, undefined, firedAt);
+  const logs         = store.getLogs(200, undefined, firedAt);
+  const network      = store.getNetwork(200, undefined, firedAt);
+  const contexts     = store.getContext(20, firedAt);
+  const terminal     = store.getTerminalOutput(100, undefined, firedAt);
   const processExits = store.getProcessExits(20, undefined, firedAt);
-  const ciEvents    = store.getCIEvents(20, undefined, firedAt);
-  const deployments = store.getDeployments(10, undefined, firedAt);
+  const ciEvents     = store.getCIEvents(20, undefined, firedAt);
+  const deployments  = store.getDeployments(10, undefined, firedAt);
 
   const errorCount = logs.filter((e) => e.level === 'error').length;
   const netErrors  = network.filter((n) => n.status >= 400 || !!n.error).length;
 
-  if (errorCount === 0 && netErrors === 0) {
-    logger.info({ service, pid }, 'incident-autopilot: no errors found — skipping');
-    void postThreadReply(pid, '_Mergen autopilot: no browser errors found in buffer — manual investigation required._');
+  // Build infra signals: Datadog RuntimeFact is the primary source; process exits
+  // are a secondary source. This lets the autopilot diagnose infra incidents that
+  // produce no browser events at all (DB pool exhaustion, OOM kills, etc.).
+  const activeIncident = getActiveIncident();
+  const runtimeFactMarkdown = activeIncident?.runtimeFact ?? null;
+  const infraEvents = [
+    ...(runtimeFactMarkdown
+      ? normalizeRuntimeFactMarkdown(runtimeFactMarkdown, service, firedAt)
+      : []),
+    ...normalizeProcessExits(processExits),
+  ];
+
+  const hasAnySignal = errorCount > 0 || netErrors > 0 || infraEvents.length > 0;
+
+  if (!hasAnySignal) {
+    logger.info({ service, pid }, 'incident-autopilot: no signals found — skipping');
+    void postThreadReply(pid, '_Mergen autopilot: no errors or infra signals found in buffer — manual investigation required._');
     return;
   }
 
-  const causal = await buildCausalChain(logs, network, contexts, firedAt, terminal, processExits, ciEvents, deployments);
+  // Post the Datadog RuntimeFact to Slack immediately as the incident context
+  // block, before causal analysis completes. Engineers see what's broken while
+  // Mergen reasons about the fix.
+  if (runtimeFactMarkdown) {
+    const ageMin = Math.round((Date.now() - firedAt) / 60_000);
+    void postThreadReply(
+      pid,
+      [
+        `📡 *Mergen Autopilot — Incident Context* (${ageMin}m after alert)`,
+        '',
+        runtimeFactMarkdown,
+      ].join('\n'),
+    );
+  }
+
+  const causal = await buildCausalChain(
+    logs, network, contexts, firedAt,
+    terminal, processExits, ciEvents, deployments,
+    infraEvents,
+  );
   const topHyp  = causal.hypotheses[0];
 
   if (!topHyp) {
