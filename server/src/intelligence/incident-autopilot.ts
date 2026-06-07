@@ -26,11 +26,20 @@ import { executeRemediation, extractCommand } from './autonomy.js';
 import { postThreadReply } from './slack.js';
 import { incidentStore } from '../sensor/incident-store.js';
 import { getActiveIncident } from '../datadog/incident-state.js';
+import { fetchErrorCountSince, isConfigured as isDatadogConfigured } from '../datadog/client.js';
 import { normalizeRuntimeFactMarkdown, normalizeProcessExits } from '../sensor/infra-normalizer.js';
+import { hasRecentOverride, dominantOverrideReason } from './override-corpus.js';
+import { recordShadow } from './shadow-log.js';
+import { getAutopilotLevel, autopilotLevelPermits, classifyCommandRisk, autopilotLevelDescription } from './action-risk.js';
+import { getStatsForTag } from './calibration.js';
 import logger from '../sensor/logger.js';
 
 const AUTO_EXECUTE_THRESHOLD = 0.85;
 const AUTOPILOT_ENABLED = process.env.MERGEN_AUTOPILOT === 'true';
+// Shadow mode: run full analysis and Slack reporting but never execute.
+// Enables the design partner track-record workflow without autonomous action.
+const SHADOW_MODE = !AUTOPILOT_ENABLED && process.env.MERGEN_SHADOW_MODE === 'true';
+const AUTOPILOT_LEVEL = getAutopilotLevel();
 // Brief pause to let browser events arrive after a PagerDuty trigger
 const BUFFER_FILL_DELAY_MS = 5_000;
 
@@ -42,8 +51,8 @@ export interface AutopilotOpts {
 }
 
 export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
-  if (!AUTOPILOT_ENABLED) {
-    logger.debug({ service: opts.service }, 'incident-autopilot: disabled (set MERGEN_AUTOPILOT=true to enable)');
+  if (!AUTOPILOT_ENABLED && !SHADOW_MODE) {
+    logger.debug({ service: opts.service }, 'incident-autopilot: disabled (set MERGEN_AUTOPILOT=true or MERGEN_SHADOW_MODE=true)');
     return;
   }
 
@@ -106,6 +115,17 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
   );
   const topHyp  = causal.hypotheses[0];
 
+  // Enrich fixHint with the specific file:line from the Datadog RuntimeFact.
+  // The compactor resolved this from the stack trace; use it to make the hint actionable.
+  if (topHyp && activeIncident?.implicatedFile && topHyp.fixHint) {
+    const loc = activeIncident.implicatedLine
+      ? `${activeIncident.implicatedFile}:${activeIncident.implicatedLine}`
+      : activeIncident.implicatedFile;
+    if (!topHyp.fixHint.includes(activeIncident.implicatedFile)) {
+      topHyp.fixHint = `${topHyp.fixHint}\nFailing location: \`${loc}\``;
+    }
+  }
+
   if (!topHyp) {
     logger.info({ service, pid }, 'incident-autopilot: no hypothesis generated');
     void postThreadReply(pid, `_Mergen autopilot: analyzed ${errorCount} console errors and ${netErrors} network errors — no actionable root cause identified._`);
@@ -113,10 +133,14 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
   }
 
   const pct = Math.round((topHyp.confidenceScore ?? 0) * 100);
+  const calStats = getStatsForTag(topHyp.tag);
+  const calibrationLabel = calStats?.isEmpirical
+    ? `calibrated — ${calStats.verdicts} verdicts`
+    : 'estimated — self-calibrates with use';
   const diagMsg = [
     `🔍 *Mergen Autopilot — Root Cause Analysis*`,
     `*Hypothesis:* ${topHyp.summary}`,
-    `*Confidence:* ${topHyp.confidence} (${pct}%)`,
+    `*Confidence:* ${topHyp.confidence} (${pct}%) [${calibrationLabel}]`,
     topHyp.fixHint ? `*Fix:* ${topHyp.fixHint}` : '',
   ].filter(Boolean).join('\n');
 
@@ -124,19 +148,73 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
   logger.info({ service, pid, confidence: pct, hypothesis: topHyp.tag }, 'incident-autopilot: diagnosis posted');
 
   const command = topHyp.fixHint ? extractCommand(topHyp.fixHint) : null;
-  if (!command || (topHyp.confidenceScore ?? 0) < AUTO_EXECUTE_THRESHOLD) {
-    const reason = !command
-      ? 'no executable command in fixHint'
-      : `confidence ${pct}% below 85% threshold`;
-    logger.info({ service, pid, reason }, 'incident-autopilot: skipping auto-execute');
-    void postThreadReply(pid, `⚠️ _Autopilot skipped execution: ${reason}. Awaiting manual action._`);
+  const execConfidence = topHyp.remediationConfidence ?? topHyp.confidenceScore ?? 0;
+  const execPct = Math.round(execConfidence * 100);
+
+  // ── Determine skip reason before any execution gate ───────────────────────
+  const now = new Date();
+  const dayOfWeek = now.getUTCDay();
+  const hourOfDay = now.getUTCHours();
+
+  // Check override corpus: has this (tag, service) been overridden in this time window?
+  const corpusBlocked = AUTOPILOT_ENABLED && command && execConfidence >= AUTO_EXECUTE_THRESHOLD
+    && hasRecentOverride(topHyp.tag, service, dayOfWeek, hourOfDay);
+
+  // Check autopilot level: does the command's risk tier fit within the configured level?
+  const levelBlocked = AUTOPILOT_ENABLED && command && execConfidence >= AUTO_EXECUTE_THRESHOLD
+    && !autopilotLevelPermits(command, AUTOPILOT_LEVEL);
+
+  if (!command || execConfidence < AUTO_EXECUTE_THRESHOLD || corpusBlocked || levelBlocked || SHADOW_MODE) {
+    let skipReason: 'no-command' | 'confidence-below-threshold' | 'remediation-below-threshold' | 'override-corpus' | 'autopilot-disabled' | 'level-restricted';
+    let slackReason: string;
+
+    if (SHADOW_MODE) {
+      skipReason = 'autopilot-disabled';
+      slackReason = `shadow mode — would execute \`${command ?? 'no command'}\` (remediation: ${execPct}%)`;
+    } else if (!command) {
+      skipReason = 'no-command';
+      slackReason = 'no executable command in fixHint';
+    } else if (levelBlocked) {
+      skipReason = 'level-restricted';
+      const commandTier = classifyCommandRisk(command);
+      slackReason = `autopilot level \`${AUTOPILOT_LEVEL}\` permits ${autopilotLevelDescription(AUTOPILOT_LEVEL)} — this command is \`${commandTier}\` tier. Set MERGEN_AUTOPILOT_LEVEL=full to enable.`;
+    } else if (corpusBlocked) {
+      skipReason = 'override-corpus';
+      const corpusReason = dominantOverrideReason(topHyp.tag, service);
+      slackReason = `override corpus: this action has been overridden before for \`${service}\` (reason: ${corpusReason ?? 'unknown'})`;
+    } else if (topHyp.remediationConfidence !== undefined && topHyp.remediationConfidence < AUTO_EXECUTE_THRESHOLD) {
+      skipReason = 'remediation-below-threshold';
+      slackReason = `remediation confidence ${execPct}% below 85% threshold (diagnosis: ${pct}%)`;
+    } else {
+      skipReason = 'confidence-below-threshold';
+      slackReason = `confidence ${pct}% below 85% threshold`;
+    }
+
+    // Log a shadow entry so the track record is visible in /shadow-report
+    if (topHyp.pid) {
+      recordShadow({
+        pid: topHyp.pid,
+        incidentTag: topHyp.tag,
+        service,
+        command,
+        diagnosisConfidence: topHyp.confidenceScore ?? 0,
+        remediationConfidence: execConfidence,
+        wouldHaveExecuted: !!command && execConfidence >= AUTO_EXECUTE_THRESHOLD && !corpusBlocked,
+        skipReason,
+        firedAt,
+      });
+    }
+
+    logger.info({ service, pid, skipReason, diagPct: pct, execPct }, 'incident-autopilot: skipping auto-execute');
+    const icon = SHADOW_MODE ? '👁️' : '⚠️';
+    void postThreadReply(pid, `${icon} _Autopilot: ${slackReason}. Awaiting manual action._`);
     return;
   }
 
   void postThreadReply(pid, `⚙️ *Autopilot executing fix*\n\`${command}\``);
   logger.info({ service, pid, command }, 'incident-autopilot: executing fix');
 
-  const execResult = await executeRemediation(command, { cwd });
+  const execResult = await executeRemediation(command, { cwd, actor: 'autopilot' });
 
   if (execResult.blocked) {
     logger.warn({ service, pid, reason: execResult.blockReason }, 'incident-autopilot: fix blocked by safety filter');
@@ -155,10 +233,23 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
   // Wait for propagation then validate
   await new Promise((r) => setTimeout(r, 5_000));
 
-  const logsAfter = store.getLogs(200, 'error', firedAt);
-  const netAfter  = store.getNetwork(200, undefined, firedAt).filter((n) => n.status >= 400 || !!n.error);
-  const afterCount  = logsAfter.length + netAfter.length;
+  // Prefer Datadog for validation — it reflects real production error rates.
+  // Fall back to the ring buffer when Datadog is not configured.
+  let afterCount: number;
   const beforeCount = errorCount + netErrors;
+
+  const ddErrorCount = isDatadogConfigured()
+    ? await fetchErrorCountSince(service, 2)
+    : null;
+
+  if (ddErrorCount !== null) {
+    afterCount = ddErrorCount;
+    logger.info({ service, pid, ddErrorCount }, 'incident-autopilot: validation via Datadog');
+  } else {
+    const logsAfter = store.getLogs(200, 'error', firedAt);
+    const netAfter  = store.getNetwork(200, undefined, firedAt).filter((n) => n.status >= 400 || !!n.error);
+    afterCount = logsAfter.length + netAfter.length;
+  }
 
   let verdict: 'correct' | 'partial' | 'wrong';
   if (afterCount === 0 && beforeCount > 0)                           { verdict = 'correct'; }

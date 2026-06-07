@@ -289,6 +289,11 @@ function buildDashboardHtml(version: string, nonce: string): string {
         <div id="calib-list"><div style="font-size:11px;color:var(--muted)">Loading…</div></div>
       </div>
 
+      <div class="card" id="mttr-card">
+        <div class="card-title">MTTR / Autonomous Resolution</div>
+        <div id="mttr-content"><div style="font-size:11px;color:var(--muted)">Loading…</div></div>
+      </div>
+
       <div class="card" id="corpus-card">
         <div class="card-title">Accuracy Gate</div>
         <div id="corpus-progress">
@@ -837,6 +842,68 @@ async function pollWarRoom() {
   } catch(e) {}
 }
 
+async function pollMttr() {
+  try {
+    const d = await fetch('/incidents/impact-report').then(r => r.json());
+    if (!d.ok) return;
+    const el = document.getElementById('mttr-content');
+    if (!el) return;
+
+    if (d.totalResolved === 0) {
+      el.innerHTML = '<div style="font-size:11px;color:var(--muted)">No resolved incidents yet.</div>';
+      return;
+    }
+
+    const autoRate = d.autonomousRate ?? 0;
+    const barColor = autoRate >= 50 ? 'var(--green)' : autoRate >= 25 ? 'var(--yellow)' : 'var(--muted)';
+
+    function fmtMs(ms) {
+      if (!ms) return '—';
+      if (ms < 60000) return Math.round(ms / 1000) + 's';
+      if (ms < 3600000) return Math.round(ms / 60000) + 'm';
+      return (ms / 3600000).toFixed(1) + 'h';
+    }
+
+    let html = '';
+    // Autonomous rate bar
+    html += '<div style="margin-bottom:10px">'
+      + '<div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px">'
+      + '<span style="color:var(--muted)">Autonomous rate</span>'
+      + '<span style="font-weight:700;color:' + barColor + '">' + autoRate + '%</span>'
+      + '</div>'
+      + '<div style="background:rgba(255,255,255,.06);border-radius:3px;height:6px;overflow:hidden">'
+      + '<div style="height:6px;border-radius:3px;background:' + barColor + ';width:' + autoRate + '%;transition:width .4s"></div>'
+      + '</div>'
+      + '</div>';
+
+    // MTTR comparison
+    html += '<div class="stat"><span class="stat-label">Resolved total</span><span class="stat-val">' + d.totalResolved + '</span></div>';
+    html += '<div class="stat"><span class="stat-label">Autonomous</span><span class="stat-val" style="color:var(--green)">' + d.autonomousResolutions + '</span></div>';
+    html += '<div class="stat"><span class="stat-label">Manual</span><span class="stat-val" style="color:var(--muted)">' + d.manualResolutions + '</span></div>';
+
+    if (d.mttr) {
+      if (d.mttr.overallMs)    html += '<div class="stat"><span class="stat-label">MTTR overall</span><span class="stat-val">' + fmtMs(d.mttr.overallMs) + '</span></div>';
+      if (d.mttr.autonomousMs) html += '<div class="stat"><span class="stat-label">MTTR autonomous</span><span class="stat-val" style="color:var(--green)">' + fmtMs(d.mttr.autonomousMs) + '</span></div>';
+      if (d.mttr.manualMs)     html += '<div class="stat"><span class="stat-label">MTTR manual</span><span class="stat-val" style="color:var(--muted)">' + fmtMs(d.mttr.manualMs) + '</span></div>';
+    }
+
+    // Recent resolutions
+    if (d.recentResolutions && d.recentResolutions.length > 0) {
+      html += '<div style="margin-top:8px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Recent</div>';
+      for (const r of d.recentResolutions.slice(0, 4)) {
+        const icon = r.resolvedAutonomously ? '🤖' : '👤';
+        const mttr = r.mttrMs ? fmtMs(r.mttrMs) : '—';
+        html += '<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:11px">'
+          + '<span>' + icon + ' ' + esc(r.tag ? r.tag.replace(/_/g,' ') : r.pid.slice(0,12)) + '</span>'
+          + '<span style="color:var(--muted)">' + mttr + '</span>'
+          + '</div>';
+      }
+    }
+
+    el.innerHTML = html;
+  } catch(e) {}
+}
+
 async function pollCorpusProgress() {
   try {
     const d = await fetch('/calibration/corpus-progress').then(r => r.json());
@@ -865,12 +932,14 @@ pollValidateState();
 pollCalibrationHealth();
 pollWarRoom();
 pollCorpusProgress();
+pollMttr();
 setInterval(poll,5000);
 setInterval(pollSdkStatus,10000);
 setInterval(pollValidateState,5000);
 setInterval(pollCalibrationHealth,30000);
 setInterval(pollWarRoom,10000);
 setInterval(pollCorpusProgress,30000);
+setInterval(pollMttr,30000);
 </script>
 </body></html>`;
 }

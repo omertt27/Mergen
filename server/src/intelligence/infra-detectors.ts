@@ -26,6 +26,15 @@ import { scoreToConfidence } from './detectors.js';
 
 export type InfraDetector = (events: InfraEvent[]) => Hypothesis | null;
 
+// Datadog APM traces are high-fidelity production signals — not inferred from
+// log text. Boost confidence when the matched event came from the compactor.
+const DATADOG_BOOST = 0.15;
+function withDatadogBoost(base: number, matched: InfraEvent[]): number {
+  return matched.some((e) => e.source === 'datadog')
+    ? Math.min(base + DATADOG_BOOST, 0.95)
+    : base;
+}
+
 // ── DB connection pool exhausted ──────────────────────────────────────────────
 
 export function detectDbConnectionPool(events: InfraEvent[]): Hypothesis | null {
@@ -33,13 +42,16 @@ export function detectDbConnectionPool(events: InfraEvent[]): Hypothesis | null 
   if (matches.length === 0) return null;
 
   const p     = matches[0];
-  const score = 0.80;
+  const score = withDatadogBoost(0.80, matches);
 
   return {
     tag: 'infra_db_connection_pool',
     summary: `Database connection pool exhausted on \`${p.service}\` — ${p.message}`,
     confidence: scoreToConfidence(score),
     confidenceScore: score,
+    // Fix reliability is lower than diagnostic confidence: resize vs restart vs leak hunt
+    // depends on the specific failure mode and cannot be determined from telemetry alone.
+    remediationConfidence: 0.60,
     evidence: [
       `Service: \`${p.service}\``,
       `Endpoint: \`${p.attributes.endpoint || 'unknown'}\``,
@@ -67,7 +79,7 @@ export function detectOomKill(events: InfraEvent[]): Hypothesis | null {
 
   const p        = matches[0];
   const isHard   = p.kind === 'oom_kill';
-  const score    = isHard ? 0.90 : 0.65;
+  const score    = withDatadogBoost(isHard ? 0.90 : 0.65, matches);
   const exitCode = p.attributes.exitCode;
   const memMb    = p.attributes.memoryLimitMb;
 
@@ -76,6 +88,9 @@ export function detectOomKill(events: InfraEvent[]): Hypothesis | null {
     summary: `${isHard ? 'OOM kill' : 'Memory pressure'} on \`${p.service}\` — ${p.message}`,
     confidence: scoreToConfidence(score),
     confidenceScore: score,
+    // Raising the memory limit restarts the service but does not fix the underlying leak.
+    // Remediation confidence is lower: the hint is directionally correct but rarely complete.
+    remediationConfidence: isHard ? 0.55 : 0.50,
     evidence: [
       `Service: \`${p.service}\``,
       ...(isHard ? [`Exit code ${exitCode} (SIGKILL — kernel OOM killer fired)`] : []),
@@ -109,13 +124,17 @@ export function detectRateLimitCascade(events: InfraEvent[]): Hypothesis | null 
   if (matches.length === 0) return null;
 
   const p     = matches[0];
-  const score = 0.75;
+  const score = withDatadogBoost(0.75, matches);
 
   return {
     tag: 'infra_rate_limit_cascade',
     summary: `Rate-limit cascade on \`${p.service}\` — ${p.message}`,
     confidence: scoreToConfidence(score),
     confidenceScore: score,
+    // The fix (add backoff + honour Retry-After) is correct but requires a code change
+    // and deploy — not an immediately executable command. Remediation confidence reflects
+    // that the hint cannot be auto-applied without human involvement.
+    remediationConfidence: 0.65,
     evidence: [
       `Service: \`${p.service}\``,
       `Endpoint: \`${p.attributes.endpoint || 'unknown'}\``,
@@ -144,7 +163,7 @@ export function detectDownstreamLatency(events: InfraEvent[]): Hypothesis | null
 
   const p       = matches[0];
   const isQuery = p.kind === 'slow_query';
-  const score   = isQuery ? 0.70 : 0.60;
+  const score   = withDatadogBoost(isQuery ? 0.70 : 0.60, matches);
 
   return {
     tag: isQuery ? 'infra_slow_query' : 'infra_downstream_latency',
@@ -187,6 +206,10 @@ export function detectCertificateExpiry(events: InfraEvent[]): Hypothesis | null
     summary: `TLS / certificate error on \`${p.service}\` — ${p.message}`,
     confidence: scoreToConfidence(score),
     confidenceScore: score,
+    // certbot renew is deterministic when the cert is genuinely expired — high remediation
+    // confidence. Mismatch cases (wrong hostname, CA trust) require manual intervention,
+    // but certificate expiry is the dominant failure mode by volume.
+    remediationConfidence: 0.90,
     evidence: [
       `Service: \`${p.service}\``,
       'Error pattern: TLS handshake failure / certificate validation error',
@@ -244,13 +267,16 @@ export function detectQueueBacklog(events: InfraEvent[]): Hypothesis | null {
   if (matches.length === 0) return null;
 
   const p     = matches[0];
-  const score = 0.65;
+  const score = withDatadogBoost(0.65, matches);
 
   return {
     tag: 'infra_queue_backlog',
     summary: `Message queue backlog on \`${p.service}\` — ${p.message}`,
     confidence: scoreToConfidence(score),
     confidenceScore: score,
+    // Scaling consumers is directionally correct but may not be the fastest path —
+    // slow handler logic or a poison message may require different intervention.
+    remediationConfidence: 0.60,
     evidence: [
       `Service: \`${p.service}\``,
       'Error pattern: consumer lag / queue depth / backlog',
@@ -276,7 +302,7 @@ export function detectServiceUnavailable(events: InfraEvent[]): Hypothesis | nul
   if (matches.length === 0) return null;
 
   const p     = matches[0];
-  const score = 0.70;
+  const score = withDatadogBoost(0.70, matches);
 
   return {
     tag: 'infra_service_unavailable',

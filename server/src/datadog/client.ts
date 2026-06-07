@@ -203,6 +203,34 @@ export async function fetchLatestErrorTrace(
   return { traceId: bestTraceId, spans: traceSpans };
 }
 
+/**
+ * Count error spans for a service in the last N minutes.
+ * Used by the autopilot to validate a fix: if count drops to 0, incident is resolved.
+ * Returns null when Datadog is not configured or the query fails.
+ */
+export async function fetchErrorCountSince(service: string, windowMinutes: number): Promise<number | null> {
+  const config = loadConfig();
+  if (!config) return null;
+
+  const to = new Date();
+  const from = new Date(to.getTime() - windowMinutes * 60_000);
+
+  try {
+    const raw = await ddPost<{ data?: unknown[] }>(config, '/api/v2/spans', {
+      filter: {
+        from: from.toISOString(),
+        to: to.toISOString(),
+        query: `service:${service} status:error`,
+      },
+      page: { limit: 1 },
+      sort: '-timestamp',
+    });
+    return raw.data?.length ?? 0;
+  } catch {
+    return null;
+  }
+}
+
 export async function testConnection(): Promise<void> {
   const config = loadConfig();
   if (!config) throw new Error('No credentials found');

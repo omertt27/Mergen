@@ -24,6 +24,7 @@
 import { spawn } from 'child_process';
 import fs from 'fs';
 import { AUDIT_LOG } from '../sensor/paths.js';
+import { hasPermission } from '../sensor/rbac.js';
 import logger from '../sensor/logger.js';
 
 // ── Safety blocklist ──────────────────────────────────────────────────────────
@@ -61,11 +62,12 @@ export interface RemediationResult {
   blockReason?: string;
 }
 
-function _auditExecution(cmd: string, result: RemediationResult): void {
+function _auditExecution(cmd: string, result: RemediationResult, actor = 'unknown'): void {
   try {
     const entry = JSON.stringify({
       t: new Date().toISOString(),
       event: 'autonomy.execute',
+      actor,
       cmd: cmd.slice(0, 500),
       ok: result.ok,
       exitCode: result.exitCode,
@@ -88,9 +90,22 @@ function _auditExecution(cmd: string, result: RemediationResult): void {
  */
 export async function executeRemediation(
   command: string,
-  opts: { cwd?: string; dryRun?: boolean } = {},
+  opts: { cwd?: string; dryRun?: boolean; actor?: string } = {},
 ): Promise<RemediationResult> {
   const start = Date.now();
+  const actor = opts.actor ?? 'unknown';
+
+  // ── RBAC check ────────────────────────────────────────────────────────────────
+  if (!hasPermission(actor, 'responder')) {
+    const result: RemediationResult = {
+      ok: false, exitCode: null, stdout: '', stderr: '',
+      durationMs: 0, timedOut: false, blocked: true,
+      blockReason: `Actor '${actor}' does not have the 'responder' role required for fix execution`,
+    };
+    _auditExecution(command, result, actor);
+    logger.warn({ actor, command }, 'autonomy: command blocked by RBAC (insufficient role)');
+    return result;
+  }
 
   // ── Safety check ─────────────────────────────────────────────────────────────
   const blocked = BLOCKED_PATTERNS.find((p) => p.test(command));
@@ -100,7 +115,7 @@ export async function executeRemediation(
       durationMs: Date.now() - start, timedOut: false, blocked: true,
       blockReason: `Command matches blocked pattern: ${blocked.toString()}`,
     };
-    _auditExecution(command, result);
+    _auditExecution(command, result, actor);
     logger.warn({ command, pattern: blocked.toString() }, 'autonomy: command blocked by safety filter');
     return result;
   }
@@ -110,7 +125,7 @@ export async function executeRemediation(
       ok: true, exitCode: 0, stdout: `[dry-run] would execute: ${command}`,
       stderr: '', durationMs: 0, timedOut: false, blocked: false,
     };
-    _auditExecution(command, result);
+    _auditExecution(command, result, actor);
     return result;
   }
 
@@ -152,9 +167,9 @@ export async function executeRemediation(
         timedOut,
         blocked: false,
       };
-      _auditExecution(command, result);
+      _auditExecution(command, result, actor);
       logger.info(
-        { exitCode: code, durationMs: result.durationMs, timedOut },
+        { exitCode: code, durationMs: result.durationMs, timedOut, actor },
         'autonomy: command completed',
       );
       resolve(result);
@@ -167,7 +182,7 @@ export async function executeRemediation(
         stdout, stderr: stderr + '\n' + String(err),
         durationMs: Date.now() - start, timedOut: false, blocked: false,
       };
-      _auditExecution(command, result);
+      _auditExecution(command, result, actor);
       resolve(result);
     });
   });

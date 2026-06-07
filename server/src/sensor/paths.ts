@@ -34,3 +34,14 @@ export const TOPOLOGY_FILE = path.join(DATA_DIR, 'topology.json');
 
 /** Mergen configuration file — stores integration credentials (Datadog, etc.). */
 export const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
+
+/** RBAC role assignments — who can execute fixes vs. view-only. */
+export const RBAC_FILE = path.join(DATA_DIR, 'rbac.json');
+
+/** Structured record of every time an engineer overrode Mergen's recommendation.
+ *  Includes categorical reason + outcome. Queried before autonomous execution. */
+export const OVERRIDE_CORPUS_FILE = path.join(DATA_DIR, 'override-corpus.json');
+
+/** Shadow mode log — every recommendation Mergen would have executed but didn't.
+ *  Human verdicts on these entries feed back into the override corpus. */
+export const SHADOW_LOG_FILE = path.join(DATA_DIR, 'shadow-log.json');

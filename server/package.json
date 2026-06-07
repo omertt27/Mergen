@@ -80,6 +80,7 @@
     "pino": "10.3.1",
     "source-map": "0.7.4",
     "sql.js": "^1.14.1",
+    "stripe": "^22.2.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {

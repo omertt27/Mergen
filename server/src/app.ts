@@ -39,6 +39,10 @@ import { createGitHubWebhookRouter } from './routes/github-webhook.js';
 import { createWarRoomRouter } from './routes/war-room.js';
 import { createSlackRoutingRouter } from './routes/slack-routing.js';
 import { createApiKeysRouter } from './routes/api-keys.js';
+import { createRbacRouter } from './routes/rbac.js';
+import { createOverridesRouter } from './routes/overrides.js';
+import { createShadowReportRouter } from './routes/shadow-report.js';
+import { createImpactReportRouter } from './routes/impact-report.js';
 import { cloudAuthMiddleware } from './sensor/cloud-auth.js';
 import { handleSlackActions, handleFeedbackLink } from './intelligence/slack.js';
 import { getPrometheusMetrics } from './sensor/otel-exporter.js';
@@ -156,6 +160,10 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createWarRoomRouter());       // War room API + attribution feedback
   app.use(createSlackRoutingRouter());  // Service-to-Slack webhook routing rules
   app.use(createApiKeysRouter());       // Cloud-mode API key management
+  app.use(createRbacRouter());          // RBAC membership management
+  app.use(createOverridesRouter());     // Engineer override corpus
+  app.use(createShadowReportRouter());  // Shadow mode track record
+  app.use(createImpactReportRouter());  // Deck-quality impact artifact
 
   // ── Prometheus metrics endpoint ───────────────────────────────────────────
   // Exposes browser error rates, network failure counts, and request durations

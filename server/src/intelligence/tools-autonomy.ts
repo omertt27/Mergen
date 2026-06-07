@@ -26,6 +26,8 @@ import { store } from '../sensor/buffer.js';
 import { buildCausalChain } from './causal.js';
 import { getRecords, recordVerdict } from './calibration.js';
 import { executeRemediation, extractCommand } from './autonomy.js';
+import { getAutopilotLevel, autopilotLevelPermits, classifyCommandRisk, autopilotLevelDescription } from './action-risk.js';
+import { getStatsForTag } from './calibration.js';
 import { trackCall } from './tools-state.js';
 import { incidentStore } from '../sensor/incident-store.js';
 import { postThreadReply } from './slack.js';
@@ -56,9 +58,11 @@ export function registerAutonomyTools(server: McpServer): void {
           .describe('Pass "true" to print the command that would be executed without running it.'),
         cwd: z.string().optional()
           .describe('Working directory for the command. Defaults to process cwd.'),
+        actor: z.string().optional()
+          .describe('Identity of the engineer executing the fix (email or username). Used for RBAC and audit log.'),
       },
     },
-    async ({ pid, confirm, since, dry_run, cwd }) => {
+    async ({ pid, confirm, since, dry_run, cwd, actor }) => {
       trackCall('execute_fix');
       const isDryRun = dry_run === 'true';
 
@@ -125,8 +129,9 @@ export function registerAutonomyTools(server: McpServer): void {
         };
       }
 
+      const resolvedActor = actor ?? process.env.MERGEN_MCP_ACTOR ?? 'mcp-client';
       const beforeTs = since ?? Date.now() - 60_000;
-      const execResult = await executeRemediation(command, { cwd, dryRun: isDryRun });
+      const execResult = await executeRemediation(command, { cwd, dryRun: isDryRun, actor: resolvedActor });
 
       if (execResult.blocked) {
         return {
@@ -244,9 +249,11 @@ export function registerAutonomyTools(server: McpServer): void {
           ),
         cwd: z.string().optional()
           .describe('Working directory for any fix command. Defaults to process cwd.'),
+        actor: z.string().optional()
+          .describe('Identity of the engineer (email or username). Used for RBAC and audit log.'),
       },
     },
-    async ({ service, since, auto_execute, cwd }) => {
+    async ({ service, since, auto_execute, cwd, actor }) => {
       trackCall('triage_incident');
       const shouldAutoExecute = auto_execute === 'true';
 
@@ -296,8 +303,13 @@ export function registerAutonomyTools(server: McpServer): void {
       }
 
       const pct = Math.round((topHyp.confidenceScore ?? 0) * 100);
+      const calStats = getStatsForTag(topHyp.tag);
+      const calibrationLabel = calStats?.isEmpirical
+        ? `calibrated — ${calStats.verdicts} verdicts on this installation`
+        : 'estimated — runs /feedback after resolution to calibrate';
       lines.push(
         `### Root Cause — ${topHyp.confidence} (${pct}%)`,
+        `_Confidence source: ${calibrationLabel}_`,
         '',
         topHyp.summary,
         '',
@@ -314,11 +326,20 @@ export function registerAutonomyTools(server: McpServer): void {
       }
 
       const command = topHyp.fixHint ? extractCommand(topHyp.fixHint) : null;
-      const canAutoExecute = shouldAutoExecute && command && (topHyp.confidenceScore ?? 0) >= AUTO_EXECUTE_CONFIDENCE_THRESHOLD;
+      const execConfidence = topHyp.remediationConfidence ?? topHyp.confidenceScore ?? 0;
+      const execPct = Math.round(execConfidence * 100);
+      const autopilotLevel = getAutopilotLevel();
+      const levelPermits = !command || autopilotLevelPermits(command, autopilotLevel);
+      const canAutoExecute = shouldAutoExecute && command && execConfidence >= AUTO_EXECUTE_CONFIDENCE_THRESHOLD && levelPermits;
 
       if (shouldAutoExecute && !canAutoExecute) {
         if (!command) {
           lines.push('⚠️ Auto-execute skipped — no executable command found in fixHint.');
+        } else if (!levelPermits) {
+          const commandTier = classifyCommandRisk(command);
+          lines.push(`⚠️ Auto-execute skipped — MERGEN_AUTOPILOT_LEVEL=${autopilotLevel} permits ${autopilotLevelDescription(autopilotLevel)}. This command is \`${commandTier}\` tier. Set MERGEN_AUTOPILOT_LEVEL=full to enable.`);
+        } else if (topHyp.remediationConfidence !== undefined && topHyp.remediationConfidence < AUTO_EXECUTE_CONFIDENCE_THRESHOLD) {
+          lines.push(`⚠️ Auto-execute skipped — remediation confidence ${execPct}% is below the 85% threshold (diagnosis: ${pct}%). The root cause is identified with high confidence but the fix has variable reliability — apply manually.`);
         } else {
           lines.push(`⚠️ Auto-execute skipped — confidence ${pct}% is below the 85% threshold for autonomous action.`);
         }
@@ -328,9 +349,10 @@ export function registerAutonomyTools(server: McpServer): void {
       if (canAutoExecute && command) {
         lines.push(`### Auto-Execute`, '', `Running: \`${command}\``, '');
         if (topHyp.pid) {
-          void postThreadReply(topHyp.pid, `⚙️ *Mergen auto-executing fix* (${pct}% confidence)\n\`${command}\``);
+          void postThreadReply(topHyp.pid, `⚙️ *Mergen auto-executing fix* (diagnosis: ${pct}%, remediation: ${execPct}%)\n\`${command}\``);
         }
-        const execResult = await executeRemediation(command, { cwd });
+        const resolvedActor = actor ?? process.env.MERGEN_MCP_ACTOR ?? 'mcp-client';
+        const execResult = await executeRemediation(command, { cwd, actor: resolvedActor });
 
         if (execResult.blocked) {
           lines.push(`🚫 **Blocked:** ${execResult.blockReason}`, '', 'Apply manually and validate.');
@@ -357,7 +379,7 @@ export function registerAutonomyTools(server: McpServer): void {
           let verdict: 'correct' | 'partial' | 'wrong';
           if (afterCount === 0 && beforeCount > 0)          { verdict = 'correct'; }
           else if (beforeCount > 0 && afterCount < beforeCount * 0.5) { verdict = 'partial'; }
-          else { verdict = afterCount > beforeCount ? 'wrong' : 'wrong'; }
+          else { verdict = afterCount > beforeCount ? 'wrong' : 'partial'; }
 
           if (topHyp.pid) {
             const existing = getRecords().find((r) => r.pid === topHyp.pid);

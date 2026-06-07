@@ -48,6 +48,7 @@ import { registerPrompts } from './intelligence/mcp-prompts.js';
 import { SYSTEM_PROMPT } from './intelligence/prompts.js';
 import { registerTeamBroadcaster } from './sensor/ingest.js';
 
+import { startShadowDigestCron } from './intelligence/shadow-digest-cron.js';
 import { createApp } from './app.js';
 import { checkForUpdates, formatUpdateMessage } from './update-checker.js';
 
@@ -200,6 +201,9 @@ async function main(): Promise<void> {
   };
   setTimeout(telemetryTick, 60_000).unref();
   setInterval(telemetryTick, 60 * 60 * 1000).unref();
+
+  // ── Shadow mode weekly Slack digest (Monday 09:00 UTC) ────────────────────
+  startShadowDigestCron();
 
   // ── Continuous watcher ────────────────────────────────────────────────────
   startWatcher();
