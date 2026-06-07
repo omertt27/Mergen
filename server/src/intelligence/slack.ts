@@ -35,20 +35,19 @@ export function getThread(pid: string): { channel: string; ts: string } | undefi
   return _threadByPid.get(pid);
 }
 
-/** Post a message via Slack Web API (chat.postMessage). Returns { ts } or null. */
-async function _postWebApi(
-  channel: string,
+/** Post a JSON payload to a generic Slack Web API endpoint. */
+async function _slackApi(
+  path: string,
   payload: Record<string, unknown>,
-  threadTs?: string,
-): Promise<{ ts: string } | null> {
-  if (!BOT_TOKEN || !channel) return null;
-  const body = JSON.stringify({ channel, thread_ts: threadTs, ...payload });
+): Promise<{ ok: boolean; ts?: string; error?: string } | null> {
+  if (!BOT_TOKEN) return null;
+  const body = JSON.stringify(payload);
   return new Promise((resolve) => {
     try {
       const req = https.request(
         {
           hostname: 'slack.com',
-          path: '/api/chat.postMessage',
+          path,
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -63,23 +62,62 @@ async function _postWebApi(
             try {
               const parsed = JSON.parse(data) as { ok: boolean; ts?: string; error?: string };
               if (!parsed.ok) {
-                logger.warn({ error: parsed.error }, 'slack: chat.postMessage failed');
-                resolve(null);
-              } else {
-                resolve({ ts: parsed.ts ?? '' });
+                logger.warn({ error: parsed.error, path }, 'slack: Web API call failed');
               }
+              resolve(parsed);
             } catch { resolve(null); }
           });
         },
       );
-      req.on('error', (err) => { logger.warn({ err }, 'slack: Web API request failed'); resolve(null); });
+      req.on('error', (err) => { logger.warn({ err, path }, 'slack: Web API request failed'); resolve(null); });
       req.write(body);
       req.end();
     } catch (err) {
-      logger.warn({ err }, 'slack: failed to post via Web API');
+      logger.warn({ err, path }, 'slack: failed to post via Web API');
       resolve(null);
     }
   });
+}
+
+/** Post a message via Slack Web API (chat.postMessage). Returns { ts } or null. */
+async function _postWebApi(
+  channel: string,
+  payload: Record<string, unknown>,
+  threadTs?: string,
+): Promise<{ ts: string } | null> {
+  const result = await _slackApi('/api/chat.postMessage', { channel, thread_ts: threadTs, ...payload });
+  return result?.ok && result.ts ? { ts: result.ts } : null;
+}
+
+/** Open a Slack modal for capturing shadow-mode override reasons. */
+async function _openOverrideModal(triggerId: string, pid: string): Promise<void> {
+  const view = {
+    type: 'modal',
+    callback_id: 'override_modal',
+    private_metadata: pid,
+    title: { type: 'plain_text', text: 'Override Mergen' },
+    submit: { type: 'plain_text', text: 'Submit Override' },
+    close: { type: 'plain_text', text: 'Cancel' },
+    blocks: [
+      {
+        type: 'input',
+        block_id: 'reason_block',
+        element: {
+          type: 'static_select',
+          action_id: 'reason_select',
+          placeholder: { type: 'plain_text', text: 'Select a reason...' },
+          options: [
+            { text: { type: 'plain_text', text: 'Too risky for production' }, value: 'too_risky' },
+            { text: { type: 'plain_text', text: 'Fix is incorrect' }, value: 'fix_incorrect' },
+            { text: { type: 'plain_text', text: 'False positive diagnosis' }, value: 'false_positive' },
+            { text: { type: 'plain_text', text: 'Other / Need manual review' }, value: 'other' }
+          ]
+        },
+        label: { type: 'plain_text', text: 'Why are you overriding this action?' }
+      }
+    ]
+  };
+  await _slackApi('/api/views.open', { trigger_id: triggerId, view });
 }
 
 /**
@@ -203,28 +241,28 @@ export async function postSlackAlert(
         ...(hyp.pid ? (isInteractive ? [
           {
             type: 'button',
-            action_id: `feedback_correct_${hyp.pid}`,
-            text: { type: 'plain_text', text: '✅ Correct', emoji: true },
-            value: JSON.stringify({ pid: hyp.pid, verdict: 'correct' }),
+            action_id: `shadow_approve_${hyp.pid}`,
+            text: { type: 'plain_text', text: '✅ Approve Fix', emoji: true },
+            value: JSON.stringify({ pid: hyp.pid, verdict: 'would-approve' }),
             style: 'primary',
           },
           {
             type: 'button',
-            action_id: `feedback_wrong_${hyp.pid}`,
-            text: { type: 'plain_text', text: '❌ Wrong', emoji: true },
-            value: JSON.stringify({ pid: hyp.pid, verdict: 'wrong' }),
+            action_id: `shadow_override_${hyp.pid}`,
+            text: { type: 'plain_text', text: '✋ Override', emoji: true },
+            value: JSON.stringify({ pid: hyp.pid, verdict: 'would-override' }),
             style: 'danger',
           },
         ] : context.dashboardUrl ? [
           {
             type: 'button',
-            text: { type: 'plain_text', text: '✅ Correct', emoji: true },
-            url: `${context.dashboardUrl}/feedback?pid=${encodeURIComponent(hyp.pid)}&verdict=correct`,
+            text: { type: 'plain_text', text: '✅ Approve Fix', emoji: true },
+            url: `${context.dashboardUrl}/feedback?pid=${encodeURIComponent(hyp.pid)}&verdict=would-approve`,
           },
           {
             type: 'button',
-            text: { type: 'plain_text', text: '❌ Wrong', emoji: true },
-            url: `${context.dashboardUrl}/feedback?pid=${encodeURIComponent(hyp.pid)}&verdict=wrong`,
+            text: { type: 'plain_text', text: '✋ Override', emoji: true },
+            url: `${context.dashboardUrl}/feedback?pid=${encodeURIComponent(hyp.pid)}&verdict=would-override`,
           },
         ] : []) : []),
       ],
@@ -459,10 +497,52 @@ export async function handleSlackActions(req: Request, res: Response): Promise<v
   try {
     const body = req.body as { payload?: string };
     const payload = JSON.parse(body.payload ?? '{}') as {
+      type?: string;
+      trigger_id?: string;
+      view?: { callback_id: string; private_metadata: string; state: { values: any } };
       actions?: Array<{ action_id: string; value: string }>;
     };
 
+    if (payload.type === 'view_submission' && payload.view?.callback_id === 'override_modal') {
+      const pid = payload.view.private_metadata;
+      const values = payload.view.state.values;
+      const reasonBlock = values['reason_block'];
+      const reasonSelect = reasonBlock ? reasonBlock['reason_select'] : null;
+      const selectedReason = reasonSelect?.selected_option?.value ?? 'other';
+
+      // Log the override with reason (this would feed into the override corpus in a real DB)
+      logger.info({ pid, verdict: 'would-override', reason: selectedReason }, 'slack: shadow override submitted via modal');
+      
+      // In a real system, you'd save this to shadow-log or override corpus.
+      // recordVerdict(pid, 'would-override', selectedReason); 
+
+      res.status(200).send(''); // ACK within 3s
+      return;
+    }
+
     for (const action of payload.actions ?? []) {
+      // Shadow mode approval
+      if (action.action_id.startsWith('shadow_approve_')) {
+        try {
+          const { pid, verdict } = JSON.parse(action.value) as { pid: string; verdict: string };
+          // Record the 'would-approve' verdict in our calibration store
+          recordVerdict(pid, 'correct'); // map shadow to calibration
+          logger.info({ pid, verdict }, 'slack: shadow approval submitted');
+        } catch (err) {
+          logger.warn({ err, action }, 'slack: failed to parse action value');
+        }
+      }
+
+      // Shadow mode override - trigger modal
+      if (action.action_id.startsWith('shadow_override_') && payload.trigger_id) {
+        try {
+          const { pid } = JSON.parse(action.value) as { pid: string };
+          await _openOverrideModal(payload.trigger_id, pid);
+        } catch (err) {
+          logger.warn({ err, action }, 'slack: failed to open override modal');
+        }
+      }
+
       // Calibration hypothesis feedback
       if (action.action_id.startsWith('feedback_')) {
         try {

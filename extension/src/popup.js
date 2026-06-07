@@ -26,6 +26,7 @@ const toggleSub     = document.getElementById('toggle-sub');
 const mutedBanner   = document.getElementById('muted-banner');
 const noCsBanner    = document.getElementById('no-cs-banner');
 const btnClear      = document.getElementById('btn-clear');
+const btnCapture    = document.getElementById('btn-capture');
 const btnGear       = document.getElementById('btn-gear');
 const welcomeLink   = document.getElementById('welcome-link');
 const pricingLink   = document.getElementById('pricing-link');
@@ -416,6 +417,35 @@ async function fetchLocalSecret(port) {
   } catch { /* server not running or not reachable — proceed without secret */ }
   return _localSecret;
 }
+
+// ── Capture point ─────────────────────────────────────────────────────────────
+
+btnCapture?.addEventListener('click', async () => {
+  const port = parseInt(portInput.value, 10);
+  try {
+    const secret = await fetchLocalSecret(port);
+    await fetch(`${getBaseUrl(port)}/mark`, {
+      method: 'POST',
+      headers: secret ? { 'x-mergen-secret': secret } : {},
+      signal: AbortSignal.timeout(2000),
+    });
+    
+    // Visual feedback for capture
+    const origText = btnCapture.textContent;
+    btnCapture.textContent = '⏹ Recording';
+    btnCapture.style.color = '#ef4444'; // Red
+    btnCapture.style.borderColor = '#ef4444';
+    
+    setTimeout(() => { 
+      btnCapture.textContent = origText;
+      btnCapture.style.color = '';
+      btnCapture.style.borderColor = '';
+    }, 4000);
+  } catch {
+    btnCapture.textContent = '✗ Offline';
+    setTimeout(() => { btnCapture.textContent = '⏺ Capture'; }, 1500);
+  }
+});
 
 // ── Clear buffer (two-step confirm to prevent accidental clears) ──────────────
 

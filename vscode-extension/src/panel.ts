@@ -1133,8 +1133,21 @@ export class MergenPanel implements vscode.WebviewViewProvider {
       <span class="hyp-tag" id="hyp-tag">—</span>
       <span class="hyp-conf" id="hyp-conf">—</span>
     </div>
+    
+    <!-- Causal Chain Breadcrumbs -->
+    <div id="causal-chain" style="display:flex; flex-direction:column; gap:6px; margin:12px 0; font-family:var(--vscode-editor-font-family); font-size:10px;">
+      <!-- JS will populate breadcrumbs here e.g. [Deploy] -> [Spike] -> [Crash] -->
+    </div>
+    
     <div class="hyp-summary" id="hyp-summary"></div>
     <div class="hyp-fix" id="hyp-fix" style="display:none"></div>
+    
+    <!-- Blast Radius UI -->
+    <div id="blast-radius-box" style="margin-top:10px; padding:8px 10px; border:1px solid var(--vscode-charts-yellow); border-radius:4px; background:rgba(255,200,0,0.05); display:none">
+      <div style="font-size:10px; font-weight:700; color:var(--vscode-charts-yellow); margin-bottom:4px; letter-spacing:0.05em">BLAST RADIUS</div>
+      <div id="blast-radius-risk" style="font-size:11px; color:var(--vscode-foreground); line-height:1.4">Risk: 12% (No DB migrations involved, low traffic window)</div>
+    </div>
+
     <div class="calib" id="hyp-calib" style="display:none"></div>
   </div>
   <div class="pack-meta">
@@ -1163,6 +1176,21 @@ export class MergenPanel implements vscode.WebviewViewProvider {
 <div class="card" id="card-signals" style="display:none">
   <div class="card-title">Detected Patterns</div>
   <div id="signals-list"></div>
+</div>
+
+<!-- Confidence Milestone Dashboard -->
+<div class="card" id="card-milestone" style="display:none">
+  <div class="card-title">Autopilot Milestone</div>
+  <div style="font-size:11px;color:var(--vscode-foreground);margin-bottom:8px">
+    Mergen is learning to resolve <b id="milestone-tag">api-service</b> issues automatically.
+  </div>
+  <div class="credit-bar-wrap" style="height:8px; background:rgba(127,127,127,0.2);">
+    <div class="credit-bar-fill" id="milestone-bar" style="width:82%; background:var(--vscode-charts-green)"></div>
+  </div>
+  <div class="credit-meta" style="margin-top:4px; justify-content:space-between;">
+    <span id="milestone-progress" style="font-weight:600">82% Confidence reached</span>
+    <a href="#" id="milestone-action" style="color:var(--vscode-textLink-foreground);text-decoration:none;">Promote to Autopilot?</a>
+  </div>
 </div>
 
 <!-- Buffer stats — moved after signals; raw counts are secondary to explanations -->
