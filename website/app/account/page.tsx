@@ -189,7 +189,7 @@ export default function AccountPage() {
                   <>
                     <ProgressBar used={state.usage.used} total={state.usage.included} />
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--gray-400)', fontFamily: 'var(--font-geist-mono)', marginBottom: '1rem' }}>
-                      <span>{state.usage.used.toLocaleString()} / {state.usage.included.toLocaleString()} analyze credits used</span>
+                      <span>{state.usage.used.toLocaleString()} / {state.usage.included.toLocaleString()} incidents this month</span>
                       <span>resets {new Date(state.usage.resetsAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
                     </div>
                   </>

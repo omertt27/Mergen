@@ -39,6 +39,7 @@ import { hasRecentOverride, dominantOverrideReason } from './override-corpus.js'
 import { recordShadow } from './shadow-log.js';
 import { getAutopilotLevel, autopilotLevelPermits, classifyCommandRisk, autopilotLevelDescription } from './action-risk.js';
 import { getStatsForTag } from './calibration.js';
+import { runAgentPipeline, renderPipelineStages } from './agent-pipeline.js';
 import logger from '../sensor/logger.js';
 
 // Wire the expiry-reply callback so execution-gate.ts can post to Slack threads
@@ -200,28 +201,35 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
   void postThreadReply(pid, diagMsg);
   logger.info({ service, pid, confidence: pct, hypothesis: topHyp.tag }, 'incident-autopilot: diagnosis posted');
 
-  // Prefer typed fixAction over regex-parsing fixHint
-  const command = topHyp.fixAction
-    ? fixActionToCommand(topHyp.fixAction)
-    : (topHyp.fixHint ? extractCommand(topHyp.fixHint) : null);
+  // ── Multi-agent governance pipeline (Validator → Planner → Critic → Guard) ─
+  const now = new Date();
+  const pipeline = runAgentPipeline(causal, {
+    service,
+    executionThreshold: getAutoExecuteThreshold(),
+    service_time: { dayOfWeek: now.getUTCDay(), hourOfDay: now.getUTCHours() },
+  });
+
+  // Post pipeline stage summary to Slack (gives on-call visibility into reasoning)
+  if (AUTOPILOT_ENABLED || SHADOW_MODE) {
+    void postThreadReply(pid, renderPipelineStages(pipeline.stages));
+  }
+
+  // Prefer pipeline-derived plan over direct fixAction extraction
+  const command = pipeline.plan?.command
+    ?? (topHyp.fixAction ? fixActionToCommand(topHyp.fixAction) : null)
+    ?? (topHyp.fixHint ? extractCommand(topHyp.fixHint) : null);
   const execConfidence = topHyp.remediationConfidence ?? topHyp.confidenceScore ?? 0;
   const execPct = Math.round(execConfidence * 100);
 
-  // ── Determine skip reason before any execution gate ───────────────────────
-  const now = new Date();
-  const dayOfWeek = now.getUTCDay();
-  const hourOfDay = now.getUTCHours();
+  // ── Determine skip reason (pipeline verdict is authoritative) ────────────
+  const corpusBlocked = pipeline.critique?.corpusConflict ?? false;
+  const levelBlocked  = pipeline.critique?.levelConflict  ?? false;
+  const pipelineBlocked = pipeline.verdict === 'block';
+  const pipelineReview  = pipeline.verdict === 'review';
 
-  // Check override corpus: has this (tag, service) been overridden in this time window?
-  const corpusBlocked = AUTOPILOT_ENABLED && command && execConfidence >= getAutoExecuteThreshold()
-    && hasRecentOverride(topHyp.tag, service, dayOfWeek, hourOfDay);
-
-  // Check autopilot level: does the command's risk tier fit within the configured level?
-  const levelBlocked = AUTOPILOT_ENABLED && command && execConfidence >= getAutoExecuteThreshold()
-    && !autopilotLevelPermits(command, AUTOPILOT_LEVEL);
-
-  if (!command || execConfidence < getAutoExecuteThreshold() || corpusBlocked || levelBlocked || SHADOW_MODE) {
-    let skipReason: 'no-command' | 'confidence-below-threshold' | 'remediation-below-threshold' | 'override-corpus' | 'autopilot-disabled' | 'level-restricted';
+  if (!command || pipelineBlocked || SHADOW_MODE ||
+      (!pipelineReview && execConfidence < getAutoExecuteThreshold())) {
+    let skipReason: 'no-command' | 'confidence-below-threshold' | 'remediation-below-threshold' | 'override-corpus' | 'autopilot-disabled' | 'level-restricted' | 'pipeline-block';
     let slackReason: string;
 
     if (SHADOW_MODE) {
@@ -230,6 +238,11 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
     } else if (!command) {
       skipReason = 'no-command';
       slackReason = 'no executable command in fixHint';
+    } else if (pipelineBlocked) {
+      skipReason = pipeline.critique?.levelConflict ? 'level-restricted'
+        : pipeline.critique?.corpusConflict ? 'override-corpus'
+        : 'pipeline-block';
+      slackReason = pipeline.blockReason ?? 'Governance pipeline blocked execution';
     } else if (levelBlocked) {
       skipReason = 'level-restricted';
       const commandTier = classifyCommandRisk(command);
@@ -256,12 +269,12 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
         diagnosisConfidence: topHyp.confidenceScore ?? 0,
         remediationConfidence: execConfidence,
         wouldHaveExecuted: !!command && execConfidence >= getAutoExecuteThreshold() && !corpusBlocked,
-        skipReason,
+        skipReason: skipReason === 'pipeline-block' ? 'confidence-below-threshold' : skipReason,
         firedAt,
       });
     }
 
-    logger.info({ service, pid, skipReason, diagPct: pct, execPct }, 'incident-autopilot: skipping auto-execute');
+    logger.info({ service, pid, skipReason, diagPct: pct, execPct, pipelineVerdict: pipeline.verdict }, 'incident-autopilot: skipping auto-execute');
     const icon = SHADOW_MODE ? '👁️' : '⚠️';
     void postThreadReply(pid, `${icon} _Autopilot: ${slackReason}. Awaiting manual action._`);
     return;

@@ -31,7 +31,10 @@ import { getShadowLog } from '../intelligence/shadow-log.js';
 import { getOverrideSummary, getOverrideById } from '../intelligence/override-corpus.js';
 import { getStats } from '../intelligence/calibration.js';
 import { incidentStore } from '../sensor/incident-store.js';
+import { postmortemStore } from '../intelligence/postmortem-store.js';
 import logger from '../sensor/logger.js';
+
+const DEFAULT_REVENUE_PER_MINUTE_USD = 100;
 
 // Conservative autonomous MTTR estimate: buffer fill + analysis + exec + validation
 const ESTIMATED_AUTONOMOUS_MTTR_MS = 2 * 60 * 1000; // 2 minutes
@@ -112,6 +115,9 @@ interface ImpactData {
   comparisonRows: ComparisonRow[];
   // Raw numbers for the deck slide
   deckSummary: string;
+  // Y5: outcome-based billing evidence
+  estimatedRevenuePreservedUsd: number | null;
+  corpusPostmortems: number;
 }
 
 function fmtMs(ms: number): string {
@@ -189,6 +195,19 @@ function computeImpactData(windowDays: number): ImpactData {
   const approved = reviewed.filter((e) => e.humanVerdict === 'would-approve').length;
   const humanApprovalRate = reviewed.length >= 3 ? approved / reviewed.length : null;
 
+  // Revenue preservation (Y5 outcome billing)
+  const revenuePerMinute =
+    parseFloat(process.env.MERGEN_REVENUE_PER_MINUTE_USD ?? '') || DEFAULT_REVENUE_PER_MINUTE_USD;
+  const mttrSavedMs = avgActualMttrMs != null
+    ? Math.max(0, avgActualMttrMs - ESTIMATED_AUTONOMOUS_MTTR_MS)
+    : null;
+  const estimatedRevenuePreservedUsd = mttrSavedMs != null && wouldResolve.length > 0
+    ? Math.round((mttrSavedMs / 60_000) * revenuePerMinute * wouldResolve.length)
+    : null;
+
+  // Corpus size
+  const corpusPostmortems = postmortemStore.count();
+
   // Deck summary — the one sentence that goes on a slide
   const rate = entries.length > 0
     ? Math.round((wouldResolve.length / entries.length) * 100)
@@ -262,6 +281,8 @@ function computeImpactData(windowDays: number): ImpactData {
     humanApprovalRate,
     comparisonRows,
     deckSummary,
+    estimatedRevenuePreservedUsd,
+    corpusPostmortems,
   };
 }
 

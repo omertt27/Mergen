@@ -1,12 +1,12 @@
 const sources = [
-  { name: 'Chrome',         type: 'Browser',   tag: 'Extension' },
-  { name: 'Node.js',        type: 'Runtime',   tag: 'mergen-node' },
-  { name: 'Python',         type: 'Runtime',   tag: 'mergen-python' },
-  { name: 'Express',        type: 'Framework', tag: 'Middleware' },
-  { name: 'FastAPI',        type: 'Framework', tag: 'Middleware' },
-  { name: 'Django',         type: 'Framework', tag: 'Middleware' },
+  { name: 'PagerDuty',      type: 'Alerting',  tag: 'Webhook' },
   { name: 'OpenTelemetry',  type: 'Protocol',  tag: 'OTLP :4318' },
   { name: 'Docker',         type: 'Infra',     tag: 'Log stream' },
+  { name: 'Node.js',        type: 'Runtime',   tag: 'mergen-node' },
+  { name: 'Python',         type: 'Runtime',   tag: 'mergen-python' },
+  { name: 'Express',        type: 'Framework', tag: 'App errors' },
+  { name: 'FastAPI',        type: 'Framework', tag: 'App errors' },
+  { name: 'Django',         type: 'Framework', tag: 'App errors' },
 ]
 
 const ides = [

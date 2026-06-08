@@ -4,11 +4,11 @@ const plans = [
     price: '$0',
     period: '/mo',
     features: [
-      '500 reasoning calls / month',
-      '10 calls / hour burst cap',
-      'Console, network & DOM capture',
-      'Source map de-minification',
-      'PII Shield — client-side masking',
+      'Up to 25 incidents / month',
+      'Full causal analysis (shadow mode)',
+      'MCP tools: triage_incident, analyze_runtime',
+      'PagerDuty, Slack, Docker, OTLP',
+      'PII Shield + audit log',
     ],
     cta: 'Get Started',
     ctaClass: 'btn btn-outline',
@@ -19,12 +19,12 @@ const plans = [
     price: '$29',
     period: '/mo',
     features: [
-      '2,000 reasoning calls / month',
-      '$0.02 / call after quota · no burst cap',
-      'WebSocket & SSE frame inspection',
-      'React / Vue component tree',
-      'OTLP export to any OTel collector',
-      'Backend spans + trace correlation',
+      'Up to 200 incidents / month',
+      '$50 overage ceiling — never more',
+      'Autopilot execution (≥85% confidence)',
+      'Auto-rollback + blast radius gate',
+      'Override corpus + adaptive threshold',
+      'Slack thread ownership',
     ],
     cta: 'Get Pro',
     ctaClass: 'btn btn-white',
@@ -36,10 +36,10 @@ const plans = [
     price: 'Contact us',
     period: '',
     features: [
-      'Everything in Pro, per seat',
-      'Pooled credits across the team',
-      'Team sync — shared debug context',
-      'Priority support + audit logs + SSO',
+      'Unlimited incidents, per seat',
+      'Shared override corpus across team',
+      'SSO + RBAC + compliance exports',
+      'Priority support + SLA + audit logs',
     ],
     cta: 'Contact Sales',
     ctaClass: 'btn btn-outline',
@@ -51,7 +51,7 @@ export default function Pricing() {
   return (
     <section id="access">
       <span className="section-label">04 // Pricing</span>
-      <h2>Start local.<br />Scale to enterprise.</h2>
+      <h2>One command.<br />Full production memory.</h2>
 
       <div className="price-row mt-lg">
         {plans.map((plan) => (

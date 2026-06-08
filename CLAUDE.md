@@ -1,9 +1,9 @@
 # Mergen — AI Operations Layer for Backend & Infrastructure
 
-Mergen triages production incidents autonomously. It connects your backend
-telemetry (OpenTelemetry, logs, PagerDuty) to any AI IDE via MCP — then acts:
-diagnoses root cause, executes fixes at ≥85% confidence, validates the result,
-and posts the outcome to your Slack incident thread.
+Mergen is the MCP layer that turns your AI IDE (Claude Code, Cursor, Windsurf, VS Code)
+into an autonomous ops agent. Connect Mergen to your backend telemetry — PagerDuty fires,
+your AI IDE calls `triage_incident`, Mergen diagnoses root cause, executes the fix at ≥85%
+confidence, validates the result, and posts the audit trail to your Slack thread.
 
 All data stays on your infrastructure. No cloud. No copy-paste.
 

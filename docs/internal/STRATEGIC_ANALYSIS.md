@@ -506,14 +506,14 @@ Mergen is **not agent tracing**. It's **runtime verification for agent-written c
 ✅ **Power user retention** — $49/mo doesn't churn heavy users  
 
 **Risks:**
-⚠️ **Free tier too generous?** — 100 credits/mo = 3–4 uses/day. May be enough for casual users.  
-⚠️ **Overage sticker shock** — $0.02/call × 1,000 = $20 surprise bill (but: user chose to keep using)
+⚠️ **Free tier too generous?** — 25 incidents/month may cover casual users end-to-end.  
+⚠️ **Overage ceiling UX** — $50 ceiling removes sticker shock risk during incident spikes.
 
 **Recommendation:**  
 Monitor **free-to-paid conversion** in first 90 days:
-- Target: **15% convert** from free → Solo Starter within 30 days
-- If <10%: reduce free tier to 50 credits/mo
-- If >20%: keep current (100 credits is optimal habit-forming tier)
+- Target: **15% convert** from free → Pro within 30 days
+- If <10%: reduce free tier to 10 incidents/month
+- If >20%: keep current (25 incidents is optimal habit-forming tier)
 
 ---
 

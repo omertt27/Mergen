@@ -24,7 +24,7 @@ Show, in under three minutes, that Mergen is not just a raw browser log pipe. It
 - Quick view of `npx mergen-server setup`
 
 **Narration**
-> This is Mergen. A local-first browser observability bridge for AI IDEs. The Chrome extension captures console logs and network events, posts them to localhost, and the MCP server exposes them directly to tools like Claude Code, Cursor, and VS Code Copilot. No cloud. No copy-paste.
+> This is Mergen. A local-first production telemetry server for AI IDEs. The Chrome extension captures console logs and network events, posts them to localhost, and the MCP server exposes them directly to tools like Claude Code, Cursor, and VS Code Copilot. No cloud. No copy-paste.
 
 ### [0:45–1:30] Trigger the bug
 
@@ -82,7 +82,7 @@ Show, in under three minutes, that Mergen is not just a raw browser log pipe. It
 
 > Browser MCP gives you raw logs. Sentry only knows about production. What catches race conditions during development, right now, in your browser? Mergen.
 >
-> This is Mergen. A local-first browser observability bridge for AI IDEs. The Chrome extension captures console logs and network events, posts them to localhost, and the MCP server exposes them directly to tools like Claude Code, Cursor, and VS Code Copilot. No cloud. No copy-paste.
+> This is Mergen. A local-first production telemetry server for AI IDEs. The Chrome extension captures console logs and network events, posts them to localhost, and the MCP server exposes them directly to tools like Claude Code, Cursor, and VS Code Copilot. No cloud. No copy-paste.
 >
 > Here’s the bug. This component fires two overlapping fetches when the selected user changes. The first request comes back late, but it still wins and overwrites the newer state. It’s the kind of bug that looks random until you can line up timing, logs, and state transitions in one place.
 >

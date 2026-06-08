@@ -349,7 +349,7 @@ get_recent_logs(min_severity: 'error', exclude_patterns: ['HMR']) → 800 tokens
 3. **Causal:** `analyze_runtime` builds dependency chains (e.g., "request failed → state cleared → component crashed")
 
 ### Q: What's the catch?
-**A:** No catch. Base features are free forever. Advanced causal analysis (`analyze_runtime`) costs 1 credit per call. Free tier: 10 credits/mo.
+**A:** No catch. Base features are free forever. Advanced analysis is metered by incident. Free: 25 incidents/month. Pro ($29/mo): 200 incidents/month, $50 overage ceiling.
 
 ---
 

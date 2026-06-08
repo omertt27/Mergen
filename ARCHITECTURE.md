@@ -6,7 +6,7 @@
 
 ## 1. What Is Mergen?
 
-Mergen is a **local browser observability bridge** that sits between your running web app and your AI coding assistant (Cursor, Claude, Windsurf, etc.). It captures runtime telemetry — console events, network calls, DOM snapshots — and exposes them to the AI via the **Model Context Protocol (MCP)**. The AI can then diagnose bugs with real execution data instead of guessing from static code.
+Mergen is a **production memory layer for AI IDEs** — an MCP server that connects your AI coding assistant (Claude Code, Cursor, Windsurf, VS Code) to live production telemetry. It ingests events from PagerDuty, OpenTelemetry, Docker, and Datadog, stores them in an in-memory ring buffer, and exposes them as MCP tools. The AI can then triage incidents with real production data instead of guessing from static code.
 
 ---
 
@@ -120,10 +120,10 @@ Mergen is a **local browser observability bridge** that sits between your runnin
 
 ### 5.1 Credit Mechanics
 
-- **One credit = one `analyze_runtime` call.** All other tools (`get_recent_logs`, `get_network_activity`, `get_dom_context`, `get_status`, `clear_buffer`) are **free and unlimited**.
-- **Solo Standard overage:** after 500 credits/month, each additional call is reported to LemonSqueezy as a usage-based billing record ($0.05). The user sees a warning in the MCP response at ≤20% remaining and at 0.
-- **Pay-as-you-go:** every call costs $0.05, no subscription required. Requires a LemonSqueezy subscription item ID stored in `~/.mergen/license.json`.
-- **Solo Pro / Team:** no credit cap, no overage charges.
+- **Free:** 25 incidents/month, shadow mode (analysis without execution), hard cap.
+- **Pro ($29/mo):** 200 incidents/month, $50 overage ceiling — never more than $50 extra regardless of spike volume.
+- **Enterprise:** unlimited incidents per seat, shared override corpus, SSO + RBAC.
+- Counters reset on the **1st of every calendar month at 00:00 UTC**.
 - Counters reset on the **1st of every calendar month at 00:00 UTC**.
 
 ### 5.2 LemonSqueezy Variant IDs (env vars)

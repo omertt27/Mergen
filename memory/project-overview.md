@@ -5,9 +5,9 @@ metadata:
   type: project
 ---
 
-Mergen is a local-first browser observability bridge that streams live browser telemetry (console, network, WebSocket, component trees) to AI IDEs via MCP.
+Mergen is a local-first production telemetry MCP server that gives AI IDEs production memory — connecting Claude Code, Cursor, Windsurf, and VS Code to live incident data.
 
-**Architecture:** Chrome extension → POST /ingest → ring buffer → MCP server (stdio) → Claude Code / Cursor / Windsurf / VS Code
+**Architecture:** PagerDuty / OpenTelemetry / Docker / Datadog → POST /ingest → ring buffer → MCP server (stdio) → Claude Code / Cursor / Windsurf / VS Code
 
 **Key files:**
 - `server/src/sensor/buffer.ts` — Zod schemas + ring buffer implementation

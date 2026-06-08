@@ -1546,9 +1546,18 @@ async function initCommand(): Promise<void> {
 async function demoCommand(): Promise<void> {
   const { createServer } = await import('http');
   const { createApp } = await import('./app.js');
+  const { loadSeedCorpus, SEED_COUNT } = await import('./seeds/corpus.js');
 
   console.log('\n🔭 Mergen Demo\n');
   console.log('Starting server...');
+
+  // Seed the replay corpus so replay demos work immediately on first run.
+  const { loaded, skipped } = loadSeedCorpus();
+  if (loaded > 0) {
+    console.log(`✓ Seed corpus: ${loaded} incidents loaded (${skipped} already present)`);
+  } else {
+    console.log(`✓ Seed corpus: ${SEED_COUNT} incidents ready`);
+  }
 
   const port = 3000;
   const app = createApp({

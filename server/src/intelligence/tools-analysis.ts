@@ -29,7 +29,7 @@ function _registerAnalyzeRuntime(server: McpServer): void {
         'with a single root-cause summary, causal path, and fix hint. ' +
         'Use it whenever the user asks why something is wrong, why a component is behaving unexpectedly, ' +
         'or what happened before an error. ' +
-        'Costs 1 credit per call. Free: 500 credits/mo (10/hr burst). Pro ($29/mo): 2,000/mo + overage.',
+        'Free: up to 25 incidents/month (shadow mode). Pro ($29/mo): 200 incidents/month, $50 overage ceiling.',
       inputSchema: {
         focus: z.enum(['errors', 'network', 'all']).optional()
           .describe('Limit analysis scope (default: all)'),
@@ -51,7 +51,7 @@ function _registerAnalyzeRuntime(server: McpServer): void {
             text: [
               `⛔ Monthly limit reached on the **Free** plan.`,
               ``,
-              `**Upgrade to Pro** ($29/mo) for 2,000 analyze_runtime credits/month + $0.02/call overage.`,
+              `**Upgrade to Pro** ($29/mo) for 200 incidents/month with a $50/month overage ceiling.`,
               `→ https://mergen.dev/pricing`,
               ``,
               `**Continue debugging with free tools:**`,

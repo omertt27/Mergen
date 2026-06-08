@@ -31,6 +31,10 @@ export interface Incident {
   notes: string[];
   sha: string | null;
   environment: string | null;
+  /** Service name for graph queries and multi-service memory (Y3) */
+  service: string | null;
+  /** Kubernetes cluster or deployment target (Y3) */
+  cluster: string | null;
   confidence: number;
   createdAt: number;
   updatedAt: number;
@@ -78,6 +82,8 @@ class IncidentStore {
           notes                  TEXT NOT NULL DEFAULT '[]',
           sha                    TEXT,
           environment            TEXT,
+          service                TEXT,
+          cluster                TEXT,
           confidence             REAL NOT NULL DEFAULT 0,
           created_at             INTEGER NOT NULL,
           updated_at             INTEGER NOT NULL,
@@ -86,6 +92,9 @@ class IncidentStore {
           resolved_autonomously  INTEGER NOT NULL DEFAULT 0
         );
       `);
+      // Migration: add service + cluster columns to existing databases
+      try { this.db.run(`ALTER TABLE incidents ADD COLUMN service TEXT`); } catch { /**/ }
+      try { this.db.run(`ALTER TABLE incidents ADD COLUMN cluster TEXT`); } catch { /**/ }
       this._flush();
       logger.info({ path: INCIDENT_DB }, 'incident store initialised');
     } catch (err) {
@@ -113,6 +122,8 @@ class IncidentStore {
       notes: (() => { try { return JSON.parse(String(row.notes ?? '[]')); } catch { return []; } })(),
       sha: row.sha ? String(row.sha) : null,
       environment: row.environment ? String(row.environment) : null,
+      service: row.service ? String(row.service) : null,
+      cluster: row.cluster ? String(row.cluster) : null,
       confidence: Number(row.confidence ?? 0),
       createdAt: Number(row.created_at ?? 0),
       updatedAt: Number(row.updated_at ?? 0),
@@ -127,7 +138,8 @@ class IncidentStore {
       const now = Date.now();
       return {
         pid, status: 'open', hypothesis: '', tag: '', assignee: null, notes: [],
-        sha: null, environment: null, confidence: 0, createdAt: now, updatedAt: now,
+        sha: null, environment: null, service: null, cluster: null, confidence: 0,
+        createdAt: now, updatedAt: now,
         acknowledgedBy: null, resolvedAt: null, resolvedAutonomously: false, ...fields,
       };
     }
@@ -137,8 +149,8 @@ class IncidentStore {
 
     if (!existing) {
       this.db.run(
-        `INSERT INTO incidents (pid, hypothesis, tag, status, assignee, notes, sha, environment, confidence, created_at, updated_at, acknowledged_by, resolved_at, resolved_autonomously)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO incidents (pid, hypothesis, tag, status, assignee, notes, sha, environment, service, cluster, confidence, created_at, updated_at, acknowledged_by, resolved_at, resolved_autonomously)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           pid,
           fields.hypothesis ?? '',
@@ -148,6 +160,8 @@ class IncidentStore {
           JSON.stringify(fields.notes ?? []),
           fields.sha ?? null,
           fields.environment ?? null,
+          fields.service ?? null,
+          fields.cluster ?? null,
           fields.confidence ?? 0,
           now, now,
           fields.acknowledgedBy ?? null,
@@ -158,10 +172,11 @@ class IncidentStore {
     } else {
       const merged = { ...existing, ...fields };
       this.db.run(
-        `UPDATE incidents SET hypothesis=?,tag=?,status=?,assignee=?,notes=?,sha=?,environment=?,confidence=?,updated_at=?,acknowledged_by=?,resolved_at=?,resolved_autonomously=? WHERE pid=?`,
+        `UPDATE incidents SET hypothesis=?,tag=?,status=?,assignee=?,notes=?,sha=?,environment=?,service=?,cluster=?,confidence=?,updated_at=?,acknowledged_by=?,resolved_at=?,resolved_autonomously=? WHERE pid=?`,
         [
           merged.hypothesis, merged.tag, merged.status, merged.assignee,
           JSON.stringify(merged.notes), merged.sha, merged.environment,
+          merged.service, merged.cluster,
           merged.confidence, now, merged.acknowledgedBy, merged.resolvedAt,
           merged.resolvedAutonomously ? 1 : 0, pid,
         ],

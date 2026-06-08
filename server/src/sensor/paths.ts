@@ -45,3 +45,16 @@ export const OVERRIDE_CORPUS_FILE = path.join(DATA_DIR, 'override-corpus.json');
 /** Shadow mode log — every recommendation Mergen would have executed but didn't.
  *  Human verdicts on these entries feed back into the override corpus. */
 export const SHADOW_LOG_FILE = path.join(DATA_DIR, 'shadow-log.json');
+
+/** Structured postmortem database — one row per resolved incident.
+ *  The corpus moat: every resolved incident makes Mergen smarter. */
+export const POSTMORTEMS_DB = path.join(DATA_DIR, 'postmortems.db');
+
+/**
+ * Zero-retention mode: skip all disk writes.
+ * Set MERGEN_ZERO_RETENTION=true for VPC / regulated deployments where
+ * telemetry must never touch disk (Y4 enterprise compliance feature).
+ */
+export function zeroRetentionMode(): boolean {
+  return process.env.MERGEN_ZERO_RETENTION === 'true';
+}

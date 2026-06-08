@@ -14,7 +14,7 @@ export function registerUtilityTools(server: McpServer): void {
     {
       description:
         'Returns your current plan, credit usage, billing status, and next reset date. ' +
-        'Use this to check how many analyze_runtime credits remain before calling that tool.',
+        'Use this to check how many incidents remain this month before calling that tool.',
     },
     async () => {
       const snap     = getUsageSnapshot();
@@ -47,7 +47,7 @@ export function registerUtilityTools(server: McpServer): void {
 
       if (snap.planId === 'free') {
         lines.push('',
-          '> **Upgrade to Pro ($29/mo)** — 2,000 credits/month + $0.02/call overage, WebSocket inspection, component tree.',
+          '> **Upgrade to Pro ($29/mo)** — 200 incidents/month, $50 overage ceiling, autopilot execution, auto-rollback.',
           '> https://mergen.dev/pricing',
         );
       }

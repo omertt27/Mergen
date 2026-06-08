@@ -7,7 +7,7 @@
 
 ## Executive Summary
 
-This plan transforms Mergen from a **telemetry bridge** to a **causal context layer** for AI agents. 
+This plan positions Mergen as the **production memory layer** for AI IDEs — giving Claude Code and peers the incident context they need to triage autonomously. 
 
 AI agents can read code, but they are "blind to runtime." They cannot see the causal links between a browser crash and a backend timeout. Mergen bridges this gap by providing **deterministic causal joins** (EXACT evidence) that give agents the ground truth they need to debug accurately.
 

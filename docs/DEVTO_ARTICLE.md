@@ -10,7 +10,7 @@ If you’ve debugged this kind of issue before, you know the routine: open DevTo
 
 That’s the problem Mergen is trying to solve.
 
-Mergen is a local-first browser observability bridge for AI IDEs. It captures browser console logs, network activity, and context snapshots, posts them to `127.0.0.1:3000/ingest`, stores them in a small in-memory ring buffer, and exposes that data to Claude Code, Cursor, and VS Code Copilot through MCP.
+Mergen is a local-first production telemetry server for AI IDEs. It ingests events from PagerDuty, OpenTelemetry, Docker, and application logs, stores them in an in-memory ring buffer, and exposes that data to Claude Code, Cursor, and VS Code Copilot through MCP.
 
 The key difference is simple: **Browser MCP gives you access to raw browser output. Mergen tries to turn that output into a useful diagnosis.**
 

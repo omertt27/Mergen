@@ -11,6 +11,8 @@
 import { Router } from 'express';
 import { randomBytes } from 'crypto';
 import { store } from '../sensor/buffer.js';
+import { listSnapshotPids, replayIncident } from '../intelligence/incident-replay.js';
+import { SEED_COUNT } from '../seeds/corpus.js';
 
 export function createDemoRouter(): Router {
   const router = Router();
@@ -57,6 +59,39 @@ export function createDemoRouter(): Router {
     };
 
     res.json({ ok: true, injected: events.length, analysis });
+  });
+
+  // ── GET /demo/corpus-status — seed corpus stats ───────────────────────────────
+  router.get('/demo/corpus-status', (_req, res) => {
+    const pids = listSnapshotPids();
+    const seedPids = pids.filter((p) => p.startsWith('seed-'));
+    const realPids = pids.filter((p) => !p.startsWith('seed-'));
+    res.json({
+      ok: true,
+      total: pids.length,
+      seed: seedPids.length,
+      real: realPids.length,
+      seedTarget: SEED_COUNT,
+    });
+  });
+
+  // ── POST /demo/replay-seed — replay a random seed incident ───────────────────
+  router.post('/demo/replay-seed', (_req, res) => {
+    const pids = listSnapshotPids().filter((p) => p.startsWith('seed-'));
+    if (pids.length === 0) {
+      res.status(404).json({ ok: false, error: 'No seed snapshots loaded. Run mergen-server demo first.' });
+      return;
+    }
+    const pid = pids[Math.floor(Math.random() * pids.length)];
+    replayIncident(pid).then((result) => {
+      if (!result) {
+        res.status(404).json({ ok: false, error: `Snapshot missing for ${pid}` });
+        return;
+      }
+      res.json({ ok: true, ...result });
+    }).catch(() => {
+      res.status(500).json({ ok: false, error: 'Replay failed' });
+    });
   });
 
   // ── GET /demo/api/user — simulated 401 endpoint for frontend trace join ───────
@@ -129,6 +164,7 @@ const DEMO_HTML = `<!DOCTYPE html>
   <div class="tabs">
     <div class="tab active" onclick="showTab('backend')">Backend P1 Incident</div>
     <div class="tab" onclick="showTab('frontend')">Frontend Trace Join</div>
+    <div class="tab" onclick="showTab('corpus')">Incident Corpus</div>
   </div>
 
   <!-- ── Backend P1 tab ── -->
@@ -172,6 +208,37 @@ const DEMO_HTML = `<!DOCTYPE html>
     </div>
   </div>
 
+  <!-- ── Corpus tab ── -->
+  <div class="panel" id="tab-corpus">
+    <div class="card">
+      <h2>Incident replay corpus</h2>
+      <p>
+        50 incidents seeded from public postmortems (GitHub, Cloudflare, Stripe, AWS, 2022–2024).
+        Each one is a telemetry snapshot that can be replayed against the current detector set.
+        This is what makes the causal model improvable — every incident Mergen sees adds to this dataset.
+      </p>
+      <div class="metric-row" id="corpus-metrics">
+        <div class="metric"><div class="num t-hi" id="m-seed">—</div><div class="label">seed incidents</div></div>
+        <div class="metric"><div class="num t-ok" id="m-real">—</div><div class="label">your incidents</div></div>
+        <div class="metric"><div class="num" id="m-total">—</div><div class="label">total replayable</div></div>
+      </div>
+      <div class="kv" style="margin-top:8px">
+        <span class="k">Failure modes</span> <span class="v">DB pool · OOM · rate limit · slow query · cert expiry · downstream latency · service unavailable · disk pressure · queue backlog</span>
+        <span class="k">Replay endpoint</span> <span class="v">POST /incidents/:pid/replay</span>
+        <span class="k">Snapshot storage</span> <span class="v">~/.mergen/replay-snapshots/</span>
+      </div>
+      <div class="btn-row" style="margin-top:20px">
+        <button class="btn" id="replay-btn" onclick="runReplay()">▶ Replay random incident</button>
+      </div>
+    </div>
+    <div id="replay-output" style="display:none">
+      <div class="card">
+        <h2>Replay result <span class="badge badge-info" id="replay-pid">—</span></h2>
+        <div class="terminal" id="replay-terminal"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Frontend trace join tab ── -->
   <div class="panel" id="tab-frontend">
     <div class="card">
@@ -201,8 +268,67 @@ const DEMO_HTML = `<!DOCTYPE html>
 <script>
 // ── Tab switching ──────────────────────────────────────────────────────────────
 function showTab(name) {
-  document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', ['backend','frontend'][i] === name));
-  document.querySelectorAll('.panel').forEach((p, i) => p.classList.toggle('active', ['tab-backend','tab-frontend'][i] === 'tab-' + name));
+  document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', ['backend','frontend','corpus'][i] === name));
+  document.querySelectorAll('.panel').forEach((p, i) => p.classList.toggle('active', ['tab-backend','tab-frontend','tab-corpus'][i] === 'tab-' + name));
+}
+
+// ── Corpus tab ─────────────────────────────────────────────────────────────────
+(async function loadCorpusStats() {
+  try {
+    const r = await fetch('/demo/corpus-status');
+    const d = await r.json();
+    document.getElementById('m-seed').textContent  = d.seed;
+    document.getElementById('m-real').textContent  = d.real;
+    document.getElementById('m-total').textContent = d.total;
+  } catch {}
+})();
+
+async function runReplay() {
+  document.getElementById('replay-btn').disabled = true;
+  document.getElementById('replay-output').style.display = 'block';
+  const term = document.getElementById('replay-terminal');
+  term.innerHTML = '<span class="t-info">Running replay analysis...</span>\\n';
+
+  function log(cls, txt) {
+    term.innerHTML += '<span class="' + cls + '">' + txt + '</span>\\n';
+    term.scrollTop = term.scrollHeight;
+  }
+
+  try {
+    const r = await fetch('/demo/replay-seed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const d = await r.json();
+    if (!d.ok) { log('t-err', 'Error: ' + d.error); return; }
+    document.getElementById('replay-pid').textContent = d.pid;
+    log('t-info', 'Incident: ' + d.pid);
+    log('t-info', 'Replayed at: ' + d.replayedAt);
+    log('t-bold', '');
+    log('t-bold', 'Original hypothesis:');
+    log('t-hi',   '  tag:        ' + (d.originalHypothesis.tag ?? 'none'));
+    log('t-hi',   '  confidence: ' + (d.originalHypothesis.confidenceScore !== null ? Math.round(d.originalHypothesis.confidenceScore * 100) + '%' : 'n/a'));
+    log('t-hi',   '  fix:        ' + (d.originalHypothesis.fixHint ?? 'none').slice(0, 80) + '...');
+    log('t-bold', '');
+    log('t-bold', 'Replayed with current detectors:');
+    log('t-ok',   '  tag:        ' + (d.replayedHypothesis.tag ?? 'none'));
+    log('t-ok',   '  confidence: ' + (d.replayedHypothesis.confidenceScore !== null ? Math.round(d.replayedHypothesis.confidenceScore * 100) + '%' : 'n/a'));
+    log('t-bold', '');
+    if (d.drift.topTagChanged) {
+      log('t-err',  'DRIFT: tag changed ' + d.originalHypothesis.tag + ' → ' + d.replayedHypothesis.tag);
+    } else {
+      log('t-ok',  '✓ No drift: same diagnosis');
+    }
+    if (d.drift.confidenceDelta !== null && Math.abs(d.drift.confidenceDelta) >= 0.01) {
+      const sign = d.drift.confidenceDelta >= 0 ? '+' : '';
+      log('t-warn', 'Confidence delta: ' + sign + (d.drift.confidenceDelta * 100).toFixed(1) + 'pp');
+    }
+    log('t-info', '');
+    log('t-info', 'Summary: ' + d.drift.summary);
+    log('t-info', '');
+    log('t-info', 'Replay any incident: POST /incidents/' + d.pid + '/replay');
+  } catch (e) {
+    log('t-err', 'Request failed: ' + e.message);
+  } finally {
+    document.getElementById('replay-btn').disabled = false;
+  }
 }
 
 // ── Backend P1 demo ────────────────────────────────────────────────────────────

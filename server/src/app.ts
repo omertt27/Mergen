@@ -45,6 +45,7 @@ import { createRbacRouter } from './routes/rbac.js';
 import { createOverridesRouter } from './routes/overrides.js';
 import { createShadowReportRouter } from './routes/shadow-report.js';
 import { createImpactReportRouter } from './routes/impact-report.js';
+import { createBillingOutcomeRouter } from './routes/billing-outcome.js';
 import { cloudAuthMiddleware } from './sensor/cloud-auth.js';
 import { handleSlackActions, handleFeedbackLink } from './intelligence/slack.js';
 import { getPrometheusMetrics } from './sensor/otel-exporter.js';
@@ -168,6 +169,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createOverridesRouter());     // Engineer override corpus
   app.use(createShadowReportRouter());  // Shadow mode track record
   app.use(createImpactReportRouter());  // Deck-quality impact artifact
+  app.use(createBillingOutcomeRouter()); // Y5: outcome-based billing evidence
 
   // ── Prometheus metrics endpoint ───────────────────────────────────────────
   // Exposes browser error rates, network failure counts, and request durations

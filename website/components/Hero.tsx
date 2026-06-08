@@ -4,15 +4,15 @@ export default function Hero() {
   return (
     <section className="hero">
       <span className="hero-eyebrow">
-        PagerDuty · Kubernetes · Helm · Slack · Zero Cloud
+        Claude Code · Cursor · Windsurf · VS Code · MCP
       </span>
-      <h1>Incidents resolved<br />before you wake up.</h1>
+      <h1>Your AI IDE closes incidents.<br />Mergen gives it the tools.</h1>
       <p className="hero-sub">
-        Mergen is an autonomous ops layer that receives your PagerDuty alerts, diagnoses root cause
-        from live telemetry, evaluates blast radius, and executes fixes at ≥85% confidence —{' '}
-        <span className="highlight">all without human intervention</span>.
-        When a fix is too risky to run automatically, it posts a structured Slack approval request
-        and waits. Every action is validated; regressions are rolled back instantly.
+        Add Mergen to Claude Code (or Cursor, Windsurf, VS Code) via MCP.
+        When PagerDuty fires, your AI IDE calls <code>triage_incident</code> — Mergen diagnoses root cause
+        from live telemetry, executes the fix at ≥85% confidence, validates the result,
+        and posts the full audit trail to your Slack thread.{' '}
+        <span className="highlight">No dashboards. No context switching. No 3am pages.</span>
       </p>
       <div className="hero-actions">
         <a

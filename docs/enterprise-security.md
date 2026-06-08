@@ -7,7 +7,7 @@
 
 ## Executive summary
 
-Mergen is an autonomous operations agent that runs entirely on your infrastructure. Your telemetry never leaves your network. The system executes shell commands — a capability that requires careful security review. This document covers the execution model, data flows, access controls, and compliance posture.
+Mergen is an MCP server for autonomous incident triage that runs entirely on your infrastructure. Your telemetry never leaves your network. The system executes shell commands — a capability that requires careful security review. This document covers the execution model, data flows, access controls, and compliance posture.
 
 If you have questions this document doesn't answer, contact us: **security@mergen.dev**
 

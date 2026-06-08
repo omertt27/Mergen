@@ -32,6 +32,7 @@ import { startWatcher } from './sensor/watcher.js';
 import { startDockerMonitor, startHeapMonitor, stopDockerMonitor } from './sensor/docker-monitor.js';
 import { startDockerLogStream, stopDockerLogStream } from './sensor/docker-log-stream.js';
 import { incidentStore } from './sensor/incident-store.js';
+import { postmortemStore } from './intelligence/postmortem-store.js';
 import { memoryStore } from './datadog/memory-store.js';
 import { stopAllProcessWatchers } from './sensor/process-watcher.js';
 import { stopFileWatch } from './sensor/fs-watcher.js';
@@ -114,6 +115,7 @@ async function main(): Promise<void> {
   await initTelemetry();
   await historyStore.init();
   await incidentStore.init();
+  await postmortemStore.init();
   await memoryStore.init();
   setBufferSizeGetter(() => getPlan(getActivePlanId()).bufferSize);
 

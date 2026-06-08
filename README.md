@@ -1,60 +1,47 @@
-<div align="center">
-
 # Mergen
 
-### The autonomous operations agent layer.
+Claude Code doesn't know what happened in production. Mergen does.
 
-Your observability tools tell you what's broken.  
-**Mergen decides what to do about it — and does it.**
+It's an MCP server for your AI IDE. Once connected, ask *"what caused the 3am incident"* and get a causal chain from live telemetry — not a log dump, an actual hypothesis with evidence and a fix command. At ≥85% confidence it executes the fix, validates the result, and posts the audit trail to your Slack thread.
 
-PagerDuty fires → Mergen diagnoses across all telemetry signals → executes the fix at ≥85% confidence → validates → posts the full audit trail to your Slack thread. Without waking anyone up.
+```bash
+claude mcp add mergen --transport stdio -- mergen-server start
+```
+
+Then ask: *"Triage the api-service."*
 
 [![npm](https://img.shields.io/npm/v/mergen-server)](https://www.npmjs.com/package/mergen-server)
 [![License](https://img.shields.io/badge/license-MIT%20%2B%20Proprietary-blue)](./LICENSE)
-[![MCP](https://img.shields.io/badge/Model%20Context%20Protocol-stdio-black)](https://modelcontextprotocol.io)
+[![MCP](https://img.shields.io/badge/MCP-stdio-black)](https://modelcontextprotocol.io)
 [![Privacy](https://img.shields.io/badge/data-your%20infra%20only-success)](#security)
 
-[**Quick Start →**](#quick-start) · [**Shadow Mode →**](#before-you-enable-autopilot-shadow-mode) · [**How it works →**](#how-it-works) · [**Integrations →**](#integrations)
-
-</div>
+[**Quick Start →**](#quick-start) · [**Shadow Mode →**](#the-safety-layer) · [**How it works →**](#how-it-works) · [**MCP tools →**](#mcp-tools-ai-ide-integration)
 
 ---
 
-## Who is this for
+## Who it's for
 
-**10–100 person engineering teams** where:
-- PagerDuty wakes up a human for every incident
-- You don't have a dedicated SRE or internal automation platform
-- Your on-call rotation is developers who also write features
+Engineering teams where the on-call rotation is developers who also ship features — no dedicated SRE, no internal ops automation platform. If you're a 20-person startup where the CTO is on the pager, this is for you.
 
-If you're at a company with an internal ops automation platform (most FAANG-scale companies), Mergen probably duplicates something you already have. If you're a 20-person startup where the CTO is on the pager, this is for you.
+Claude Code users specifically: you already have the AI IDE. Mergen is the piece that makes it aware of production. It doesn't compete with Claude Code — it gives Claude Code the tools to act on incidents the same way it acts on code.
 
 ---
 
-## The problem
+## The gap it closes
 
-Your on-call engineer gets paged at 3am. They spend 40 minutes reading logs, forming a hypothesis, applying a fix, waiting to see if it worked. Then they write a postmortem about it.
+Claude Code is exceptional at writing, reviewing, and shipping code. It has no visibility into what broke in production, what the error rate looked like before and after a deploy, or what the on-call engineer did at 3am last Tuesday.
 
-That 40 minutes is the problem. Every time. For every incident.
-
-Mergen closes the loop: **detect → diagnose → fix → validate**, without waking anyone up.
+Mergen connects your AI IDE to that context: PagerDuty alerts, OpenTelemetry traces, Docker logs, Datadog spans. When an incident fires, Claude Code can call `triage_incident` and get a structured causal chain instead of asking you to paste logs into the chat.
 
 ---
 
-## Why Mergen vs. existing tools?
+## How it differs from Datadog / PagerDuty / existing tools
 
-Datadog, PagerDuty, and Grafana tell you what's broken. They don't act.
+Datadog and PagerDuty tell you what's broken. They page a human. The human fixes it.
 
-| | Datadog / PagerDuty / Grafana | **Mergen** |
-| :--- | :--- | :--- |
-| **Action** | Alert → page engineer | ✅ **Alert → diagnose → fix → validate** |
-| **Execution** | Human runs the fix | ✅ **Autonomous execution at ≥85% confidence** |
-| **AI integration** | Dashboard summaries | ✅ **MCP tools your AI IDE calls directly** |
-| **Memory** | Forgets every incident | ✅ **Override corpus — learns your team's operational patterns. After 12 months: your Friday settlement windows, your compliance holds, your on-call discretion. Structured knowledge that can't be exported.** |
-| **Network effect** | No cross-customer learning | ✅ **Calibration corpus — each opted-in installation contributes anonymous accuracy signals. Every new deployment starts smarter than the last. Accuracy compounds across the network.** |
-| **Slack** | One-way webhook | ✅ **Owns the thread — posts progress through resolution** |
+Mergen sits above that stack. When PagerDuty fires, Mergen pulls the correlated telemetry, runs causal analysis, and either executes the fix (autopilot mode) or hands Claude Code a structured brief with evidence and a specific command to run. It doesn't replace your observability tools — it acts on what they tell it.
 
-Mergen sits above your observability stack. It doesn't replace Datadog — it acts on what Datadog tells it.
+The meaningful difference over time is memory. Every incident Mergen sees is stored as a replayable telemetry snapshot. Your team's override decisions build a corpus of operational context that a generic vendor starting from zero can't replicate. After enough incidents: your Friday settlement windows, your compliance holds, the fixes your on-call always reaches for — structured and queryable, not locked in someone's head or a Notion doc.
 
 ---
 
@@ -238,6 +225,46 @@ Start with `restarts`, watch for 2–4 weeks, then promote to `deploys`, then `f
 ```
 
 Engineer wakes up to a resolved incident and a Slack thread with the full audit trail.
+
+---
+
+## The safety layer
+
+No autonomous system earns trust on day one. Mergen is designed so you can verify it before you rely on it — and so every failure mode has a defined, non-destructive outcome.
+
+**Start in shadow mode**
+
+Run shadow mode for 30 days before enabling autopilot. Mergen runs the full diagnosis pipeline on every PagerDuty trigger, posts what it _would have done_ to your Slack thread, and never executes anything. Pull the track record at any time:
+
+```bash
+open http://127.0.0.1:3000/impact-report?format=html
+```
+
+You get: N incidents analyzed, X% Mergen would have resolved correctly, average proposed MTTR vs. actual, and a side-by-side table of Mergen's recommendation vs. what your engineer did. That is the number your CISO needs before approving autonomous execution.
+
+**Confidence gate — nothing runs below 85%**
+
+When diagnosis or remediation confidence is below the threshold, Mergen posts the root cause analysis and fix hint to Slack, returns the same to your AI IDE, and waits. Your engineer acts on a structured brief instead of a raw alert. The threshold self-calibrates via ROC analysis as your incident history grows.
+
+**Wrong fix — automatic rollback**
+
+If Mergen executes a fix and errors increase, `validate_fix` returns `REGRESSED`. Mergen immediately derives and runs the inverse command (`kubectl rollout undo`, `helm rollback`, package version revert) and posts the result to the thread. If auto-rollback isn't possible, it surfaces the manual revert command and waits.
+
+**Safety blocklist — unconditional**
+
+15 command patterns are blocked regardless of confidence: `rm -rf`, `curl | bash`, `DROP TABLE`, `git push --force`, and others. A blocked command is never run. Mergen posts it to Slack for manual review. All blocked attempts are in `~/.mergen/audit.log`.
+
+**Override corpus — learns your team's constraints**
+
+If your team has previously overridden a fix for this service in this time window, Mergen pauses and posts why. It does not re-run an action that was judged unsafe in the same context. The corpus is explicit — you can inspect it at `GET /override-corpus`.
+
+**Audit trail**
+
+Every action taken or skipped is written to `~/.mergen/audit.log` as JSONL: timestamp, actor, command, verdict, reason.
+
+```bash
+cat ~/.mergen/audit.log | python3 -m json.tool
+```
 
 ---
 
@@ -479,6 +506,6 @@ Mergen runs entirely on your infrastructure. Your telemetry never leaves. For te
 
 <div align="center">
 
-**Mergen — the ops agent layer that acts while you sleep.**
+**Mergen — production memory for Claude Code.**
 
 </div>

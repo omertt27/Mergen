@@ -19,6 +19,7 @@ import { incidentStore } from '../sensor/incident-store.js';
 import { memoryStore, inferResolutionType } from '../datadog/memory-store.js';
 import { getActiveIncident, clearActiveIncident } from '../datadog/incident-state.js';
 import { replayIncident, listSnapshotPids } from '../intelligence/incident-replay.js';
+import { postmortemStore } from '../intelligence/postmortem-store.js';
 import logger from '../sensor/logger.js';
 
 export function createIncidentsRouter(): Router {
@@ -206,6 +207,54 @@ export function createIncidentsRouter(): Router {
     const updated = incidentStore.addNote(req.params.pid, String(text), author);
     if (!updated) { res.status(404).json({ error: 'incident not found — POST /incidents first' }); return; }
     res.json({ ok: true, incident: updated });
+  });
+
+  // ── Service graph (Y3 system-of-record) ─────────────────────────────────────
+  // Returns a service × failure-mode matrix derived from resolved incidents.
+  // Expansion signals: new services connected = NRR growth trigger.
+  router.get('/incidents/graph', (_req, res) => {
+    const all = incidentStore.list(undefined, 1000);
+    const services = new Map<string, Map<string, number>>();
+
+    for (const inc of all) {
+      const svc = inc.service ?? 'unknown';
+      if (!services.has(svc)) services.set(svc, new Map());
+      const modes = services.get(svc)!;
+      const tag = inc.tag.replace(/^infra_/, '') || 'unknown';
+      modes.set(tag, (modes.get(tag) ?? 0) + 1);
+    }
+
+    const graph = [...services.entries()].map(([service, modes]) => ({
+      service,
+      incidentCount: [...modes.values()].reduce((a, b) => a + b, 0),
+      failureModes: Object.fromEntries(modes),
+    })).sort((a, b) => b.incidentCount - a.incidentCount);
+
+    res.json({
+      ok: true,
+      serviceCount: graph.length,
+      totalIncidents: all.length,
+      graph,
+    });
+  });
+
+  // ── Postmortems list ─────────────────────────────────────────────────────────
+  // Returns structured postmortems for a given tag or all recent ones.
+  router.get('/incidents/postmortems', (req, res) => {
+    const tag = typeof req.query.tag === 'string' ? req.query.tag : undefined;
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit ?? 20)));
+
+    const postmortems = tag
+      ? postmortemStore.getByTag(tag, limit)
+      : postmortemStore.list(limit);
+
+    res.json({
+      ok: true,
+      count: postmortems.length,
+      total: postmortemStore.count(),
+      tagStats: postmortemStore.tagStats(),
+      postmortems,
+    });
   });
 
   // ── Replay snapshots list ────────────────────────────────────────────────────

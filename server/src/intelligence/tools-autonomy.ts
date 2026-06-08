@@ -31,7 +31,11 @@ import { getAutopilotLevel, autopilotLevelPermits, classifyCommandRisk, autopilo
 import { getStatsForTag } from './calibration.js';
 import { trackCall } from './tools-state.js';
 import { incidentStore } from '../sensor/incident-store.js';
+import { captureSnapshot } from './incident-replay.js';
 import { postThreadReply } from './slack.js';
+import { consumeIncident } from './usage.js';
+import { generatePostmortem } from './postmortem-store.js';
+import { runAgentPipeline, renderPipelineStages } from './agent-pipeline.js';
 import logger from '../sensor/logger.js';
 
 const AUTO_EXECUTE_CONFIDENCE_THRESHOLD = 0.85;
@@ -267,6 +271,22 @@ export function registerAutonomyTools(server: McpServer): void {
       trackCall('triage_incident');
       const shouldAutoExecute = auto_execute === 'true';
 
+      // Y2 hybrid billing: meter each incident triage against monthly quota
+      const incidentResult = await consumeIncident();
+      if (!incidentResult.allowed) {
+        return {
+          content: [{
+            type: 'text',
+            text: [
+              `⛔ ${incidentResult.notice ?? 'Monthly incident limit reached.'}`,
+              '',
+              '→ https://mergen.dev/pricing',
+            ].join('\n'),
+          }],
+          isError: true,
+        };
+      }
+
       const sinceTs = since ?? Date.now() - 5 * 60_000;
       logger.info({ service, sinceTs, auto_execute }, 'triage_incident: starting');
 
@@ -298,6 +318,21 @@ export function registerAutonomyTools(server: McpServer): void {
       const topHyp = causal.hypotheses[0];
       const errorCount = logs.filter((e) => e.level === 'error').length;
       const netErrors  = network.filter((n) => n.status >= 400 || n.error).length;
+
+      // Persist telemetry snapshot for replay corpus — same as autopilot path.
+      // Every triage call (manual or automated) grows the replay dataset.
+      if (topHyp) {
+        captureSnapshot({
+          pid: topHyp.pid ?? `mcp-${Date.now()}`,
+          capturedAt: Date.now(),
+          firedAt: sinceTs,
+          logs, network, contexts, terminal, processExits, ciEvents, deployments,
+          infraEvents: [],
+          originalTag:             topHyp.tag ?? null,
+          originalConfidenceScore: topHyp.confidenceScore ?? null,
+          originalFixHint:         topHyp.fixHint ?? null,
+        });
+      }
 
       const lines: string[] = [
         `## Triage Report${service ? ` — ${service}` : ''}`,
@@ -335,16 +370,28 @@ export function registerAutonomyTools(server: McpServer): void {
         lines.push(`**Fix:** ${topHyp.fixHint}`, '');
       }
 
-      const command = topHyp.fixHint ? extractCommand(topHyp.fixHint) : null;
+      // Run multi-agent governance pipeline (Validator → Planner → Critic → Guard)
+      const pipeline = runAgentPipeline(causal, {
+        service,
+        executionThreshold: AUTO_EXECUTE_CONFIDENCE_THRESHOLD,
+      });
+      lines.push('', renderPipelineStages(pipeline.stages), '');
+
+      // Pipeline-derived command takes precedence over regex extraction
+      const command = pipeline.plan?.command
+        ?? (topHyp.fixAction ? fixActionToCommand(topHyp.fixAction) : null)
+        ?? (topHyp.fixHint ? extractCommand(topHyp.fixHint) : null);
       const execConfidence = topHyp.remediationConfidence ?? topHyp.confidenceScore ?? 0;
       const execPct = Math.round(execConfidence * 100);
       const autopilotLevel = getAutopilotLevel();
       const levelPermits = !command || autopilotLevelPermits(command, autopilotLevel);
-      const canAutoExecute = shouldAutoExecute && command && execConfidence >= AUTO_EXECUTE_CONFIDENCE_THRESHOLD && levelPermits;
+      const canAutoExecute = shouldAutoExecute && command && pipeline.verdict === 'proceed' && levelPermits;
 
       if (shouldAutoExecute && !canAutoExecute) {
         if (!command) {
           lines.push('⚠️ Auto-execute skipped — no executable command found in fixHint.');
+        } else if (pipeline.verdict === 'block') {
+          lines.push(`⚠️ Auto-execute blocked by governance pipeline: ${pipeline.blockReason ?? 'see pipeline stages above'}`);
         } else if (!levelPermits) {
           const commandTier = classifyCommandRisk(command);
           lines.push(`⚠️ Auto-execute skipped — MERGEN_AUTOPILOT_LEVEL=${autopilotLevel} permits ${autopilotLevelDescription(autopilotLevel)}. This command is \`${commandTier}\` tier. Set MERGEN_AUTOPILOT_LEVEL=full to enable.`);
@@ -395,10 +442,24 @@ export function registerAutonomyTools(server: McpServer): void {
             const existing = getRecords().find((r) => r.pid === topHyp.pid);
             if (existing && !existing.verdict) recordVerdict(topHyp.pid, verdict);
             if (verdict === 'correct') {
-              incidentStore.upsert(topHyp.pid, {
+              const resolvedAt = Date.now();
+              const inc = incidentStore.upsert(topHyp.pid, {
                 status: 'resolved',
-                resolvedAt: Date.now(),
+                resolvedAt,
                 resolvedAutonomously: true,
+              });
+              // Y1 corpus moat: write postmortem on every autonomous resolution
+              generatePostmortem({
+                pid: topHyp.pid,
+                tag: topHyp.tag ?? 'unknown',
+                service: service ?? 'unknown',
+                rootCause: topHyp.summary ?? '',
+                fixCommand: command,
+                confidence: topHyp.confidenceScore ?? 0,
+                mttrMs: inc.createdAt ? resolvedAt - inc.createdAt : null,
+                resolvedAutonomously: true,
+                evidence: topHyp.evidence,
+                fixHint: topHyp.fixHint,
               });
             }
           }
