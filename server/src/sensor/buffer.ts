@@ -1000,4 +1000,9 @@ export function parseOS(ua: string): string {
   return 'Other';
 }
 
-export const store: BufferStore = new RingBuffer();
+export let store: BufferStore = new RingBuffer();
+
+/** Swap the active store implementation (used by the Redis persistence layer). */
+export function setStore(s: BufferStore): void {
+  store = s;
+}

@@ -20,21 +20,36 @@
  */
 
 import { store } from '../sensor/buffer.js';
-import { buildCausalChain } from './causal.js';
+import { buildCausalChain, fixActionToCommand } from './causal.js';
+import type { CausalChain } from './causal.js';
 import { getRecords, recordVerdict } from './calibration.js';
 import { executeRemediation, extractCommand } from './autonomy.js';
-import { postThreadReply } from './slack.js';
+import { postThreadReply, postApprovalRequest } from './slack.js';
+import { requestApproval, setApprovalReplyFn } from './execution-gate.js';
+import { deriveRollback, executeRollback } from './rollback.js';
+import { captureSnapshot } from './incident-replay.js';
+import { computeBlastRadius } from './blast-radius.js';
+import { getExecutionThreshold } from './threshold-optimizer.js';
 import { incidentStore } from '../sensor/incident-store.js';
 import { getActiveIncident } from '../datadog/incident-state.js';
 import { fetchErrorCountSince, isConfigured as isDatadogConfigured } from '../datadog/client.js';
 import { normalizeRuntimeFactMarkdown, normalizeProcessExits } from '../sensor/infra-normalizer.js';
+import { getK8sEvents } from '../sensor/k8s-events.js';
 import { hasRecentOverride, dominantOverrideReason } from './override-corpus.js';
 import { recordShadow } from './shadow-log.js';
 import { getAutopilotLevel, autopilotLevelPermits, classifyCommandRisk, autopilotLevelDescription } from './action-risk.js';
 import { getStatsForTag } from './calibration.js';
 import logger from '../sensor/logger.js';
 
-const AUTO_EXECUTE_THRESHOLD = 0.85;
+// Wire the expiry-reply callback so execution-gate.ts can post to Slack threads
+// without importing slack.ts (which would create a circular dependency).
+setApprovalReplyFn((pid, text) => { void postThreadReply(pid, text); });
+
+const ANALYSIS_TIMEOUT_MS = 30_000;
+
+// Threshold is derived from the calibration corpus at runtime (ROC analysis).
+// Falls back to 0.85 if fewer than 20 verdicts exist. Recomputed every 10 min.
+const getAutoExecuteThreshold = () => getExecutionThreshold();
 const AUTOPILOT_ENABLED = process.env.MERGEN_AUTOPILOT === 'true';
 // Shadow mode: run full analysis and Slack reporting but never execute.
 // Enables the design partner track-record workflow without autonomous action.
@@ -83,6 +98,7 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
       ? normalizeRuntimeFactMarkdown(runtimeFactMarkdown, service, firedAt)
       : []),
     ...normalizeProcessExits(processExits),
+    ...getK8sEvents(firedAt),
   ];
 
   const hasAnySignal = errorCount > 0 || netErrors > 0 || infraEvents.length > 0;
@@ -108,12 +124,43 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
     );
   }
 
-  const causal = await buildCausalChain(
-    logs, network, contexts, firedAt,
-    terminal, processExits, ciEvents, deployments,
-    infraEvents,
-  );
+  // ── Graceful degradation: wrap analysis in a timeout ─────────────────────
+  let causal: CausalChain | null = null;
+  try {
+    causal = await Promise.race([
+      buildCausalChain(logs, network, contexts, firedAt, terminal, processExits, ciEvents, deployments, infraEvents),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('analysis timeout')), ANALYSIS_TIMEOUT_MS),
+      ),
+    ]);
+  } catch (err) {
+    logger.warn({ err, service, pid }, 'incident-autopilot: causal analysis failed — posting raw telemetry');
+    const topErrors   = logs.filter((e) => e.level === 'error').slice(0, 5);
+    const topNetFails = network.filter((n) => n.status >= 400 || !!n.error).slice(0, 5);
+    void postThreadReply(pid, [
+      `⚡ *Mergen — Raw Telemetry Snapshot* (analysis unavailable)`,
+      `*${errorCount} console errors, ${netErrors} network failures* in window`,
+      topErrors.length > 0
+        ? `*Top errors:*\n${topErrors.map((e) => `• ${String(e.args?.[0] ?? '').slice(0, 120)}`).join('\n')}`
+        : '',
+      topNetFails.length > 0
+        ? `*Network failures:*\n${topNetFails.map((n) => `• ${n.method} ${n.url} → ${n.status}`).join('\n')}`
+        : '',
+      `_Manual investigation required — AI analysis unavailable._`,
+    ].filter(Boolean).join('\n'));
+    return;
+  }
+
   const topHyp  = causal.hypotheses[0];
+
+  // Persist telemetry snapshot for deterministic replay and regression testing.
+  captureSnapshot({
+    pid, capturedAt: Date.now(), firedAt,
+    logs, network, contexts, terminal, processExits, ciEvents, deployments, infraEvents,
+    originalTag:             topHyp?.tag ?? null,
+    originalConfidenceScore: topHyp?.confidenceScore ?? null,
+    originalFixHint:         topHyp?.fixHint ?? null,
+  });
 
   // Enrich fixHint with the specific file:line from the Datadog RuntimeFact.
   // The compactor resolved this from the stack trace; use it to make the hint actionable.
@@ -141,13 +188,22 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
     `🔍 *Mergen Autopilot — Root Cause Analysis*`,
     `*Hypothesis:* ${topHyp.summary}`,
     `*Confidence:* ${topHyp.confidence} (${pct}%) [${calibrationLabel}]`,
+    topHyp.causalPath.length > 0
+      ? `*Causal path:*\n${topHyp.causalPath.map((s, i) => `${i + 1}. ${s}`).join('\n')}`
+      : '',
+    topHyp.evidence.length > 0
+      ? `*Evidence:*\n${topHyp.evidence.map((e) => `• ${e}`).join('\n')}`
+      : '',
     topHyp.fixHint ? `*Fix:* ${topHyp.fixHint}` : '',
   ].filter(Boolean).join('\n');
 
   void postThreadReply(pid, diagMsg);
   logger.info({ service, pid, confidence: pct, hypothesis: topHyp.tag }, 'incident-autopilot: diagnosis posted');
 
-  const command = topHyp.fixHint ? extractCommand(topHyp.fixHint) : null;
+  // Prefer typed fixAction over regex-parsing fixHint
+  const command = topHyp.fixAction
+    ? fixActionToCommand(topHyp.fixAction)
+    : (topHyp.fixHint ? extractCommand(topHyp.fixHint) : null);
   const execConfidence = topHyp.remediationConfidence ?? topHyp.confidenceScore ?? 0;
   const execPct = Math.round(execConfidence * 100);
 
@@ -157,14 +213,14 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
   const hourOfDay = now.getUTCHours();
 
   // Check override corpus: has this (tag, service) been overridden in this time window?
-  const corpusBlocked = AUTOPILOT_ENABLED && command && execConfidence >= AUTO_EXECUTE_THRESHOLD
+  const corpusBlocked = AUTOPILOT_ENABLED && command && execConfidence >= getAutoExecuteThreshold()
     && hasRecentOverride(topHyp.tag, service, dayOfWeek, hourOfDay);
 
   // Check autopilot level: does the command's risk tier fit within the configured level?
-  const levelBlocked = AUTOPILOT_ENABLED && command && execConfidence >= AUTO_EXECUTE_THRESHOLD
+  const levelBlocked = AUTOPILOT_ENABLED && command && execConfidence >= getAutoExecuteThreshold()
     && !autopilotLevelPermits(command, AUTOPILOT_LEVEL);
 
-  if (!command || execConfidence < AUTO_EXECUTE_THRESHOLD || corpusBlocked || levelBlocked || SHADOW_MODE) {
+  if (!command || execConfidence < getAutoExecuteThreshold() || corpusBlocked || levelBlocked || SHADOW_MODE) {
     let skipReason: 'no-command' | 'confidence-below-threshold' | 'remediation-below-threshold' | 'override-corpus' | 'autopilot-disabled' | 'level-restricted';
     let slackReason: string;
 
@@ -182,7 +238,7 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
       skipReason = 'override-corpus';
       const corpusReason = dominantOverrideReason(topHyp.tag, service);
       slackReason = `override corpus: this action has been overridden before for \`${service}\` (reason: ${corpusReason ?? 'unknown'})`;
-    } else if (topHyp.remediationConfidence !== undefined && topHyp.remediationConfidence < AUTO_EXECUTE_THRESHOLD) {
+    } else if (topHyp.remediationConfidence !== undefined && topHyp.remediationConfidence < getAutoExecuteThreshold()) {
       skipReason = 'remediation-below-threshold';
       slackReason = `remediation confidence ${execPct}% below 85% threshold (diagnosis: ${pct}%)`;
     } else {
@@ -199,7 +255,7 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
         command,
         diagnosisConfidence: topHyp.confidenceScore ?? 0,
         remediationConfidence: execConfidence,
-        wouldHaveExecuted: !!command && execConfidence >= AUTO_EXECUTE_THRESHOLD && !corpusBlocked,
+        wouldHaveExecuted: !!command && execConfidence >= getAutoExecuteThreshold() && !corpusBlocked,
         skipReason,
         firedAt,
       });
@@ -208,6 +264,16 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
     logger.info({ service, pid, skipReason, diagPct: pct, execPct }, 'incident-autopilot: skipping auto-execute');
     const icon = SHADOW_MODE ? '👁️' : '⚠️';
     void postThreadReply(pid, `${icon} _Autopilot: ${slackReason}. Awaiting manual action._`);
+    return;
+  }
+
+  // ── Approval gate: deploy/full-tier commands require a Slack Approve/Deny ──
+  const commandTier = classifyCommandRisk(command);
+  const blastRadius = computeBlastRadius(command, { service });
+  if (commandTier !== 'restart' && AUTOPILOT_LEVEL !== 'full') {
+    logger.info({ service, pid, command, commandTier, blastScope: blastRadius.scope }, 'incident-autopilot: routing through approval gate');
+    await postApprovalRequest(pid, command, commandTier, execConfidence, blastRadius);
+    requestApproval({ pid, command, tier: commandTier, service, remediationConfidence: execConfidence, cwd, blastRadius });
     return;
   }
 
@@ -275,6 +341,23 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
     pid,
     `${statusIcon} *${statusLabel}* — ${afterCount} errors after fix (was ${beforeCount})`,
   );
+
+  // ── Auto-rollback on REGRESSED ────────────────────────────────────────────
+  if (statusLabel === 'REGRESSED') {
+    const rollback = deriveRollback(command, execResult.stdout);
+    if (rollback.type === 'command') {
+      void postThreadReply(pid, `↩️ _REGRESSED detected — attempting auto-rollback…_`);
+      const rb = await executeRollback(rollback, { cwd, actor: 'autopilot-rollback' });
+      void postThreadReply(
+        pid,
+        rb.ok
+          ? `↩️ *Rollback succeeded:* \`${rb.message}\``
+          : `🔴 *Rollback failed:* ${rb.message} — manual intervention required`,
+      );
+    } else {
+      void postThreadReply(pid, `⚠️ _Auto-rollback not available: ${rollback.reason}. Manual revert required._`);
+    }
+  }
 
   logger.info({ service, pid, statusLabel, afterCount, beforeCount }, 'incident-autopilot: complete');
 }

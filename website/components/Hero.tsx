@@ -4,15 +4,15 @@ export default function Hero() {
   return (
     <section className="hero">
       <span className="hero-eyebrow">
-        Browser · Node.js · Python · OpenTelemetry · Zero Cloud
+        PagerDuty · Kubernetes · Helm · Slack · Zero Cloud
       </span>
-      <h1>Debug your full stack<br />with AI.</h1>
+      <h1>Incidents resolved<br />before you wake up.</h1>
       <p className="hero-sub">
-        Mergen connects your browser, backend services, and any OpenTelemetry-instrumented
-        service into one local MCP server. Your AI IDE sees live console errors, backend spans,
-        OTLP traces, and source-mapped stacks —{' '}
-        <span className="highlight">all correlated end-to-end</span>.
-        Snapshot debugging, dynamic logpoints, PII masking. Everything on 127.0.0.1.
+        Mergen is an autonomous ops layer that receives your PagerDuty alerts, diagnoses root cause
+        from live telemetry, evaluates blast radius, and executes fixes at ≥85% confidence —{' '}
+        <span className="highlight">all without human intervention</span>.
+        When a fix is too risky to run automatically, it posts a structured Slack approval request
+        and waits. Every action is validated; regressions are rolled back instantly.
       </p>
       <div className="hero-actions">
         <a
@@ -27,7 +27,7 @@ export default function Hero() {
         </div>
       </div>
       <div className="hero-badges">
-        {['Chrome Extension', 'mergen-node', 'mergen-python', 'OTLP :4318', 'MCP Server', 'Snapshot Debugger', 'PII Shield', 'Devcontainers'].map((b) => (
+        {['PagerDuty', 'Kubernetes', 'Helm', 'Slack', 'Blast Radius', 'Execution Gate', 'Auto-Rollback', 'Incident Replay', 'Adaptive Threshold', 'PII Shield'].map((b) => (
           <span key={b} className="hero-badge">{b}</span>
         ))}
       </div>

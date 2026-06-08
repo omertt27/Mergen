@@ -26,6 +26,7 @@ interface ComponentTreeCapture {
 
 export function registerBrowserTools(server: McpServer): void {
   // ── get_recent_logs ────────────────────────────────────────────────────────
+  // @ts-expect-error TS2589 — Zod inference depth limit hit on McpServer.registerTool
   server.registerTool(
     'get_recent_logs',
     {

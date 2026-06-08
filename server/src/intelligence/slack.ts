@@ -21,6 +21,8 @@ import type { BlastRadiusReport } from '../sensor/buffer.js';
 import { memoryStore } from '../datadog/memory-store.js';
 import { recordVerdict } from './calibration.js';
 import { getRoutingForService } from './slack-routing.js';
+import { approveExecution, denyExecution } from './execution-gate.js';
+import { executeRemediation } from './autonomy.js';
 import logger from '../sensor/logger.js';
 
 const WEBHOOK        = process.env.MERGEN_SLACK_WEBHOOK ?? '';
@@ -131,6 +133,91 @@ export async function postThreadReply(pid: string, text: string): Promise<void> 
     return;
   }
   await _postWebApi(thread.channel, { text }, thread.ts);
+}
+
+/**
+ * Post a blocks-based message to an existing incident thread.
+ * Used by the execution gate to surface Approve/Deny buttons.
+ */
+export async function postThreadBlocks(pid: string, blocks: unknown[]): Promise<void> {
+  const thread = _threadByPid.get(pid);
+  if (!thread) {
+    logger.debug({ pid }, 'slack: no thread for blocks post');
+    return;
+  }
+  await _postWebApi(thread.channel, { blocks }, thread.ts);
+}
+
+/**
+ * Post a Slack approval request block for a pending fix execution.
+ * Called by incident-autopilot before storing the request in execution-gate.
+ */
+export async function postApprovalRequest(
+  pid: string,
+  command: string,
+  tier: string,
+  remediationConfidence: number,
+  blastRadius?: import('./blast-radius.js').BlastRadius,
+): Promise<void> {
+  const pct = Math.round(remediationConfidence * 100);
+  const tierBadge = tier === 'restart' ? '🔄 restart' : tier === 'deploy' ? '🚀 deploy' : '⚡ full';
+
+  const blastLines: string[] = [];
+  if (blastRadius) {
+    const dt = blastRadius.estimatedDowntimeMs !== null
+      ? `~${Math.round(blastRadius.estimatedDowntimeMs / 1000)}s`
+      : 'unknown';
+    const rev = blastRadius.reversible ? '✅ Yes' : '❌ No';
+    const data = blastRadius.dataAtRisk ? '⚠️ Yes' : '❌ No';
+    blastLines.push(
+      ``,
+      `*Blast Radius* _(${blastRadius.modelConfidence} model confidence)_`,
+      `• Scope: \`${blastRadius.scope}\`${blastRadius.affectedResources.length > 0 ? ` · Resource: \`${blastRadius.affectedResources[0]}\`` : ''}`,
+      `• Downtime: ${dt} · Recoverable: ${rev}`,
+      blastRadius.rollbackCommand
+        ? `• Rollback: \`${blastRadius.rollbackCommand}\`${blastRadius.rollbackLatencyMs ? ` (~${Math.round(blastRadius.rollbackLatencyMs / 1000)}s)` : ''}`
+        : `• Rollback: _not available_`,
+      `• Data at risk: ${data}`,
+    );
+  }
+
+  await postThreadBlocks(pid, [
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: [
+          `🔐 *Mergen Autopilot — Approval Required*`,
+          `Risk tier: *${tierBadge}* · Remediation confidence: *${pct}%*`,
+          ``,
+          `*Command to execute:*`,
+          `\`\`\`${command}\`\`\``,
+          ...blastLines,
+          ``,
+          `_Approval window: 15 min. No action = auto-expire._`,
+        ].join('\n'),
+      },
+    },
+    {
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          action_id: `execute_fix_${pid}`,
+          text: { type: 'plain_text', text: '✅ Execute', emoji: true },
+          value: JSON.stringify({ pid, command }),
+          style: 'primary',
+        },
+        {
+          type: 'button',
+          action_id: `deny_fix_${pid}`,
+          text: { type: 'plain_text', text: '❌ Deny', emoji: true },
+          value: JSON.stringify({ pid }),
+          style: 'danger',
+        },
+      ],
+    },
+  ]);
 }
 
 const SIGNING_SECRET = process.env.MERGEN_SLACK_SIGNING_SECRET ?? '';
@@ -561,6 +648,45 @@ export async function handleSlackActions(req: Request, res: Response): Promise<v
         if (!isNaN(id)) {
           memoryStore.recordAttributionFeedback(id, correct ? 1 : 0);
           logger.info({ id, correct }, 'slack: attribution feedback via button');
+        }
+      }
+
+      // Execution gate — approve
+      if (action.action_id.startsWith('execute_fix_')) {
+        try {
+          const { pid, command } = JSON.parse(action.value) as { pid: string; command: string };
+          const userId = (payload as Record<string, unknown> & { user?: { id?: string } }).user?.id ?? 'slack-user';
+          const record = approveExecution(pid);
+          if (record) {
+            logger.info({ pid, command, userId }, 'slack: fix execution approved');
+            void postThreadReply(pid, `⚙️ _Fix approved by <@${userId}> — executing…_\n\`${command}\``);
+            void executeRemediation(command, { cwd: record.cwd, actor: userId }).then((result) => {
+              if (result.blocked) {
+                void postThreadReply(pid, `🚫 *Fix blocked by safety filter:* ${result.blockReason}`);
+              } else if (!result.ok) {
+                void postThreadReply(pid, `❌ *Fix command failed* (exit ${result.exitCode})\n${result.stderr.slice(0, 500)}`);
+              } else {
+                void postThreadReply(pid, `✅ *Fix executed* (${result.durationMs}ms)`);
+              }
+            });
+          }
+        } catch (err) {
+          logger.warn({ err, action }, 'slack: failed to handle execute_fix action');
+        }
+      }
+
+      // Execution gate — deny
+      if (action.action_id.startsWith('deny_fix_')) {
+        try {
+          const { pid } = JSON.parse(action.value) as { pid: string };
+          const userId = (payload as Record<string, unknown> & { user?: { id?: string } }).user?.id ?? 'slack-user';
+          if (denyExecution(pid)) {
+            recordVerdict(pid, 'wrong', 'denied via Slack');
+            void postThreadReply(pid, `🚫 _Fix execution denied by <@${userId}>._`);
+            logger.info({ pid, userId }, 'slack: fix execution denied');
+          }
+        } catch (err) {
+          logger.warn({ err, action }, 'slack: failed to handle deny_fix action');
         }
       }
     }

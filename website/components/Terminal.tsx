@@ -3,15 +3,17 @@
 import { useState, useEffect } from 'react'
 
 const lines = [
-  { text: 'mergen-node', type: 'system', delay: 0 },
-  { text: '  📡 Listening for OTLP on :4318', type: 'log', delay: 500 },
-  { text: '  🚀 Nexus dashboard ready on :3000', type: 'log', delay: 200 },
-  { text: '', type: 'gap', delay: 400 },
-  { text: '[EVENT] Capture triggered: Condition (status === 500)', type: 'event', delay: 800 },
-  { text: '  📸 Snapshotting browser state...', type: 'log', delay: 300 },
-  { text: '  🔗 Correlating OTel trace [3e1f...9b2]', type: 'log', delay: 400 },
-  { text: '  🛡️  PII Shield: Redacted 2 entities (JWT, Email)', type: 'success', delay: 600 },
-  { text: '  ✅ 12.4kb bundle streamed to MCP', type: 'success', delay: 200 },
+  { text: 'mergen-server start', type: 'system', delay: 0 },
+  { text: '  autopilot enabled · threshold 0.87 (ROC-optimized)', type: 'log', delay: 600 },
+  { text: '', type: 'gap', delay: 300 },
+  { text: '[INCIDENT] api-gateway · P1 · incident.triggered', type: 'event', delay: 900 },
+  { text: '  causal analysis: OOMKilled · confidence 0.91', type: 'log', delay: 700 },
+  { text: '  blast radius: deployment/api-gateway · downtime ~40s · reversible', type: 'log', delay: 500 },
+  { text: '  tier: restart — executing automatically', type: 'log', delay: 400 },
+  { text: '  kubectl rollout restart deployment/api-gateway', type: 'log', delay: 300 },
+  { text: '  validating... error rate 4.2% → 0.1%', type: 'log', delay: 1200 },
+  { text: '  verdict: RESOLVED · MTTR 38s', type: 'success', delay: 400 },
+  { text: '  Slack thread updated · snapshot saved for replay', type: 'success', delay: 300 },
 ]
 
 export default function Terminal() {

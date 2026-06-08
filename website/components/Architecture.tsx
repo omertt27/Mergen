@@ -1,14 +1,14 @@
 const sources = [
-  { tag: 'BROWSER',    label: 'Chrome Extension',  sub: 'Console · Network · Stack traces' },
-  { tag: 'NODE.JS',    label: 'mergen-node',        sub: 'Express · Next.js · Fastify' },
-  { tag: 'PYTHON',     label: 'mergen-python',      sub: 'Django · FastAPI · Flask' },
-  { tag: 'OTLP :4318', label: 'Any OTel Service',   sub: 'Go · Java · Ruby · .NET' },
+  { tag: 'PAGERDUTY',  label: 'PagerDuty Webhook',  sub: 'incident.triggered · P1/P2' },
+  { tag: 'OTLP :4318', label: 'OpenTelemetry',       sub: 'Spans · Logs · Go · Java · .NET' },
+  { tag: 'DOCKER',     label: 'Docker / K8s',        sub: 'Container log streams' },
+  { tag: 'CI/CD',      label: 'CI Pipeline',         sub: 'GitHub Actions · build events' },
 ]
 
 const outputs = [
+  { label: 'Slack Thread',  sub: 'Diagnose · Approve · Resolve' },
   { label: 'Claude Code',   sub: 'claude mcp add mergen' },
   { label: 'Cursor',        sub: '.cursor/mcp.json' },
-  { label: 'Windsurf',      sub: 'mcp_config.json' },
   { label: 'VS Code',       sub: '.vscode/mcp.json' },
 ]
 
@@ -17,9 +17,9 @@ export default function Architecture() {
     <section id="how">
       <span className="section-label">01 // How It Works</span>
       <h2>
-        Every signal.
+        Alert in.
         <br />
-        One local server.
+        Fix out.
       </h2>
 
       <div className="arch-view mt-lg">
@@ -59,9 +59,9 @@ export default function Architecture() {
             }}
           >
             <span className="tag" style={{ background: 'var(--accent)', color: '#000' }}>
-              NEXUS
+              AUTOPILOT
             </span>
-            <h4 style={{ margin: '1rem 0 0.5rem' }}>MCP Server</h4>
+            <h4 style={{ margin: '1rem 0 0.5rem' }}>Mergen Server</h4>
             <code style={{ fontSize: '0.6rem', color: 'var(--accent-text)', display: 'block' }}>
               localhost:3000
             </code>
@@ -69,7 +69,7 @@ export default function Architecture() {
               OTLP: 4318
             </code>
             <div style={{ marginTop: '1rem', borderTop: '1px solid var(--gray-800)', paddingTop: '0.75rem' }}>
-              {['Trace correlation', 'Snapshot debugger', 'PII Shield', 'Dashboard :3000'].map((f) => (
+              {['Causal analysis', 'Blast radius model', 'Execution gate', 'Auto-rollback', 'Adaptive threshold'].map((f) => (
                 <div key={f} style={{ fontSize: '0.6rem', color: 'var(--gray-400)', marginBottom: '0.3rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <span style={{ color: 'var(--accent-text)', fontSize: '0.5rem' }}>—</span>
                   {f}

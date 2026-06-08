@@ -23,9 +23,10 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { store } from '../sensor/buffer.js';
-import { buildCausalChain } from './causal.js';
+import { buildCausalChain, fixActionToCommand } from './causal.js';
 import { getRecords, recordVerdict } from './calibration.js';
 import { executeRemediation, extractCommand } from './autonomy.js';
+import { deriveRollback, executeRollback } from './rollback.js';
 import { getAutopilotLevel, autopilotLevelPermits, classifyCommandRisk, autopilotLevelDescription } from './action-risk.js';
 import { getStatsForTag } from './calibration.js';
 import { trackCall } from './tools-state.js';
@@ -114,7 +115,7 @@ export function registerAutonomyTools(server: McpServer): void {
         };
       }
 
-      const command = extractCommand(fixHint);
+      const command = hyp?.fixAction ? fixActionToCommand(hyp.fixAction) : extractCommand(fixHint);
       if (!command) {
         return {
           content: [{
@@ -216,7 +217,16 @@ export function registerAutonomyTools(server: McpServer): void {
         );
 
         if (status === 'REGRESSED') {
-          lines.push('', '**Suggested revert:** Check `git diff` and revert the change, or fix the regression.');
+          const rollback = deriveRollback(command, execResult.stdout);
+          if (rollback.type === 'command') {
+            lines.push('', `**Auto-rollback:** attempting \`${rollback.command}\`…`);
+            const rb = await executeRollback(rollback, { cwd, actor: resolvedActor });
+            lines.push(rb.ok
+              ? `↩️ Rollback succeeded: \`${rb.message}\``
+              : `🔴 Rollback failed: ${rb.message} — manual intervention required`);
+          } else {
+            lines.push('', `**Rollback not available:** ${rollback.reason} — manual revert required.`);
+          }
         }
       } else {
         lines.push('', `❌ Command failed (exit ${execResult.exitCode}). Fix was not applied — no validation run.`);

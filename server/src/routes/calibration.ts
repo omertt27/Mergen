@@ -24,6 +24,8 @@ import {
 } from '../intelligence/calibration.js';
 import { getClusters } from '../intelligence/unclassified-clusters.js';
 import { getSessionMetrics } from '../intelligence/session-metrics.js';
+import { computeRocCurve, getExecutionThreshold } from '../intelligence/threshold-optimizer.js';
+import { computeBlastRadius } from '../intelligence/blast-radius.js';
 
 const VALID_VERDICT_DIMENSIONS = new Set<VerdictDimension>(['root_cause', 'fix_hint', 'both']);
 
@@ -99,6 +101,51 @@ export function createCalibrationRouter(): Router {
     });
   });
 
+  // GET /calibration/precision ────────────────────────────────────────────────
+  // Empirical per-detector precision metrics for FAANG-style trust evaluation.
+  // Precision = P(correct | verdict given). Recall is not measurable without
+  // ground-truth negatives (we only see incidents that Mergen detected).
+  router.get('/calibration/precision', (_req, res) => {
+    const stats = getStats();
+
+    const totalPredictions = stats.reduce((s, d) => s + d.predictions, 0);
+    const totalVerdicts    = stats.reduce((s, d) => s + d.verdicts, 0);
+    const coverageRate     = totalPredictions > 0
+      ? Math.round((totalVerdicts / totalPredictions) * 100) / 100
+      : 0;
+
+    const trusted = stats.filter((d) => d.trusted);
+    const trustedVerdicts = trusted.reduce((s, d) => s + d.verdicts, 0);
+    const globalAccuracy = trustedVerdicts > 0
+      ? Math.round((trusted.reduce((s, d) => s + d.accuracy * d.verdicts, 0) / trustedVerdicts) * 1000) / 1000
+      : null;
+
+    const detectors = stats.map((d) => ({
+      tag:                  d.tag,
+      predictions:          d.predictions,
+      verdicts:             d.verdicts,
+      precision:            typeof d.accuracy === 'number' ? Math.round(d.accuracy * 1000) / 1000 : null,
+      diagnosisPrecision:   typeof d.diagnosisAccuracy === 'number' ? Math.round(d.diagnosisAccuracy * 1000) / 1000 : null,
+      remediationPrecision: typeof d.remediationAccuracy === 'number' ? Math.round(d.remediationAccuracy * 1000) / 1000 : null,
+      trusted:              d.trusted,
+      trend:                d.trendDelta !== null
+        ? `${d.trendDelta >= 0 ? '+' : ''}${(d.trendDelta * 100).toFixed(1)}%`
+        : null,
+      topFailureModes:      d.commonFailureModes.map((f) => f.note),
+    }));
+
+    res.json({
+      ok: true,
+      generated:     new Date().toISOString(),
+      note:          'Precision = P(correct | verdict given). Recall not measurable without ground-truth negatives.',
+      totalPredictions,
+      totalVerdicts,
+      coverageRate,
+      globalAccuracy,
+      detectors,
+    });
+  });
+
   // GET /calibration/export ───────────────────────────────────────────────────
   // Full verdict ring as RFC-4180 CSV. Privacy-safe by construction:
   // the ring only stores tag + confidence + verdict + ≤140-char note.
@@ -164,6 +211,45 @@ export function createCalibrationRouter(): Router {
   // First-attempt fix success rate — the board-slide metric.
   router.get('/session-metrics', (_req, res) => {
     res.json({ ok: true, ...getSessionMetrics() });
+  });
+
+  // GET /calibration/threshold ────────────────────────────────────────────────
+  // ROC curve + data-derived execution threshold.
+  // The threshold is Youden's-J optimal over the calibration corpus.
+  // Falls back to 0.85 when fewer than 20 verdicts exist.
+  router.get('/calibration/threshold', (_req, res) => {
+    const records = getRecords();
+    const verdicted = records.filter((r) => r.verdict !== undefined);
+    const withNumeric = verdicted.filter((r) => (r as typeof r & { numericScore?: number }).numericScore !== undefined);
+    const rocCurve = computeRocCurve();
+    const recommended = getExecutionThreshold();
+    res.json({
+      ok: true,
+      generated: new Date().toISOString(),
+      note: 'Threshold maximizes Youden\'s J (TPR - FPR). Min 20 verdicts required; uses 0.85 fallback until then.',
+      currentThreshold: 0.85,
+      recommendedThreshold: recommended,
+      usingFallback: rocCurve.length === 0,
+      sampleSize: verdicted.length,
+      sampleSizeWithNumericScore: withNumeric.length,
+      rocCurve,
+    });
+  });
+
+  // GET /blast-radius ─────────────────────────────────────────────────────────
+  // Compute the blast radius of a command without executing it.
+  // Query params: command (required), service?, namespace?, environment?
+  router.get('/blast-radius', (req, res) => {
+    const command = typeof req.query.command === 'string' ? req.query.command.trim() : '';
+    if (!command) {
+      res.status(400).json({ ok: false, error: 'command query param is required' });
+      return;
+    }
+    const service     = typeof req.query.service     === 'string' ? req.query.service     : undefined;
+    const namespace   = typeof req.query.namespace   === 'string' ? req.query.namespace   : undefined;
+    const environment = typeof req.query.environment === 'string' ? req.query.environment : undefined;
+    const br = computeBlastRadius(command, { service, namespace, environment });
+    res.json({ ok: true, ...br });
   });
 
   return router;

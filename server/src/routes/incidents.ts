@@ -18,6 +18,7 @@ import { Router } from 'express';
 import { incidentStore } from '../sensor/incident-store.js';
 import { memoryStore, inferResolutionType } from '../datadog/memory-store.js';
 import { getActiveIncident, clearActiveIncident } from '../datadog/incident-state.js';
+import { replayIncident, listSnapshotPids } from '../intelligence/incident-replay.js';
 import logger from '../sensor/logger.js';
 
 export function createIncidentsRouter(): Router {
@@ -205,6 +206,30 @@ export function createIncidentsRouter(): Router {
     const updated = incidentStore.addNote(req.params.pid, String(text), author);
     if (!updated) { res.status(404).json({ error: 'incident not found — POST /incidents first' }); return; }
     res.json({ ok: true, incident: updated });
+  });
+
+  // ── Replay snapshots list ────────────────────────────────────────────────────
+  // Returns the pids for which a telemetry replay snapshot exists.
+  router.get('/incidents/replay-snapshots', (_req, res) => {
+    const pids = listSnapshotPids();
+    res.json({ ok: true, count: pids.length, pids });
+  });
+
+  // ── Replay incident analysis ─────────────────────────────────────────────────
+  // Re-runs buildCausalChain against the stored telemetry snapshot and returns
+  // a drift report comparing the original vs. replayed diagnosis.
+  router.post('/incidents/:pid/replay', (req, res) => {
+    const { pid } = req.params;
+    replayIncident(pid).then((result) => {
+      if (!result) {
+        res.status(404).json({ ok: false, error: `No replay snapshot found for pid ${pid}. Snapshots are captured automatically when autopilot runs.` });
+        return;
+      }
+      res.json({ ok: true, ...result });
+    }).catch((err: unknown) => {
+      logger.warn({ err, pid }, 'incidents: replay failed');
+      res.status(500).json({ ok: false, error: 'Replay analysis failed' });
+    });
   });
 
   return router;

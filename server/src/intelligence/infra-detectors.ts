@@ -23,6 +23,9 @@
 import type { InfraEvent } from '../sensor/infra-normalizer.js';
 import type { Hypothesis } from './causal.js';
 import { scoreToConfidence } from './detectors.js';
+// FixAction imported as type-only to avoid a dependency on causal.ts at runtime;
+// the value is just a plain object literal so no runtime import is needed.
+import type { FixAction } from './causal.js';
 
 export type InfraDetector = (events: InfraEvent[]) => Hypothesis | null;
 
@@ -68,6 +71,7 @@ export function detectDbConnectionPool(events: InfraEvent[]): Hypothesis | null 
       'Check for connection leaks — unclosed transactions hold pool slots indefinitely.',
       'Add a connection pool metrics query to validate utilisation.',
     ].join(' '),
+    fixAction: { type: 'service_restart', target: p.service, method: 'kubectl' } as FixAction,
   };
 }
 
@@ -114,6 +118,9 @@ export function detectOomKill(events: InfraEvent[]): Hypothesis | null {
           'Profile heap allocation. Check for unbounded in-memory caches or event-listener leaks.',
           'Review recent deploys for large data structure growth.',
         ].join(' '),
+    fixAction: isHard
+      ? ({ type: 'service_restart', target: p.service, method: 'kubectl' } as FixAction)
+      : undefined,
   };
 }
 

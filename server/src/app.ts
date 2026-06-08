@@ -35,6 +35,8 @@ import { createDemoRouter } from './routes/demo.js';
 import { createSdkRouter } from './routes/sdk.js';
 import { createSessionsRouter } from './routes/sessions.js';
 import { createPagerDutyRouter } from './routes/pagerduty.js';
+import { createIncidentWebhookRouter } from './routes/incident-webhook.js';
+import { createHeartbeatsRouter } from './routes/heartbeats.js';
 import { createGitHubWebhookRouter } from './routes/github-webhook.js';
 import { createWarRoomRouter } from './routes/war-room.js';
 import { createSlackRoutingRouter } from './routes/slack-routing.js';
@@ -155,7 +157,9 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createTicketsRouter());   // Linear + Jira one-click ticket creation
   app.use(createValidateRouter()); // Fix validation state
   app.use(createSessionsRouter()); // Session history + audit log
-  app.use(createPagerDutyRouter());    // PagerDuty incident webhooks → Datadog auto-fetch
+  app.use(createPagerDutyRouter());         // PagerDuty incident webhooks → Datadog auto-fetch
+  app.use(createIncidentWebhookRouter());   // Generic incident webhook (no PagerDuty required)
+  app.use(createHeartbeatsRouter());        // Heartbeat / cron-job monitoring
   app.use(createGitHubWebhookRouter()); // GitHub PR merge → causality correlation
   app.use(createWarRoomRouter());       // War room API + attribution feedback
   app.use(createSlackRoutingRouter());  // Service-to-Slack webhook routing rules

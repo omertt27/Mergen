@@ -539,4 +539,3 @@ function buildComparisonTable(rows: ComparisonRow[]): string {
   ${unreviewedNote}
 </div>`;
 }
-}

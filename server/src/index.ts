@@ -25,7 +25,8 @@ import { lemonSqueezySetup } from '@lemonsqueezy/lemonsqueezy.js';
 
 import logger from './sensor/logger.js';
 import { DATA_DIR, SECRET_FILE } from './sensor/paths.js';
-import { setBufferSizeGetter, store } from './sensor/buffer.js';
+import { setBufferSizeGetter, store, setStore } from './sensor/buffer.js';
+import { wrapWithRedisPersistence, stopRedisStore } from './sensor/redis-store.js';
 import { historyStore } from './sensor/sqlite-store.js';
 import { startWatcher } from './sensor/watcher.js';
 import { startDockerMonitor, startHeapMonitor, stopDockerMonitor } from './sensor/docker-monitor.js';
@@ -49,6 +50,10 @@ import { SYSTEM_PROMPT } from './intelligence/prompts.js';
 import { registerTeamBroadcaster } from './sensor/ingest.js';
 
 import { startShadowDigestCron } from './intelligence/shadow-digest-cron.js';
+import { startHeartbeatMonitor, setHeartbeatAlertFn } from './sensor/heartbeat-monitor.js';
+import { startK8sEventsPoller } from './sensor/k8s-events.js';
+import { loadPlugins } from './intelligence/detector-plugins.js';
+import { notify } from './intelligence/notifications.js';
 import { createApp } from './app.js';
 import { checkForUpdates, formatUpdateMessage } from './update-checker.js';
 
@@ -112,12 +117,47 @@ async function main(): Promise<void> {
   await memoryStore.init();
   setBufferSizeGetter(() => getPlan(getActivePlanId()).bufferSize);
 
+  // ── Detector plugins ───────────────────────────────────────────────────────
+  // Load user-defined detectors from ~/.mergen/detectors/*.js before the
+  // first causal chain runs so they're available on the first incident.
+  await loadPlugins();
+
+  // ── Heartbeat monitor ──────────────────────────────────────────────────────
+  // Opens an incident + notifies all channels when a cron job misses its window.
+  setHeartbeatAlertFn((name, description) => {
+    const pid = randomUUID();
+    incidentStore.upsert(pid, {
+      status: 'open',
+      hypothesis: `Heartbeat missed: ${name}`,
+      tag: 'heartbeat_missed',
+      confidence: 1.0,
+    });
+    void notify(pid, `⏰ *Heartbeat Missed* — \`${name}\`\n${description}`, {
+      priority: 'high',
+      tags: ['warning'],
+    });
+  });
+  startHeartbeatMonitor();
+
+  // ── Kubernetes events poller ───────────────────────────────────────────────
+  // Polls kubectl for Warning events and feeds them into the causal engine.
+  // Activated by MERGEN_K8S_NAMESPACE=<namespace>[,<namespace>,...].
+  startK8sEventsPoller();
+
   // ── Session rehydration ────────────────────────────────────────────────────
   // Restores the last buffer snapshot so debugging context survives restarts.
   const savedEvents = loadSession();
   if (savedEvents && savedEvents.length > 0) {
     store.rehydrate(savedEvents);
     logger.info({ count: savedEvents.length }, 'session rehydrated from disk');
+  }
+
+  // ── Redis persistence (opt-in, MERGEN_REDIS_URL) ──────────────────────────
+  // Wraps the in-memory store with Redis write-through + rehydrates from Redis.
+  // Falls back to in-memory only if Redis is unavailable.
+  if (process.env.MERGEN_REDIS_URL) {
+    const redisStore = await wrapWithRedisPersistence(store);
+    if (redisStore !== store) setStore(redisStore);
   }
 
   // Wire team broadcast: events ingested by the sensor layer are fanned out
@@ -274,6 +314,7 @@ async function main(): Promise<void> {
       stopDockerLogStream();
       stopAllProcessWatchers();
       stopFileWatch();
+      stopRedisStore();
       httpServer.close(() => { logger.info('HTTP server closed'); process.exit(0); });
       setTimeout(() => process.exit(1), 5_000).unref();
     });

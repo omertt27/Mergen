@@ -73,7 +73,41 @@ function _registerAnalyzeRuntime(server: McpServer): void {
       const processExits = store.getProcessExits(20, undefined, since);
       const ciEvents     = store.getCIEvents(20, undefined, since);
       const deployments  = store.getDeployments(10, undefined, since);
-      const causal       = await buildCausalChain(logs, network, contexts, since, terminal, processExits, ciEvents, deployments);
+      let causal;
+      try {
+        causal = await Promise.race([
+          buildCausalChain(logs, network, contexts, since, terminal, processExits, ciEvents, deployments),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('analysis timeout')), 30_000),
+          ),
+        ]);
+      } catch (err) {
+        logger.warn({ err }, 'analyze_runtime: causal analysis failed — returning raw telemetry');
+        const errorCount = logs.filter((e) => e.level === 'error').length;
+        const netErrors  = (network as Array<{ status: number; error?: unknown; method: string; url: string }>)
+          .filter((n) => n.status >= 400 || !!n.error);
+        const topErrors  = logs.filter((e) => e.level === 'error').slice(0, 5);
+        return {
+          content: [{
+            type: 'text',
+            text: [
+              `⚡ **Raw Telemetry Snapshot** (analysis unavailable — ${err instanceof Error ? err.message : 'unknown error'})`,
+              ``,
+              `**${errorCount} console errors, ${netErrors.length} network failures** in window`,
+              topErrors.length > 0
+                ? `**Top errors:**\n${topErrors.map((e) => `- ${String(e.args?.[0] ?? '').slice(0, 120)}`).join('\n')}`
+                : '',
+              netErrors.length > 0
+                ? `**Network failures:**\n${netErrors.slice(0, 5).map((n) => `- ${n.method} ${n.url} → ${n.status}`).join('\n')}`
+                : '',
+              ``,
+              `_Manual investigation required. Retry \`analyze_runtime\` if the issue persists._`,
+            ].filter(Boolean).join('\n'),
+          }],
+          isError: true,
+        };
+      }
+
       setFirstAnalyzeAt(Date.now());
 
       for (const h of causal.hypotheses) {

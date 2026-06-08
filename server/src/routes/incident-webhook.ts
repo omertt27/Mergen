@@ -64,12 +64,10 @@ export function createIncidentWebhookRouter(): Router {
     // Create the incident record immediately so it shows in /incidents
     incidentStore.upsert(pid, {
       status: 'open',
-      service,
-      title,
-      severity,
-      environment,
-      source: source ?? 'webhook',
-      firedAt,
+      hypothesis: title,
+      tag: 'generic_webhook',
+      environment: environment ?? null,
+      confidence: 0,
     });
 
     logger.info({ pid, title, service, severity, source }, 'incident-webhook: incident created');

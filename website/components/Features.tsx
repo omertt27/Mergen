@@ -1,61 +1,64 @@
 const features = [
   {
     num: '01',
-    title: 'Snapshot Debugging',
+    title: 'Blast Radius Analysis',
     desc: (
       <>
-        Set a breakpoint condition. When it fires, Mergen captures the complete state in{' '}
-        <span className="highlight">under 10ms</span> — last 20 console events, 10 network events,
-        localStorage, and component tree. Download the bundle and replay offline in your IDE.
-        No live debugger, no paused threads.
+        Before executing any fix, Mergen models the worst case: scope (pod / deployment / cluster),
+        estimated downtime, whether it is{' '}
+        <span className="highlight">reversible</span>, and how long rollback takes.
+        The full assessment is available at <code>GET /blast-radius</code> so your pipelines
+        can gate on it independently.
       </>
     ),
   },
   {
     num: '02',
-    title: 'Dynamic Logpoints',
+    title: 'Execution Gate',
     desc: (
       <>
-        Inject ad-hoc console statements into any running page via MCP —{' '}
-        <span className="highlight">no restart, no redeployment</span>. Attach to any DOM element,
-        fire on any event, evaluate any JS expression. Results stream back within seconds as
-        standard console events.
+        Deploy- and cluster-tier fixes are never run without a human sign-off.
+        Mergen posts an{' '}
+        <span className="highlight">Approve / Deny block to your Slack thread</span> and waits up
+        to 15 minutes. Button clicks route through <code>POST /slack/actions</code> — no
+        dashboards to open, no CLI commands to remember.
       </>
     ),
   },
   {
     num: '03',
-    title: 'OTLP Native',
+    title: 'Automatic Rollback',
     desc: (
       <>
-        Point any OpenTelemetry SDK at{' '}
-        <span className="highlight">localhost:4318</span> and Mergen ingests spans and logs
-        automatically. Go, Java, Ruby, .NET — any language, zero Mergen-specific code.
-        Server spans become backend_span events; logs become console events.
+        When <code>validate_fix</code> returns a <span className="highlight">REGRESSED</span> verdict,
+        Mergen derives and executes the inverse command immediately —{' '}
+        <code>kubectl rollout undo</code>, <code>helm rollback</code>, package version revert.
+        No human intervention needed to undo a bad fix.
       </>
     ),
   },
   {
     num: '04',
-    title: 'Deterministic Trace Joins',
+    title: 'Adaptive Confidence Threshold',
     desc: (
       <>
-        W3C traceparent links every browser fetch to its exact backend span with{' '}
-        <span className="highlight">100% certainty</span>. Your AI calls{' '}
-        <code>get_correlated_trace</code> and sees the full round-trip: browser request →
-        server route → log lines — no inference, no guessing.
+        The 85% execution threshold is not a constant. Mergen runs{' '}
+        <span className="highlight">ROC analysis</span> (Youden's J) on your calibration corpus
+        after every 20 verdicts and shifts the threshold to whatever maximises true-positive rate
+        minus false-positive rate on your actual incident history.
       </>
     ),
   },
   {
     num: '05',
-    title: 'PII Shield',
+    title: 'Incident Replay',
     desc: (
       <>
-        Client-side entity detection scans events for JWTs, API keys, emails, and secrets before
-        they reach the ring buffer. The popup shows{' '}
-        <span className="highlight">per-entity toggle overrides</span> — you decide what gets
-        masked. The translation table lives in-memory only, never written to disk.
+        Every incident's telemetry snapshot is saved to disk. Replay any past incident against
+        the{' '}
+        <span className="highlight">current detector set</span> to regression-test new rules before
+        they touch production. Use <code>POST /incidents/:pid/replay</code> to diff old vs. new
+        diagnosis — no need to wait for the next real incident.
       </>
     ),
   },
@@ -65,8 +68,8 @@ const features = [
     desc: (
       <>
         Every byte stays on <span className="highlight">127.0.0.1</span>. No cloud backend, no
-        accounts, no data leaving your machine. Devcontainer templates include an attachable
-        Traefik proxy so teams can mirror production routing locally — zero port conflicts.
+        accounts, no telemetry leaving your infrastructure. PII Shield scrubs JWTs, API keys,
+        emails, and secrets at ingest — configurable per-entity via <code>~/.mergen/pii-config.json</code>.
       </>
     ),
   },
