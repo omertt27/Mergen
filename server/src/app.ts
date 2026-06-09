@@ -46,6 +46,7 @@ import { createOverridesRouter } from './routes/overrides.js';
 import { createShadowReportRouter } from './routes/shadow-report.js';
 import { createImpactReportRouter } from './routes/impact-report.js';
 import { createBillingOutcomeRouter } from './routes/billing-outcome.js';
+import { createPostmortemRouter } from './routes/postmortem.js';
 import { cloudAuthMiddleware } from './sensor/cloud-auth.js';
 import { handleSlackActions, handleFeedbackLink } from './intelligence/slack.js';
 import { getPrometheusMetrics } from './sensor/otel-exporter.js';
@@ -53,7 +54,7 @@ import { auditMiddleware } from './sensor/audit-log.js';
 import { ssoMiddleware } from './sensor/sso.js';
 
 /** Paths that require the x-mergen-secret header on non-GET requests. */
-const MUTATING_PATHS = ['/feedback', '/license', '/clear', '/checkpoint', '/telemetry', '/otel-config'];
+const MUTATING_PATHS = ['/feedback', '/license', '/clear', '/checkpoint', '/telemetry', '/otel-config', '/postmortem'];
 
 /** Hostnames always valid for local-only mode. */
 const LOCAL_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '::1']);
@@ -170,6 +171,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createShadowReportRouter());  // Shadow mode track record
   app.use(createImpactReportRouter());  // Deck-quality impact artifact
   app.use(createBillingOutcomeRouter()); // Y5: outcome-based billing evidence
+  app.use(createPostmortemRouter());    // POST /postmortem/from-slack
 
   // ── Prometheus metrics endpoint ───────────────────────────────────────────
   // Exposes browser error rates, network failure counts, and request durations

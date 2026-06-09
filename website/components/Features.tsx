@@ -1,75 +1,69 @@
 const features = [
   {
     num: '01',
-    title: 'Blast Radius Analysis',
+    title: 'Zero-Trust VPC Deploys',
     desc: (
       <>
-        Before executing any fix, Mergen models the worst case: scope (pod / deployment / cluster),
-        estimated downtime, whether it is{' '}
-        <span className="highlight">reversible</span>, and how long rollback takes.
-        The full assessment is available at <code>GET /blast-radius</code> so your pipelines
-        can gate on it independently.
+        SREs are rightfully paranoid about cloud-hosted AI agents accessing production.
+        Mergen runs <span className="highlight">fully locally or self-hosted in your VPC</span>.
+        Sensitive source code, database credentials, and production log streams never leave your secure perimeter.
       </>
     ),
   },
   {
     num: '02',
-    title: 'Execution Gate',
+    title: 'Credential Leak Protection',
     desc: (
       <>
-        Deploy- and cluster-tier fixes are never run without a human sign-off.
-        Mergen posts an{' '}
-        <span className="highlight">Approve / Deny block to your Slack thread</span> and waits up
-        to 15 minutes. Button clicks route through <code>POST /slack/actions</code> — no
-        dashboards to open, no CLI commands to remember.
+        Generative coding tools routinely read and pass .env files in memory. Mergen’s{' '}
+        <span className="highlight">runtime proxy interceptor</span> monitors agent tool-calls,
+        sanitizing cloud secrets and API keys before they are sent to external LLMs.
       </>
     ),
   },
   {
     num: '03',
-    title: 'Automatic Rollback',
+    title: 'Standardized OTel Observability',
     desc: (
       <>
-        When <code>validate_fix</code> returns a <span className="highlight">REGRESSED</span> verdict,
-        Mergen derives and executes the inverse command immediately —{' '}
-        <code>kubectl rollout undo</code>, <code>helm rollback</code>, package version revert.
-        No human intervention needed to undo a bad fix.
+        Mergen is natively instrumented with{' '}
+        <span className="highlight">OpenTelemetry GenAI semantic conventions</span>.
+        Track MCP tool latencies, token consumption, and agent runtimes directly inside
+        your existing Datadog, Prometheus, or Grafana dashboards.
       </>
     ),
   },
   {
     num: '04',
-    title: 'Adaptive Confidence Threshold',
+    title: 'Hybrid Retrieval Engine',
     desc: (
       <>
-        The 85% execution threshold is not a constant. Mergen runs{' '}
-        <span className="highlight">ROC analysis</span> (Youden's J) on your calibration corpus
-        after every 20 verdicts and shifts the threshold to whatever maximises true-positive rate
-        minus false-positive rate on your actual incident history.
+        Mergen uses an offline engine combining{' '}
+        <span className="highlight">SQLite FTS5 BM25 keyword matching</span> with Porter stemming
+        and TF-IDF sparse vector similarity. Ensures exact-match precision on technical error codes
+        and semantic understanding of symptoms.
       </>
     ),
   },
   {
     num: '05',
-    title: 'Incident Replay',
+    title: 'Context Engineering',
     desc: (
       <>
-        Every incident's telemetry snapshot is saved to disk. Replay any past incident against
-        the{' '}
-        <span className="highlight">current detector set</span> to regression-test new rules before
-        they touch production. Use <code>POST /incidents/:pid/replay</code> to diff old vs. new
-        diagnosis — no need to wait for the next real incident.
+        Stop brute-forcing context windows. Mergen retrieves only the{' '}
+        <span className="highlight">most relevant 160-token cards</span> for active debugging.
+        Reduces token costs, eliminates hallucinations, and provides instant grounding for sleep-deprived engineers.
       </>
     ),
   },
   {
     num: '06',
-    title: 'Local Sovereignty',
+    title: 'Auto-Writeback Resolution',
     desc: (
       <>
-        Every byte stays on <span className="highlight">127.0.0.1</span>. No cloud backend, no
-        accounts, no telemetry leaving your infrastructure. PII Shield scrubs JWTs, API keys,
-        emails, and secrets at ingest — configurable per-entity via <code>~/.mergen/pii-config.json</code>.
+        Once the incident is mitigated, Mergen automatically captures your{' '}
+        <span className="highlight">local shell execution log</span>, correlated telemetry anomalies,
+        and Slack event timelines. It auto-drafts a high-fidelity Markdown postmortem in seconds.
       </>
     ),
   },
@@ -82,7 +76,7 @@ export default function Features() {
       <h2>
         Enterprise-grade.
         <br />
-        Zero config.
+        Zero-trust security.
       </h2>
       <div className="feature-grid">
         {features.map((f, i) => (

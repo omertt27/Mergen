@@ -1,12 +1,12 @@
 const sources = [
+  { name: 'Jira',          type: 'Tasks',     tag: 'Task Sync' },
+  { name: 'Slack',         type: 'Chat',      tag: 'Timeline' },
+  { name: 'Terraform',     type: 'Infra',     tag: 'Topology' },
+  { name: 'Git',           type: 'Code',      tag: 'Postmortems' },
   { name: 'PagerDuty',      type: 'Alerting',  tag: 'Webhook' },
   { name: 'OpenTelemetry',  type: 'Protocol',  tag: 'OTLP :4318' },
-  { name: 'Docker',         type: 'Infra',     tag: 'Log stream' },
-  { name: 'Node.js',        type: 'Runtime',   tag: 'mergen-node' },
-  { name: 'Python',         type: 'Runtime',   tag: 'mergen-python' },
-  { name: 'Express',        type: 'Framework', tag: 'App errors' },
-  { name: 'FastAPI',        type: 'Framework', tag: 'App errors' },
-  { name: 'Django',         type: 'Framework', tag: 'App errors' },
+  { name: 'Kubernetes',     type: 'Infra',     tag: 'Manifests' },
+  { name: 'Linear',         type: 'Tasks',     tag: 'Task Sync' },
 ]
 
 const ides = [
@@ -21,9 +21,9 @@ export default function Integrations() {
     <section id="integrations">
       <span className="section-label">03 // Integrations</span>
       <h2>
-        Plug in anything.
+        Connect your stack.
         <br />
-        Works immediately.
+        Index your memory.
       </h2>
 
       <div className="integ-grid mt-lg">
@@ -42,7 +42,7 @@ export default function Integrations() {
         <div className="integ-divider">
           <div className="integ-arrow">→</div>
           <span style={{ fontSize: '0.55rem', color: 'var(--gray-600)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-            MCP<br />Server
+            Local<br />Index
           </span>
           <div className="integ-arrow">→</div>
         </div>

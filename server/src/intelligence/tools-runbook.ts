@@ -20,6 +20,7 @@ import { postmortemStore } from './postmortem-store.js';
 import { hybridSearch, tagToQuery } from './postmortem-retrieval.js';
 import { trackCall } from './tools-state.js';
 import { store } from '../sensor/buffer.js';
+import { incidentStore } from '../sensor/incident-store.js';
 
 function fmtMs(ms: number): string {
   if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
@@ -29,6 +30,278 @@ function fmtMs(ms: number): string {
 }
 
 export function registerRunbookTools(server: McpServer): void {
+
+  // ── check_fix_history ───────────────────────────────────────────────────────
+  server.registerTool(
+    'check_fix_history',
+    {
+      description:
+        'Before running a fix, check whether Mergen has seen it before and whether it worked. ' +
+        'Prevents repeated mistakes: if this command previously caused a REGRESSION or has a low ' +
+        'resolution rate, the tool surfaces that before execution. ' +
+        'Pass the exact command you are about to run (command) or a free-text description (description). ' +
+        'Returns: resolution rate, avg MTTR when successful, per-service breakdown, and nearest ' +
+        'corpus alternatives if the command is not found. ' +
+        'Always call this before execute_fix or before proposing a fix to the user.',
+      inputSchema: {
+        command: z.string().optional()
+          .describe('The shell command you are about to run (e.g. "kubectl rollout restart deployment/api"). Fuzzy-matched against fix history.'),
+        description: z.string().optional()
+          .describe('Free-text description of what the fix does (e.g. "restart the api pod"). Used for hybrid search when exact command is unknown.'),
+        service: z.string().optional()
+          .describe('Narrow results to a specific service.'),
+      },
+    },
+    async ({ command, description, service }) => {
+      trackCall('check_fix_history');
+
+      if (!command && !description) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: 'Provide either `command` (the exact fix to check) or `description` (what the fix does).',
+          }],
+        };
+      }
+
+      // ── Path 1: command provided — SQL lookup first ──────────────────────────
+      if (command) {
+        const rows = postmortemStore.lookupFixHistory(command, service);
+
+        if (rows.length > 0) {
+          const totalApplied  = rows.reduce((s, r) => s + r.timesApplied, 0);
+          const totalResolved = rows.reduce((s, r) => s + r.timesResolved, 0);
+          const resolutionRate = totalApplied > 0
+            ? Math.round((totalResolved / totalApplied) * 100)
+            : 0;
+
+          const verdict = resolutionRate >= 80
+            ? '✅ HIGH CONFIDENCE'
+            : resolutionRate >= 50
+              ? '⚠️ MIXED RESULTS'
+              : '❌ LOW SUCCESS RATE';
+
+          const tableRows = rows.map((r) => {
+            const mttr = r.avgMttrMs != null ? fmtMs(r.avgMttrMs) : '—';
+            const rate = r.timesApplied > 0
+              ? Math.round((r.timesResolved / r.timesApplied) * 100)
+              : 0;
+            const last = new Date(r.lastUsedAt).toISOString().slice(0, 10);
+            return `| ${r.service} | ${r.timesApplied} | ${rate}% | ${mttr} | ${last} |`;
+          });
+
+          const lines = [
+            `## Fix History: \`${command.slice(0, 80)}${command.length > 80 ? '…' : ''}\``,
+            '',
+            `**Found in corpus:** ${totalApplied} application${totalApplied !== 1 ? 's' : ''} across ${rows.length} service${rows.length !== 1 ? 's' : ''}`,
+            '',
+            '| Service | Applied | Resolved | Avg MTTR | Last used |',
+            '|---------|---------|----------|----------|-----------|',
+            ...tableRows,
+            '',
+            `${verdict} — ${resolutionRate}% overall resolution rate`,
+            '',
+            resolutionRate >= 80
+              ? '_This fix has a strong track record. Proceed with `execute_fix`._'
+              : resolutionRate >= 50
+                ? '_Mixed results. Review the per-service breakdown before proceeding._'
+                : '_Poor track record. Consider `triage_incident` for an alternative diagnosis._',
+          ];
+
+          return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+        }
+
+        // Command not in corpus — fall through to hybrid search for alternatives
+      }
+
+      // ── Path 2: no SQL hit — hybrid search for related fixes ────────────────
+      const searchQuery = command ?? description ?? '';
+      const related = hybridSearch(searchQuery, { service, topK: 5 });
+
+      if (related.length === 0) {
+        const corpusSize = postmortemStore.count();
+        return {
+          content: [{
+            type: 'text' as const,
+            text: [
+              `## Fix History: \`${searchQuery.slice(0, 80)}\``,
+              '',
+              command
+                ? `⚠️ **Not found in corpus.** No previous applications of this command recorded.`
+                : `⚠️ **No matching incidents found** for: "${searchQuery}"`,
+              '',
+              corpusSize === 0
+                ? '_Corpus is empty — no incident history yet. Proceed with caution and validate after applying._'
+                : `_Corpus has ${corpusSize} postmortem${corpusSize !== 1 ? 's' : ''} but none matched. Consider \`triage_incident\` for automated root cause analysis first._`,
+            ].join('\n'),
+          }],
+        };
+      }
+
+      // Show closest alternatives from corpus
+      const altLines = related.slice(0, 3).map((r, i) => {
+        const pm = r.postmortem;
+        const fix = pm.fixCommand ? `\`${pm.fixCommand.slice(0, 70)}${pm.fixCommand.length > 70 ? '…' : ''}\`` : '_no fix recorded_';
+        const mttr = pm.mttrMs != null ? fmtMs(pm.mttrMs) : '—';
+        const date = new Date(pm.generatedAt).toISOString().slice(0, 10);
+        return [
+          `**${i + 1}. ${pm.tag.replace(/^infra_/, '')}** — ${pm.service} (${date})`,
+          `Fix: ${fix}  |  MTTR: ${mttr}  |  ${pm.resolvedAutonomously ? '🤖 autonomous' : '👤 manual'}`,
+        ].join('\n');
+      });
+
+      const lines = [
+        `## Fix History: \`${searchQuery.slice(0, 80)}\``,
+        '',
+        command
+          ? `⚠️ **Not found in corpus.** No exact match — showing nearest related fixes:`
+          : `**Nearest corpus fixes for:** "${searchQuery}"`,
+        '',
+        ...altLines.flatMap((l) => [l, '']),
+        '---',
+        '_If none of these apply, call `triage_incident` for a fresh causal analysis._',
+      ];
+
+      return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+    },
+  );
+
+  // ── explain_service ─────────────────────────────────────────────────────────
+  server.registerTool(
+    'explain_service',
+    {
+      description:
+        'Returns a deterministic, token-efficient briefing card for a service: ' +
+        'top failure modes ranked by frequency, avg MTTR per mode, autonomous resolution rate, ' +
+        'verified fix commands ranked by usage, co-occurring services, and current open incident count. ' +
+        'Built from the local incident corpus — no LLM calls, no hallucinated topology. ' +
+        'Primary use case: new engineer joins on-call rotation and calls this before their first page. ' +
+        'Also used by AI agents to ground themselves before triaging — prevents fabricated service boundaries.',
+      inputSchema: {
+        service: z.string()
+          .describe('Service or component name (e.g. "api", "checkout-api", "payments-worker").'),
+        limit: z.number().int().min(1).max(10).optional()
+          .describe('Max failure modes to return (default: 5).'),
+      },
+    },
+    async ({ service, limit = 5 }) => {
+      trackCall('explain_service');
+
+      // Exact match first; fall back to LIKE if the exact name isn't in the corpus
+      // (handles "api" vs "api-service" naming drift across teams/deployments).
+      let profile = postmortemStore.serviceProfile(service);
+      let resolvedName = service;
+      if (profile.totalIncidents === 0) {
+        const fuzzy = postmortemStore.fuzzyService(service);
+        if (fuzzy) {
+          resolvedName = fuzzy;
+          profile = postmortemStore.serviceProfile(fuzzy);
+        }
+      }
+
+      // ── Empty corpus path ────────────────────────────────────────────────────
+      if (profile.totalIncidents === 0) {
+        const allStats = postmortemStore.tagStats();
+        const knownServices = postmortemStore.knownServices(10);
+
+        return {
+          content: [{
+            type: 'text' as const,
+            text: [
+              `## Service Profile: ${service}`,
+              '',
+              '_No incidents found for this service in the Mergen corpus._',
+              '',
+              knownServices.length > 0
+                ? `**Known services in corpus:** ${knownServices.join(', ')}`
+                : `**Corpus is empty.** Incidents are recorded automatically as they are triaged.`,
+              '',
+              'Once incidents are resolved, this tool returns:',
+              '- Top failure modes by frequency',
+              '- Average MTTR per failure mode',
+              '- Verified fix commands ranked by usage',
+              '- Co-occurring services',
+              '',
+              allStats.length > 0
+                ? `_Tip: ${allStats.length} failure mode${allStats.length !== 1 ? 's' : ''} exist across all services — call \`generate_runbook\` with one of: ${allStats.slice(0, 3).map((s) => `\`${s.tag.replace(/^infra_/, '')}\``).join(', ')}_`
+                : `_Run \`mergen-server demo\` to seed 50 real-world incidents and see this tool in action._`,
+            ].join('\n'),
+          }],
+        };
+      }
+
+      // ── Co-occurring services ────────────────────────────────────────────────
+      // SQL self-join: other services with incidents within 10 min of this service's
+      // incidents. Pure SQL — no JS O(n²) scan.
+      const coServices = incidentStore.coOccurringServices(resolvedName);
+
+      // ── Open incidents ───────────────────────────────────────────────────────
+      const openCount = incidentStore.list(undefined, 200).filter(
+        (i) => i.service === resolvedName && i.status === 'open',
+      ).length;
+
+      // ── Format output card ───────────────────────────────────────────────────
+      const firstDate = profile.firstSeenAt
+        ? new Date(profile.firstSeenAt).toISOString().slice(0, 10)
+        : '—';
+      const lastDate = profile.lastSeenAt
+        ? new Date(profile.lastSeenAt).toISOString().slice(0, 10)
+        : '—';
+      const fuzzyNote = resolvedName !== service
+        ? `_No exact match for "${service}" — showing results for "${resolvedName}"_\n`
+        : '';
+
+      const modes = profile.failureModes.slice(0, limit);
+
+      const modeRows = modes.map((m) => {
+        const tag     = m.tag.replace(/^infra_/, '');
+        const mttr    = m.avgMttrMs != null ? fmtMs(m.avgMttrMs) : '—';
+        const fix     = m.topFixCommand ? `\`${m.topFixCommand.slice(0, 60)}${m.topFixCommand.length > 60 ? '…' : ''}\`` : '—';
+        return `| ${tag} | ${m.frequency}× | ${mttr} | ${m.autonomousRate}% | ${fix} |`;
+      });
+
+      const fixLines = profile.topFixCommands.map((f, i) =>
+        `${i + 1}. \`${f.command}\` — applied ${f.timesApplied}×`,
+      );
+
+      const coLine = coServices.length > 0
+        ? coServices.map(({ service: svc, count }) => `${svc} (${count})`).join(' · ')
+        : '_No co-occurring service data yet_';
+
+      const openLine = openCount > 0
+        ? `⚠️ **${openCount} open incident${openCount !== 1 ? 's' : ''}** currently tracked`
+        : '✅ No open incidents';
+
+      const lines = [
+        `## Service Profile: ${resolvedName}`,
+        `_Mergen corpus · ${profile.totalIncidents} incident${profile.totalIncidents !== 1 ? 's' : ''} · First: ${firstDate} · Last: ${lastDate}_`,
+        fuzzyNote,
+        openLine,
+        '',
+        '### Failure Modes',
+        '',
+        '| Mode | Freq | Avg MTTR | Auto-resolved | Most Recent Verified Fix |',
+        '|------|------|----------|---------------|--------------------------|',
+        ...modeRows,
+        '',
+      ];
+
+      if (fixLines.length > 0) {
+        lines.push('### Verified Fix Commands (ranked by usage)', '', ...fixLines, '');
+      }
+
+      lines.push(
+        '### Co-occurring Services',
+        '',
+        coLine,
+        '',
+        '---',
+        `_Drill down: \`generate_runbook(service: "${resolvedName}")\` · \`search_postmortems(query: "...", service: "${resolvedName}")\`_`,
+      );
+
+      return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+    },
+  );
 
   // ── generate_runbook ────────────────────────────────────────────────────────
   server.registerTool(
@@ -330,161 +603,174 @@ export function registerRunbookTools(server: McpServer): void {
     },
     async ({ service, summary, duration_minutes, severity = 'sev2', affected_users, slack_thread }) => {
       trackCall('draft_postmortem');
-
-      const now = Date.now();
-      const windowMs = (duration_minutes ?? 60) * 60 * 1000;
-      const windowStart = now - windowMs;
-
-      // Pull telemetry from buffer for the incident window
-      const errors    = store.getLogs(50, 'error', windowStart);
-      const warns     = store.getLogs(20, 'warn',  windowStart);
-      const netFails  = store.getNetwork(30, undefined, windowStart)
-        .filter((n) => n.status >= 400 || !!n.error);
-      const terminal  = store.getTerminalOutput(20, undefined, windowStart);
-
-      // Find similar past incidents via hybrid retrieval
-      const searchQuery = summary ?? `${service} incident failure`;
-      const relatedPms = hybridSearch(searchQuery, { service, topK: 5 });
-
-      // Build timeline from buffer events
-      const timelineEvents: Array<{ ts: number; kind: string; msg: string }> = [];
-
-      for (const e of errors.slice(0, 10)) {
-        const msg = e.args.map((a) => typeof a === 'string' ? a : JSON.stringify(a)).join(' ').slice(0, 200);
-        timelineEvents.push({ ts: e.timestamp, kind: 'ERROR', msg });
-      }
-      for (const n of netFails.slice(0, 10)) {
-        timelineEvents.push({
-          ts: n.timestamp,
-          kind: `HTTP ${n.status || 'ERR'}`,
-          msg: `${n.method} ${n.url}${n.error ? ` — ${n.error.slice(0, 100)}` : ''}`,
-        });
-      }
-      for (const t of terminal.slice(0, 5)) {
-        if (/error|fatal|panic|oom|killed/i.test(String(t.data ?? ''))) {
-          timelineEvents.push({ ts: t.timestamp, kind: 'PROCESS', msg: String(t.data ?? '').slice(0, 200) });
-        }
-      }
-      timelineEvents.sort((a, b) => a.ts - b.ts);
-
-      // Contributing factors: deduplicate top error patterns
-      const errorPatterns = [...new Set(
-        errors.map((e) => {
-          const msg = String(e.args?.[0] ?? '').slice(0, 120);
-          return msg.replace(/\d+/g, 'N').replace(/[a-f0-9]{8,}/gi, '<id>');
-        }),
-      )].slice(0, 5);
-
-      const netPatterns = [...new Set(
-        netFails.map((n) => `${n.method} ${new URL(n.url).pathname} → ${n.status || 'ERR'}`).slice(0, 5),
-      )];
-
-      // Impact estimate
-      const userImpact = affected_users ?? 'Unknown — add user impact manually';
-      const durationLabel = duration_minutes
-        ? fmtMs(duration_minutes * 60 * 1000)
-        : 'Unknown — add duration manually';
-
-      // Related past incidents section
-      const relatedSection = relatedPms.length > 0
-        ? [
-          '## Related Past Incidents',
-          '',
-          '_Retrieved via hybrid search (FTS5 + TF-IDF → RRF)_',
-          '',
-          ...relatedPms.slice(0, 3).map((r, i) => {
-            const pm = r.postmortem;
-            const date = new Date(pm.generatedAt).toISOString().slice(0, 10);
-            const mttr = pm.mttrMs != null ? fmtMs(pm.mttrMs) : '—';
-            return [
-              `### ${i + 1}. ${pm.tag.replace(/^infra_/, '')} — ${pm.service} (${date})`,
-              `**Root cause:** ${pm.rootCause}`,
-              pm.fixCommand ? `**Fix that worked:** \`${pm.fixCommand}\`` : '',
-              `**MTTR:** ${mttr}  |  **Resolution:** ${pm.resolvedAutonomously ? 'Autonomous' : 'Manual'}`,
-              '',
-            ].filter(Boolean).join('\n');
-          }),
-        ].join('\n')
-        : '';
-
-      // Slack thread section
-      const slackSection = slack_thread
-        ? [
-          '## Slack Thread Context',
-          '',
-          '```',
-          slack_thread.slice(0, 1000),
-          '```',
-          '',
-        ].join('\n')
-        : '';
-
-      // Draft action items based on error patterns
-      const actionItems: string[] = [];
-      if (errors.length > 0) actionItems.push(`[ ] Investigate root cause: ${errorPatterns[0] ?? 'see errors above'}`);
-      if (netFails.length > 0) actionItems.push('[ ] Add retry logic / circuit breaker for failing endpoints');
-      if (relatedPms.length > 1) actionItems.push(`[ ] Review ${relatedPms.length} similar past incidents — recurring pattern may need systemic fix`);
-      actionItems.push('[ ] Update runbook: `generate_runbook(service: "' + service + '")`');
-      actionItems.push('[ ] Schedule blameless retrospective within 5 business days');
-
-      const severityLabel = severity.toUpperCase();
-      const dateStr = new Date(windowStart).toISOString().slice(0, 10);
-
-      const lines = [
-        `# [${severityLabel}] Incident Postmortem — ${service}`,
-        `_Draft generated by Mergen · ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC_`,
-        '',
-        '## Summary',
-        '',
-        summary ?? `${service} incident — add one-sentence summary here`,
-        '',
-        '## Impact',
-        '',
-        `- **Service:** ${service}`,
-        `- **Severity:** ${severityLabel}`,
-        `- **Date:** ${dateStr}`,
-        `- **Duration:** ${durationLabel}`,
-        `- **Users affected:** ${userImpact}`,
-        '',
-        '## Timeline',
-        '',
-        timelineEvents.length > 0
-          ? timelineEvents.map((e) => {
-              const ts = new Date(e.ts).toISOString().slice(11, 19);
-              return `- \`${ts}\` **[${e.kind}]** ${e.msg}`;
-            }).join('\n')
-          : '_No telemetry events in window — add timeline manually or extend the window._',
-        '',
-        slackSection,
-        '## Contributing Factors',
-        '',
-        ...(errorPatterns.length > 0
-          ? errorPatterns.map((p, i) => `${i + 1}. ${p}`)
-          : ['_Add contributing factors here_']),
-        ...(netPatterns.length > 0 ? ['', '**Network failures:**', ...netPatterns.map((p) => `- ${p}`)] : []),
-        '',
-        '## Root Cause',
-        '',
-        relatedPms.length > 0
-          ? `_Likely similar to: ${relatedPms[0].postmortem.rootCause} — verify against current evidence above_`
-          : '_Add root cause analysis here — call `triage_incident` for automated root cause identification_',
-        '',
-        '## Resolution',
-        '',
-        relatedPms.length > 0 && relatedPms[0].postmortem.fixCommand
-          ? `Previous resolution: \`${relatedPms[0].postmortem.fixCommand}\` — verify if applicable here`
-          : '_Describe the fix that resolved the incident_',
-        '',
-        '## Action Items',
-        '',
-        ...actionItems,
-        '',
-        relatedSection,
-        '---',
-        `_Telemetry: ${errors.length} errors, ${warns.length} warnings, ${netFails.length} network failures in window · Corpus: ${postmortemStore.count()} postmortems_`,
-      ].filter((l) => l !== undefined);
-
-      return { content: [{ type: 'text', text: lines.join('\n') }] };
+      const markdown = await draftPostmortemDoc({ service, summary, duration_minutes, severity, affected_users, slack_thread });
+      return { content: [{ type: 'text', text: markdown }] };
     },
   );
+}
+
+// ── Shared draft logic ─────────────────────────────────────────────────────────
+// Called by both the `draft_postmortem` MCP tool and the POST /postmortem/from-slack
+// HTTP route so the draft algorithm lives in one place.
+
+export async function draftPostmortemDoc(params: {
+  service: string;
+  summary?: string;
+  duration_minutes?: number;
+  severity?: 'sev1' | 'sev2' | 'sev3';
+  affected_users?: string;
+  slack_thread?: string;
+}): Promise<string> {
+  const { service, summary, duration_minutes, severity = 'sev2', affected_users, slack_thread } = params;
+
+  const now = Date.now();
+  const windowMs = (duration_minutes ?? 60) * 60 * 1000;
+  const windowStart = now - windowMs;
+
+  const errors    = store.getLogs(50, 'error', windowStart);
+  const warns     = store.getLogs(20, 'warn',  windowStart);
+  const netFails  = store.getNetwork(30, undefined, windowStart)
+    .filter((n) => n.status >= 400 || !!n.error);
+  const terminal  = store.getTerminalOutput(20, undefined, windowStart);
+
+  const searchQuery = summary ?? `${service} incident failure`;
+  const relatedPms = hybridSearch(searchQuery, { service, topK: 5 });
+
+  const timelineEvents: Array<{ ts: number; kind: string; msg: string }> = [];
+
+  for (const e of errors.slice(0, 10)) {
+    const msg = e.args.map((a) => typeof a === 'string' ? a : JSON.stringify(a)).join(' ').slice(0, 200);
+    timelineEvents.push({ ts: e.timestamp, kind: 'ERROR', msg });
+  }
+  for (const n of netFails.slice(0, 10)) {
+    timelineEvents.push({
+      ts: n.timestamp,
+      kind: `HTTP ${n.status || 'ERR'}`,
+      msg: `${n.method} ${n.url}${n.error ? ` — ${n.error.slice(0, 100)}` : ''}`,
+    });
+  }
+  for (const t of terminal.slice(0, 5)) {
+    if (/error|fatal|panic|oom|killed/i.test(String(t.data ?? ''))) {
+      timelineEvents.push({ ts: t.timestamp, kind: 'PROCESS', msg: String(t.data ?? '').slice(0, 200) });
+    }
+  }
+  timelineEvents.sort((a, b) => a.ts - b.ts);
+
+  const errorPatterns = [...new Set(
+    errors.map((e) => {
+      const msg = String(e.args?.[0] ?? '').slice(0, 120);
+      return msg.replace(/\d+/g, 'N').replace(/[a-f0-9]{8,}/gi, '<id>');
+    }),
+  )].slice(0, 5);
+
+  const netPatterns = [...new Set(
+    netFails.map((n) => {
+      let pathname = n.url;
+      try { pathname = new URL(n.url).pathname; } catch { /* non-HTTP or relative URL */ }
+      return `${n.method} ${pathname} → ${n.status || 'ERR'}`;
+    }).slice(0, 5),
+  )];
+
+  const userImpact = affected_users ?? 'Unknown — add user impact manually';
+  const durationLabel = duration_minutes
+    ? fmtMs(duration_minutes * 60 * 1000)
+    : 'Unknown — add duration manually';
+
+  const relatedSection = relatedPms.length > 0
+    ? [
+      '## Related Past Incidents',
+      '',
+      '_Retrieved via hybrid search (FTS5 + TF-IDF → RRF)_',
+      '',
+      ...relatedPms.slice(0, 3).map((r, i) => {
+        const pm = r.postmortem;
+        const date = new Date(pm.generatedAt).toISOString().slice(0, 10);
+        const mttr = pm.mttrMs != null ? fmtMs(pm.mttrMs) : '—';
+        return [
+          `### ${i + 1}. ${pm.tag.replace(/^infra_/, '')} — ${pm.service} (${date})`,
+          `**Root cause:** ${pm.rootCause}`,
+          pm.fixCommand ? `**Fix that worked:** \`${pm.fixCommand}\`` : '',
+          `**MTTR:** ${mttr}  |  **Resolution:** ${pm.resolvedAutonomously ? 'Autonomous' : 'Manual'}`,
+          '',
+        ].filter(Boolean).join('\n');
+      }),
+    ].join('\n')
+    : '';
+
+  const slackSection = slack_thread
+    ? [
+      '## Slack Thread Context',
+      '',
+      '```',
+      slack_thread.slice(0, 1000),
+      '```',
+      '',
+    ].join('\n')
+    : '';
+
+  const actionItems: string[] = [];
+  if (errors.length > 0) actionItems.push(`[ ] Investigate root cause: ${errorPatterns[0] ?? 'see errors above'}`);
+  if (netFails.length > 0) actionItems.push('[ ] Add retry logic / circuit breaker for failing endpoints');
+  if (relatedPms.length > 1) actionItems.push(`[ ] Review ${relatedPms.length} similar past incidents — recurring pattern may need systemic fix`);
+  actionItems.push('[ ] Update runbook: `generate_runbook(service: "' + service + '")`');
+  actionItems.push('[ ] Schedule blameless retrospective within 5 business days');
+
+  const severityLabel = severity.toUpperCase();
+  const dateStr = new Date(windowStart).toISOString().slice(0, 10);
+
+  const lines = [
+    `# [${severityLabel}] Incident Postmortem — ${service}`,
+    `_Draft generated by Mergen · ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC_`,
+    '',
+    '## Summary',
+    '',
+    summary ?? `${service} incident — add one-sentence summary here`,
+    '',
+    '## Impact',
+    '',
+    `- **Service:** ${service}`,
+    `- **Severity:** ${severityLabel}`,
+    `- **Date:** ${dateStr}`,
+    `- **Duration:** ${durationLabel}`,
+    `- **Users affected:** ${userImpact}`,
+    '',
+    '## Timeline',
+    '',
+    timelineEvents.length > 0
+      ? timelineEvents.map((e) => {
+          const ts = new Date(e.ts).toISOString().slice(11, 19);
+          return `- \`${ts}\` **[${e.kind}]** ${e.msg}`;
+        }).join('\n')
+      : '_No telemetry events in window — add timeline manually or extend the window._',
+    '',
+    slackSection,
+    '## Contributing Factors',
+    '',
+    ...(errorPatterns.length > 0
+      ? errorPatterns.map((p, i) => `${i + 1}. ${p}`)
+      : ['_Add contributing factors here_']),
+    ...(netPatterns.length > 0 ? ['', '**Network failures:**', ...netPatterns.map((p) => `- ${p}`)] : []),
+    '',
+    '## Root Cause',
+    '',
+    relatedPms.length > 0
+      ? `_Likely similar to: ${relatedPms[0].postmortem.rootCause} — verify against current evidence above_`
+      : '_Add root cause analysis here — call `triage_incident` for automated root cause identification_',
+    '',
+    '## Resolution',
+    '',
+    relatedPms.length > 0 && relatedPms[0].postmortem.fixCommand
+      ? `Previous resolution: \`${relatedPms[0].postmortem.fixCommand}\` — verify if applicable here`
+      : '_Describe the fix that resolved the incident_',
+    '',
+    '## Action Items',
+    '',
+    ...actionItems,
+    '',
+    relatedSection,
+    '---',
+    `_Telemetry: ${errors.length} errors, ${warns.length} warnings, ${netFails.length} network failures in window · Corpus: ${postmortemStore.count()} postmortems_`,
+  ].filter((l) => l !== undefined);
+
+  return lines.join('\n');
 }

@@ -162,17 +162,29 @@ function setupVSCode() {
 // found and removed with a single line delete. Opt-out: just remove the block.
 
 const AGENT_DIRECTIVE = `\
-Mergen runtime context is available via MCP tools. Follow this workflow for any bug or unexpected behavior:
+Mergen runtime context is available via MCP tools. Follow this workflow for any bug, incident, or unexpected behavior:
 
+0. On first encounter with a service, call \`explain_service(service)\` — returns the service's full failure mode history, verified fix commands ranked by usage, avg MTTR, and co-occurring services. Eliminates the "blank page" problem and prevents hallucinating service boundaries.
 1. Start with \`quick_check\` — get error/warning/network counts and detected patterns (free, no credit cost).
 2. If network failures exist with traceIds, call \`get_unified_timeline\` — EXACT rows are deterministic browser↔backend joins, not guesses.
-3. For root cause and a code fix, call \`analyze_runtime\`.
-4. After applying a fix, call \`watch_for_fix\` on the changed files, then \`validate_fix\` after the user saves to confirm RESOLVED/PARTIAL/REGRESSED.
-5. Never guess at a fix without first calling \`quick_check\`. Never mark a fix complete without calling \`validate_fix\`.
+3. Before proposing any fix, call \`check_fix_history(command)\` — verifies whether this command has been applied before, its resolution rate, and avg MTTR. If resolution rate < 50%, surface alternatives from the corpus instead. Never skip this step: repeated mistakes are the most expensive class of incident.
+4. For root cause and a code fix, call \`analyze_runtime\`.
+5. After applying a fix, call \`watch_for_fix\` on the changed files, then \`validate_fix\` after the user saves to confirm RESOLVED/PARTIAL/REGRESSED.
+6. Never guess at a fix without first calling \`check_fix_history\`. Never mark a fix complete without calling \`validate_fix\`.
 
-Available tools: quick_check, get_unified_timeline, get_recent_logs, get_network_activity, get_backend_logs,
-get_backend_spans, get_correlated_trace, get_ci_results, get_deployments, get_process_logs, get_code_owners,
-analyze_runtime, validate_fix, watch_for_fix, stop_file_watch, start_debug_session, end_debug_session.`;
+Corpus tools (use proactively — these are the memory layer, not optional extras):
+  explain_service    — service failure history, verified fixes, MTTR, co-occurring services
+  check_fix_history  — resolution rate + MTTR history for any proposed command
+  search_postmortems — semantic search over past incidents before triaging a new one
+  generate_runbook   — self-updating runbook synthesized from incident corpus
+  triage_incident    — full autonomous loop: diagnose → execute fix → validate
+  draft_postmortem   — blameless post-mortem draft from telemetry + Slack thread
+
+Live telemetry tools:
+  quick_check, get_unified_timeline, get_recent_logs, get_network_activity, get_backend_logs,
+  get_backend_spans, get_correlated_trace, get_ci_results, get_deployments, get_process_logs,
+  get_code_owners, analyze_runtime, validate_fix, watch_for_fix, stop_file_watch,
+  start_debug_session, end_debug_session, execute_fix.`;
 
 const IDE_DIRECTIVE_FILES = {
   claude:   'CLAUDE.md',

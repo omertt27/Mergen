@@ -216,6 +216,39 @@ class IncidentStore {
     } catch { return []; }
   }
 
+  /**
+   * Co-occurring services: other services that had incidents within windowMs of
+   * any incident for the given service. Pure SQL — no JS O(n²) scan.
+   * Returns up to `limit` services sorted by co-occurrence count descending.
+   */
+  coOccurringServices(
+    service: string,
+    windowMs = 10 * 60 * 1000,
+    limit = 4,
+  ): Array<{ service: string; count: number }> {
+    if (!this.db) return [];
+    try {
+      const res = this.db.exec(
+        `SELECT other.service, COUNT(*) AS cnt
+         FROM incidents AS base
+         JOIN incidents AS other
+           ON other.service != base.service
+          AND other.service IS NOT NULL
+          AND other.created_at BETWEEN base.created_at - ? AND base.created_at + ?
+         WHERE base.service = ?
+         GROUP BY other.service
+         ORDER BY cnt DESC
+         LIMIT ?`,
+        [windowMs, windowMs, service, limit],
+      );
+      if (!res[0]?.values) return [];
+      return res[0].values.map((v) => ({
+        service: String(v[0] ?? ''),
+        count: Number(v[1] ?? 0),
+      }));
+    } catch { return []; }
+  }
+
   addNote(pid: string, note: string, author?: string): Incident | null {
     const inc = this.get(pid);
     if (!inc) return null;

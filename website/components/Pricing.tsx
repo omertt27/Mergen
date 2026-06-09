@@ -1,48 +1,33 @@
 const plans = [
   {
-    name: 'Free',
+    name: 'Hobby / Individual',
     price: '$0',
-    period: '/mo',
+    period: '/forever',
     features: [
-      'Up to 25 incidents / month',
-      'Full causal analysis (shadow mode)',
-      'MCP tools: triage_incident, analyze_runtime',
-      'PagerDuty, Slack, Docker, OTLP',
-      'PII Shield + audit log',
+      '100% Local Execution via stdio transport',
+      'Local SQLite FTS5 vector index',
+      'Markdown postmortem parser & timeline compiler',
+      'explain_service and search_postmortems tools',
+      'Read-only database queries',
     ],
     cta: 'Get Started',
     ctaClass: 'btn btn-outline',
-    href: '/install',
+    href: 'https://github.com/omertt27/Mergen/blob/main/INSTALL.md',
   },
   {
-    name: 'Pro',
-    price: '$29',
-    period: '/mo',
-    features: [
-      'Up to 200 incidents / month',
-      '$50 overage ceiling — never more',
-      'Autopilot execution (≥85% confidence)',
-      'Auto-rollback + blast radius gate',
-      'Override corpus + adaptive threshold',
-      'Slack thread ownership',
-    ],
-    cta: 'Get Pro',
-    ctaClass: 'btn btn-white',
-    featured: true,
-    href: 'https://mergen.lemonsqueezy.com/buy/solo-pro',
-  },
-  {
-    name: 'Enterprise',
+    name: 'Enterprise / Scale',
     price: 'Contact us',
     period: '',
     features: [
-      'Unlimited incidents, per seat',
-      'Shared override corpus across team',
-      'SSO + RBAC + compliance exports',
-      'Priority support + SLA + audit logs',
+      'Multi-User Shared Corpus: Unified System of Record',
+      'Self-Hosted VPC Deployment with SSO/RBAC',
+      'Bi-directional Task Syncing (Jira, Linear, Slack)',
+      'Runtime Credential Leak Filters',
+      'Outcome-Linked SLA & MTTR Guarantees',
     ],
     cta: 'Contact Sales',
-    ctaClass: 'btn btn-outline',
+    ctaClass: 'btn btn-white',
+    featured: true,
     href: 'mailto:hello@mergen.dev',
   },
 ]
@@ -53,7 +38,7 @@ export default function Pricing() {
       <span className="section-label">04 // Pricing</span>
       <h2>One command.<br />Full production memory.</h2>
 
-      <div className="price-row mt-lg">
+      <div className="price-row mt-lg" style={{ maxWidth: '900px', margin: '8rem auto 0' }}>
         {plans.map((plan) => (
           <div
             key={plan.name}
@@ -76,7 +61,7 @@ export default function Pricing() {
             </span>
             <div className="price-val">
               {plan.price}
-              {plan.period && <span>{plan.period}</span>}
+              {plan.period && <span style={{ fontSize: '0.8rem' }}>{plan.period}</span>}
             </div>
             <ul className="price-list">
               {plan.features.map((f, i) => (

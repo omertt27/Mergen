@@ -1,15 +1,15 @@
 const sources = [
-  { tag: 'PAGERDUTY',  label: 'PagerDuty Webhook',  sub: 'incident.triggered · P1/P2' },
-  { tag: 'OTLP :4318', label: 'OpenTelemetry',       sub: 'Spans · Logs · Go · Java · .NET' },
-  { tag: 'DOCKER',     label: 'Docker / K8s',        sub: 'Container log streams' },
-  { tag: 'CI/CD',      label: 'CI Pipeline',         sub: 'GitHub Actions · build events' },
+  { tag: 'POSTMORTEMS', label: 'Historical Incidents', sub: 'Markdown · Git-committed' },
+  { tag: 'TOPOLOGY',    label: 'Cloud Infrastructure', sub: 'Terraform · K8s Manifests' },
+  { tag: 'CONFIG',      label: 'Service Configuration', sub: 'ENV · ConfigMaps · JSON' },
+  { tag: 'TELEMETRY',   label: 'OpenTelemetry',        sub: 'Spans · Logs · Metrics' },
 ]
 
 const outputs = [
-  { label: 'Slack Thread',  sub: 'Diagnose · Approve · Resolve' },
   { label: 'Claude Code',   sub: 'claude mcp add mergen' },
   { label: 'Cursor',        sub: '.cursor/mcp.json' },
   { label: 'VS Code',       sub: '.vscode/mcp.json' },
+  { label: 'Postmortems',   sub: 'Auto-drafted Markdown' },
 ]
 
 export default function Architecture() {
@@ -17,9 +17,9 @@ export default function Architecture() {
     <section id="how">
       <span className="section-label">01 // How It Works</span>
       <h2>
-        Alert in.
+        Index context.
         <br />
-        Fix out.
+        Debug grounded.
       </h2>
 
       <div className="arch-view mt-lg">
@@ -53,23 +53,23 @@ export default function Architecture() {
             style={{
               borderColor: 'var(--accent)',
               boxShadow: '0 0 40px rgba(165, 243, 252, 0.08)',
-              width: '220px',
+              width: '240px',
               flexShrink: 0,
               alignSelf: 'center',
             }}
           >
             <span className="tag" style={{ background: 'var(--accent)', color: '#000' }}>
-              AUTOPILOT
+              MCP SERVER
             </span>
-            <h4 style={{ margin: '1rem 0 0.5rem' }}>Mergen Server</h4>
+            <h4 style={{ margin: '1rem 0 0.5rem' }}>Mergen Local Index</h4>
             <code style={{ fontSize: '0.6rem', color: 'var(--accent-text)', display: 'block' }}>
-              localhost:3000
+              SQLite FTS5 + BM25
             </code>
             <code style={{ fontSize: '0.6rem', color: 'var(--gray-600)', display: 'block', marginTop: '0.25rem' }}>
-              OTLP: 4318
+              Hybrid Retrieval Engine
             </code>
             <div style={{ marginTop: '1rem', borderTop: '1px solid var(--gray-800)', paddingTop: '0.75rem' }}>
-              {['Causal analysis', 'Blast radius model', 'Execution gate', 'Auto-rollback', 'Adaptive threshold'].map((f) => (
+              {['Indexing Engine', 'Hybrid Search (TF-IDF)', 'Context Compression', 'Auto-Writeback', 'Credential Scrubber'].map((f) => (
                 <div key={f} style={{ fontSize: '0.6rem', color: 'var(--gray-400)', marginBottom: '0.3rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <span style={{ color: 'var(--accent-text)', fontSize: '0.5rem' }}>—</span>
                   {f}
@@ -89,7 +89,7 @@ export default function Architecture() {
             {outputs.map((o) => (
               <div key={o.label} className="arch-mini-box">
                 <span className="tag" style={{ fontSize: '0.5rem', background: 'var(--gray-800)', color: 'var(--gray-400)' }}>
-                  AI IDE
+                  {o.label === 'Postmortems' ? 'WRITEBACK' : 'AI IDE'}
                 </span>
                 <h4 style={{ fontSize: '0.7rem', marginTop: '0.5rem', marginBottom: '0.25rem' }}>
                   {o.label}

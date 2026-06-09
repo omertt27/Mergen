@@ -3,17 +3,23 @@
 import { useState, useEffect } from 'react'
 
 const lines = [
-  { text: 'mergen-server start', type: 'system', delay: 0 },
-  { text: '  autopilot enabled · threshold 0.87 (ROC-optimized)', type: 'log', delay: 600 },
-  { text: '', type: 'gap', delay: 300 },
-  { text: '[INCIDENT] api-gateway · P1 · incident.triggered', type: 'event', delay: 900 },
-  { text: '  causal analysis: OOMKilled · confidence 0.91', type: 'log', delay: 700 },
-  { text: '  blast radius: deployment/api-gateway · downtime ~40s · reversible', type: 'log', delay: 500 },
-  { text: '  tier: restart — executing automatically', type: 'log', delay: 400 },
-  { text: '  kubectl rollout restart deployment/api-gateway', type: 'log', delay: 300 },
-  { text: '  validating... error rate 4.2% → 0.1%', type: 'log', delay: 1200 },
-  { text: '  verdict: RESOLVED · MTTR 38s', type: 'success', delay: 400 },
-  { text: '  Slack thread updated · snapshot saved for replay', type: 'success', delay: 300 },
+  { text: 'claude -c "ask mergen to explain_service(\'checkout-api\')"', type: 'system', delay: 0 },
+  { text: 'Output Card:', type: 'log', delay: 800 },
+  { text: 'Service Profile: checkout-api', type: 'system', delay: 400 },
+  { text: 'Mergen corpus · 24 incidents · First: 2026-01-15 · Last: 2026-06-08', type: 'log', delay: 200 },
+  { text: '', type: 'gap', delay: 100 },
+  { text: '⚠️  1 open incident currently tracked', type: 'event', delay: 600 },
+  { text: '', type: 'gap', delay: 100 },
+  { text: 'Failure Modes', type: 'system', delay: 400 },
+  { text: 'Mode                          Freq   Avg MTTR   Auto-resolved   Most Recent Verified Fix', type: 'log', delay: 200 },
+  { text: 'db_connection_pool_exhausted  14×    12m        79%             kubectl scale...', type: 'log', delay: 100 },
+  { text: 'redis_cache_timeout           4×     6m         100%            redis-cli -h cache.internal flushall', type: 'log', delay: 100 },
+  { text: '', type: 'gap', delay: 100 },
+  { text: 'Verified Fix Commands (ranked by usage)', type: 'system', delay: 400 },
+  { text: 'kubectl scale deployment/checkout-db-pool --replicas=5 — applied 14×', type: 'success', delay: 300 },
+  { text: '', type: 'gap', delay: 100 },
+  { text: 'Co-occurring Services', type: 'system', delay: 400 },
+  { text: 'payment-processor (12) · redis-cache (9)', type: 'log', delay: 300 },
 ]
 
 export default function Terminal() {
@@ -25,7 +31,7 @@ export default function Terminal() {
       const timer = setTimeout(() => {
         setVisibleLines([])
         setIndex(0)
-      }, 5000)
+      }, 8000)
       return () => clearTimeout(timer)
     }
 
@@ -43,9 +49,9 @@ export default function Terminal() {
         <div className="terminal-dots">
           <span /> <span /> <span />
         </div>
-        <div className="terminal-title">mergen — status</div>
+        <div className="terminal-title">mergen — explain_service</div>
       </div>
-      <div className="terminal-body">
+      <div className="terminal-body" style={{ minHeight: '450px' }}>
         {visibleLines.map((line, i) => (
           <div key={i} className={`terminal-line ${line.type}`}>
             {line.text}

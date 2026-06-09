@@ -281,6 +281,40 @@ class PostmortemStore {
     } catch { return 0; }
   }
 
+  knownServices(limit = 20): string[] {
+    if (!this.db) return [];
+    try {
+      const res = this.db.exec(
+        `SELECT DISTINCT service FROM postmortems WHERE service != '' ORDER BY service LIMIT ?`,
+        [limit],
+      );
+      return (res[0]?.values ?? []).map((v) => String(v[0] ?? ''));
+    } catch { return []; }
+  }
+
+  /**
+   * Returns the closest service name in the corpus via LIKE match.
+   * Used as a fallback when an exact service name lookup returns nothing —
+   * handles "api" vs "api-service" naming drift across teams.
+   * Returns null when no match is found.
+   */
+  fuzzyService(service: string): string | null {
+    if (!this.db) return null;
+    try {
+      const res = this.db.exec(
+        `SELECT service, COUNT(*) AS cnt
+         FROM postmortems
+         WHERE service LIKE ?
+         GROUP BY service
+         ORDER BY cnt DESC
+         LIMIT 1`,
+        [`%${service}%`],
+      );
+      const val = res[0]?.values?.[0]?.[0];
+      return val ? String(val) : null;
+    } catch { return null; }
+  }
+
   /** Tag-level stats for runbook and corpus reporting. */
   tagStats(): Array<{ tag: string; count: number; avgMttrMs: number | null; lastAt: number }> {
     if (!this.db) return [];
@@ -299,6 +333,153 @@ class PostmortemStore {
         lastAt: Number(v[3] ?? 0),
       }));
     } catch { return []; }
+  }
+
+  /**
+   * Look up the resolution history of a specific fix command (or a LIKE pattern).
+   * Used by check_fix_history to answer: "has this fix worked before, and how often?"
+   *
+   * Groups by (fix_command, service) so callers can see per-service success rates
+   * for commands that span multiple services (e.g. `kubectl rollout restart`).
+   */
+  lookupFixHistory(
+    command: string,
+    service?: string,
+  ): Array<{
+    fixCommand: string;
+    service: string;
+    timesApplied: number;
+    timesResolved: number;
+    avgMttrMs: number | null;
+    lastUsedAt: number;
+  }> {
+    if (!this.db) return [];
+    try {
+      const likePattern = `%${command.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
+      const sql = service
+        ? `SELECT fix_command, service,
+                  COUNT(*)                   AS times_applied,
+                  SUM(resolved_autonomously) AS times_resolved,
+                  AVG(mttr_ms)               AS avg_mttr,
+                  MAX(generated_at)          AS last_used
+           FROM postmortems
+           WHERE fix_command LIKE ? AND service = ?
+           GROUP BY fix_command, service
+           ORDER BY times_applied DESC
+           LIMIT 10`
+        : `SELECT fix_command, service,
+                  COUNT(*)                   AS times_applied,
+                  SUM(resolved_autonomously) AS times_resolved,
+                  AVG(mttr_ms)               AS avg_mttr,
+                  MAX(generated_at)          AS last_used
+           FROM postmortems
+           WHERE fix_command LIKE ?
+           GROUP BY fix_command, service
+           ORDER BY times_applied DESC
+           LIMIT 10`;
+      const params = service ? [likePattern, service] : [likePattern];
+      const res = this.db.exec(sql, params);
+      if (!res[0]?.values) return [];
+      return res[0].values.map((v) => ({
+        fixCommand:    String(v[0] ?? ''),
+        service:       String(v[1] ?? 'unknown'),
+        timesApplied:  Number(v[2] ?? 0),
+        timesResolved: Number(v[3] ?? 0),
+        avgMttrMs:     v[4] != null ? Number(v[4]) : null,
+        lastUsedAt:    Number(v[5] ?? 0),
+      }));
+    } catch (err) {
+      logger.warn({ err, command }, 'postmortem store lookupFixHistory failed');
+      return [];
+    }
+  }
+
+  /**
+   * Per-service aggregated profile for the explain_service tool.
+   * All three queries run directly against SQLite — zero LLM latency.
+   */
+  serviceProfile(service: string): {
+    totalIncidents: number;
+    firstSeenAt: number | null;
+    lastSeenAt: number | null;
+    failureModes: Array<{
+      tag: string;
+      frequency: number;
+      avgMttrMs: number | null;
+      lastSeenAt: number;
+      topFixCommand: string | null;
+      autonomousRate: number;
+    }>;
+    topFixCommands: Array<{ command: string; timesApplied: number }>;
+  } {
+    const empty = { totalIncidents: 0, firstSeenAt: null, lastSeenAt: null, failureModes: [], topFixCommands: [] };
+    if (!this.db) return empty;
+
+    try {
+      // Summary row
+      const summaryRes = this.db.exec(
+        `SELECT COUNT(*), MIN(generated_at), MAX(generated_at) FROM postmortems WHERE service=?`,
+        [service],
+      );
+      const sumRow = summaryRes[0]?.values?.[0];
+      const totalIncidents = sumRow ? Number(sumRow[0] ?? 0) : 0;
+      if (totalIncidents === 0) return empty;
+
+      // Failure modes — per-tag breakdown for this service
+      const modesRes = this.db.exec(
+        `SELECT tag,
+                COUNT(*)                                    AS freq,
+                AVG(mttr_ms)                               AS avg_mttr,
+                MAX(generated_at)                          AS last_seen,
+                SUM(resolved_autonomously)                 AS auto_count,
+                (SELECT fix_command FROM postmortems p2
+                 WHERE p2.service=p1.service AND p2.tag=p1.tag
+                   AND p2.fix_command IS NOT NULL
+                 ORDER BY p2.generated_at DESC LIMIT 1)   AS top_fix
+         FROM postmortems p1
+         WHERE service=?
+         GROUP BY tag
+         ORDER BY freq DESC
+         LIMIT 5`,
+        [service],
+      );
+      const failureModes = (modesRes[0]?.values ?? []).map((v) => ({
+        tag: String(v[0] ?? ''),
+        frequency: Number(v[1] ?? 0),
+        avgMttrMs: v[2] != null ? Number(v[2]) : null,
+        lastSeenAt: Number(v[3] ?? 0),
+        autonomousRate: Number(v[1] ?? 1) > 0
+          ? Math.round((Number(v[4] ?? 0) / Number(v[1] ?? 1)) * 100)
+          : 0,
+        topFixCommand: v[5] ? String(v[5]) : null,
+      }));
+
+      // Fix commands — ranked by how many times they resolved this service's incidents
+      const fixRes = this.db.exec(
+        `SELECT fix_command, COUNT(*) AS times_applied
+         FROM postmortems
+         WHERE service=? AND fix_command IS NOT NULL
+         GROUP BY fix_command
+         ORDER BY times_applied DESC
+         LIMIT 3`,
+        [service],
+      );
+      const topFixCommands = (fixRes[0]?.values ?? []).map((v) => ({
+        command: String(v[0] ?? ''),
+        timesApplied: Number(v[1] ?? 0),
+      }));
+
+      return {
+        totalIncidents,
+        firstSeenAt: sumRow && sumRow[1] != null ? Number(sumRow[1]) : null,
+        lastSeenAt: sumRow && sumRow[2] != null ? Number(sumRow[2]) : null,
+        failureModes,
+        topFixCommands,
+      };
+    } catch (err) {
+      logger.warn({ err, service }, 'postmortem store serviceProfile failed');
+      return empty;
+    }
   }
 
   /**

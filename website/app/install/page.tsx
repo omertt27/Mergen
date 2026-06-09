@@ -7,87 +7,68 @@ export const metadata: Metadata = {
   description: 'Multiple ways to install Mergen depending on your preferences and environment.',
 }
 
-const methods = [
+interface InstallStep {
+  label: string
+  code: string
+}
+
+interface InstallMethod {
+  icon: string
+  num: string
+  title: string
+  tag: string
+  best: string
+  time: string
+  steps: InstallStep[]
+}
+
+const methods: InstallMethod[] = [
+  {
+    icon: '🤖',
+    num: '01',
+    title: 'Claude Code',
+    tag: 'Easiest — Recommended',
+    best: 'Direct integration with Claude Code via MCP',
+    time: '< 1 minute',
+    steps: [
+      { label: 'Register with Claude Code', code: 'claude mcp add mergen-local -- npx @mergen/mcp index ./docs/postmortems' },
+      { label: 'Verify connection', code: 'claude -c "ask mergen to explain_service(\'your-service\')"' },
+    ],
+  },
   {
     icon: '🚀',
-    num: '01',
-    title: 'NPM',
-    tag: 'Easiest — Recommended',
-    best: 'Quick setup, always latest version',
+    num: '02',
+    title: 'NPM / NPX',
+    tag: 'Universal',
+    best: 'Any MCP-compatible IDE (Cursor, Windsurf, VS Code)',
     time: '~2 minutes',
     steps: [
-      { label: 'One command setup', code: 'npx mergen-server@latest setup' },
-      { label: 'Or install globally', code: 'npm install -g mergen-server\nmergen-server setup' },
+      { label: 'Start indexing local docs', code: 'npx @mergen/mcp index ./docs' },
+      { label: 'Run as persistent server', code: 'npx @mergen/mcp start' },
     ],
   },
   {
     icon: '🐳',
-    num: '02',
+    num: '03',
     title: 'Docker',
     tag: 'Zero Dependencies',
     best: 'Containerised environments, consistent deployments',
     time: '~1 minute',
     steps: [
-      { label: 'Pull and run', code: 'docker run -p 3000:3000 mergen/server:latest' },
-      { label: 'Or with docker-compose', code: 'curl -O https://raw.githubusercontent.com/omertt27/Mergen/main/docker-compose.yml\ndocker-compose up' },
-    ],
-  },
-  {
-    icon: '🍺',
-    num: '03',
-    title: 'Homebrew',
-    tag: 'macOS',
-    best: 'Mac users who prefer native packages',
-    time: '~3 minutes',
-    steps: [
-      { label: 'Add tap and install', code: 'brew tap omertt27/mergen\nbrew install mergen' },
-      { label: 'Run setup', code: 'mergen-server setup' },
-    ],
-  },
-  {
-    icon: '📦',
-    num: '04',
-    title: 'Pre-Built Binary',
-    tag: 'No Node.js Required',
-    best: 'No Node.js, offline environments',
-    time: '~2 minutes',
-    downloads: [
-      { label: 'macOS (Apple Silicon)', file: 'mergen-macos-arm64' },
-      { label: 'macOS (Intel)', file: 'mergen-macos-x64' },
-      { label: 'Linux', file: 'mergen-linux-x64' },
-      { label: 'Windows', file: 'mergen-win-x64.exe' },
-    ],
-    steps: [
-      { label: 'Make executable (Mac/Linux)', code: 'chmod +x mergen-macos-arm64' },
-      { label: 'Run setup', code: './mergen-macos-arm64 setup' },
+      { label: 'Pull and run', code: 'docker run -v $(pwd)/docs:/docs @mergen/mcp index /docs' },
     ],
   },
   {
     icon: '🔧',
-    num: '05',
-    title: 'From Source',
+    num: '04',
+    title: 'Manual Setup',
     tag: 'Developers',
     best: 'Contributors, local development',
     time: '~5 minutes',
     steps: [
       {
         label: 'Clone and build',
-        code: 'git clone https://github.com/omertt27/Mergen.git\ncd Mergen/server\nnpm install\nnpm run build',
-      },
-      { label: 'Run setup', code: 'node ../scripts/setup.mjs' },
-    ],
-  },
-  {
-    icon: '🌐',
-    num: '06',
-    title: 'One-Line Installer',
-    tag: 'Quick Automated Setup',
-    best: 'Quick automated setup',
-    time: '~2 minutes',
-    steps: [
-      {
-        label: 'Run in terminal',
-        code: "curl -fsSL https://raw.githubusercontent.com/omertt27/Mergen/main/install.sh | bash",
+        code: 'git clone https://github.com/omertt27/Mergen.git\ncd Mergen\nnpm install\nnpm run build',
       },
     ],
   },
@@ -95,25 +76,20 @@ const methods = [
 
 const troubleshooting = [
   {
-    q: '"Command not found: mergen-server"',
-    steps: ['npx mergen-server@latest setup', './mergen-macos-arm64 setup  # binary path'],
+    q: '"Command not found: claude"',
+    steps: ['npm install -g @anthropic-ai/claude-code'],
   },
   {
-    q: '"Port 3000 already in use"',
-    steps: ['lsof -ti:3000 | xargs kill -9'],
-  },
-  {
-    q: '"Server not responding"',
-    steps: ['curl http://127.0.0.1:3000/health', 'mergen-server start'],
+    q: '"Mergen index failed: no documents found"',
+    steps: ['Ensure your postmortems are in .md format', 'Check the directory path provided to the index command'],
   },
   {
     q: '"IDE not showing Mergen tools"',
     steps: [
       '# Restart your IDE after setup',
-      'mergen-server test',
+      '# Verify MCP config file exists:',
       '# Cursor:    ~/.cursor/mcp.json',
       '# VS Code:   ~/.vscode/mcp.json',
-      '# Windsurf:  ~/.codeium/windsurf/mcp_config.json',
     ],
   },
 ]
@@ -159,23 +135,6 @@ export default function InstallPage() {
               </div>
 
               <div className="install-card-body">
-                {'downloads' in m && m.downloads && (
-                  <div style={{ marginBottom: '1.5rem' }}>
-                    <p style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.15em', color: 'var(--gray-600)', marginBottom: '0.75rem' }}>Download for your OS</p>
-                    <div className="download-grid">
-                      {m.downloads.map((d) => (
-                        <a
-                          key={d.file}
-                          href={`https://github.com/omertt27/Mergen/releases/latest/download/${d.file}`}
-                          className="download-btn"
-                        >
-                          {d.label}
-                        </a>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
                 {m.steps.map((s, i) => (
                   <div key={i} className="code-block-wrap">
                     <span className="code-block-label">{s.label}</span>

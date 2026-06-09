@@ -37,6 +37,101 @@ export function getThread(pid: string): { channel: string; ts: string } | undefi
   return _threadByPid.get(pid);
 }
 
+/** GET a Slack Web API endpoint (read-only calls like conversations.replies). */
+async function _slackApiGet(path: string): Promise<unknown> {
+  if (!BOT_TOKEN) return null;
+  return new Promise((resolve) => {
+    try {
+      const req = https.request(
+        {
+          hostname: 'slack.com',
+          path,
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${BOT_TOKEN}` },
+        },
+        (res) => {
+          let data = '';
+          res.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+          res.on('end', () => {
+            try { resolve(JSON.parse(data)); } catch { resolve(null); }
+          });
+        },
+      );
+      req.on('error', (err) => { logger.warn({ err, path }, 'slack: GET request failed'); resolve(null); });
+      req.end();
+    } catch (err) {
+      logger.warn({ err, path }, 'slack: GET request failed');
+      resolve(null);
+    }
+  });
+}
+
+/**
+ * Fetch all messages in a Slack thread and return them as formatted plain text.
+ *
+ * Requires MERGEN_SLACK_BOT_TOKEN with channels:history scope (public channels)
+ * or groups:history (private channels).
+ *
+ * URL format: https://{workspace}.slack.com/archives/{CHANNEL_ID}/p{TIMESTAMP}
+ * where TIMESTAMP is the thread_ts with the dot removed (16 digits).
+ *
+ * Returns null when BOT_TOKEN is missing or the URL is unparseable.
+ */
+export async function fetchSlackThread(threadUrl: string): Promise<string | null> {
+  if (!BOT_TOKEN) return null;
+
+  const match = threadUrl.match(/\/archives\/([A-Z0-9]+)\/p(\d{16})/);
+  if (!match) {
+    logger.warn({ threadUrl }, 'slack: could not parse thread URL');
+    return null;
+  }
+
+  const channel = match[1];
+  const rawTs   = match[2];
+  // Slack timestamps: first 10 digits = seconds, remaining 6 = microseconds
+  const ts = `${rawTs.slice(0, 10)}.${rawTs.slice(10)}`;
+
+  type SlackRepliesPage = {
+    ok?: boolean;
+    error?: string;
+    messages?: Array<{ ts?: string; user?: string; username?: string; bot_profile?: { name?: string }; text?: string }>;
+    has_more?: boolean;
+    response_metadata?: { next_cursor?: string };
+  };
+
+  const allMessages: NonNullable<SlackRepliesPage['messages']> = [];
+  let cursor: string | undefined;
+  const MAX_PAGES = 5; // cap at 500 messages — enough for any incident thread
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const qs = new URLSearchParams({ channel, ts, limit: '100' });
+    if (cursor) qs.set('cursor', cursor);
+
+    const result = await _slackApiGet(`/api/conversations.replies?${qs.toString()}`) as SlackRepliesPage | null;
+
+    if (!result?.ok || !Array.isArray(result.messages)) {
+      logger.warn({ channel, ts, error: result?.error, page }, 'slack: conversations.replies failed');
+      if (page === 0) return null; // first page failure = nothing to return
+      break;
+    }
+
+    allMessages.push(...result.messages);
+    if (!result.has_more || !result.response_metadata?.next_cursor) break;
+    cursor = result.response_metadata.next_cursor;
+  }
+
+  const lines = allMessages.map((msg) => {
+    const time = msg.ts
+      ? new Date(parseFloat(msg.ts) * 1000).toISOString().slice(11, 16)
+      : '??:??';
+    const user = msg.username ?? msg.bot_profile?.name ?? msg.user ?? 'unknown';
+    const text = (msg.text ?? '').slice(0, 500);
+    return `[${time}] @${user}: ${text}`;
+  });
+
+  return lines.join('\n');
+}
+
 /** Post a JSON payload to a generic Slack Web API endpoint. */
 async function _slackApi(
   path: string,
