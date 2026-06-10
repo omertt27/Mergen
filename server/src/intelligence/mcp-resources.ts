@@ -60,7 +60,7 @@ export function registerResources(server: McpServer): void {
       description:
         'Most recent console.error events (up to 20). ' +
         'Includes de-minified stack traces and git-blame suspects where available. ' +
-        'Use as a quick read before calling analyze_runtime.',
+        'Use as a quick read before calling reconstruct_context.',
       mimeType: 'application/json',
     },
     async (uri) => ({

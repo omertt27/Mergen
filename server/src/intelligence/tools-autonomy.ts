@@ -2,7 +2,7 @@
  * tools-autonomy.ts — MCP tools for autonomous incident triage.
  *
  * execute_fix:
- *   Given a prediction id (pid) from analyze_runtime, extracts the fixHint
+ *   Given a prediction id (pid) from reconstruct_context, extracts the fixHint
  *   command and executes it. Requires confirm=true as an explicit safety gate
  *   — the AI must show the user what will be run before calling this.
  *   After execution, auto-runs validate_fix and returns the full verdict.
@@ -54,7 +54,7 @@ export function registerAutonomyTools(server: McpServer): void {
         'Set dry_run=true to preview the command without running it.',
       inputSchema: {
         pid: z.string()
-          .describe('Prediction id from analyze_runtime — identifies the hypothesis to fix'),
+          .describe('Prediction id from reconstruct_context — identifies the hypothesis to fix'),
         confirm: z.boolean()
           .describe('Must be true to proceed. Set true only after showing the user what will be executed.'),
         since: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER).optional()
@@ -89,7 +89,7 @@ export function registerAutonomyTools(server: McpServer): void {
       const prediction = records.find((r) => r.pid === pid);
       if (!prediction) {
         return {
-          content: [{ type: 'text', text: `No prediction found for pid \`${pid}\`. Run analyze_runtime first.` }],
+          content: [{ type: 'text', text: `No prediction found for pid \`${pid}\`. Run reconstruct_context first.` }],
           isError: true,
         };
       }

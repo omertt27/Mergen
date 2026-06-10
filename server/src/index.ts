@@ -34,6 +34,7 @@ import { startDockerLogStream, stopDockerLogStream } from './sensor/docker-log-s
 import { incidentStore } from './sensor/incident-store.js';
 import { postmortemStore } from './intelligence/postmortem-store.js';
 import { memoryStore } from './datadog/memory-store.js';
+import { commitContextStore } from './sensor/commit-context-store.js';
 import { stopAllProcessWatchers } from './sensor/process-watcher.js';
 import { stopFileWatch } from './sensor/fs-watcher.js';
 import { saveSession, loadSession } from './sensor/session-persist.js';
@@ -117,6 +118,7 @@ async function main(): Promise<void> {
   await incidentStore.init();
   await postmortemStore.init();
   await memoryStore.init();
+  await commitContextStore.init();
   setBufferSizeGetter(() => getPlan(getActivePlanId()).bufferSize);
 
   // ── Detector plugins ───────────────────────────────────────────────────────

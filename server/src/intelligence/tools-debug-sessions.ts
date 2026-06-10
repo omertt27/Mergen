@@ -145,7 +145,7 @@ export function registerDebugSessionTools(server: McpServer): void {
       } else {
         const rem = diff.persisted.length + diff.newErrors.length;
         lines.push(`❌ **${rem} error(s) remain.** Apply another fix, reproduce, then checkpoint again.`);
-        lines.push(`> 💡 \`analyze_runtime(since: ${session.baseline.capturedAt})\` for root-cause + fix.`);
+        lines.push(`> 💡 \`reconstruct_context(since: ${session.baseline.capturedAt})\` for root-cause + fix.`);
       }
 
       return { content: [{ type: 'text', text: lines.join('\n') }] };

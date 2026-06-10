@@ -310,6 +310,19 @@ function buildDashboardHtml(version: string, nonce: string): string {
         </div>
       </div>
 
+      <div class="card" id="service-memory-card">
+        <div class="card-title">Service Memory</div>
+        <div style="display:flex;gap:6px;margin-bottom:10px;align-items:center">
+          <input id="sm-service-input" type="text" placeholder="service name (e.g. api)"
+            style="flex:1;background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:11px;color:var(--text);outline:none"
+            oninput="debouncePollServiceMemory()"/>
+          <span style="font-size:10px;color:var(--muted)">filter</span>
+        </div>
+        <div id="sm-summary" style="font-size:11px;color:var(--muted);margin-bottom:8px"></div>
+        <div id="sm-edges" style="font-size:11px"></div>
+        <div id="sm-incidents" style="font-size:11px;margin-top:8px"></div>
+      </div>
+
       <div class="card">
         <div class="card-title">Connect more signals</div>
         <div style="font-size:11px;color:var(--muted);line-height:1.8">
@@ -926,6 +939,74 @@ async function pollCorpusProgress() {
   } catch {}
 }
 
+let _smDebounce = null;
+function debouncePollServiceMemory() {
+  if (_smDebounce) clearTimeout(_smDebounce);
+  _smDebounce = setTimeout(pollServiceMemory, 400);
+}
+
+async function pollServiceMemory() {
+  const input = document.getElementById('sm-service-input');
+  const service = input ? input.value.trim() : '';
+  const summaryEl = document.getElementById('sm-summary');
+  const edgesEl = document.getElementById('sm-edges');
+  const incEl = document.getElementById('sm-incidents');
+  if (!summaryEl || !edgesEl || !incEl) return;
+  try {
+    const qs = service ? '?service=' + encodeURIComponent(service) : '';
+    const [intData, incData] = await Promise.all([
+      fetch('/services/interactions' + qs).then(r => r.json()),
+      fetch('/incidents' + (service ? '?service=' + encodeURIComponent(service) : '')).then(r => r.json()),
+    ]);
+
+    if (intData.ok) {
+      const edges = intData.edges || [];
+      if (edges.length === 0) {
+        edgesEl.innerHTML = '<span style="color:var(--muted)">No interaction edges yet — resolved incidents build this graph automatically.</span>';
+        summaryEl.textContent = '';
+      } else {
+        summaryEl.textContent = edges.length + ' co-occurrence edge' + (edges.length !== 1 ? 's' : '') + ' across ' + intData.services.length + ' service' + (intData.services.length !== 1 ? 's' : '');
+        const topEdges = edges.slice(0, 8);
+        edgesEl.innerHTML = '<div style="color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Interaction Map</div>' +
+          topEdges.map(e => {
+            const w = e.weight > 5 ? '🔴' : e.weight > 2 ? '🟡' : '⚪';
+            return '<div style="display:flex;gap:6px;align-items:center;padding:2px 0">' +
+              '<code style="font-size:10px;color:var(--text)">' + e.source + '</code>' +
+              '<span style="color:var(--muted)">↔</span>' +
+              '<code style="font-size:10px;color:var(--text)">' + e.target + '</code>' +
+              '<span style="color:var(--muted);margin-left:auto">' + w + ' ' + e.weight + 'x</span>' +
+              '</div>';
+          }).join('');
+      }
+    }
+
+    const incidents = Array.isArray(incData) ? incData : (incData.incidents || []);
+    const filtered = service ? incidents.filter(i => i.service === service) : incidents;
+    const recent = filtered.slice(0, 6);
+    const resolved = filtered.filter(i => i.status === 'resolved');
+    const mttrVals = resolved.filter(i => i.resolvedAt).map(i => i.resolvedAt - i.createdAt);
+    const avgMttr = mttrVals.length > 0 ? Math.round(mttrVals.reduce((a,b)=>a+b,0) / mttrVals.length / 1000) : null;
+    const autoRate = resolved.length > 0 ? Math.round(resolved.filter(i=>i.resolvedAutonomously).length / resolved.length * 100) : null;
+
+    if (recent.length === 0) {
+      incEl.innerHTML = '<span style="color:var(--muted)">No incident history' + (service ? ' for "' + service + '"' : '') + '</span>';
+    } else {
+      const statsLine = [
+        resolved.length + ' resolved',
+        avgMttr !== null ? 'avg MTTR ' + (avgMttr >= 60 ? Math.round(avgMttr/60) + 'm' : avgMttr + 's') : null,
+        autoRate !== null ? autoRate + '% autonomous' : null,
+      ].filter(Boolean).join(' · ');
+      incEl.innerHTML = '<div style="color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Recent Incidents <span style="font-weight:400;text-transform:none;letter-spacing:0">' + statsLine + '</span></div>' +
+        recent.map(i => {
+          const icon = i.status === 'resolved' ? (i.resolvedAutonomously ? '🤖' : '✅') : '🔴';
+          const tag = (i.tag || 'unknown').replace(/^infra_/, '');
+          const svc = i.service ? ' <span style="color:var(--muted)">[' + i.service + ']</span>' : '';
+          return '<div style="padding:2px 0">' + icon + ' ' + tag + svc + ' <span style="color:var(--muted);float:right">' + Math.round(i.confidence*100) + '%</span></div>';
+        }).join('');
+    }
+  } catch {}
+}
+
 poll();
 pollSdkStatus();
 pollValidateState();
@@ -933,6 +1014,7 @@ pollCalibrationHealth();
 pollWarRoom();
 pollCorpusProgress();
 pollMttr();
+pollServiceMemory();
 setInterval(poll,5000);
 setInterval(pollSdkStatus,10000);
 setInterval(pollValidateState,5000);
@@ -940,6 +1022,7 @@ setInterval(pollCalibrationHealth,30000);
 setInterval(pollWarRoom,10000);
 setInterval(pollCorpusProgress,30000);
 setInterval(pollMttr,30000);
+setInterval(pollServiceMemory,30000);
 </script>
 </body></html>`;
 }

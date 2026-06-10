@@ -136,7 +136,7 @@ export function registerPrompts(server: McpServer): void {
 
       lines.push('## Task');
       lines.push(
-        'Call `analyze_runtime` to get the root cause with source-mapped stack frames and a fix. ' +
+        'Call `reconstruct_context` to get the root cause with source-mapped stack frames and a fix. ' +
         'If there are network failures with traceIds, call `get_unified_timeline` first — ' +
         '`EXACT` joins mean the browser request and backend log share the same trace ID (deterministic, not a guess). ' +
         'Lead your response with: what broke, why, and the exact code change needed.'
@@ -444,7 +444,7 @@ export function registerPrompts(server: McpServer): void {
       lines.push(
         '**Task:** Explain WHY this is broken. One clear sentence: "This is broken because [specific cause]." ' +
         'Then give the exact file + line + code change that fixes it. ' +
-        'Call `analyze_runtime` for source-mapped stack frames if you need more context. ' +
+        'Call `reconstruct_context` for source-mapped stack frames if you need more context. ' +
         'Do NOT ask clarifying questions — diagnose from what you have.',
       );
 

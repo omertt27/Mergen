@@ -22,6 +22,13 @@ const INCIDENT_DB = path.join(DATA_DIR, 'incidents.db');
 
 export type IncidentStatus = 'open' | 'acknowledged' | 'resolved';
 
+export interface ServiceEdge {
+  source: string;
+  target: string;
+  weight: number;
+  lastIncidentAt: number;
+}
+
 export interface Incident {
   pid: string;
   hypothesis: string;
@@ -90,6 +97,15 @@ class IncidentStore {
           acknowledged_by        TEXT,
           resolved_at            INTEGER,
           resolved_autonomously  INTEGER NOT NULL DEFAULT 0
+        );
+      `);
+      this.db.run(`
+        CREATE TABLE IF NOT EXISTS service_edges (
+          source          TEXT NOT NULL,
+          target          TEXT NOT NULL,
+          weight          INTEGER NOT NULL DEFAULT 1,
+          last_incident_at INTEGER NOT NULL,
+          PRIMARY KEY (source, target)
         );
       `);
       // Migration: add service + cluster columns to existing databases
@@ -183,7 +199,12 @@ class IncidentStore {
       );
     }
     this._flush();
-    return this.get(pid)!;
+    const result = this.get(pid)!;
+    // Update interaction graph whenever a service incident is recorded
+    if (result.service) {
+      this.updateServiceEdges(result.service, result.updatedAt);
+    }
+    return result;
   }
 
   get(pid: string): Incident | null {
@@ -254,6 +275,53 @@ class IncidentStore {
     if (!inc) return null;
     const entry = author ? `[${author}] ${note}` : note;
     return this.upsert(pid, { notes: [...inc.notes, entry] });
+  }
+
+  /**
+   * Persist a co-occurrence edge between `service` and every other service
+   * that had an incident within windowMs. Called on every upsert so the
+   * graph accumulates weight over time without a separate indexing job.
+   */
+  updateServiceEdges(service: string, at: number, windowMs = 10 * 60 * 1_000): void {
+    if (!this.db) return;
+    try {
+      const coServices = this.coOccurringServices(service, windowMs, 20);
+      for (const { service: target } of coServices) {
+        // Upsert both directions so graph queries are symmetric
+        for (const [src, tgt] of [[service, target], [target, service]]) {
+          this.db.run(
+            `INSERT INTO service_edges (source, target, weight, last_incident_at) VALUES (?,?,1,?)
+             ON CONFLICT(source, target) DO UPDATE SET weight = weight + 1, last_incident_at = excluded.last_incident_at`,
+            [src, tgt, at],
+          );
+        }
+      }
+      this._flush();
+    } catch (err) {
+      logger.warn({ err, service }, 'incident store: updateServiceEdges failed');
+    }
+  }
+
+  /**
+   * Return the full interaction graph, optionally filtered to edges touching `service`.
+   * Sorted by weight descending — strongest co-occurrence relationships first.
+   */
+  getInteractionGraph(service?: string): ServiceEdge[] {
+    if (!this.db) return [];
+    try {
+      const sql = service
+        ? `SELECT source, target, weight, last_incident_at FROM service_edges WHERE source=? OR target=? ORDER BY weight DESC LIMIT 100`
+        : `SELECT source, target, weight, last_incident_at FROM service_edges ORDER BY weight DESC LIMIT 200`;
+      const params = service ? [service, service] : [];
+      const res = this.db.exec(sql, params);
+      if (!res[0]?.values) return [];
+      return res[0].values.map((v) => ({
+        source: String(v[0] ?? ''),
+        target: String(v[1] ?? ''),
+        weight: Number(v[2] ?? 0),
+        lastIncidentAt: Number(v[3] ?? 0),
+      }));
+    } catch { return []; }
   }
 }
 

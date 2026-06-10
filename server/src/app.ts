@@ -69,6 +69,9 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   // ── Sentry webhook — raw body for HMAC, MUST precede express.json() ───────
   app.use(sentryRouter);
 
+  // ── GitHub webhook — raw body for HMAC-SHA256, MUST precede express.json() ─
+  app.use(createGitHubWebhookRouter());
+
   app.use(express.json({ strict: true, limit: '1mb' }));
 
   // ── Audit log ─────────────────────────────────────────────────────────────
@@ -162,7 +165,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createPagerDutyRouter());         // PagerDuty incident webhooks → Datadog auto-fetch
   app.use(createIncidentWebhookRouter());   // Generic incident webhook (no PagerDuty required)
   app.use(createHeartbeatsRouter());        // Heartbeat / cron-job monitoring
-  app.use(createGitHubWebhookRouter()); // GitHub PR merge → causality correlation
+  // GitHub webhook registered before express.json() above for raw body HMAC
   app.use(createWarRoomRouter());       // War room API + attribution feedback
   app.use(createSlackRoutingRouter());  // Service-to-Slack webhook routing rules
   app.use(createApiKeysRouter());       // Cloud-mode API key management

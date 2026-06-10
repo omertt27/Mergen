@@ -20,6 +20,7 @@ import { memoryStore, inferResolutionType } from '../datadog/memory-store.js';
 import { getActiveIncident, clearActiveIncident } from '../datadog/incident-state.js';
 import { replayIncident, listSnapshotPids } from '../intelligence/incident-replay.js';
 import { postmortemStore } from '../intelligence/postmortem-store.js';
+import { commitContextStore } from '../sensor/commit-context-store.js';
 import logger from '../sensor/logger.js';
 
 export function createIncidentsRouter(): Router {
@@ -236,6 +237,53 @@ export function createIncidentsRouter(): Router {
       totalIncidents: all.length,
       graph,
     });
+  });
+
+  // ── Service interaction graph ────────────────────────────────────────────────
+  // Returns the persistent co-occurrence graph: edges between services that have
+  // had incidents within 10 minutes of each other. Weight accumulates over time.
+  // Optional ?service= filter to return only edges touching a specific service.
+  router.get('/services/interactions', (req, res) => {
+    const service = typeof req.query.service === 'string' ? req.query.service : undefined;
+    const edges = incidentStore.getInteractionGraph(service);
+    const services = [...new Set(edges.flatMap((e) => [e.source, e.target]))];
+    res.json({
+      ok: true,
+      service: service ?? null,
+      edgeCount: edges.length,
+      services,
+      edges,
+    });
+  });
+
+  // ── Commit intent archive ────────────────────────────────────────────────────
+  // GET /commit-contexts          — list captured PR contexts (paginated)
+  // GET /commit-contexts/:sha     — lookup by commit SHA (full or 7-char prefix)
+  // Query params: ?repo=  ?limit=  ?since=  ?until=
+  router.get('/commit-contexts', (req, res) => {
+    const repo  = typeof req.query.repo  === 'string' ? req.query.repo  : undefined;
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit ?? 50)));
+    const since = req.query.since ? Number(req.query.since) : undefined;
+    const until = req.query.until ? Number(req.query.until) : undefined;
+
+    const contexts = since != null || until != null
+      ? commitContextStore.listByWindow(since ?? 0, until ?? Date.now(), repo, limit)
+      : repo
+        ? commitContextStore.listByRepo(repo, limit)
+        : commitContextStore.listByWindow(0, Date.now(), undefined, limit);
+
+    res.json({
+      ok: true,
+      total: commitContextStore.count(),
+      count: contexts.length,
+      contexts,
+    });
+  });
+
+  router.get('/commit-contexts/:sha', (req, res) => {
+    const ctx = commitContextStore.getBySha(req.params.sha);
+    if (!ctx) { res.status(404).json({ ok: false, error: 'not found' }); return; }
+    res.json({ ok: true, context: ctx });
   });
 
   // ── Postmortems list ─────────────────────────────────────────────────────────

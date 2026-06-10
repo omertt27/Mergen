@@ -13,22 +13,22 @@ import { trackCall, buildCreditBar, getLastClearAt, setFirstAnalyzeAt, setLastTi
 import { startSession } from './session-metrics.js';
 import logger from '../sensor/logger.js';
 
-/** Registers only `analyze_runtime` — used by slim (5-tool) MCP mode. */
+/** Registers only `reconstruct_context` — used by slim (5-tool) MCP mode. */
 export function registerAnalyzeRuntime(server: McpServer): void {
   _registerAnalyzeRuntime(server);
 }
 
 function _registerAnalyzeRuntime(server: McpServer): void {
   server.registerTool(
-    'analyze_runtime',
+    'reconstruct_context',
     {
       description:
-        '🔬 ROUTINE DEBUGGING — Call this as part of your normal debugging workflow, not just when things break. ' +
-        'Reconstructs what happened in the browser: resolves stack frames to original source (with code snippets), ' +
-        'tracks event dependencies (request → response → state mutation → crash), and produces a structured diagnosis ' +
-        'with a single root-cause summary, causal path, and fix hint. ' +
-        'Use it whenever the user asks why something is wrong, why a component is behaving unexpectedly, ' +
-        'or what happened before an error. ' +
+        '🔬 OPERATIONAL MEMORY — Reconstructs what happened in the runtime before a failure. ' +
+        'Resolves stack frames to original source (with code snippets), tracks event dependencies ' +
+        '(request → response → state mutation → crash), flags AI-generated commits in the blast radius, ' +
+        'and produces a structured diagnosis with root-cause summary, causal path, and fix hint. ' +
+        'Use whenever the user asks why something broke, what changed before an error, or needs ' +
+        'context about an AI-written service they did not author. ' +
         'Free: up to 25 incidents/month (shadow mode). Pro ($29/mo): 200 incidents/month, $50 overage ceiling.',
       inputSchema: {
         focus: z.enum(['errors', 'network', 'all']).optional()
@@ -40,7 +40,7 @@ function _registerAnalyzeRuntime(server: McpServer): void {
       },
     },
     async ({ focus = 'all', since, max_tokens }) => {
-      trackCall('analyze_runtime');
+      trackCall('reconstruct_context');
       setLastTimeToFirstAnalysisMs(Date.now() - getLastClearAt());
 
       const credit = await consumeCredit();
@@ -82,7 +82,7 @@ function _registerAnalyzeRuntime(server: McpServer): void {
           ),
         ]);
       } catch (err) {
-        logger.warn({ err }, 'analyze_runtime: causal analysis failed — returning raw telemetry');
+        logger.warn({ err }, 'reconstruct_context: causal analysis failed — returning raw telemetry');
         const errorCount = logs.filter((e) => e.level === 'error').length;
         const netErrors  = (network as Array<{ status: number; error?: unknown; method: string; url: string }>)
           .filter((n) => n.status >= 400 || !!n.error);
@@ -101,7 +101,7 @@ function _registerAnalyzeRuntime(server: McpServer): void {
                 ? `**Network failures:**\n${netErrors.slice(0, 5).map((n) => `- ${n.method} ${n.url} → ${n.status}`).join('\n')}`
                 : '',
               ``,
-              `_Manual investigation required. Retry \`analyze_runtime\` if the issue persists._`,
+              `_Manual investigation required. Retry \`reconstruct_context\` if the issue persists._`,
             ].filter(Boolean).join('\n'),
           }],
           isError: true,
@@ -125,7 +125,7 @@ function _registerAnalyzeRuntime(server: McpServer): void {
       const fullText    = causal.contextPack + noticeBlock + usageFooter;
 
       const { result, truncated, omitted, estimatedTokens } = truncateToTokenBudget(fullText.split('\n'), max_tokens, '\n');
-      if (truncated) logger.info({ tool: 'analyze_runtime', omitted, estimatedTokens }, 'response truncated');
+      if (truncated) logger.info({ tool: 'reconstruct_context', omitted, estimatedTokens }, 'response truncated');
 
       return { content: [{ type: 'text', text: result }] };
     },
@@ -142,7 +142,7 @@ export function registerAnalysisTools(server: McpServer): void {
         'not just when things break. Returns: error/warning/network counts, and any detected patterns ' +
         '(repeated failures, warning spikes, slow requests). ' +
         'Call this before writing code, after running the app, or whenever something feels off. ' +
-        'For the root cause and a code fix, call analyze_runtime.',
+        'For the root cause and a code fix, call reconstruct_context.',
     },
     async () => {
       trackCall('quick_check');
@@ -171,9 +171,9 @@ export function registerAnalysisTools(server: McpServer): void {
           lines.push(`  → **Next step:** ${s.action}`);
           lines.push('');
         }
-        lines.push('> 🔬 **Root cause + fix:** call `analyze_runtime`.');
+        lines.push('> 🔬 **Root cause + fix:** call `reconstruct_context`.');
       } else if (errors.length > 0) {
-        lines.push('', `> ❌ ${errors.length} error(s) in buffer. Call \`analyze_runtime\` for root cause + fix.`);
+        lines.push('', `> ❌ ${errors.length} error(s) in buffer. Call \`reconstruct_context\` for root cause + fix.`);
       } else if (warns.length > 0) {
         lines.push('', `> ⚠️ ${warns.length} warning(s) in buffer. Call \`explain_warning\` to understand them before they escalate.`);
       } else {
@@ -240,7 +240,7 @@ export function registerAnalysisTools(server: McpServer): void {
 
       if (nearbyErrors.length > 0) {
         lines.push('', `> ⚠️ **${nearbyErrors.length} error(s) fired AFTER this warning** — this warning may have been a precursor.`);
-        lines.push('> Call **`analyze_runtime`** for a full causal chain.');
+        lines.push('> Call **`reconstruct_context`** for a full causal chain.');
       }
 
       if (warns.length > 1) {
@@ -322,7 +322,7 @@ export function registerAnalysisTools(server: McpServer): void {
       }
 
       if (errors.length > 0 || signals.length > 0) {
-        lines.push('> 💡 Call **`analyze_runtime`** for root cause analysis and a fix suggestion.');
+        lines.push('> 💡 Call **`reconstruct_context`** for root cause analysis and a fix suggestion.');
       } else {
         lines.push('> ✅ Session looks clean — no significant errors or patterns detected.');
       }
@@ -517,7 +517,7 @@ export function registerAnalysisTools(server: McpServer): void {
         'Edge kinds are ordered by determinism: TRACE_JOINED is exact (W3C traceparent match), ' +
         'CAUSED_BY is detector-validated, CORRELATED_WITH is temporal proximity only. ' +
         'Use this to reason about event causality programmatically, build visualizations, ' +
-        'or feed structured data to a custom pipeline — without spending analyze_runtime credits.',
+        'or feed structured data to a custom pipeline — without spending reconstruct_context credits.',
       inputSchema: {
         since: z.number().int().optional().describe('Only include events after this Unix timestamp in ms'),
       },
@@ -546,13 +546,13 @@ export function registerAnalysisTools(server: McpServer): void {
     'suggest_logging_locations',
     {
       description:
-        '⚡ FREE · Given a hypothesis from analyze_runtime, reads your source files and suggests ' +
+        '⚡ FREE · Given a hypothesis from reconstruct_context, reads your source files and suggests ' +
         'exactly where to add console.log statements to validate the hypothesis. ' +
         'Identifies function entry points, conditional branches, and error paths relevant to the diagnosis. ' +
         'Returns copy-pasteable console.log snippets with specific line numbers.',
       inputSchema: {
         hypothesis: z.string()
-          .describe('The hypothesis text from analyze_runtime (e.g. "JWT token expired before request")'),
+          .describe('The hypothesis text from reconstruct_context (e.g. "JWT token expired before request")'),
         file_path: z.string().optional()
           .describe('Absolute or workspace-relative path to a source file to analyze. If omitted, uses recent stack frames from buffer.'),
         max_suggestions: z.number().int().min(1).max(20).optional()

@@ -12,14 +12,14 @@ function _registerValidateFix(server: McpServer): void {
     {
       description:
         'Check whether a code fix actually resolved the issue. ' +
-        'Pass the pid from analyze_runtime and the Unix ms timestamp from just before the fix was applied. ' +
+        'Pass the pid from reconstruct_context and the Unix ms timestamp from just before the fix was applied. ' +
         'Compares console error counts and network error counts before vs after. ' +
         'Returns RESOLVED (0 errors after), PARTIAL (≥50% reduction), REGRESSED (more errors), or UNRESOLVED. ' +
         'Automatically records the verdict to the calibration corpus so future diagnoses improve. ' +
         'ALWAYS call this after applying a fix — even if you are confident it worked.',
       inputSchema: {
         pid: z.string()
-          .describe('Prediction id (pid) from analyze_runtime — identifies the hypothesis being validated'),
+          .describe('Prediction id (pid) from reconstruct_context — identifies the hypothesis being validated'),
         since: z.number().int()
           .describe('Unix ms timestamp from just before the fix was applied — used as the before/after boundary'),
         window_ms: z.number().int().min(5_000).max(300_000).optional()
@@ -120,11 +120,11 @@ export function registerValidateTools(server: McpServer): void {
         'Start watching source files for changes so validate_fix runs automatically on each save. ' +
         'Returns immediately — validation happens in the background 2 seconds after any file changes. ' +
         'Results appear in the dashboard at http://127.0.0.1:3000/dashboard and in the next validate_fix call. ' +
-        'Best practice: call right after analyze_runtime, before editing any files. ' +
+        'Best practice: call right after reconstruct_context, before editing any files. ' +
         'Only one watch is active at a time — starting a new one stops the previous.',
       inputSchema: {
         pid: z.string()
-          .describe('Prediction id from analyze_runtime'),
+          .describe('Prediction id from reconstruct_context'),
         since: z.number().int()
           .describe('Unix ms timestamp from just before you started editing — the before/after boundary'),
         paths: z.array(z.string()).min(1).max(50)
