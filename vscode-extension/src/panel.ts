@@ -167,6 +167,19 @@ interface RootCause {
   builtAt?: number;
 }
 
+interface FilePRContext {
+  sha: string;
+  prNumber: number | null;
+  prTitle: string | null;
+  author: string | null;
+  approvers: string[];
+  linkedIssues: Array<{ ref: string }>;
+  aiGenerated: boolean;
+  aiTool: string | null;
+  mergedAt: number | null;
+  capturedAt: number;
+}
+
 interface ServerState {
   connected: boolean;
   port: number;
@@ -177,6 +190,8 @@ interface ServerState {
   calibration: CalibrationOverview | null;
   timeline: TimelineRow[];
   rootCause: RootCause | null;
+  /** PR intent for the currently active file — null until fetched. */
+  fileIntent: { file: string; contexts: FilePRContext[] } | null;
   error: string | null;
 }
 
@@ -193,10 +208,12 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private _state: ServerState = {
     connected: false, port: 3000, health: null, usage: null,
-    lastPack: null, history: [], calibration: null, timeline: [], rootCause: null, error: null,
+    lastPack: null, history: [], calibration: null, timeline: [], rootCause: null,
+    fileIntent: null, error: null,
   };
   private _pollTimer?: ReturnType<typeof setTimeout>;
   private _statusBar: vscode.StatusBarItem;
+  private _activeFile: string | null = null;
 
   constructor(private readonly _context: vscode.ExtensionContext) {
     // Always-visible status bar item — this is the engagement hook during
@@ -265,6 +282,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
           'mergen.openPanel',
           'mergen.refresh',
           'mergen.clearBuffer',
+          'mergen.whyThisFile',
         ]);
         if (ALLOWED.has(msg.command)) {
           await vscode.commands.executeCommand(msg.command);
@@ -314,6 +332,14 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   }
 
   // ── Public API ──────────────────────────────────────────────────────────────
+
+  /** Called by extension.ts whenever the active editor changes. Pushes the
+   *  new file path to the webview so the intent card can refresh. */
+  onActiveFileChanged(relPath: string): void {
+    this._activeFile = relPath;
+    // Push immediately (webview JS will fetch /explain-why/file itself)
+    this._send({ type: 'activeFile', relPath });
+  }
 
   async clearBuffer(): Promise<void> {
     const port = this._getPort();
@@ -435,6 +461,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
         health: result.health, usage: result.usage,
         lastPack: result.lastPack, history: result.history,
         calibration: result.calibration, timeline: result.timeline, rootCause: result.rootCause,
+        fileIntent: this._state.fileIntent,
         error: null,
       };
     } else {
@@ -445,6 +472,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
           health: null, usage: null,
           lastPack: null, history: [],
           calibration: null, timeline: [], rootCause: null,
+          fileIntent: this._state.fileIntent,
           error: 'Server not running on port ' + port,
         };
       }
@@ -461,6 +489,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
           health: result.health, usage: result.usage,
           lastPack: result.lastPack, history: result.history,
           calibration: result.calibration, timeline: result.timeline, rootCause: result.rootCause,
+          fileIntent: this._state.fileIntent,
           error: null,
         };
         await vscode.workspace.getConfiguration('mergen').update('serverPort', p, vscode.ConfigurationTarget.Workspace);
@@ -1083,6 +1112,43 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     font-size: 10px;
     color: var(--vscode-descriptionForeground);
   }
+
+  /* ── Intent card ── */
+  .intent-item {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--vscode-widget-border, rgba(127,127,127,.1));
+    font-size: 11px;
+    line-height: 1.45;
+  }
+  .intent-item:last-child { border-bottom: none; }
+  .intent-pr {
+    color: var(--vscode-foreground);
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .intent-meta {
+    color: var(--vscode-descriptionForeground);
+    font-size: 10px;
+    margin-top: 2px;
+  }
+  .intent-issues {
+    color: var(--vscode-textLink-foreground);
+    font-size: 10px;
+    margin-top: 2px;
+  }
+  .intent-ai-tag {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 0 4px;
+    border-radius: 3px;
+    background: rgba(0,120,200,.15);
+    color: var(--vscode-charts-blue);
+    margin-left: 4px;
+    letter-spacing: .03em;
+  }
 </style>
 </head>
 <body>
@@ -1176,6 +1242,15 @@ export class MergenPanel implements vscode.WebviewViewProvider {
 <div class="card" id="card-signals" style="display:none">
   <div class="card-title">Detected Patterns</div>
   <div id="signals-list"></div>
+</div>
+
+<!-- Intent card — PR context for the currently active file -->
+<div class="card" id="card-intent" style="display:none">
+  <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
+    <span>Why This File? <span id="intent-file" style="font-weight:400;text-transform:none;letter-spacing:0;font-size:10px;color:var(--vscode-descriptionForeground)"></span></span>
+    <button style="flex:0;padding:2px 8px;font-size:10px" onclick="runCmd('mergen.whyThisFile')">↗ AI Chat</button>
+  </div>
+  <div id="intent-list"></div>
 </div>
 
 <!-- Confidence Milestone Dashboard -->

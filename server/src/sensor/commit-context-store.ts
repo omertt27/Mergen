@@ -221,6 +221,22 @@ class CommitContextStore {
     } catch { return []; }
   }
 
+  /** Returns contexts where the given relative file path appears in files_changed, newest first. */
+  listByFile(relPath: string, repo?: string, limit = 10): CommitContext[] {
+    if (!this.db) return [];
+    try {
+      // files_changed is stored as a JSON array; LIKE gives us a simple substring match.
+      const pattern = `%${relPath}%`;
+      const sql = repo
+        ? `SELECT * FROM commit_contexts WHERE files_changed LIKE ? AND repo LIKE ? ORDER BY captured_at DESC LIMIT ?`
+        : `SELECT * FROM commit_contexts WHERE files_changed LIKE ? ORDER BY captured_at DESC LIMIT ?`;
+      const params = repo ? [pattern, `%${repo}%`, limit] : [pattern, limit];
+      const res = this.db.exec(sql, params);
+      if (!res[0]?.values) return [];
+      return res[0].values.map((v) => this._row(res[0].columns, v as (string | number | null)[]));
+    } catch { return []; }
+  }
+
   /** Returns contexts in a time window, optionally filtered by repo. */
   listByWindow(since: number, until: number, repo?: string, limit = 50): CommitContext[] {
     if (!this.db) return [];

@@ -1,69 +1,55 @@
 const features = [
   {
     num: '01',
-    title: 'Zero-Trust VPC Deploys',
+    title: 'Semantic Compactor',
     desc: (
       <>
-        SREs are rightfully paranoid about cloud-hosted AI agents accessing production.
-        Mergen runs <span className="highlight">fully locally or self-hosted in your VPC</span>.
-        Sensitive source code, database credentials, and production log streams never leave your secure perimeter.
+        Raw Datadog traces are too large and noisy for LLMs. Our <span className="highlight">4-stage compaction pipeline</span> strips the noise, compressing 500KB traces into 1KB "Runtime Facts" that agents can actually use.
       </>
     ),
   },
   {
     num: '02',
-    title: 'Credential Leak Protection',
+    title: 'Incident-State Awareness',
     desc: (
       <>
-        Generative coding tools routinely read and pass .env files in memory. Mergen’s{' '}
-        <span className="highlight">runtime proxy interceptor</span> monitors agent tool-calls,
-        sanitizing cloud secrets and API keys before they are sent to external LLMs.
+        Mergen tracks active incidents in real-time. By connecting to <span className="highlight">PagerDuty webhooks</span>, we automatically fetch relevant observability context the moment an alert fires, grounding your agent instantly.
       </>
     ),
   },
   {
     num: '03',
-    title: 'Standardized OTel Observability',
+    title: 'Context Routing Layer',
     desc: (
       <>
-        Mergen is natively instrumented with{' '}
-        <span className="highlight">OpenTelemetry GenAI semantic conventions</span>.
-        Track MCP tool latencies, token consumption, and agent runtimes directly inside
-        your existing Datadog, Prometheus, or Grafana dashboards.
+        We sit above your observability stack as a <span className="highlight">dedicated context-routing layer</span>. Mergen ensures your AI assistant always has the right data—from traces to logs to topology—without overwhelming its context window.
       </>
     ),
   },
   {
     num: '04',
-    title: 'Hybrid Retrieval Engine',
+    title: 'Datadog-Native Integration',
     desc: (
       <>
-        Mergen uses an offline engine combining{' '}
-        <span className="highlight">SQLite FTS5 BM25 keyword matching</span> with Porter stemming
-        and TF-IDF sparse vector similarity. Ensures exact-match precision on technical error codes
-        and semantic understanding of symptoms.
+        Deeply integrated with <span className="highlight">Datadog APM and Logs</span>. Mergen maps production stack frames to local source code and correlates spans with log events to give your AI a complete picture of the failure.
       </>
     ),
   },
   {
     num: '05',
-    title: 'Context Engineering',
+    title: 'Reduced MTTR for 2 AM',
     desc: (
       <>
-        Stop brute-forcing context windows. Mergen retrieves only the{' '}
-        <span className="highlight">most relevant 160-token cards</span> for active debugging.
-        Reduces token costs, eliminates hallucinations, and provides instant grounding for sleep-deprived engineers.
+        Designed for the <span className="highlight">sleep-deprived on-call engineer</span>. Mergen + Claude Code can resolve complex production incidents in under 5 minutes, replacing 45 minutes of manual dashboard jumping.
       </>
     ),
   },
   {
     num: '06',
-    title: 'Auto-Writeback Resolution',
+    title: 'Local-First Proxy',
     desc: (
       <>
-        Once the incident is mitigated, Mergen automatically captures your{' '}
-        <span className="highlight">local shell execution log</span>, correlated telemetry anomalies,
-        and Slack event timelines. It auto-drafts a high-fidelity Markdown postmortem in seconds.
+        Run Mergen <span className="highlight">locally or self-hosted in your VPC</span>. No sensitive Datadog API keys or production data ever leave your infrastructure. Zero-trust by design, enterprise-ready from day one.
       </>
     ),
   },
@@ -74,9 +60,9 @@ export default function Features() {
     <section id="why">
       <span className="section-label">02 // Capabilities</span>
       <h2>
-        Enterprise-grade.
+        AI-Native Infrastructure.
         <br />
-        Zero-trust security.
+        Built for the On-Call.
       </h2>
       <div className="feature-grid">
         {features.map((f, i) => (

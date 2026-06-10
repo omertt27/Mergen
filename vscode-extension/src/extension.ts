@@ -132,10 +132,13 @@ async function refreshStatusBar(): Promise<void> {
     const action = await vscode.window.showWarningMessage(
       `Mergen captured ${total} error${total !== 1 ? 's' : ''} in your browser. Ask your AI assistant to analyze it.`,
       'Analyze with AI',
+      'Why this code?',
       'Show panel',
     );
     if (action === 'Analyze with AI') {
       await vscode.commands.executeCommand('mergen.askAI');
+    } else if (action === 'Why this code?') {
+      await vscode.commands.executeCommand('mergen.whyThisFile');
     } else if (action === 'Show panel') {
       await vscode.commands.executeCommand('mergen.openPanel');
     }
@@ -365,7 +368,126 @@ export function activate(context: vscode.ExtensionContext): void {
         }
       }
     }),
+
+    // ── mergen.whyThisFile — "why was this code written this way?" ──────────
+    // Fetches PR context for the active file from the commit intent archive
+    // (GET /explain-why/file). Shows a quick-pick of matching PRs so the
+    // developer can understand business reasoning without digging through git log.
+    vscode.commands.registerCommand('mergen.whyThisFile', async () => {
+      const editor    = vscode.window.activeTextEditor;
+      const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+      const absPath   = editor?.document.uri.fsPath;
+
+      if (!absPath) {
+        vscode.window.showWarningMessage('Mergen: open a file first to look up its PR intent.');
+        return;
+      }
+
+      const relPath = workspace ? path.relative(workspace, absPath) : path.basename(absPath);
+      const cfg2  = vscode.workspace.getConfiguration('mergen');
+      const port2 = cfg2.get<number>('serverPort', 3000);
+
+      let data: { ok?: boolean; count?: number; contexts?: Array<{
+        sha: string; prNumber: number | null; prTitle: string | null; prBody: string | null;
+        author: string | null; approvers: string[]; linkedIssues: Array<{ ref: string }>;
+        aiGenerated: boolean; aiTool: string | null; mergedAt: number | null; capturedAt: number;
+      }> } | null = null;
+
+      try {
+        data = await new Promise((resolve, reject) => {
+          const encodedPath = encodeURIComponent(relPath);
+          const req = http.get(
+            { hostname: '127.0.0.1', port: port2, path: `/explain-why/file?path=${encodedPath}`, timeout: 3000 },
+            (res) => {
+              let d = '';
+              res.on('data', (c: string) => { d += c; });
+              res.on('end', () => { try { resolve(JSON.parse(d)); } catch { reject(new Error('parse')); } });
+            },
+          );
+          req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+          req.on('error', reject);
+        });
+      } catch {
+        vscode.window.showWarningMessage('Mergen: server not reachable — start it first.');
+        return;
+      }
+
+      if (!data?.contexts?.length) {
+        vscode.window.showInformationMessage(
+          `Mergen: no PR context captured for ${path.basename(relPath)} yet. ` +
+          `Connect POST /webhooks/github in your GitHub repo settings to start capturing PR intent.`,
+        );
+        return;
+      }
+
+      interface PRContext {
+        sha: string; prNumber: number | null; prTitle: string | null; prBody: string | null;
+        author: string | null; approvers: string[]; linkedIssues: Array<{ ref: string }>;
+        aiGenerated: boolean; aiTool: string | null; mergedAt: number | null; capturedAt: number;
+      }
+      interface PRItem extends vscode.QuickPickItem { ctx: PRContext; }
+
+      const items: PRItem[] = data.contexts.map((c) => {
+        const issueRefs = c.linkedIssues?.map((i: { ref: string }) => i.ref).join(', ');
+        const dateStr   = c.mergedAt ? new Date(c.mergedAt).toLocaleDateString() : (c.capturedAt ? new Date(c.capturedAt).toLocaleDateString() : '');
+        const aiTag     = c.aiGenerated ? ` [${c.aiTool ?? 'AI'}]` : '';
+        return {
+          label:       c.prTitle ? `#${c.prNumber ?? c.sha}  ${c.prTitle}` : `#${c.prNumber ?? c.sha}`,
+          description: [c.author ? `by ${c.author}` : '', dateStr].filter(Boolean).join(' · ') + aiTag,
+          detail:      [issueRefs, c.prBody?.slice(0, 140)].filter(Boolean).join(' · ') || undefined,
+          ctx:         c as PRContext,
+        };
+      });
+
+      const picked = await vscode.window.showQuickPick(items, {
+        title:       `Why was ${path.basename(relPath)} written this way?`,
+        placeHolder: 'Select a PR to send its intent to AI Chat',
+        matchOnDescription: true,
+        matchOnDetail:      true,
+      });
+
+      if (!picked) return;
+      const c = picked.ctx;
+
+      const intentSummary = [
+        `PR #${c.prNumber ?? c.sha}: ${c.prTitle ?? '(no title)'}`,
+        c.author      ? `Author: ${c.author}`                               : '',
+        c.approvers?.length ? `Approved by: ${c.approvers.join(', ')}`     : '',
+        c.linkedIssues?.length ? `Issues: ${c.linkedIssues.map((i: { ref: string }) => i.ref).join(', ')}` : '',
+        c.aiGenerated ? `AI-assisted: yes (${c.aiTool ?? 'unknown tool'})` : '',
+        c.prBody      ? `\nDescription:\n${c.prBody}`                      : '',
+      ].filter(Boolean).join('\n');
+
+      const query = `I am debugging ${relPath}. Here is the PR intent context for the last change to this file:\n\n${intentSummary}\n\nBased on this intent, help me understand if the current runtime error is a regression or expected behaviour.`;
+
+      try {
+        await vscode.commands.executeCommand('workbench.action.chat.open', { query, isPartialQuery: false });
+      } catch {
+        await vscode.env.clipboard.writeText(query);
+        vscode.window.showInformationMessage('Mergen: PR intent copied — paste into your AI chat.');
+      }
+    }),
   );
+
+  // ── Intent card: notify panel when active file changes ─────────────────────
+  // The panel sidebar shows PR context for whatever file the developer is looking
+  // at. Fires on every editor switch so the card stays in sync with focus.
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      if (!editor) return;
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+      const absPath = editor.document.uri.fsPath;
+      const relPath = workspaceRoot ? path.relative(workspaceRoot, absPath) : path.basename(absPath);
+      provider.onActiveFileChanged(relPath);
+    }),
+  );
+  // Seed the intent card with whatever is open when the extension activates.
+  if (vscode.window.activeTextEditor) {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+    const absPath = vscode.window.activeTextEditor.document.uri.fsPath;
+    const relPath = workspaceRoot ? path.relative(workspaceRoot, absPath) : path.basename(absPath);
+    provider.onActiveFileChanged(relPath);
+  }
 
   // ── First-run: open the walkthrough automatically ──────────────────────────
   // The first 20–50 installs are our most valuable feedback signal. Surfacing
@@ -501,10 +623,13 @@ export function activate(context: vscode.ExtensionContext): void {
         const action = await vscode.window.showWarningMessage(
           `Mergen: saving ${fileName} introduced ${delta} new error${delta !== 1 ? 's' : ''}. Fix before continuing?`,
           'Analyze with AI',
+          'Why this code?',
           'Ignore',
         );
         if (action === 'Analyze with AI') {
           await vscode.commands.executeCommand('mergen.askAI');
+        } else if (action === 'Why this code?') {
+          await vscode.commands.executeCommand('mergen.whyThisFile');
         }
       } else if (errsBefore > 0 && errsAfter < errsBefore) {
         // Errors went DOWN — the save fixed something. Positive reinforcement.

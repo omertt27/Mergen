@@ -115,7 +115,56 @@
         el.style.display = 'block';
       }
     }
+    if (data.type === 'activeFile' && data.relPath) {
+      // Extension host pushed a new active file → fetch intent from server directly
+      fetchAndRenderIntent(data.relPath);
+    }
   });
+
+  // ── Intent card — PR context for the active file ────────────────────────
+  async function fetchAndRenderIntent(relPath) {
+    const intentCard = document.getElementById('card-intent');
+    const intentList = document.getElementById('intent-list');
+    const intentFile = document.getElementById('intent-file');
+    if (!intentCard || !intentList || !intentFile) return;
+
+    // Show the card skeleton immediately so the user sees something
+    intentFile.textContent = relPath.split('/').pop() || relPath;
+
+    try {
+      const base = 'http://127.0.0.1:' + _currentPort;
+      const signal = (ms => { const c = new AbortController(); setTimeout(() => c.abort(), ms); return c.signal; })(2500);
+      const data = await fetch(base + '/explain-why/file?path=' + encodeURIComponent(relPath), { signal })
+        .then(r => r.json());
+
+      if (!data.ok || !data.contexts || data.contexts.length === 0) {
+        intentCard.style.display = 'none';
+        return;
+      }
+
+      intentCard.style.display = 'block';
+      intentList.innerHTML = data.contexts.slice(0, 5).map(function(c) {
+        const title   = c.prTitle ? escHtml(c.prTitle) : ('SHA ' + escHtml(c.sha));
+        const prNum   = c.prNumber ? '#' + c.prNumber + ' · ' : '';
+        const dateStr = c.mergedAt ? new Date(c.mergedAt).toLocaleDateString() : (c.capturedAt ? new Date(c.capturedAt).toLocaleDateString() : '');
+        const author  = c.author ? ' · by ' + escHtml(c.author) : '';
+        const aiTag   = c.aiGenerated ? '<span class="intent-ai-tag">' + escHtml(c.aiTool || 'AI') + '</span>' : '';
+        const issues  = c.linkedIssues && c.linkedIssues.length
+          ? '<div class="intent-issues">' + c.linkedIssues.slice(0, 4).map(i => escHtml(i.ref)).join(', ') + '</div>'
+          : '';
+        const approvers = c.approvers && c.approvers.length
+          ? '<span> · approved by ' + escHtml(c.approvers.slice(0, 2).join(', ')) + '</span>'
+          : '';
+        return '<div class="intent-item">' +
+          '<div class="intent-pr">' + prNum + title + aiTag + '</div>' +
+          '<div class="intent-meta">' + dateStr + author + approvers + '</div>' +
+          issues +
+          '</div>';
+      }).join('');
+    } catch (_) {
+      intentCard.style.display = 'none';
+    }
+  }
 
   // ── Direct HTTP polling ──────────────────────────────────────────────────
   let _currentPort = 3000;

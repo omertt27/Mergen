@@ -1907,9 +1907,9 @@ async function backfillGitHubCommand(args: string[]): Promise<void> {
   // ── Load the commit context store directly (no server required) ──────────────
   // We import the store module directly so the CLI can write to it without
   // starting the Express server. The store initialises its own SQLite instance.
-  let upsertFn: ((ctx: import('../sensor/commit-context-store.js').CommitContext) => void) | null = null;
+  let upsertFn: ((ctx: import('./sensor/commit-context-store.js').CommitContext) => void) | null = null;
   try {
-    const { commitContextStore } = await import('../sensor/commit-context-store.js');
+    const { commitContextStore } = await import('./sensor/commit-context-store.js');
     await commitContextStore.init();
     upsertFn = (ctx) => commitContextStore.upsert(ctx);
   } catch (e) {
@@ -1917,8 +1917,8 @@ async function backfillGitHubCommand(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const { extractLinkedIssues } = await import('../sensor/commit-context-store.js');
-  const { detectAiCommit }      = await import('../intelligence/ai-commit.js');
+  const { extractLinkedIssues } = await import('./sensor/commit-context-store.js');
+  const { detectAiCommit }      = await import('./intelligence/ai-commit.js');
 
   // ── Paginate through closed PRs ──────────────────────────────────────────────
   const headers = {
@@ -1993,7 +1993,7 @@ async function backfillGitHubCommand(args: string[]): Promise<void> {
       const branch   = (pr.head as Record<string, unknown>)?.ref;
       const headSha  = String((pr.head as Record<string, unknown>)?.sha ?? '');
 
-      const aiResult    = detectAiCommit(prTitle ?? '', headSha, prBody ?? '');
+      const aiResult    = detectAiCommit(prTitle ?? '', typeof author === 'string' ? author : undefined);
       const linkedIssues = extractLinkedIssues(prBody ?? '');
 
       // Capture reviewers from requested_reviewers (approved reviews require extra API calls;
@@ -2011,7 +2011,7 @@ async function backfillGitHubCommand(args: string[]): Promise<void> {
         author: typeof author === 'string' ? author : null,
         approvers,
         linkedIssues,
-        aiGenerated: aiResult.isAiGenerated,
+        aiGenerated: aiResult.detected,
         aiTool: aiResult.tool ?? null,
         filesChanged: [], // skipped for backfill — requires 1 extra API call per PR
         capturedAt: Date.now(),

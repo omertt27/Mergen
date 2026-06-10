@@ -1,7 +1,7 @@
 {
   "name": "mergen",
-  "displayName": "Mergen — Local-First Runtime Debugging for AI",
-  "description": "AI-native browser observability. Captures console, network, and DOM on 127.0.0.1 and exposes them as MCP tools to Copilot, Cursor, Claude & Windsurf — so the 30 seconds between a bug and a fix stay inside your laptop.",
+  "displayName": "Mergen \u2014 Local-First Runtime Debugging for AI",
+  "description": "AI-native browser observability. Captures console, network, and DOM on 127.0.0.1 and exposes them as MCP tools to Copilot, Cursor, Claude & Windsurf \u2014 so the 30 seconds between a bug and a fix stay inside your laptop.",
   "version": "1.0.0",
   "publisher": "mergen",
   "license": "MIT",
@@ -111,6 +111,11 @@
         "command": "mergen.openCalibration",
         "title": "Mergen: Show Detector Accuracy",
         "icon": "$(graph)"
+      },
+      {
+        "command": "mergen.whyThisFile",
+        "title": "Mergen: Why This File? (PR Intent)",
+        "icon": "$(history)"
       }
     ],
     "menus": {
@@ -173,22 +178,35 @@
             "id": "mergen.start.server",
             "title": "Start the local Mergen server",
             "description": "The server lives on 127.0.0.1 and forwards browser events to your AI host via MCP. Nothing leaves your machine.\n[Start Local Server](command:mergen.startServer)",
-            "media": { "markdown": "media/walkthrough-server.md" },
-            "completionEvents": ["onCommand:mergen.startServer"]
+            "media": {
+              "markdown": "media/walkthrough-server.md"
+            },
+            "completionEvents": [
+              "onCommand:mergen.startServer"
+            ]
           },
           {
             "id": "mergen.install.extension",
             "title": "Install the browser extension",
             "description": "Load the Mergen extension in Chrome or Edge so it can stream console, network, and DOM to the local server.\n[Open Install Guide](command:mergen.installExtension)",
-            "media": { "markdown": "media/walkthrough-extension.md" },
-            "completionEvents": ["onCommand:mergen.installExtension"]
+            "media": {
+              "markdown": "media/walkthrough-extension.md"
+            },
+            "completionEvents": [
+              "onCommand:mergen.installExtension"
+            ]
           },
           {
             "id": "mergen.open.panel",
             "title": "Open the Mergen panel",
             "description": "Refresh a tab in your browser. The Mergen sidebar should light up with a baseline diagnosis within 2 seconds.\n[Open Mergen Panel](command:mergen.openPanel)",
-            "media": { "markdown": "media/walkthrough-panel.md" },
-            "completionEvents": ["onCommand:mergen.openPanel", "onView:mergen.panel"]
+            "media": {
+              "markdown": "media/walkthrough-panel.md"
+            },
+            "completionEvents": [
+              "onCommand:mergen.openPanel",
+              "onView:mergen.panel"
+            ]
           }
         ]
       }

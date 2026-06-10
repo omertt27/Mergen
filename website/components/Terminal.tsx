@@ -3,23 +3,21 @@
 import { useState, useEffect } from 'react'
 
 const lines = [
-  { text: 'claude -c "ask mergen to explain_service(\'checkout-api\')"', type: 'system', delay: 0 },
-  { text: 'Output Card:', type: 'log', delay: 800 },
-  { text: 'Service Profile: checkout-api', type: 'system', delay: 400 },
-  { text: 'Mergen corpus · 24 incidents · First: 2026-01-15 · Last: 2026-06-08', type: 'log', delay: 200 },
+  { text: 'claude -c "analyze active incident with mergen"', type: 'system', delay: 0 },
+  { text: 'Fetching incident context from PagerDuty...', type: 'log', delay: 800 },
+  { text: '⚠️  Detected Incident #1294: "checkout-service latency spike"', type: 'event', delay: 400 },
+  { text: 'Pulling Datadog trace for root cause analysis...', type: 'log', delay: 600 },
   { text: '', type: 'gap', delay: 100 },
-  { text: '⚠️  1 open incident currently tracked', type: 'event', delay: 600 },
+  { text: 'Semantic Compactor: 412KB Trace → 1.2KB Fact Card', type: 'system', delay: 400 },
+  { text: 'Root Cause Identified', type: 'system', delay: 400 },
+  { text: 'Service: checkout-service', type: 'log', delay: 200 },
+  { text: 'Error: Database connection pool exhausted (32/32 connections)', type: 'event', delay: 200 },
+  { text: 'Trace Span: pg.connect (latency: 12.4s)', type: 'log', delay: 200 },
   { text: '', type: 'gap', delay: 100 },
-  { text: 'Failure Modes', type: 'system', delay: 400 },
-  { text: 'Mode                          Freq   Avg MTTR   Auto-resolved   Most Recent Verified Fix', type: 'log', delay: 200 },
-  { text: 'db_connection_pool_exhausted  14×    12m        79%             kubectl scale...', type: 'log', delay: 100 },
-  { text: 'redis_cache_timeout           4×     6m         100%            redis-cli -h cache.internal flushall', type: 'log', delay: 100 },
+  { text: 'Suggested Fix (Applied 14× in similar incidents):', type: 'system', delay: 400 },
+  { text: 'kubectl scale deployment/checkout-db-pool --replicas=5', type: 'success', delay: 300 },
   { text: '', type: 'gap', delay: 100 },
-  { text: 'Verified Fix Commands (ranked by usage)', type: 'system', delay: 400 },
-  { text: 'kubectl scale deployment/checkout-db-pool --replicas=5 — applied 14×', type: 'success', delay: 300 },
-  { text: '', type: 'gap', delay: 100 },
-  { text: 'Co-occurring Services', type: 'system', delay: 400 },
-  { text: 'payment-processor (12) · redis-cache (9)', type: 'log', delay: 300 },
+  { text: 'Claude: "I have identified that the checkout service is hitting its DB pool limit. Scaling up the pool now."', type: 'log', delay: 800 },
 ]
 
 export default function Terminal() {
@@ -49,7 +47,7 @@ export default function Terminal() {
         <div className="terminal-dots">
           <span /> <span /> <span />
         </div>
-        <div className="terminal-title">mergen — explain_service</div>
+        <div className="terminal-title">mergen — get_incident_context</div>
       </div>
       <div className="terminal-body" style={{ minHeight: '450px' }}>
         {visibleLines.map((line, i) => (

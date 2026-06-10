@@ -48,6 +48,7 @@ import { createPRShadowRouter } from './routes/pr-shadow.js';
 import { createImpactReportRouter } from './routes/impact-report.js';
 import { createBillingOutcomeRouter } from './routes/billing-outcome.js';
 import { createPostmortemRouter } from './routes/postmortem.js';
+import { createExplainWhyRouter } from './routes/explain-why.js';
 import { cloudAuthMiddleware } from './sensor/cloud-auth.js';
 import { handleSlackActions, handleFeedbackLink } from './intelligence/slack.js';
 import { getPrometheusMetrics } from './sensor/otel-exporter.js';
@@ -177,6 +178,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createImpactReportRouter());  // Deck-quality impact artifact
   app.use(createBillingOutcomeRouter()); // Y5: outcome-based billing evidence
   app.use(createPostmortemRouter());    // POST /postmortem/from-slack
+  app.use(createExplainWhyRouter());    // GET /explain-why/file?path=
 
   // ── Prometheus metrics endpoint ───────────────────────────────────────────
   // Exposes browser error rates, network failure counts, and request durations
