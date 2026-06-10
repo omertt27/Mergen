@@ -50,8 +50,11 @@ export function formatValidatedFactsForLLM(
   gate: PlanningDecision,
   errorCount: number,
   runtimeFact?: string | null,
+  calibratedScore?: number,
 ): ValidatedFactsBrief {
-  const { calibrated, source, n } = plattScale(hyp.confidenceScore, hyp.tag);
+  const rawScore = hyp.confidenceScore;
+  const { calibrated: autoCalibrated, source, n } = plattScale(rawScore, hyp.tag);
+  const calibrated = calibratedScore ?? autoCalibrated;
   const calibratedPct = Math.round(calibrated * 100);
   const basisNote = source === 'raw'
     ? '(prior — no calibration data yet)'

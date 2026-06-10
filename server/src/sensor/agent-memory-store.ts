@@ -82,6 +82,11 @@ class AgentMemoryStore {
       `);
 
       this.flush();
+      // Migrations for existing databases that predate these columns
+      try { this.db.run(`ALTER TABLE agent_memory ADD COLUMN service TEXT NOT NULL DEFAULT ''`); } catch { /**/ }
+      try { this.db.run(`ALTER TABLE agent_memory ADD COLUMN error_fingerprint TEXT NOT NULL DEFAULT ''`); } catch { /**/ }
+      // Index may not exist on older DBs
+      try { this.db.run(`CREATE INDEX IF NOT EXISTS idx_agent_memory_episodic ON agent_memory (service, error_fingerprint, stored_at)`); } catch { /**/ }
       logger.debug({ path: MEMORY_DB }, 'agent-memory-store: initialized');
     } catch (err) {
       logger.error({ err }, 'agent-memory-store: init failed');

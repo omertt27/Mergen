@@ -21,7 +21,7 @@
 
 import { store } from '../sensor/buffer.js';
 import { buildCausalChain, fixActionToCommand } from './causal.js';
-import type { CausalChain } from './causal.js';
+import type { CausalChain, Hypothesis } from './causal.js';
 import { getRecords, recordVerdict } from './calibration.js';
 import { executeRemediation, extractCommand } from './autonomy.js';
 import { postThreadReply, postApprovalRequest } from './slack.js';
@@ -209,17 +209,20 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
   }
 
   // ── Platt-scale confidence scores ──────────────────────────────────────────
-  // Replace raw heuristic scores with statistically calibrated probabilities.
-  // "85% should mean 85 out of 100 past predictions were correct" — not a
-  // weighted heuristic. This is what wins enterprise PoCs.
+  // Apply calibration at the DISPLAY layer only — raw scores are preserved for
+  // classifier input so the model's training domain isn't corrupted.
+  // "85% should mean 85 out of 100 past predictions were correct."
+  const plattAdjusted = new Map<Hypothesis, number>();
   for (const hyp of causal.hypotheses) {
     const { calibrated, source } = plattScale(hyp.confidenceScore, hyp.tag);
-    if (source !== 'raw') {
-      hyp.confidenceScore = calibrated;
-    }
+    if (source !== 'raw') plattAdjusted.set(hyp, calibrated);
   }
-  // Re-sort after score adjustments
-  causal.hypotheses.sort((a, b) => b.confidenceScore - a.confidenceScore);
+  // Re-sort by calibrated score without mutating the original (planning gate uses raw)
+  causal.hypotheses.sort((a, b) => {
+    const aScore = plattAdjusted.get(a) ?? a.confidenceScore;
+    const bScore = plattAdjusted.get(b) ?? b.confidenceScore;
+    return bScore - aScore;
+  });
 
   // Persist telemetry snapshot for deterministic replay and regression testing.
   captureSnapshot({
@@ -247,7 +250,9 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
     return;
   }
 
-  const pct = Math.round((topHyp.confidenceScore ?? 0) * 100);
+  const rawScore      = topHyp.confidenceScore ?? 0;
+  const calibratedScore = plattAdjusted.get(topHyp) ?? rawScore;
+  const pct = Math.round(calibratedScore * 100);
   const calStats = getStatsForTag(topHyp.tag);
   const calibrationLabel = calStats?.isEmpirical
     ? `calibrated — ${calStats.verdicts} verdicts`
@@ -297,7 +302,7 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
 
   // Build the validated facts brief (LLM-as-spokesperson pattern)
   const runtimeFact = activeIncident?.runtimeFact ?? null;
-  const brief = formatValidatedFactsForLLM(topHyp, service, gate, errorCount, runtimeFact);
+  const brief = formatValidatedFactsForLLM(topHyp, service, gate, errorCount, runtimeFact, calibratedScore);
   logger.debug({ service, pid, tokens: brief.estimatedTokens }, 'incident-autopilot: LLM brief assembled');
 
   if (gate.adjustedConfidence !== execConfidence) {
