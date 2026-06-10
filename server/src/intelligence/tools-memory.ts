@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { memoryStore, formatMttr, type IncidentMemoryRecord } from '../datadog/memory-store.js';
+import { agentMemoryStore } from '../sensor/agent-memory-store.js';
 import { trackCall } from './tools-state.js';
 
 function formatRecord(r: IncidentMemoryRecord, index: number): string {
@@ -149,6 +150,62 @@ export function registerMemoryTools(server: McpServer): void {
       const lines = [`## Open Incidents (${open.length})`, ''];
       for (const [i, r] of open.entries()) {
         lines.push(formatRecord(r, i), '');
+      }
+      return { content: [{ type: 'text', text: lines.join('\n') }] };
+    },
+  );
+
+  // ── store_agent_memory ─────────────────────────────────────────────────────
+  server.registerTool(
+    'store_agent_memory',
+    {
+      description:
+        'Persist a key–value memory that survives across sessions. Use this to remember ' +
+        'patterns, constraints, or context that you should not have to re-discover the next ' +
+        'time you are invoked. Examples: architecture decisions, "do not touch" files, known ' +
+        'fragile service names, or resolved root causes. Memories can carry an optional TTL.',
+      inputSchema: {
+        key:     z.string().min(1).max(200).describe('Short, human-readable identifier for the memory'),
+        value:   z.string().min(1).max(8000).describe('The content to remember (plain text or JSON)'),
+        agentId: z.string().optional().describe('Identifier for this agent. Defaults to "default"'),
+        ttlMs:   z.number().int().min(0).optional().describe('Time-to-live in milliseconds. 0 = permanent'),
+      },
+    },
+    async ({ key, value, agentId = 'default', ttlMs = 0 }) => {
+      trackCall('store_agent_memory');
+      const entry = agentMemoryStore.store(agentId, key, value, ttlMs);
+      return {
+        content: [{ type: 'text', text: `Memory stored: "${key}" [id=${entry.id}]` }],
+      };
+    },
+  );
+
+  // ── recall_agent_memory ────────────────────────────────────────────────────
+  server.registerTool(
+    'recall_agent_memory',
+    {
+      description:
+        'Retrieve previously stored agent memories. Use this at the start of each session ' +
+        'to recover patterns and constraints you noted in prior runs. Filter by key for ' +
+        'targeted recall or omit key to get the most recent memories for this agent.',
+      inputSchema: {
+        key:     z.string().optional().describe('Filter to memories with this exact key'),
+        agentId: z.string().optional().describe('Agent ID to scope the recall. Defaults to "default"'),
+        limit:   z.number().int().min(1).max(50).optional().describe('Max entries to return (default 10)'),
+      },
+    },
+    async ({ key, agentId = 'default', limit = 10 }) => {
+      trackCall('recall_agent_memory');
+      const entries = agentMemoryStore.recall(agentId, key, limit);
+      if (entries.length === 0) {
+        return { content: [{ type: 'text', text: 'No memories found.' }] };
+      }
+      const lines = [`## Agent Memories (${entries.length})`, ''];
+      for (const e of entries) {
+        const expiry = e.ttlMs > 0
+          ? `  _(expires ${new Date(e.storedAt + e.ttlMs).toISOString()})_`
+          : '';
+        lines.push(`### ${e.key}${expiry}`, e.value, '');
       }
       return { content: [{ type: 'text', text: lines.join('\n') }] };
     },

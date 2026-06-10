@@ -20,6 +20,7 @@ import type { BlameAttribution } from '../datadog/blame-attribution.js';
 import type { BlastRadiusReport } from '../sensor/buffer.js';
 import { memoryStore } from '../datadog/memory-store.js';
 import { recordVerdict } from './calibration.js';
+import { recordOverride, type OverrideReason } from './override-corpus.js';
 import { getRoutingForService } from './slack-routing.js';
 import { approveExecution, denyExecution } from './execution-gate.js';
 import { executeRemediation } from './autonomy.js';
@@ -692,11 +693,27 @@ export async function handleSlackActions(req: Request, res: Response): Promise<v
       const reasonSelect = reasonBlock ? reasonBlock['reason_select'] : null;
       const selectedReason = reasonSelect?.selected_option?.value ?? 'other';
 
-      // Log the override with reason (this would feed into the override corpus in a real DB)
-      logger.info({ pid, verdict: 'would-override', reason: selectedReason }, 'slack: shadow override submitted via modal');
-      
-      // In a real system, you'd save this to shadow-log or override corpus.
-      // recordVerdict(pid, 'would-override', selectedReason); 
+      // Map modal option values to OverrideReason enum
+      const REASON_MAP: Record<string, OverrideReason> = {
+        too_risky:      'on-call-discretion',
+        fix_incorrect:  'wrong-fix',
+        false_positive: 'wrong-diagnosis',
+        other:          'other',
+      };
+      const corpusReason: OverrideReason = REASON_MAP[selectedReason] ?? 'other';
+
+      // Persist to override corpus — was previously just logging
+      recordOverride({
+        incidentTag:     pid,
+        proposedCommand: 'unknown',
+        overrideReason:  corpusReason,
+        service:         'unknown',
+        environment:     process.env.NODE_ENV ?? 'production',
+        actor:           'slack-user',
+      });
+      // Also record as calibration 'wrong' so detector accuracy stays honest
+      recordVerdict(pid, 'wrong', selectedReason);
+      logger.info({ pid, reason: corpusReason }, 'slack: override persisted to corpus');
 
       res.status(200).send(''); // ACK within 3s
       return;

@@ -9,6 +9,7 @@ import { computeBlameAttribution } from '../datadog/blame-attribution.js';
 import { postIncidentAlert } from '../intelligence/slack.js';
 import { store } from '../sensor/buffer.js';
 import { runIncidentAutopilot } from '../intelligence/incident-autopilot.js';
+import { getRecords, recordVerdict } from '../intelligence/calibration.js';
 import logger from '../sensor/logger.js';
 
 const DASHBOARD_URL = process.env.MERGEN_DASHBOARD_URL ?? 'http://127.0.0.1:3000';
@@ -44,11 +45,31 @@ export function createPagerDutyRouter(): Router {
     for (const msg of parsed.data.messages) {
       const { event_type, data } = msg.event;
 
-      // ── incident.resolved — close memory record and compute MTTR ────────────
+      // ── incident.resolved — record calibration verdict then close memory ────
       if (event_type === 'incident.resolved') {
         const resolvedAt = data.resolved_at
           ? new Date(data.resolved_at).getTime()
           : Date.now();
+
+        // Feed calibration: for incidents resolved within 45 min without an
+        // override, record a 'correct' verdict so the detector accuracy improves.
+        const openRecord = memoryStore.listOpen().find((r) => r.pdIncidentId === data.id);
+        if (openRecord) {
+          const mttrMs = resolvedAt - openRecord.firedAt;
+          const QUICK_RESOLVE_MS = 45 * 60 * 1000;
+          // Only credit 'correct' for fast human resolutions that weren't
+          // overridden by autopilot (autopilot already records its own verdicts).
+          if (mttrMs < QUICK_RESOLVE_MS && !openRecord.resolvedAutonomously) {
+            const fingerprint = openRecord.fingerprint;
+            const unverifiedRecords = getRecords().filter(
+              (r) => r.pid === fingerprint && r.verdict === null,
+            );
+            for (const cr of unverifiedRecords) {
+              recordVerdict(cr.pid, 'correct', `pd-resolved-in-${Math.round(mttrMs / 60_000)}m`);
+            }
+          }
+        }
+
         memoryStore.closeIncident({ pdIncidentId: data.id, resolvedAt });
         logger.info({ pdId: data.id }, 'pagerduty incident resolved');
         continue;

@@ -34,7 +34,94 @@ import { commitContextStore, extractLinkedIssues, type CommitContext } from '../
 import { detectAiCommit } from '../intelligence/ai-commit.js';
 import { analyzePRForShadow } from '../intelligence/pr-shadow-analyzer.js';
 import { maybePostPRComment } from '../intelligence/pr-commenter.js';
+import { type PRShadowResult } from '../sensor/pr-shadow-store.js';
 import logger from '../sensor/logger.js';
+
+function loadGitHubToken(): string {
+  if (process.env.GITHUB_TOKEN) return process.env.GITHUB_TOKEN;
+  try {
+    const cfgPath = path.join(os.homedir(), '.mergen', 'config.json');
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8')) as Record<string, unknown>;
+    const gh = (cfg.github ?? {}) as Record<string, unknown>;
+    if (typeof gh.token === 'string' && gh.token) return gh.token;
+  } catch {}
+  return '';
+}
+
+/** Returns file paths changed by a PR via the GitHub REST API. */
+async function fetchPRFiles(repo: string, prNumber: number, token: string): Promise<string[]> {
+  const url = `https://api.github.com/repos/${repo}/pulls/${prNumber}/files?per_page=100`;
+  const res = await fetch(url, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${token}`,
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
+  if (!res.ok) {
+    logger.warn({ repo, prNumber, status: res.status }, 'github-webhook: failed to fetch PR files');
+    return [];
+  }
+  const data = await res.json() as Array<{ filename: string }>;
+  return data.map((f) => f.filename);
+}
+
+/**
+ * Post a GitHub Check Run for the Mergen Context Gate.
+ * Requires `checks:write` permission on the installation or PAT.
+ */
+async function maybeCreateCheckRun(
+  shadowResult: PRShadowResult,
+  headSha: string,
+  token: string,
+): Promise<void> {
+  if (!token) return;
+
+  const HIGH_RELEVANCE = 0.7;
+  const isWarning = shadowResult.relevanceScore >= HIGH_RELEVANCE;
+
+  const summary = isWarning
+    ? `Mergen found ${shadowResult.matchedIncidents} past incident(s) and ${shadowResult.matchedContexts} PR context(s) related to this change (relevance ${(shadowResult.relevanceScore * 100).toFixed(0)}%).`
+    : `No high-relevance incidents found for this PR's changes.`;
+
+  const body = {
+    name: 'Mergen Context Gate',
+    head_sha: headSha,
+    status: 'completed',
+    conclusion: isWarning ? 'action_required' : 'success',
+    output: {
+      title: isWarning ? '⚠️ Related past incidents detected' : '✅ No related incidents',
+      summary,
+      text: shadowResult.wouldHaveComment ?? '',
+    },
+  };
+
+  try {
+    const res = await fetch(`https://api.github.com/repos/${shadowResult.repo}/check-runs`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      logger.warn(
+        { repo: shadowResult.repo, pr: shadowResult.prNumber, status: res.status },
+        'github-webhook: check run post failed (need checks:write scope)',
+      );
+    } else {
+      logger.info(
+        { repo: shadowResult.repo, pr: shadowResult.prNumber, conclusion: body.conclusion },
+        'github-webhook: check run posted',
+      );
+    }
+  } catch (err) {
+    logger.warn({ err }, 'github-webhook: check run error (non-fatal)');
+  }
+}
 
 // Load secret from env first, then fall back to the file written by
 // `mergen connect github` so users don't need to manually set env vars.
@@ -173,6 +260,7 @@ async function handleEvent(event: string, payload: unknown): Promise<void> {
       action === 'synchronize' ||
       action === 'ready_for_review'
     ) {
+      const headSha = pr?.head?.sha ?? '';
       void analyzePRForShadow({
         repo: repository?.full_name ?? '',
         prNumber: pr?.number ?? 0,
@@ -181,8 +269,12 @@ async function handleEvent(event: string, payload: unknown): Promise<void> {
         author: pr?.user?.login ?? '',
         branch: pr?.head?.ref ?? '',
         action,
-      }).then((shadowResult) => maybePostPRComment(shadowResult)).catch((err: unknown) => {
-        logger.warn({ err }, 'pr-shadow/comment: error (non-fatal)');
+      }).then(async (shadowResult) => {
+        await maybePostPRComment(shadowResult);
+        const token = loadGitHubToken();
+        await maybeCreateCheckRun(shadowResult, headSha, token);
+      }).catch((err: unknown) => {
+        logger.warn({ err }, 'pr-shadow/comment/checkrun: error (non-fatal)');
       });
     }
 
@@ -256,6 +348,23 @@ async function handlePREvent(payload: PullRequestPayload): Promise<void> {
   };
 
   commitContextStore.upsert(ctx);
+
+  // Async: fetch the list of changed files from the GitHub API and re-upsert
+  // so that listByFile() can match PRs to specific files.
+  const ghToken = loadGitHubToken();
+  if (ghToken) {
+    void fetchPRFiles(repo, pr.number, ghToken).then((files) => {
+      if (files.length > 0) {
+        commitContextStore.upsert({ ...ctx, filesChanged: files });
+        logger.debug(
+          { sha: sha.slice(0, 7), repo, pr: pr.number, files: files.length },
+          'github-webhook: PR files populated',
+        );
+      }
+    }).catch((err: unknown) => {
+      logger.warn({ err }, 'github-webhook: fetchPRFiles failed (non-fatal)');
+    });
+  }
 
   // Backward compat: also feed the legacy memory store correlation
   memoryStore.correlateGitHubPR({ prUrl: pr.html_url, prTitle: pr.title, prSha: sha, mergedAt });
