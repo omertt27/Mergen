@@ -99,6 +99,11 @@ interface ImpactData {
   estimatedAutonomousMttrMs: number;
   avgActualMttrMs: number | null;
   mttrReductionPct: number | null;
+  // Methodological note: autonomous MTTR only covers incidents where confidence
+  // was ≥ 85% — the simpler, well-understood failure modes. Manual MTTR covers
+  // all incidents including complex ones autopilot skipped. Compare within
+  // confidence bands for an unbiased view.
+  mttrSelectionBiasCaveat: string;
   // Confidence distribution
   highConfidence: number;
   mediumConfidence: number;
@@ -271,6 +276,11 @@ function computeImpactData(windowDays: number): ImpactData {
     estimatedAutonomousMttrMs: ESTIMATED_AUTONOMOUS_MTTR_MS,
     avgActualMttrMs,
     mttrReductionPct,
+    mttrSelectionBiasCaveat:
+      'Autonomous MTTR only covers incidents where confidence was ≥85% — ' +
+      'the simpler, well-understood failure modes autopilot picked up. ' +
+      'Manual MTTR covers all incidents, including complex ones autopilot skipped. ' +
+      'For an unbiased comparison, filter manual MTTR to the same high-confidence cohort.',
     highConfidence,
     mediumConfidence,
     lowOrNoCommand,

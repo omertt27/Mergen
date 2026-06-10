@@ -44,6 +44,7 @@ import { createApiKeysRouter } from './routes/api-keys.js';
 import { createRbacRouter } from './routes/rbac.js';
 import { createOverridesRouter } from './routes/overrides.js';
 import { createShadowReportRouter } from './routes/shadow-report.js';
+import { createPRShadowRouter } from './routes/pr-shadow.js';
 import { createImpactReportRouter } from './routes/impact-report.js';
 import { createBillingOutcomeRouter } from './routes/billing-outcome.js';
 import { createPostmortemRouter } from './routes/postmortem.js';
@@ -171,7 +172,8 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createApiKeysRouter());       // Cloud-mode API key management
   app.use(createRbacRouter());          // RBAC membership management
   app.use(createOverridesRouter());     // Engineer override corpus
-  app.use(createShadowReportRouter());  // Shadow mode track record
+  app.use(createShadowReportRouter());  // Shadow mode track record (fix execution)
+  app.use(createPRShadowRouter());      // PR shadow mode (comment readiness signal)
   app.use(createImpactReportRouter());  // Deck-quality impact artifact
   app.use(createBillingOutcomeRouter()); // Y5: outcome-based billing evidence
   app.use(createPostmortemRouter());    // POST /postmortem/from-slack

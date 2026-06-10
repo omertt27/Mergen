@@ -20,7 +20,7 @@ import { buildCausalGraph } from '../intelligence/causal-graph.js';
 import { serviceTopology } from '../sensor/service-topology.js';
 import { hypothesisHistory } from '../intelligence/hypothesis-history.js';
 import { getStats } from '../intelligence/calibration.js';
-import { getUsageSnapshot } from '../intelligence/usage.js';
+import { getUsageSnapshot, recordExplainWhyFeedback } from '../intelligence/usage.js';
 import { toolCallCounts, lastMcpCallAt, firstAnalyzeAt, lastTimeToFirstAnalysisMs } from '../intelligence/tools.js';
 import { listActiveSessions } from '../intelligence/debug-sessions.js';
 import { getTeamState, isTeamEnabled } from '../intelligence/team.js';
@@ -163,6 +163,21 @@ export function createSensorRouter(serverVersion: string): Router {
   // ── Usage ─────────────────────────────────────────────────────────────────
   router.get('/usage', (_req, res) => {
     res.json({ ...getUsageSnapshot(), toolCallCounts });
+  });
+
+  // ── explain_why feedback ───────────────────────────────────────────────────
+  // Records a thumbs-up or thumbs-down for a specific explain_why response.
+  // Body: { id: string, helpful: boolean }
+  // The id field is logged for observability but not stored — only daily
+  // helpful/unhelpful counts are persisted for the helpfulRate7d metric.
+  router.post('/explain-why/feedback', (req, res) => {
+    const { id, helpful } = req.body as { id?: unknown; helpful?: unknown };
+    if (typeof helpful !== 'boolean') {
+      res.status(400).json({ error: '"helpful" must be a boolean' });
+      return;
+    }
+    recordExplainWhyFeedback(helpful);
+    res.json({ ok: true, id: id ?? null, helpful });
   });
 
   // ── Last pack ─────────────────────────────────────────────────────────────

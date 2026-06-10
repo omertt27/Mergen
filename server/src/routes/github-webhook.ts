@@ -27,11 +27,32 @@
 import crypto from 'crypto';
 import { Router, Request, Response } from 'express';
 import { memoryStore } from '../datadog/memory-store.js';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 import { commitContextStore, extractLinkedIssues, type CommitContext } from '../sensor/commit-context-store.js';
 import { detectAiCommit } from '../intelligence/ai-commit.js';
+import { analyzePRForShadow } from '../intelligence/pr-shadow-analyzer.js';
 import logger from '../sensor/logger.js';
 
-const WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET ?? '';
+// Load secret from env first, then fall back to the file written by
+// `mergen connect github` so users don't need to manually set env vars.
+function loadWebhookSecret(): string {
+  if (process.env.GITHUB_WEBHOOK_SECRET) return process.env.GITHUB_WEBHOOK_SECRET;
+  try {
+    const secretFile = path.join(os.homedir(), '.mergen', 'github-webhook-secret');
+    return fs.readFileSync(secretFile, 'utf8').trim();
+  } catch {
+    return '';
+  }
+}
+
+const WEBHOOK_SECRET = loadWebhookSecret();
+if (WEBHOOK_SECRET) {
+  logger.info('github-webhook: secret loaded (verification enabled)');
+} else {
+  logger.debug('github-webhook: no secret configured — signature verification disabled');
+}
 
 function verifySignature(rawBody: Buffer, signature: string | undefined): boolean {
   if (!WEBHOOK_SECRET) return true; // verification disabled if no secret configured
@@ -141,7 +162,30 @@ async function handleEvent(event: string, payload: unknown): Promise<void> {
   }
 
   if (event === 'pull_request') {
-    await handlePREvent(payload as PullRequestPayload);
+    const prPayload = payload as PullRequestPayload;
+    const { action, pull_request: pr, repository } = prPayload ?? {};
+
+    // Shadow analysis fires on open/update events — before the PR merges.
+    // We silently compute what we would have posted and log it for measurement.
+    if (
+      action === 'opened' ||
+      action === 'synchronize' ||
+      action === 'ready_for_review'
+    ) {
+      void analyzePRForShadow({
+        repo: repository?.full_name ?? '',
+        prNumber: pr?.number ?? 0,
+        prTitle: pr?.title ?? '',
+        prBody: pr?.body ?? null,
+        author: pr?.user?.login ?? '',
+        branch: pr?.head?.ref ?? '',
+        action,
+      }).catch((err: unknown) => {
+        logger.warn({ err }, 'pr-shadow: analysis error (non-fatal)');
+      });
+    }
+
+    await handlePREvent(prPayload);
     return;
   }
 

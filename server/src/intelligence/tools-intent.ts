@@ -14,6 +14,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { commitContextStore } from '../sensor/commit-context-store.js';
 import { trackCall } from './tools-state.js';
+import { recordExplainWhy } from './usage.js';
 
 export function registerIntentTools(server: McpServer): void {
   server.registerTool(
@@ -37,27 +38,44 @@ export function registerIntentTools(server: McpServer): void {
     },
     ({ service, behavior, limit = 10 }) => {
       trackCall('explain_why');
+      recordExplainWhy();
 
       const contexts = commitContextStore.listByRepo(service, limit * 2);
 
       if (contexts.length === 0) {
         const total = commitContextStore.count();
+        if (total === 0) {
+          return {
+            content: [{
+              type: 'text' as const,
+              text: [
+                `## Intent Archive: ${service}`,
+                '',
+                '**No PRs captured yet.** Connect GitHub to start building the intent archive:',
+                '',
+                '```',
+                `mergen-server connect github --repo ${service.includes('/') ? service : `<org>/${service}`}`,
+                '```',
+                '',
+                '_Takes 30 seconds. Every PR merged after this populates the archive automatically._',
+                '_Next incident: ask "explain why this service has a 30s timeout" and get the original PR, author, and approver instantly._',
+              ].join('\n'),
+            }],
+          };
+        }
         return {
           content: [{
             type: 'text' as const,
             text: [
               `## Intent Archive: ${service}`,
               '',
-              `_No captured PR context for "${service}"._`,
+              `_${total} total contexts in archive — none matched "${service}"._`,
               '',
-              total === 0
-                ? '**GitHub webhook not connected.** Connect it to start capturing intent:'
-                : `_${total} total contexts in archive — none matched "${service}". Try the full repo name (e.g. "org/service-name")._`,
+              `Try the full repo name (e.g. \`org/${service}\`), or connect this repo:`,
               '',
-              '**Setup:** Repository → Settings → Webhooks → Add webhook',
-              '  Payload URL: `http://your-server:3000/webhooks/github`',
-              '  Events: Pull requests, Pull request reviews, Pushes',
-              '  Set `GITHUB_WEBHOOK_SECRET` env var to your webhook secret.',
+              '```',
+              `mergen-server connect github --repo <org>/${service}`,
+              '```',
             ].join('\n'),
           }],
         };
@@ -129,6 +147,10 @@ export function registerIntentTools(server: McpServer): void {
 
       lines.push('---');
       lines.push(`_Source: commit intent archive · ${commitContextStore.count()} total contexts captured_`);
+
+      const feedbackId = `ew-${Date.now().toString(36)}`;
+      lines.push('');
+      lines.push(`_Was this helpful?  \`mergen-server feedback ${feedbackId} --yes\`  or  \`mergen-server feedback ${feedbackId} --no\`_`);
 
       return {
         content: [{ type: 'text' as const, text: lines.join('\n') }],

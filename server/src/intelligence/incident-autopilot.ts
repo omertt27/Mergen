@@ -56,8 +56,25 @@ const AUTOPILOT_ENABLED = process.env.MERGEN_AUTOPILOT === 'true';
 // Enables the design partner track-record workflow without autonomous action.
 const SHADOW_MODE = !AUTOPILOT_ENABLED && process.env.MERGEN_SHADOW_MODE === 'true';
 const AUTOPILOT_LEVEL = getAutopilotLevel();
-// Brief pause to let browser events arrive after a PagerDuty trigger
-const BUFFER_FILL_DELAY_MS = 5_000;
+
+// Wait for telemetry to arrive after a PagerDuty trigger.
+// Polls the buffer at 250ms intervals — returns as soon as MIN_EVENTS arrive,
+// or after MAX_WAIT_MS regardless (avoids indefinite stalls for infra-only incidents
+// that produce no browser telemetry).
+const TELEMETRY_WAIT_MAX_MS   = 10_000;
+const TELEMETRY_POLL_INTERVAL = 250;
+const TELEMETRY_MIN_EVENTS    = 3;
+
+async function waitForTelemetry(firedAt: number): Promise<void> {
+  const deadline = Date.now() + TELEMETRY_WAIT_MAX_MS;
+  while (Date.now() < deadline) {
+    const logs = store.getLogs(TELEMETRY_MIN_EVENTS, undefined, firedAt);
+    const net  = store.getNetwork(TELEMETRY_MIN_EVENTS, undefined, firedAt);
+    if (logs.length + net.length >= TELEMETRY_MIN_EVENTS) return;
+    await new Promise((r) => setTimeout(r, TELEMETRY_POLL_INTERVAL));
+  }
+  // Deadline reached — proceed with whatever is in the buffer
+}
 
 export interface AutopilotOpts {
   service: string;
@@ -75,8 +92,8 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
   const { service, pid, firedAt, cwd } = opts;
   logger.info({ service, pid }, 'incident-autopilot: starting');
 
-  // Let telemetry accumulate before analysis
-  await new Promise((r) => setTimeout(r, BUFFER_FILL_DELAY_MS));
+  // Wait for telemetry to accumulate (event-driven, capped at 10s)
+  await waitForTelemetry(firedAt);
 
   const logs         = store.getLogs(200, undefined, firedAt);
   const network      = store.getNetwork(200, undefined, firedAt);

@@ -37,22 +37,29 @@ function resolveActor(req: Request): string {
   return req.ip ?? req.socket.remoteAddress ?? 'unknown';
 }
 
-function appendEntry(entry: AuditEntry): void {
+// Serialize writes through a promise chain so no two writes race on the same
+// file. Each write is async (never blocks the event loop).
+let _writeQueue: Promise<void> = Promise.resolve();
+
+async function appendEntryAsync(entry: AuditEntry): Promise<void> {
   try {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    // Rotate if over size limit
+    await fs.promises.mkdir(DATA_DIR, { recursive: true });
     try {
-      const stat = fs.statSync(AUDIT_LOG);
+      const stat = await fs.promises.stat(AUDIT_LOG);
       if (stat.size >= MAX_AUDIT_BYTES) {
         const rotated = AUDIT_LOG + '.1';
-        try { fs.unlinkSync(rotated); } catch { /* ignore */ }
-        fs.renameSync(AUDIT_LOG, rotated);
+        try { await fs.promises.unlink(rotated); } catch { /* ignore */ }
+        await fs.promises.rename(AUDIT_LOG, rotated);
       }
     } catch { /* file doesn't exist yet — first write */ }
-    fs.appendFileSync(AUDIT_LOG, JSON.stringify(entry) + '\n', 'utf8');
+    await fs.promises.appendFile(AUDIT_LOG, JSON.stringify(entry) + '\n', 'utf8');
   } catch (err) {
     logger.warn({ err }, 'audit log write failed');
   }
+}
+
+function appendEntry(entry: AuditEntry): void {
+  _writeQueue = _writeQueue.then(() => appendEntryAsync(entry)).catch(() => {});
 }
 
 export function auditMiddleware(req: Request, res: Response, next: NextFunction): void {

@@ -5,11 +5,15 @@
  * hypothesis fixHint. Hard safety gates prevent destructive operations.
  *
  * Safety model:
- *   1. Blocklist: commands matching dangerous patterns are rejected before exec.
- *   2. Timeout: 60s max execution. Long-running commands are killed.
- *   3. Output cap: 16KB of stdout/stderr captured; remainder discarded.
- *   4. Audit: every execution (including rejections) is written to the audit log.
- *   5. No auto-apply without `confirm: true` from the caller — the MCP tool
+ *   1. Allowlist: only commands matching a known-safe form are permitted.
+ *      Anything not on the allowlist is rejected — safer than enumerating
+ *      every dangerous variant (denylist gaps are silent; allowlist gaps are loud).
+ *   2. Whitespace normalization: collapse tabs/multi-spaces before matching so
+ *      "npm  install" cannot bypass a pattern that expects single spaces.
+ *   3. Timeout: 60s max execution. Long-running commands are killed.
+ *   4. Output cap: 16KB of stdout/stderr captured; remainder discarded.
+ *   5. Audit: every execution (including rejections) is written to the audit log.
+ *   6. No auto-apply without `confirm: true` from the caller — the MCP tool
  *      requires the AI to explicitly pass confirm=true after showing the user
  *      what will be executed.
  *
@@ -27,26 +31,66 @@ import { AUDIT_LOG } from '../sensor/paths.js';
 import { hasPermission } from '../sensor/rbac.js';
 import logger from '../sensor/logger.js';
 
-// ── Safety blocklist ──────────────────────────────────────────────────────────
-// Patterns matched against the full command string. Any match = hard reject.
-const BLOCKED_PATTERNS: RegExp[] = [
-  /rm\s+-rf?\s+[^-]/i,          // rm -rf <anything>
-  /rm\s+.*\//i,                  // rm with path separators
-  />\s*\/dev\/sd/i,              // writes to disk devices
-  /dd\s+if=/i,                   // disk dump
-  /mkfs/i,                       // filesystem format
-  /:\(\)\s*\{.*:\|:&/i,          // fork bomb
-  /curl.*\|\s*(bash|sh|zsh)/i,   // curl | shell
-  /wget.*\|\s*(bash|sh|zsh)/i,   // wget | shell
-  /chmod\s+777/i,                // world-writable
-  /chown\s+.*\.\./i,             // chown traversal
-  /sudo\s+rm/i,                  // sudo remove
-  /DROP\s+TABLE/i,               // SQL drop
-  /DROP\s+DATABASE/i,            // SQL drop db
-  /TRUNCATE\s+TABLE/i,           // SQL truncate
-  /git\s+push\s+.*--force/i,     // force push
-  /git\s+reset\s+--hard/i,       // hard reset
+// ── Allowlist (primary gate) ──────────────────────────────────────────────────
+// Only commands matching one of these forms are executed. Everything else is
+// rejected. This is intentionally narrow: false positives (blocking a valid fix)
+// are far less dangerous than false negatives (executing an injected command).
+//
+// Each entry is matched against the whitespace-normalized command string so that
+// injection attempts using extra spaces, tabs, or Unicode whitespace are caught.
+const ALLOWED_COMMANDS: Array<{ pattern: RegExp; description: string }> = [
+  // Package managers
+  { pattern: /^npm (install|ci|rebuild|run \S+|update \S+)(\s|$)/i,   description: 'npm install / ci / rebuild / run / update' },
+  { pattern: /^yarn (install|run \S+|add \S+)(\s|$)/i,               description: 'yarn install / run / add' },
+  { pattern: /^pnpm (install|run \S+|update \S+|add \S+)(\s|$)/i,    description: 'pnpm install / run / update / add' },
+  { pattern: /^pip3? install /i,                                       description: 'pip install' },
+  // Git — safe, read-side / restore operations only
+  { pattern: /^git checkout [a-f0-9]{4,40}(\s|$)/i,                  description: 'git checkout <sha>' },
+  { pattern: /^git fetch(\s|$)/i,                                     description: 'git fetch' },
+  { pattern: /^git stash (push|pop)(\s|$)/i,                          description: 'git stash push / pop' },
+  { pattern: /^git pull --ff-only(\s|$)/i,                            description: 'git pull --ff-only' },
+  // Container orchestration
+  { pattern: /^docker (restart|stop|start|logs) \S+/i,               description: 'docker restart/stop/start/logs <container>' },
+  { pattern: /^kubectl rollout (restart|undo) /i,                     description: 'kubectl rollout restart / undo' },
+  { pattern: /^kubectl scale deployment /i,                           description: 'kubectl scale deployment' },
+  // Service control
+  { pattern: /^systemctl (restart|stop|start|reload) \S+/i,          description: 'systemctl restart/stop/start/reload' },
+  { pattern: /^service \S+ (restart|stop|start)/i,                   description: 'service <name> restart/stop/start' },
+  // Build
+  { pattern: /^make \S+/i,                                            description: 'make <target>' },
 ];
+
+export const ALLOWED_COMMAND_DESCRIPTIONS = ALLOWED_COMMANDS.map((r) => r.description);
+
+/** Collapse all whitespace sequences to a single space before matching. */
+function normalizeWhitespace(cmd: string): string {
+  return cmd.trim().replace(/\s+/g, ' ');
+}
+
+// Shell metacharacters that can chain or inject commands regardless of the prefix.
+// A command that starts with "npm install" but contains "$(…)" or ";" is still
+// an injection attempt. Reject before the prefix pattern even runs.
+const SHELL_METACHAR_RE = /[;&|`$(){}[\]<>\\!]/;
+
+function checkAllowlist(command: string): { allowed: boolean; matchedRule?: string; blockReason?: string } {
+  const normalized = normalizeWhitespace(command);
+
+  if (SHELL_METACHAR_RE.test(normalized)) {
+    return {
+      allowed: false,
+      blockReason: 'Command contains shell metacharacter — possible injection attempt',
+    };
+  }
+
+  const match = ALLOWED_COMMANDS.find((r) => r.pattern.test(normalized));
+  if (match) return { allowed: true, matchedRule: match.description };
+  return {
+    allowed: false,
+    blockReason:
+      `Command does not match any allowed pattern. ` +
+      `Allowed forms: ${ALLOWED_COMMAND_DESCRIPTIONS.join(', ')}`,
+  };
+}
 
 const MAX_OUTPUT_BYTES = 16 * 1024; // 16 KB
 const EXEC_TIMEOUT_MS  = 60_000;   // 60 s
@@ -107,18 +151,19 @@ export async function executeRemediation(
     return result;
   }
 
-  // ── Safety check ─────────────────────────────────────────────────────────────
-  const blocked = BLOCKED_PATTERNS.find((p) => p.test(command));
-  if (blocked) {
+  // ── Safety check (allowlist) ─────────────────────────────────────────────────
+  const { allowed, matchedRule, blockReason } = checkAllowlist(command);
+  if (!allowed) {
     const result: RemediationResult = {
       ok: false, exitCode: null, stdout: '', stderr: '',
       durationMs: Date.now() - start, timedOut: false, blocked: true,
-      blockReason: `Command matches blocked pattern: ${blocked.toString()}`,
+      blockReason,
     };
     _auditExecution(command, result, actor);
-    logger.warn({ command, pattern: blocked.toString() }, 'autonomy: command blocked by safety filter');
+    logger.warn({ command, blockReason }, 'autonomy: command blocked by allowlist');
     return result;
   }
+  logger.debug({ command, matchedRule }, 'autonomy: command passed allowlist');
 
   if (opts.dryRun) {
     const result: RemediationResult = {

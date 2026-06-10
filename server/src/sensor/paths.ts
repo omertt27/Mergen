@@ -50,6 +50,10 @@ export const SHADOW_LOG_FILE = path.join(DATA_DIR, 'shadow-log.json');
  *  The corpus moat: every resolved incident makes Mergen smarter. */
 export const POSTMORTEMS_DB = path.join(DATA_DIR, 'postmortems.db');
 
+/** PR shadow mode log — what Mergen would have posted as PR comments, before
+ *  comments are enabled. Measures "would_have_been_useful_rate" to gate rollout. */
+export const PR_SHADOW_FILE = path.join(DATA_DIR, 'pr-shadow.json');
+
 /**
  * Zero-retention mode: skip all disk writes.
  * Set MERGEN_ZERO_RETENTION=true for VPC / regulated deployments where
