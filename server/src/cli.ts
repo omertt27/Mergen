@@ -88,7 +88,23 @@ async function setupCommand(): Promise<void> {
     log('⚠ Extension not installed. You can install it later.', '⚠');
   }
 
-  // 5. Start server
+  // 5. GitHub intent archive
+  hr();
+  log('\nGitHub intent archive (required for explain_why):');
+  console.log('  Connecting GitHub populates the PR history that powers');
+  console.log('  "why was this changed?" answers and PR context comments.');
+  const connectGh = await ask('Connect GitHub now? (y/n): ');
+  if (connectGh.toLowerCase() === 'y') {
+    await connectCommand(['github']);
+    const doBackfill = await ask('\nBackfill historical PRs? Recommended — gives explain_why data on day 1. (y/n): ');
+    if (doBackfill.toLowerCase() === 'y') {
+      await backfillCommand(['github']);
+    }
+  } else {
+    log('Skipped. Run later: mergen-server connect github --repo <owner/repo>', 'ℹ');
+  }
+
+  // 6. Start server
   hr();
   log('\n✨ Setup complete!\n');
   console.log('Next steps:');
@@ -1780,7 +1796,7 @@ async function connectGitHubCommand(args: string[]): Promise<void> {
 
   const config = {
     ...existing,
-    github: { ...github, webhookSecret, repos },
+    github: { ...github, webhookSecret, repos, token },
   };
   writeFileSync(configPath, JSON.stringify(config, null, 2), { encoding: 'utf8', mode: 0o600 });
 

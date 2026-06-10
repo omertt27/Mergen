@@ -33,6 +33,7 @@ import os from 'os';
 import { commitContextStore, extractLinkedIssues, type CommitContext } from '../sensor/commit-context-store.js';
 import { detectAiCommit } from '../intelligence/ai-commit.js';
 import { analyzePRForShadow } from '../intelligence/pr-shadow-analyzer.js';
+import { maybePostPRComment } from '../intelligence/pr-commenter.js';
 import logger from '../sensor/logger.js';
 
 // Load secret from env first, then fall back to the file written by
@@ -180,8 +181,8 @@ async function handleEvent(event: string, payload: unknown): Promise<void> {
         author: pr?.user?.login ?? '',
         branch: pr?.head?.ref ?? '',
         action,
-      }).catch((err: unknown) => {
-        logger.warn({ err }, 'pr-shadow: analysis error (non-fatal)');
+      }).then((shadowResult) => maybePostPRComment(shadowResult)).catch((err: unknown) => {
+        logger.warn({ err }, 'pr-shadow/comment: error (non-fatal)');
       });
     }
 

@@ -33,10 +33,10 @@ export function registerIntentTools(server: McpServer): void {
         behavior: z.string().optional()
           .describe('Optional: specific behavior to explain (e.g. "30s timeout", "retry 3 times", "rate limit 100rps"). Filters results by relevance.'),
         limit: z.number().int().min(1).max(20).optional()
-          .describe('Max PRs to return (default: 10).'),
+          .describe('Max PRs to return (default: 5).'),
       },
     },
-    ({ service, behavior, limit = 10 }) => {
+    ({ service, behavior, limit = 5 }) => {
       trackCall('explain_why');
       recordExplainWhy();
 
@@ -90,8 +90,20 @@ export function registerIntentTools(server: McpServer): void {
             .join(' ').toLowerCase();
           return searchText.includes(kw);
         });
-        // Fall back to all if no match
-        if (filtered.length === 0) filtered = contexts;
+        if (filtered.length === 0) {
+          return {
+            content: [{
+              type: 'text' as const,
+              text: [
+                `## Intent Archive: ${service}`,
+                '',
+                `_No PRs matched "${behavior}" across ${contexts.length} archived PR${contexts.length !== 1 ? 's' : ''} for ${service}._`,
+                '',
+                'Try a broader keyword, or omit `behavior` to see the most recent PRs.',
+              ].join('\n'),
+            }],
+          };
+        }
       }
 
       const results = filtered.slice(0, limit);
