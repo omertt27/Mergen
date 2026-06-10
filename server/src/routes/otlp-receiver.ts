@@ -19,6 +19,7 @@
 import { Router, type Request, type Response } from 'express';
 import { store } from '../sensor/buffer.js';
 import { historyStore } from '../sensor/sqlite-store.js';
+import { serviceGraph, extractCalleeService } from '../sensor/service-graph.js';
 import logger from '../sensor/logger.js';
 
 export const otlpReceiverRouter = Router();
@@ -202,6 +203,10 @@ otlpReceiverRouter.post('/v1/traces', (req: Request, res: Response): void => {
           store.push(event);
           historyStore.push(event);
           ingested++;
+
+          // Update service dependency graph from CLIENT spans
+          const callee = extractCalleeService(attrs, span.name ?? '');
+          if (callee) serviceGraph.recordCall(serviceName, callee, isError);
         }
         // Producer/consumer/internal spans: silently acknowledged
       }

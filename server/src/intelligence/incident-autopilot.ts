@@ -40,6 +40,10 @@ import { recordShadow } from './shadow-log.js';
 import { getAutopilotLevel, autopilotLevelPermits, classifyCommandRisk, autopilotLevelDescription } from './action-risk.js';
 import { getStatsForTag } from './calibration.js';
 import { runAgentPipeline, renderPipelineStages } from './agent-pipeline.js';
+import { planningGate } from './planning-gate.js';
+import { plattScale } from './platt-scaling.js';
+import { formatValidatedFactsForLLM } from './llm-spokesperson.js';
+import { serviceGraph } from '../sensor/service-graph.js';
 import logger from '../sensor/logger.js';
 
 // Wire the expiry-reply callback so execution-gate.ts can post to Slack threads
@@ -171,6 +175,52 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
 
   const topHyp  = causal.hypotheses[0];
 
+  // ── Topology hard filter ────────────────────────────────────────────────────
+  // If the service graph has been populated from real OTLP spans, use it as a
+  // structural prior. Hypotheses whose implied service has no topological
+  // connection to the incident service get a confidence penalty.
+  // This eliminates text-hallucinated correlations (LeCun: topology > embeddings).
+  if (serviceGraph.size > 0) {
+    const callers  = new Set(serviceGraph.getCallers(service));
+    const callees  = new Set(serviceGraph.getCallees(service));
+    const graphNeighbours = new Set([...callers, ...callees, service]);
+
+    for (const hyp of causal.hypotheses) {
+      // Hypotheses that mention upstream cascade patterns get boosted when
+      // the graph confirms callers exist; penalised when no callers are known.
+      const isUpstream = /upstream|cascade|spike|flood|overload/i.test(hyp.summary);
+      if (isUpstream && callers.size === 0) {
+        hyp.confidenceScore = Math.max(0, hyp.confidenceScore * 0.7);
+      } else if (isUpstream && callers.size > 0) {
+        hyp.confidenceScore = Math.min(1, hyp.confidenceScore * 1.1);
+      }
+
+      // Hypotheses about DB/cache issues get boosted if graph shows outbound
+      // edges to db services; penalised when the service makes no outbound calls.
+      const isExternal = /database|db|cache|redis|postgres|mysql|mongo|timeout/i.test(hyp.summary);
+      if (isExternal && callees.size === 0) {
+        hyp.confidenceScore = Math.max(0, hyp.confidenceScore * 0.75);
+      }
+    }
+    logger.debug(
+      { service, callers: callers.size, callees: callees.size, hypotheses: causal.hypotheses.length },
+      'incident-autopilot: topology filter applied',
+    );
+  }
+
+  // ── Platt-scale confidence scores ──────────────────────────────────────────
+  // Replace raw heuristic scores with statistically calibrated probabilities.
+  // "85% should mean 85 out of 100 past predictions were correct" — not a
+  // weighted heuristic. This is what wins enterprise PoCs.
+  for (const hyp of causal.hypotheses) {
+    const { calibrated, source } = plattScale(hyp.confidenceScore, hyp.tag);
+    if (source !== 'raw') {
+      hyp.confidenceScore = calibrated;
+    }
+  }
+  // Re-sort after score adjustments
+  causal.hypotheses.sort((a, b) => b.confidenceScore - a.confidenceScore);
+
   // Persist telemetry snapshot for deterministic replay and regression testing.
   captureSnapshot({
     pid, capturedAt: Date.now(), firedAt,
@@ -238,15 +288,34 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
   const execConfidence = topHyp.remediationConfidence ?? topHyp.confidenceScore ?? 0;
   const execPct = Math.round(execConfidence * 100);
 
+  // ── Planning gate: deterministic execute/skip decision ─────────────────────
+  // The decision to act is made by a deterministic model (classifier + blast risk
+  // + historical success). The LLM-as-spokesperson brief is assembled AFTER the
+  // gate approves, so the LLM only describes what the deterministic layer decided.
+  const gate = planningGate(topHyp, service, getAutoExecuteThreshold());
+  const gateDenied = !gate.execute;
+
+  // Build the validated facts brief (LLM-as-spokesperson pattern)
+  const runtimeFact = activeIncident?.runtimeFact ?? null;
+  const brief = formatValidatedFactsForLLM(topHyp, service, gate, errorCount, runtimeFact);
+  logger.debug({ service, pid, tokens: brief.estimatedTokens }, 'incident-autopilot: LLM brief assembled');
+
+  if (gate.adjustedConfidence !== execConfidence) {
+    logger.info(
+      { service, pid, raw: execPct, adjusted: Math.round(gate.adjustedConfidence * 100), blastRisk: gate.signals.blastRisk, classifier: gate.signals.classifierScore },
+      'incident-autopilot: planning gate adjusted confidence',
+    );
+  }
+
   // ── Determine skip reason (pipeline verdict is authoritative) ────────────
   const corpusBlocked = pipeline.critique?.corpusConflict ?? false;
   const levelBlocked  = pipeline.critique?.levelConflict  ?? false;
   const pipelineBlocked = pipeline.verdict === 'block';
   const pipelineReview  = pipeline.verdict === 'review';
 
-  if (!command || pipelineBlocked || SHADOW_MODE ||
+  if (!command || pipelineBlocked || SHADOW_MODE || gateDenied ||
       (!pipelineReview && execConfidence < getAutoExecuteThreshold())) {
-    let skipReason: 'no-command' | 'confidence-below-threshold' | 'remediation-below-threshold' | 'override-corpus' | 'autopilot-disabled' | 'level-restricted' | 'pipeline-block';
+    let skipReason: 'no-command' | 'confidence-below-threshold' | 'remediation-below-threshold' | 'override-corpus' | 'autopilot-disabled' | 'level-restricted' | 'pipeline-block' | 'planning-gate';
     let slackReason: string;
 
     if (SHADOW_MODE) {
@@ -260,6 +329,9 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
         : pipeline.critique?.corpusConflict ? 'override-corpus'
         : 'pipeline-block';
       slackReason = pipeline.blockReason ?? 'Governance pipeline blocked execution';
+    } else if (gateDenied) {
+      skipReason = 'planning-gate';
+      slackReason = `planning gate: ${gate.reason}`;
     } else if (levelBlocked) {
       skipReason = 'level-restricted';
       const commandTier = classifyCommandRisk(command);
@@ -360,6 +432,14 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
         status: 'resolved',
         resolvedAt: Date.now(),
         resolvedAutonomously: true,
+        causallyCorrect: true,   // error rate dropped AND diagnosis confirmed
+      });
+    } else {
+      incidentStore.upsert(topHyp.pid, {
+        status: 'resolved',
+        resolvedAt: Date.now(),
+        resolvedAutonomously: true,
+        causallyCorrect: false,
       });
     }
   }

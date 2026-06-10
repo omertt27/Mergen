@@ -166,6 +166,14 @@ export function createIncidentsRouter(): Router {
     const autonomousCount = resolved.filter((i) => i.resolvedAutonomously).length;
     const manualCount     = resolved.length - autonomousCount;
 
+    // Causal correctness: autonomous resolutions where the root-cause diagnosis
+    // was confirmed correct (error rate dropped AND calibration verdict = 'correct').
+    // This is the LeCun metric — not just speed, but whether the reasoning was right.
+    const causallyCorrectCount = resolved.filter((i) => i.causallyCorrect).length;
+    const causallyCorrectRate  = autonomousCount > 0
+      ? Math.round((causallyCorrectCount / autonomousCount) * 100)
+      : 0;
+
     const mttrMs = (incidents: typeof resolved): number | null => {
       if (incidents.length === 0) return null;
       const valid = incidents.filter((i) => i.resolvedAt !== null && i.createdAt > 0);
@@ -183,6 +191,10 @@ export function createIncidentsRouter(): Router {
       autonomousResolutions: autonomousCount,
       manualResolutions: manualCount,
       autonomousRate: resolved.length > 0 ? Math.round((autonomousCount / resolved.length) * 100) : 0,
+      // ── The LeCun metric: fraction of autonomous fixes that were causally correct ──
+      // Not just "resolved fast" but "root cause was right and error rate dropped".
+      causallyCorrectFixes: causallyCorrectCount,
+      causallyCorrectRate,  // % of autonomous resolutions that were causally correct
       mttr: {
         overallMs: mttrMs(resolved),
         autonomousMs: mttrMs(autonomousIncidents),
@@ -196,6 +208,7 @@ export function createIncidentsRouter(): Router {
           tag: i.tag,
           resolvedAt: i.resolvedAt,
           resolvedAutonomously: i.resolvedAutonomously,
+          causallyCorrect: i.causallyCorrect,
           mttrMs: i.resolvedAt && i.createdAt ? i.resolvedAt - i.createdAt : null,
         })),
     });

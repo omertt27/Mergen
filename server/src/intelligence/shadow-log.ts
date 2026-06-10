@@ -38,6 +38,7 @@ export type ShadowSkipReason =
   | 'override-corpus'            // override corpus found a matching prior override
   | 'no-command'                 // no executable command in fixHint
   | 'level-restricted'           // command tier exceeds MERGEN_AUTOPILOT_LEVEL
+  | 'planning-gate'              // deterministic planning gate denied execution
   | 'track-record-pause';        // too many recent wrong verdicts
 
 export type HumanVerdict = 'would-approve' | 'would-override';

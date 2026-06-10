@@ -162,20 +162,22 @@ export function registerMemoryTools(server: McpServer): void {
       description:
         'Persist a key–value memory that survives across sessions. Use this to remember ' +
         'patterns, constraints, or context that you should not have to re-discover the next ' +
-        'time you are invoked. Examples: architecture decisions, "do not touch" files, known ' +
-        'fragile service names, or resolved root causes. Memories can carry an optional TTL.',
+        'time you are invoked. Tag memories with `service` and `errorFingerprint` to enable ' +
+        'episodic recall — retrieving past context for the exact (service, error) pair you are working on.',
       inputSchema: {
-        key:     z.string().min(1).max(200).describe('Short, human-readable identifier for the memory'),
-        value:   z.string().min(1).max(8000).describe('The content to remember (plain text or JSON)'),
-        agentId: z.string().optional().describe('Identifier for this agent. Defaults to "default"'),
-        ttlMs:   z.number().int().min(0).optional().describe('Time-to-live in milliseconds. 0 = permanent'),
+        key:              z.string().min(1).max(200).describe('Short, human-readable identifier for the memory'),
+        value:            z.string().min(1).max(8000).describe('The content to remember (plain text or JSON)'),
+        agentId:          z.string().optional().describe('Identifier for this agent. Defaults to "default"'),
+        ttlMs:            z.number().int().min(0).optional().describe('Time-to-live in milliseconds. 0 = permanent'),
+        service:          z.string().optional().describe('Service name for episodic indexing (e.g. "api", "auth-service")'),
+        errorFingerprint: z.string().optional().describe('Error fingerprint hash for episodic indexing'),
       },
     },
-    async ({ key, value, agentId = 'default', ttlMs = 0 }) => {
+    async ({ key, value, agentId = 'default', ttlMs = 0, service = '', errorFingerprint = '' }) => {
       trackCall('store_agent_memory');
-      const entry = agentMemoryStore.store(agentId, key, value, ttlMs);
+      const entry = agentMemoryStore.store(agentId, key, value, ttlMs, service, errorFingerprint);
       return {
-        content: [{ type: 'text', text: `Memory stored: "${key}" [id=${entry.id}]` }],
+        content: [{ type: 'text', text: `Memory stored: "${key}" [id=${entry.id}${service ? `, service=${service}` : ''}]` }],
       };
     },
   );
@@ -186,17 +188,19 @@ export function registerMemoryTools(server: McpServer): void {
     {
       description:
         'Retrieve previously stored agent memories. Use this at the start of each session ' +
-        'to recover patterns and constraints you noted in prior runs. Filter by key for ' +
-        'targeted recall or omit key to get the most recent memories for this agent.',
+        'to recover patterns and constraints from prior runs. Filter by `service` + `errorFingerprint` ' +
+        'for episodic recall — retrieving exactly the memories relevant to the current incident context.',
       inputSchema: {
-        key:     z.string().optional().describe('Filter to memories with this exact key'),
-        agentId: z.string().optional().describe('Agent ID to scope the recall. Defaults to "default"'),
-        limit:   z.number().int().min(1).max(50).optional().describe('Max entries to return (default 10)'),
+        key:              z.string().optional().describe('Filter to memories with this exact key'),
+        agentId:          z.string().optional().describe('Agent ID to scope the recall. Defaults to "default"'),
+        limit:            z.number().int().min(1).max(50).optional().describe('Max entries to return (default 10)'),
+        service:          z.string().optional().describe('Filter to memories tagged for this service'),
+        errorFingerprint: z.string().optional().describe('Filter to memories tagged for this error fingerprint'),
       },
     },
-    async ({ key, agentId = 'default', limit = 10 }) => {
+    async ({ key, agentId = 'default', limit = 10, service, errorFingerprint }) => {
       trackCall('recall_agent_memory');
-      const entries = agentMemoryStore.recall(agentId, key, limit);
+      const entries = agentMemoryStore.recall(agentId, key, limit, service, errorFingerprint);
       if (entries.length === 0) {
         return { content: [{ type: 'text', text: 'No memories found.' }] };
       }
@@ -205,7 +209,8 @@ export function registerMemoryTools(server: McpServer): void {
         const expiry = e.ttlMs > 0
           ? `  _(expires ${new Date(e.storedAt + e.ttlMs).toISOString()})_`
           : '';
-        lines.push(`### ${e.key}${expiry}`, e.value, '');
+        const ctx = [e.service, e.errorFingerprint].filter(Boolean).join('/');
+        lines.push(`### ${e.key}${ctx ? ` [${ctx}]` : ''}${expiry}`, e.value, '');
       }
       return { content: [{ type: 'text', text: lines.join('\n') }] };
     },

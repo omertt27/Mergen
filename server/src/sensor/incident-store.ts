@@ -48,6 +48,12 @@ export interface Incident {
   acknowledgedBy: string | null;
   resolvedAt: number | null;
   resolvedAutonomously: boolean;
+  /**
+   * True when autopilot resolved this incident AND the calibration verdict was
+   * 'correct' — meaning the error rate dropped AND the root-cause diagnosis was
+   * confirmed. This is the LeCun metric: not just "fast-resolved" but causally correct.
+   */
+  causallyCorrect: boolean;
 }
 
 class IncidentStore {
@@ -96,7 +102,8 @@ class IncidentStore {
           updated_at             INTEGER NOT NULL,
           acknowledged_by        TEXT,
           resolved_at            INTEGER,
-          resolved_autonomously  INTEGER NOT NULL DEFAULT 0
+          resolved_autonomously  INTEGER NOT NULL DEFAULT 0,
+          causally_correct       INTEGER NOT NULL DEFAULT 0
         );
       `);
       this.db.run(`
@@ -111,6 +118,7 @@ class IncidentStore {
       // Migration: add service + cluster columns to existing databases
       try { this.db.run(`ALTER TABLE incidents ADD COLUMN service TEXT`); } catch { /**/ }
       try { this.db.run(`ALTER TABLE incidents ADD COLUMN cluster TEXT`); } catch { /**/ }
+      try { this.db.run(`ALTER TABLE incidents ADD COLUMN causally_correct INTEGER NOT NULL DEFAULT 0`); } catch { /**/ }
       this._flush();
       logger.info({ path: INCIDENT_DB }, 'incident store initialised');
     } catch (err) {
@@ -146,6 +154,7 @@ class IncidentStore {
       acknowledgedBy: row.acknowledged_by ? String(row.acknowledged_by) : null,
       resolvedAt: row.resolved_at ? Number(row.resolved_at) : null,
       resolvedAutonomously: Boolean(row.resolved_autonomously),
+      causallyCorrect: Boolean(row.causally_correct),
     };
   }
 
@@ -156,7 +165,7 @@ class IncidentStore {
         pid, status: 'open', hypothesis: '', tag: '', assignee: null, notes: [],
         sha: null, environment: null, service: null, cluster: null, confidence: 0,
         createdAt: now, updatedAt: now,
-        acknowledgedBy: null, resolvedAt: null, resolvedAutonomously: false, ...fields,
+        acknowledgedBy: null, resolvedAt: null, resolvedAutonomously: false, causallyCorrect: false, ...fields,
       };
     }
 
@@ -165,8 +174,8 @@ class IncidentStore {
 
     if (!existing) {
       this.db.run(
-        `INSERT INTO incidents (pid, hypothesis, tag, status, assignee, notes, sha, environment, service, cluster, confidence, created_at, updated_at, acknowledged_by, resolved_at, resolved_autonomously)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO incidents (pid, hypothesis, tag, status, assignee, notes, sha, environment, service, cluster, confidence, created_at, updated_at, acknowledged_by, resolved_at, resolved_autonomously, causally_correct)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           pid,
           fields.hypothesis ?? '',
@@ -183,18 +192,20 @@ class IncidentStore {
           fields.acknowledgedBy ?? null,
           fields.resolvedAt ?? null,
           fields.resolvedAutonomously ? 1 : 0,
+          fields.causallyCorrect ? 1 : 0,
         ],
       );
     } else {
       const merged = { ...existing, ...fields };
       this.db.run(
-        `UPDATE incidents SET hypothesis=?,tag=?,status=?,assignee=?,notes=?,sha=?,environment=?,service=?,cluster=?,confidence=?,updated_at=?,acknowledged_by=?,resolved_at=?,resolved_autonomously=? WHERE pid=?`,
+        `UPDATE incidents SET hypothesis=?,tag=?,status=?,assignee=?,notes=?,sha=?,environment=?,service=?,cluster=?,confidence=?,updated_at=?,acknowledged_by=?,resolved_at=?,resolved_autonomously=?,causally_correct=? WHERE pid=?`,
         [
           merged.hypothesis, merged.tag, merged.status, merged.assignee,
           JSON.stringify(merged.notes), merged.sha, merged.environment,
           merged.service, merged.cluster,
           merged.confidence, now, merged.acknowledgedBy, merged.resolvedAt,
-          merged.resolvedAutonomously ? 1 : 0, pid,
+          merged.resolvedAutonomously ? 1 : 0,
+          merged.causallyCorrect ? 1 : 0, pid,
         ],
       );
     }

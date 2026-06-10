@@ -54,6 +54,7 @@ import { handleSlackActions, handleFeedbackLink } from './intelligence/slack.js'
 import { getPrometheusMetrics } from './sensor/otel-exporter.js';
 import { auditMiddleware } from './sensor/audit-log.js';
 import { ssoMiddleware } from './sensor/sso.js';
+import { serviceGraph } from './sensor/service-graph.js';
 
 /** Paths that require the x-mergen-secret header on non-GET requests. */
 const MUTATING_PATHS = ['/feedback', '/license', '/clear', '/checkpoint', '/telemetry', '/otel-config', '/postmortem'];
@@ -179,6 +180,11 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createBillingOutcomeRouter()); // Y5: outcome-based billing evidence
   app.use(createPostmortemRouter());    // POST /postmortem/from-slack
   app.use(createExplainWhyRouter());    // GET /explain-why/file?path=
+
+  // GET /service-graph — live service dependency graph inferred from OTLP spans
+  app.get('/service-graph', (_req, res) => {
+    res.json({ ok: true, graph: serviceGraph.toJSON() });
+  });
 
   // ── Prometheus metrics endpoint ───────────────────────────────────────────
   // Exposes browser error rates, network failure counts, and request durations

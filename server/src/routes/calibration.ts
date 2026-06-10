@@ -26,6 +26,7 @@ import { getClusters } from '../intelligence/unclassified-clusters.js';
 import { getSessionMetrics } from '../intelligence/session-metrics.js';
 import { computeRocCurve, getExecutionThreshold } from '../intelligence/threshold-optimizer.js';
 import { computeBlastRadius } from '../intelligence/blast-radius.js';
+import { plattScale, getPlattDiagnostics } from '../intelligence/platt-scaling.js';
 
 const VALID_VERDICT_DIMENSIONS = new Set<VerdictDimension>(['root_cause', 'fix_hint', 'both']);
 
@@ -250,6 +251,43 @@ export function createCalibrationRouter(): Router {
     const environment = typeof req.query.environment === 'string' ? req.query.environment : undefined;
     const br = computeBlastRadius(command, { service, namespace, environment });
     res.json({ ok: true, ...br });
+  });
+
+  // GET /trust-score?tag=&rawScore= ─────────────────────────────────────────
+  // Returns the Platt-calibrated probability for a (tag, rawScore) pair.
+  // "If Mergen says 85%, this endpoint proves it means 85 out of 100 were correct."
+  // This is the endpoint enterprise security/infra teams check during PoCs.
+  router.get('/trust-score', (req, res) => {
+    const tag      = typeof req.query.tag      === 'string' ? req.query.tag      : undefined;
+    const rawScore = parseFloat(String(req.query.rawScore ?? req.query.score ?? ''));
+
+    if (isNaN(rawScore) || rawScore < 0 || rawScore > 1) {
+      res.status(400).json({ error: 'rawScore must be a number between 0 and 1' });
+      return;
+    }
+
+    const result = plattScale(rawScore, tag);
+    const pct    = Math.round(result.calibrated * 100);
+
+    // Interpretation bands — used in Slack messages and PR comments
+    const interpretation =
+      pct >= 85 ? 'high — strong historical basis for automated action'  :
+      pct >= 65 ? 'medium — recommend human review before execution'     :
+      pct >= 40 ? 'low — diagnosis is a signal, not a conclusion'        :
+                  'insufficient — surface as context only';
+
+    res.json({
+      ok:           true,
+      rawScore,
+      tag:          tag ?? null,
+      calibrated:   result.calibrated,
+      calibratedPct: pct,
+      source:       result.source,
+      empiricalBasis: result.n,
+      interpretation,
+      // Diagnostic: show all fitted Platt models (useful for PoC demos)
+      models: tag ? undefined : getPlattDiagnostics(),
+    });
   });
 
   return router;
