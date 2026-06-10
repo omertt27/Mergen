@@ -57,9 +57,11 @@ export function createPagerDutyRouter(): Router {
         if (openRecord) {
           const mttrMs = resolvedAt - openRecord.firedAt;
           const QUICK_RESOLVE_MS = 45 * 60 * 1000;
-          // Only credit 'correct' for fast human resolutions that weren't
-          // overridden by autopilot (autopilot already records its own verdicts).
-          if (mttrMs < QUICK_RESOLVE_MS && !openRecord.resolvedAutonomously) {
+          // Only credit 'correct' for fast resolutions that weren't already
+          // handled by autopilot. The autopilot records its own verdicts via
+          // recordVerdict; we add feedback here only for manual quick-resolves
+          // where resolutionType is still 'unknown' (no fix PR was correlated yet).
+          if (mttrMs < QUICK_RESOLVE_MS && openRecord.resolutionType === 'unknown') {
             const fingerprint = openRecord.fingerprint;
             const unverifiedRecords = getRecords().filter(
               (r) => r.pid === fingerprint && r.verdict === null,
