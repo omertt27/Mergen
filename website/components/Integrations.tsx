@@ -1,19 +1,19 @@
 const sources = [
-  { name: 'Jira',          type: 'Tasks',     tag: 'Task Sync' },
-  { name: 'Slack',         type: 'Chat',      tag: 'Timeline' },
-  { name: 'Terraform',     type: 'Infra',     tag: 'Topology' },
-  { name: 'Git',           type: 'Code',      tag: 'Postmortems' },
-  { name: 'PagerDuty',      type: 'Alerting',  tag: 'Webhook' },
-  { name: 'OpenTelemetry',  type: 'Protocol',  tag: 'OTLP :4318' },
-  { name: 'Kubernetes',     type: 'Infra',     tag: 'Manifests' },
-  { name: 'Linear',         type: 'Tasks',     tag: 'Task Sync' },
+  { name: 'Datadog',       type: 'Observability', tag: 'Traces + Logs' },
+  { name: 'PagerDuty',     type: 'Alerting',      tag: 'Webhook' },
+  { name: 'Terraform',     type: 'Infra',         tag: 'Topology' },
+  { name: 'Git',           type: 'Code',          tag: 'Postmortems' },
+  { name: 'Slack',         type: 'Chat',          tag: 'Timeline' },
+  { name: 'Kubernetes',     type: 'Infra',         tag: 'Manifests' },
+  { name: 'Prometheus',    type: 'Metrics',       tag: 'OpenTelemetry' },
+  { name: 'AWS/GCP',       type: 'Cloud',         tag: 'Config' },
 ]
 
 const ides = [
-  { name: 'Claude Code',    tag: 'stdio MCP' },
-  { name: 'Cursor',         tag: '.cursor/mcp.json' },
-  { name: 'Windsurf',       tag: 'mcp_config.json' },
-  { name: 'VS Code',        tag: '.vscode/mcp.json' },
+  { name: 'Claude Code',    tag: 'get_incident_context' },
+  { name: 'Cursor',         tag: 'get_datadog_trace' },
+  { name: 'Windsurf',       tag: 'analyze_production' },
+  { name: 'VS Code',        tag: 'mcp.json' },
 ]
 
 export default function Integrations() {
@@ -23,7 +23,7 @@ export default function Integrations() {
       <h2>
         Connect your stack.
         <br />
-        Index your memory.
+        Route your context.
       </h2>
 
       <div className="integ-grid mt-lg">
@@ -42,7 +42,7 @@ export default function Integrations() {
         <div className="integ-divider">
           <div className="integ-arrow">→</div>
           <span style={{ fontSize: '0.55rem', color: 'var(--gray-600)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-            Local<br />Index
+            Infrastructure<br />Layer
           </span>
           <div className="integ-arrow">→</div>
         </div>

@@ -1,14 +1,14 @@
 const sources = [
-  { tag: 'POSTMORTEMS', label: 'Historical Incidents', sub: 'Markdown · Git-committed' },
-  { tag: 'TOPOLOGY',    label: 'Cloud Infrastructure', sub: 'Terraform · K8s Manifests' },
-  { tag: 'CONFIG',      label: 'Service Configuration', sub: 'ENV · ConfigMaps · JSON' },
-  { tag: 'TELEMETRY',   label: 'OpenTelemetry',        sub: 'Spans · Logs · Metrics' },
+  { tag: 'DATADOG',    label: 'Production Traces', sub: 'APM Spans · Runtime Logs' },
+  { tag: 'PAGERDUTY',  label: 'Incident Alerts',   sub: 'Webhooks · Severity V3' },
+  { tag: 'TOPOLOGY',   label: 'Service Map',       sub: 'K8s · Infrastructure Graph' },
+  { tag: 'TELEMETRY',  label: 'Live Metrics',      sub: 'OpenTelemetry · Prometheus' },
 ]
 
 const outputs = [
-  { label: 'Claude Code',   sub: 'claude mcp add mergen' },
-  { label: 'Cursor',        sub: '.cursor/mcp.json' },
-  { label: 'VS Code',       sub: '.vscode/mcp.json' },
+  { label: 'Claude Code',   sub: 'get_incident_context' },
+  { label: 'Cursor',        sub: 'get_datadog_trace' },
+  { label: 'Windsurf',       sub: 'analyze_production' },
   { label: 'Postmortems',   sub: 'Auto-drafted Markdown' },
 ]
 
@@ -17,9 +17,9 @@ export default function Architecture() {
     <section id="how">
       <span className="section-label">01 // How It Works</span>
       <h2>
-        Index context.
+        Compact context.
         <br />
-        Debug grounded.
+        Resolve faster.
       </h2>
 
       <div className="arch-view mt-lg">
@@ -47,7 +47,7 @@ export default function Architecture() {
             <div className="arch-flow-arrow">›</div>
           </div>
 
-          {/* ── Center: MCP Server ── */}
+          {/* ── Center: Mergen Infrastructure Layer ── */}
           <div
             className="arch-box"
             style={{
@@ -59,17 +59,17 @@ export default function Architecture() {
             }}
           >
             <span className="tag" style={{ background: 'var(--accent)', color: '#000' }}>
-              MCP SERVER
+              INFRASTRUCTURE LAYER
             </span>
-            <h4 style={{ margin: '1rem 0 0.5rem' }}>Mergen Local Index</h4>
+            <h4 style={{ margin: '1rem 0 0.5rem' }}>Mergen Compactor</h4>
             <code style={{ fontSize: '0.6rem', color: 'var(--accent-text)', display: 'block' }}>
-              SQLite FTS5 + BM25
+              500KB → 1KB Semantic Filter
             </code>
             <code style={{ fontSize: '0.6rem', color: 'var(--gray-600)', display: 'block', marginTop: '0.25rem' }}>
-              Hybrid Retrieval Engine
+              Context Routing Engine
             </code>
             <div style={{ marginTop: '1rem', borderTop: '1px solid var(--gray-800)', paddingTop: '0.75rem' }}>
-              {['Indexing Engine', 'Hybrid Search (TF-IDF)', 'Context Compression', 'Auto-Writeback', 'Credential Scrubber'].map((f) => (
+              {['Semantic Compactor', 'Trace Correlation', 'PagerDuty Trigger', 'Source Frame Matcher', 'Credential Scrubber'].map((f) => (
                 <div key={f} style={{ fontSize: '0.6rem', color: 'var(--gray-400)', marginBottom: '0.3rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <span style={{ color: 'var(--accent-text)', fontSize: '0.5rem' }}>—</span>
                   {f}
