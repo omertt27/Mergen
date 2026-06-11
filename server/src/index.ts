@@ -98,7 +98,7 @@ async function main(): Promise<void> {
   // this file and sends it as x-mergen-secret on every mutating request.
   let localSecret: string;
   try {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
     if (fs.existsSync(SECRET_FILE)) {
       localSecret = fs.readFileSync(SECRET_FILE, 'utf8').trim();
     } else {
@@ -189,6 +189,10 @@ async function main(): Promise<void> {
         logger.info({ port, host: BIND_HOST }, `HTTPS ingest listening on https://${BIND_HOST}:${port}`);
       });
     } catch (err) {
+      if (process.env.MERGEN_CLOUD_MODE === 'true') {
+        logger.error({ err }, 'TLS: failed to read cert/key files — refusing to start in plain HTTP (MERGEN_CLOUD_MODE=true requires TLS)');
+        process.exit(1);
+      }
       logger.error({ err }, 'TLS: failed to read cert/key files — falling back to HTTP');
       httpServer = http.createServer(app).listen(port, BIND_HOST, () => {
         logger.info({ port, host: BIND_HOST }, `HTTP ingest listening on http://${BIND_HOST}:${port}`);

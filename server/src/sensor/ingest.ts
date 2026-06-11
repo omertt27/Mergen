@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { Request, Response, Router } from 'express';
 import type {} from './cloud-auth.js';
 import { store, BrowserEventSchema, type BrowserEvent } from './buffer.js';
@@ -198,9 +199,15 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 ingestRouter.post('/ingest', (req: Request, res: Response): void => {
-  if (SHARED_SECRET && req.headers['x-mergen-secret'] !== SHARED_SECRET) {
-    res.status(401).json({ error: 'unauthorized' });
-    return;
+  if (SHARED_SECRET) {
+    const presented = req.headers['x-mergen-secret'];
+    const valid = typeof presented === 'string' &&
+      presented.length === SHARED_SECRET.length &&
+      crypto.timingSafeEqual(Buffer.from(presented), Buffer.from(SHARED_SECRET));
+    if (!valid) {
+      res.status(401).json({ error: 'unauthorized' });
+      return;
+    }
   }
 
   if (isRateLimited()) {

@@ -6,14 +6,17 @@
  * binding a port, and from server.ts so port-discovery logic stays isolated.
  *
  * Call order matters:
- *   1. billingRouter   — needs raw body for HMAC, must precede express.json()
- *   2. express.json()  — parses the rest
- *   3. CORS headers
- *   4. Secret guard    — blocks unauthenticated mutating requests
- *   5. Route modules
- *   6. Error handler
+ *   1. Raw-body webhook routers (billing, sentry, github, pagerduty) — HMAC needs raw bytes
+ *   2. express.json()   — parses everything else
+ *   3. helmet()         — security headers
+ *   4. CORS headers
+ *   5. Secret guard     — blocks unauthenticated mutating requests
+ *   6. Route modules
+ *   7. Error handler
  */
+import crypto from 'crypto';
 import express from 'express';
+import helmet from 'helmet';
 import { billingRouter } from './intelligence/billing.js';
 import { teamRouter } from './intelligence/team.js';
 import { ingestRouter } from './sensor/ingest.js';
@@ -49,7 +52,7 @@ import { createImpactReportRouter } from './routes/impact-report.js';
 import { createBillingOutcomeRouter } from './routes/billing-outcome.js';
 import { createPostmortemRouter } from './routes/postmortem.js';
 import { createExplainWhyRouter } from './routes/explain-why.js';
-import { cloudAuthMiddleware } from './sensor/cloud-auth.js';
+import { cloudAuthMiddleware, CLOUD_MODE } from './sensor/cloud-auth.js';
 import { handleSlackActions, handleFeedbackLink } from './intelligence/slack.js';
 import { getPrometheusMetrics } from './sensor/otel-exporter.js';
 import { auditMiddleware } from './sensor/audit-log.js';
@@ -66,14 +69,11 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   const { serverVersion, localSecret, port, bindHost } = opts;
   const app = express();
 
-  // ── Billing webhook — raw body for HMAC, MUST precede express.json() ──────
+  // ── Raw-body webhook routers — MUST precede express.json() ─────────────────
   app.use(billingRouter);
-
-  // ── Sentry webhook — raw body for HMAC, MUST precede express.json() ───────
   app.use(sentryRouter);
-
-  // ── GitHub webhook — raw body for HMAC-SHA256, MUST precede express.json() ─
   app.use(createGitHubWebhookRouter());
+  app.use(createPagerDutyRouter()); // raw-body HMAC — must stay before express.json()
 
   app.use(express.json({ strict: true, limit: '1mb' }));
 
@@ -82,14 +82,34 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   // Always-on; overhead is an async appendFileSync on response finish.
   app.use(auditMiddleware);
 
+  // ── Security headers ──────────────────────────────────────────────────────
+  // helmet sets X-Content-Type-Options, X-Frame-Options, Referrer-Policy, etc.
+  // CSP and COEP are disabled — the dashboard/setup UI embed third-party scripts.
+  app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
+
   // ── CORS ──────────────────────────────────────────────────────────────────
-  // Binding to 127.0.0.1 means only local processes connect, so wildcard is
-  // safe. Content scripts run under the page's origin (e.g. localhost:5173),
-  // not chrome-extension://, so we must allow *.
-  app.use((_req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+  // Local mode (127.0.0.1): wildcard is safe — only local processes can reach the
+  // server and content scripts run under the page origin, not chrome-extension://.
+  // Team mode (0.0.0.0): restrict to MERGEN_ALLOWED_ORIGINS; warn if unset.
+  const allowedOrigins = process.env.MERGEN_ALLOWED_ORIGINS
+    ? new Set(process.env.MERGEN_ALLOWED_ORIGINS.split(',').map((s) => s.trim()))
+    : null;
+  app.use((req, res, next) => {
+    const origin = req.headers.origin as string | undefined;
+    if (bindHost === '127.0.0.1') {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    } else if (allowedOrigins) {
+      if (origin && allowedOrigins.has(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Vary', 'Origin');
+      }
+    } else {
+      // Team mode with no allowlist — allow all (preserves previous behaviour)
+      // but operators should set MERGEN_ALLOWED_ORIGINS for hardened deployments.
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    }
     res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS, DELETE');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-mergen-secret');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-mergen-secret, x-api-key');
     next();
   });
 
@@ -117,10 +137,16 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.options('*', (_req, res) => res.status(204).end());
 
   // ── Local-secret endpoint ─────────────────────────────────────────────────
-  // Browser clients (extension popup, dashboard) read this once to obtain the
-  // shared secret for mutating requests. Protected by the Host-header check
-  // above, so only callers on 127.0.0.1:<port> can retrieve it.
+  // Browser extension popup reads this once to obtain the shared secret.
+  // Only served in local mode (127.0.0.1); in team mode the endpoint is
+  // disabled — clients must read ~/.mergen/secret directly from disk.
+  // Cache-Control: no-store prevents the browser from caching the secret.
   app.get('/local-secret', (_req, res) => {
+    if (bindHost !== '127.0.0.1') {
+      res.status(404).json({ error: 'not available in team mode' });
+      return;
+    }
+    res.setHeader('Cache-Control', 'no-store');
     res.json({ secret: localSecret });
   });
 
@@ -133,10 +159,15 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   // VS Code / Cursor extensions read ~/.mergen/secret and send it as
   // x-mergen-secret. The Host check above blocks DNS rebinding for routes not
   // in this list; this guard adds a second factor for privileged admin actions.
+  // Comparison is timing-safe to prevent brute-force oracle attacks.
   app.use((req, res, next) => {
     if (req.method === 'GET' || req.method === 'OPTIONS') { next(); return; }
     if (!MUTATING_PATHS.some((p) => req.path === p || req.path.startsWith(p + '/'))) { next(); return; }
-    if (req.headers['x-mergen-secret'] !== localSecret) {
+    const presented = req.headers['x-mergen-secret'];
+    const valid = typeof presented === 'string' &&
+      presented.length === localSecret.length &&
+      crypto.timingSafeEqual(Buffer.from(presented), Buffer.from(localSecret));
+    if (!valid) {
       res.status(401).json({ error: 'unauthorized' });
       return;
     }
@@ -165,7 +196,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createTicketsRouter());   // Linear + Jira one-click ticket creation
   app.use(createValidateRouter()); // Fix validation state
   app.use(createSessionsRouter()); // Session history + audit log
-  app.use(createPagerDutyRouter());         // PagerDuty incident webhooks → Datadog auto-fetch
+  // PagerDuty webhook registered before express.json() above for raw body HMAC
   app.use(createIncidentWebhookRouter());   // Generic incident webhook (no PagerDuty required)
   app.use(createHeartbeatsRouter());        // Heartbeat / cron-job monitoring
   // GitHub webhook registered before express.json() above for raw body HMAC
@@ -181,16 +212,14 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createPostmortemRouter());    // POST /postmortem/from-slack
   app.use(createExplainWhyRouter());    // GET /explain-why/file?path=
 
-  // GET /service-graph — live service dependency graph inferred from OTLP spans
-  app.get('/service-graph', (_req, res) => {
+  // GET /service-graph — in cloud mode, require API key (exposes internal topology)
+  app.get('/service-graph', ...(CLOUD_MODE ? [cloudAuthMiddleware] : []), (_req, res) => {
     res.json({ ok: true, graph: serviceGraph.toJSON() });
   });
 
   // ── Prometheus metrics endpoint ───────────────────────────────────────────
-  // Exposes browser error rates, network failure counts, and request durations
-  // in Prometheus text format. Scrape with any Prometheus-compatible collector.
-  // Counters are cumulative since server start; reset on restart only.
-  app.get('/metrics', (_req, res) => {
+  // In cloud mode, require API key — counters reveal internal error rates.
+  app.get('/metrics', ...(CLOUD_MODE ? [cloudAuthMiddleware] : []), (_req, res) => {
     res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
     res.send(getPrometheusMetrics());
   });

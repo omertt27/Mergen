@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { Router } from 'express';
 import { z } from 'zod';
 import { fetchLatestErrorTrace, isConfigured } from '../datadog/client.js';
@@ -13,6 +14,32 @@ import { getRecords, recordVerdict } from '../intelligence/calibration.js';
 import logger from '../sensor/logger.js';
 
 const DASHBOARD_URL = process.env.MERGEN_DASHBOARD_URL ?? 'http://127.0.0.1:3000';
+
+// Optional HMAC-SHA256 verification using PagerDuty V3 webhook signing.
+// Set MERGEN_PAGERDUTY_SECRET to the signing secret from your PagerDuty webhook config.
+// Header format: "X-PagerDuty-Signature: v1=<hex>[,v1=<hex>]" (multiple for key rotation).
+const PD_WEBHOOK_SECRET = process.env.MERGEN_PAGERDUTY_SECRET;
+if (PD_WEBHOOK_SECRET) {
+  logger.info('pagerduty: webhook signature verification enabled');
+} else {
+  logger.debug('pagerduty: no MERGEN_PAGERDUTY_SECRET — signature verification disabled');
+}
+
+function verifyPagerDutySignature(rawBody: Buffer, header: string | undefined): boolean {
+  if (!PD_WEBHOOK_SECRET) return true;
+  if (!header) return false;
+  const expected = 'v1=' + crypto
+    .createHmac('sha256', PD_WEBHOOK_SECRET)
+    .update(rawBody)
+    .digest('hex');
+  return header.split(',').some((sig) => {
+    const s = sig.trim();
+    try {
+      return s.length === expected.length &&
+        crypto.timingSafeEqual(Buffer.from(s), Buffer.from(expected));
+    } catch { return false; }
+  });
+}
 
 const PdMessageSchema = z.object({
   messages: z.array(
@@ -36,13 +63,40 @@ export function createPagerDutyRouter(): Router {
   const router = Router();
 
   router.post('/webhooks/pagerduty', (req, res) => {
-    const parsed = PdMessageSchema.safeParse(req.body);
-    if (!parsed.success) {
-      res.status(400).json({ error: 'invalid PagerDuty payload' });
-      return;
-    }
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    req.on('end', () => {
+      const rawBody = Buffer.concat(chunks);
+      const signature = req.headers['x-pagerduty-signature'] as string | undefined;
 
-    for (const msg of parsed.data.messages) {
+      if (!verifyPagerDutySignature(rawBody, signature)) {
+        res.status(401).json({ error: 'invalid x-pagerduty-signature' });
+        return;
+      }
+
+      let body: unknown;
+      try {
+        body = JSON.parse(rawBody.toString('utf8'));
+      } catch {
+        res.status(400).json({ error: 'malformed JSON' });
+        return;
+      }
+
+      const parsed = PdMessageSchema.safeParse(body);
+      if (!parsed.success) {
+        res.status(400).json({ error: 'invalid PagerDuty payload' });
+        return;
+      }
+
+      processMessages(parsed.data.messages, res);
+    });
+  });
+
+  function processMessages(
+    messages: z.infer<typeof PdMessageSchema>['messages'],
+    res: import('express').Response,
+  ): void {
+    for (const msg of messages) {
       const { event_type, data } = msg.event;
 
       // ── incident.resolved — record calibration verdict then close memory ────
@@ -200,7 +254,7 @@ export function createPagerDutyRouter(): Router {
     }
 
     res.json({ status: 'accepted' });
-  });
+  }
 
   return router;
 }

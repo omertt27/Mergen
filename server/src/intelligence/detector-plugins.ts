@@ -57,7 +57,10 @@ export async function loadPlugins(): Promise<void> {
   if (_loaded) return;
   _loaded = true;
 
-  if (!fs.existsSync(PLUGINS_DIR)) return;
+  if (!fs.existsSync(PLUGINS_DIR)) {
+    try { fs.mkdirSync(PLUGINS_DIR, { recursive: true, mode: 0o700 }); } catch {}
+    return;
+  }
 
   let files: string[];
   try {
