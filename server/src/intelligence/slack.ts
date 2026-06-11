@@ -133,6 +133,89 @@ export async function fetchSlackThread(threadUrl: string): Promise<string | null
   return lines.join('\n');
 }
 
+// Cache: channel name → channel ID (avoids repeated conversations.list calls)
+const _channelIdCache = new Map<string, string>();
+
+async function _resolveChannelId(nameOrId: string): Promise<string | null> {
+  if (!BOT_TOKEN) return null;
+  // Already an ID — Slack channel IDs start with C (public) or G (private/mpim)
+  if (/^[CG][A-Z0-9]{6,}$/i.test(nameOrId)) return nameOrId;
+  const clean = nameOrId.replace(/^#/, '').toLowerCase();
+  if (_channelIdCache.has(clean)) return _channelIdCache.get(clean)!;
+
+  type ChannelListPage = {
+    ok?: boolean;
+    channels?: Array<{ id?: string; name?: string }>;
+    response_metadata?: { next_cursor?: string };
+  };
+  let cursor: string | undefined;
+  for (let page = 0; page < 3; page++) {
+    const qs = new URLSearchParams({
+      limit: '200',
+      types: 'public_channel,private_channel',
+      exclude_archived: 'true',
+      ...(cursor ? { cursor } : {}),
+    });
+    const result = await _slackApiGet(`/api/conversations.list?${qs.toString()}`) as ChannelListPage | null;
+    if (!result?.ok || !Array.isArray(result.channels)) break;
+    for (const ch of result.channels) {
+      if (ch.name && ch.id) _channelIdCache.set(ch.name.toLowerCase(), ch.id);
+    }
+    if (!result.response_metadata?.next_cursor) break;
+    cursor = result.response_metadata.next_cursor;
+  }
+  return _channelIdCache.get(clean) ?? null;
+}
+
+/**
+ * Fetch recent messages from the incident channel in a window around a given
+ * timestamp and return them as formatted plain text. Used by the autopilot to
+ * include on-call conversation as evidence in the causal chain.
+ *
+ * Requires MERGEN_SLACK_BOT_TOKEN with channels:history or groups:history scope
+ * and MERGEN_SLACK_CHANNEL set to either a channel ID (C…) or name (#incidents).
+ *
+ * windowMs: how many ms after firedAt to include (default 20 min).
+ * Starts 5 min before firedAt to capture any pre-alert discussion.
+ */
+export async function fetchIncidentChannelContext(
+  firedAt: number,
+  windowMs = 20 * 60 * 1000,
+): Promise<string | null> {
+  if (!BOT_TOKEN || !SLACK_CHANNEL) return null;
+
+  const channelId = await _resolveChannelId(SLACK_CHANNEL);
+  if (!channelId) {
+    logger.warn({ channel: SLACK_CHANNEL }, 'slack: could not resolve channel ID for context fetch');
+    return null;
+  }
+
+  type HistoryPage = {
+    ok?: boolean;
+    error?: string;
+    messages?: Array<{ ts?: string; user?: string; username?: string; bot_profile?: { name?: string }; text?: string }>;
+  };
+
+  const oldest = String((firedAt - 5 * 60 * 1000) / 1000);
+  const latest = String((firedAt + windowMs) / 1000);
+  const qs = new URLSearchParams({ channel: channelId, oldest, latest, limit: '50', inclusive: 'true' });
+  const result = await _slackApiGet(`/api/conversations.history?${qs.toString()}`) as HistoryPage | null;
+
+  if (!result?.ok || !Array.isArray(result.messages) || result.messages.length === 0) {
+    if (result?.error) logger.debug({ error: result.error, channel: channelId }, 'slack: conversations.history returned error');
+    return null;
+  }
+
+  const lines = result.messages.map((msg) => {
+    const time = msg.ts ? new Date(parseFloat(msg.ts) * 1000).toISOString().slice(11, 16) : '??:??';
+    const user = msg.username ?? msg.bot_profile?.name ?? msg.user ?? 'unknown';
+    const text = (msg.text ?? '').slice(0, 500);
+    return `[${time}] @${user}: ${text}`;
+  });
+
+  return lines.length > 0 ? lines.join('\n') : null;
+}
+
 /** Post a JSON payload to a generic Slack Web API endpoint. */
 async function _slackApi(
   path: string,

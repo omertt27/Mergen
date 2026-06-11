@@ -15,6 +15,7 @@ import { Router } from 'express';
 import {
   recordVerdict,
   getStats,
+  getStatsForTag,
   getRecords,
   exportCsv,
   getPendingFeedback,
@@ -27,6 +28,7 @@ import { getSessionMetrics } from '../intelligence/session-metrics.js';
 import { computeRocCurve, getExecutionThreshold } from '../intelligence/threshold-optimizer.js';
 import { computeBlastRadius } from '../intelligence/blast-radius.js';
 import { plattScale, getPlattDiagnostics } from '../intelligence/platt-scaling.js';
+import { incidentStore } from '../sensor/incident-store.js';
 
 const VALID_VERDICT_DIMENSIONS = new Set<VerdictDimension>(['root_cause', 'fix_hint', 'both']);
 
@@ -251,6 +253,61 @@ export function createCalibrationRouter(): Router {
     const environment = typeof req.query.environment === 'string' ? req.query.environment : undefined;
     const br = computeBlastRadius(command, { service, namespace, environment });
     res.json({ ok: true, ...br });
+  });
+
+  // GET /trust-score/:pid ───────────────────────────────────────────────────
+  // Per-incident trust score: looks up the incident by hypothesis pid, applies
+  // Platt scaling using its tag and raw confidence, and returns the full
+  // calibration picture including verdict history and tag-level accuracy.
+  // This is the endpoint VPs of Eng use during PoCs to verify our confidence claims.
+  router.get('/trust-score/:pid', (req, res) => {
+    const { pid } = req.params;
+    const inc = incidentStore.get(pid);
+    if (!inc) {
+      res.status(404).json({ error: 'incident not found', pid });
+      return;
+    }
+
+    const rawScore = inc.confidence;
+    const tag      = inc.tag;
+    const result   = plattScale(rawScore, tag);
+    const pct      = Math.round(result.calibrated * 100);
+
+    // All prediction records for this pid — verdict history
+    const records = getRecords().filter((r: Record<string, unknown>) => r['pid'] === pid);
+    const verdictHistory = records.map((r: Record<string, unknown>) => ({
+      verdict:     r['verdict']          ?? null,
+      note:        r['note']             ?? null,
+      recordedAt:  r['recordedAt']       ?? null,
+      dimension:   r['verdictDimension'] ?? null,
+    }));
+
+    // Tag-level accuracy stats
+    const tagStats = getStatsForTag(tag) as { accuracy?: number; n?: number } | null;
+
+    const interpretation =
+      pct >= 85 ? 'high — strong historical basis for automated action'  :
+      pct >= 65 ? 'medium — recommend human review before execution'     :
+      pct >= 40 ? 'low — diagnosis is a signal, not a conclusion'        :
+                  'insufficient — surface as context only';
+
+    res.json({
+      ok:                    true,
+      pid,
+      service:               inc.service      ?? null,
+      tag,
+      rawScore,
+      calibrated:            result.calibrated,
+      calibratedPct:         pct,
+      calibrationSource:     result.source,
+      calibrationSampleSize: result.n,
+      verdictHistory,
+      tagAccuracy:       tagStats?.accuracy   ?? null,
+      tagSampleSize:     tagStats?.n          ?? null,
+      interpretation,
+      resolvedAutonomously: inc.resolvedAutonomously,
+      causallyCorrect:      inc.causallyCorrect,
+    });
   });
 
   // GET /trust-score?tag=&rawScore= ─────────────────────────────────────────

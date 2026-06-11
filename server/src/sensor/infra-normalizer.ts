@@ -27,7 +27,8 @@ export type InfraEventKind =
   | 'disk_pressure'
   | 'queue_backlog'
   | 'upstream_error'
-  | 'slow_query';
+  | 'slow_query'
+  | 'slack_context';
 
 export interface InfraEvent {
   kind: InfraEventKind;
@@ -36,7 +37,7 @@ export interface InfraEvent {
   severity: 'critical' | 'high' | 'medium' | 'low';
   message: string;
   attributes: Record<string, string | number>;
-  source: 'otlp' | 'k8s' | 'process' | 'datadog';
+  source: 'otlp' | 'k8s' | 'process' | 'datadog' | 'slack';
 }
 
 // ── Signal patterns ───────────────────────────────────────────────────────────
@@ -508,4 +509,31 @@ export function normalizeProcessExits(exits: ProcessExitEvent[]): InfraEvent[] {
         source: 'process',
       };
     });
+}
+
+/**
+ * Converts a Slack channel transcript into a single InfraEvent so the causal
+ * engine can treat on-call conversation as structured evidence alongside OTLP
+ * spans and process exits. The message text is passed verbatim — the causal
+ * chain uses it as free-text context for pattern matching.
+ */
+export function normalizeSlackContext(
+  threadText: string,
+  service: string,
+  firedAt: number,
+): InfraEvent[] {
+  const trimmed = threadText.trim();
+  if (!trimmed) return [];
+  return [{
+    kind: 'slack_context',
+    timestamp: firedAt,
+    service,
+    severity: 'high',
+    message: `[Slack channel context around incident]\n${trimmed.slice(0, 3000)}`,
+    attributes: {
+      source_type: 'slack_channel_history',
+      char_count: trimmed.length,
+    },
+    source: 'slack',
+  }];
 }

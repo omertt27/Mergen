@@ -24,7 +24,7 @@ import { buildCausalChain, fixActionToCommand } from './causal.js';
 import type { CausalChain, Hypothesis } from './causal.js';
 import { getRecords, recordVerdict } from './calibration.js';
 import { executeRemediation, extractCommand } from './autonomy.js';
-import { postThreadReply, postApprovalRequest } from './slack.js';
+import { postThreadReply, postApprovalRequest, fetchIncidentChannelContext } from './slack.js';
 import { requestApproval, setApprovalReplyFn } from './execution-gate.js';
 import { deriveRollback, executeRollback } from './rollback.js';
 import { captureSnapshot } from './incident-replay.js';
@@ -33,7 +33,7 @@ import { getExecutionThreshold } from './threshold-optimizer.js';
 import { incidentStore } from '../sensor/incident-store.js';
 import { getActiveIncident } from '../datadog/incident-state.js';
 import { fetchErrorCountSince, isConfigured as isDatadogConfigured } from '../datadog/client.js';
-import { normalizeRuntimeFactMarkdown, normalizeProcessExits } from '../sensor/infra-normalizer.js';
+import { normalizeRuntimeFactMarkdown, normalizeProcessExits, normalizeSlackContext } from '../sensor/infra-normalizer.js';
 import { getK8sEvents } from '../sensor/k8s-events.js';
 import { hasRecentOverride, dominantOverrideReason } from './override-corpus.js';
 import { recordShadow } from './shadow-log.js';
@@ -110,9 +110,15 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
   const errorCount = logs.filter((e) => e.level === 'error').length;
   const netErrors  = network.filter((n) => n.status >= 400 || !!n.error).length;
 
+  // Fetch Slack channel context concurrently with the evidence assembly above.
+  // This pulls on-call conversation from the incident channel for the 25-minute
+  // window around firedAt. Null when BOT_TOKEN or SLACK_CHANNEL is not configured.
+  const slackContextText = await fetchIncidentChannelContext(firedAt).catch(() => null);
+
   // Build infra signals: Datadog RuntimeFact is the primary source; process exits
-  // are a secondary source. This lets the autopilot diagnose infra incidents that
-  // produce no browser events at all (DB pool exhaustion, OOM kills, etc.).
+  // and Slack context are secondary sources. This lets the autopilot diagnose infra
+  // incidents that produce no browser events at all (DB pool exhaustion, OOM kills, etc.)
+  // and incorporate on-call discussion as structured causal evidence.
   const activeIncident = getActiveIncident();
   const runtimeFactMarkdown = activeIncident?.runtimeFact ?? null;
   const infraEvents = [
@@ -121,7 +127,11 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
       : []),
     ...normalizeProcessExits(processExits),
     ...getK8sEvents(firedAt),
+    ...(slackContextText ? normalizeSlackContext(slackContextText, service, firedAt) : []),
   ];
+  if (slackContextText) {
+    logger.info({ service, pid, chars: slackContextText.length }, 'incident-autopilot: slack channel context added to evidence');
+  }
 
   const hasAnySignal = errorCount > 0 || netErrors > 0 || infraEvents.length > 0;
 

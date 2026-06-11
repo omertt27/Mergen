@@ -95,9 +95,13 @@ interface ImpactData {
   wouldResolveCount: number;
   wouldResolveRate: number;
   missedCount: number;
-  // MTTR
-  estimatedAutonomousMttrMs: number;
-  avgActualMttrMs: number | null;
+  // MTTR — split by resolution type for unbiased comparison
+  estimatedAutonomousMttrMs: number;        // conservative floor (2 min) used when n=0
+  avgAutonomousMttrMs: number | null;       // actual MTTR for autonomously resolved incidents
+  autonomousMttrSampleSize: number;         // n for autonomous MTTR (for YC partner Q&A)
+  avgManualMttrMs: number | null;           // actual MTTR for manually resolved incidents
+  manualMttrSampleSize: number;             // n for manual MTTR
+  avgActualMttrMs: number | null;           // combined MTTR (all incidents with data)
   mttrReductionPct: number | null;
   // Methodological note: autonomous MTTR only covers incidents where confidence
   // was ≥ 85% — the simpler, well-understood failure modes. Manual MTTR covers
@@ -141,21 +145,35 @@ function computeImpactData(windowDays: number): ImpactData {
   const wouldResolve = entries.filter((e) => e.wouldHaveExecuted);
   const missed = entries.filter((e) => !e.wouldHaveExecuted);
 
-  // MTTR: look up each shadow entry's incident by pid
-  const actualMttrSamples: number[] = [];
+  // MTTR: split by resolution type so the comparison is apples-to-apples.
+  // Autonomous: incidents where resolvedAutonomously=true (the system acted).
+  // Manual: incidents where resolvedAutonomously=false (engineer acted).
+  // Combined: all incidents with MTTR data (used as fallback when split n is small).
+  const autonomousMttrSamples: number[] = [];
+  const manualMttrSamples: number[] = [];
   for (const entry of entries) {
     if (!entry.pid) continue;
     const inc = incidentStore.get(entry.pid);
-    if (inc?.resolvedAt && inc.createdAt) {
-      actualMttrSamples.push(inc.resolvedAt - inc.createdAt);
+    if (!inc?.resolvedAt || !inc.createdAt) continue;
+    const mttr = inc.resolvedAt - inc.createdAt;
+    if (inc.resolvedAutonomously) {
+      autonomousMttrSamples.push(mttr);
+    } else {
+      manualMttrSamples.push(mttr);
     }
   }
-  const avgActualMttrMs = actualMttrSamples.length > 0
-    ? actualMttrSamples.reduce((a, b) => a + b, 0) / actualMttrSamples.length
-    : null;
+  const allMttrSamples = [...autonomousMttrSamples, ...manualMttrSamples];
 
-  const mttrReductionPct = avgActualMttrMs !== null && avgActualMttrMs > 0
-    ? Math.round((1 - ESTIMATED_AUTONOMOUS_MTTR_MS / avgActualMttrMs) * 100)
+  const avg = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
+  const avgAutonomousMttrMs = avg(autonomousMttrSamples);
+  const avgManualMttrMs     = avg(manualMttrSamples);
+  const avgActualMttrMs     = avg(allMttrSamples);
+
+  // For reduction %, prefer the split comparison; fall back to combined vs. estimate
+  const autonomousBenchmark = avgAutonomousMttrMs ?? ESTIMATED_AUTONOMOUS_MTTR_MS;
+  const manualBenchmark     = avgManualMttrMs ?? avgActualMttrMs;
+  const mttrReductionPct = manualBenchmark !== null && manualBenchmark > 0
+    ? Math.round((1 - autonomousBenchmark / manualBenchmark) * 100)
     : null;
 
   // Confidence distribution
@@ -200,11 +218,13 @@ function computeImpactData(windowDays: number): ImpactData {
   const approved = reviewed.filter((e) => e.humanVerdict === 'would-approve').length;
   const humanApprovalRate = reviewed.length >= 3 ? approved / reviewed.length : null;
 
-  // Revenue preservation (Y5 outcome billing)
+  // Revenue preservation (Y5 outcome billing) — use actual autonomous MTTR when available
   const revenuePerMinute =
     parseFloat(process.env.MERGEN_REVENUE_PER_MINUTE_USD ?? '') || DEFAULT_REVENUE_PER_MINUTE_USD;
-  const mttrSavedMs = avgActualMttrMs != null
-    ? Math.max(0, avgActualMttrMs - ESTIMATED_AUTONOMOUS_MTTR_MS)
+  const autonomousBenchmarkForRevenue = avgAutonomousMttrMs ?? ESTIMATED_AUTONOMOUS_MTTR_MS;
+  const manualBenchmarkForRevenue     = avgManualMttrMs ?? avgActualMttrMs;
+  const mttrSavedMs = manualBenchmarkForRevenue != null
+    ? Math.max(0, manualBenchmarkForRevenue - autonomousBenchmarkForRevenue)
     : null;
   const estimatedRevenuePreservedUsd = mttrSavedMs != null && wouldResolve.length > 0
     ? Math.round((mttrSavedMs / 60_000) * revenuePerMinute * wouldResolve.length)
@@ -213,14 +233,25 @@ function computeImpactData(windowDays: number): ImpactData {
   // Corpus size
   const corpusPostmortems = postmortemStore.count();
 
-  // Deck summary — the one sentence that goes on a slide
+  // Deck summary — the one sentence that goes on a slide, with n= so YC partners
+  // can't ask "but what's the sample size?" without already having the answer.
   const rate = entries.length > 0
     ? Math.round((wouldResolve.length / entries.length) * 100)
     : 0;
-  const mttrLine = avgActualMttrMs !== null
-    ? ` Average time-to-fix: ${fmtMs(ESTIMATED_AUTONOMOUS_MTTR_MS)} autonomous vs. ${fmtMs(avgActualMttrMs)} manual.`
-    : '';
-  const deckSummary = `Mergen processed ${entries.length} incident${entries.length !== 1 ? 's' : ''}. ` +
+  const topTags = byTag.slice(0, 3).map((t) => `${t.tag.replace(/^infra_/, '')}×${t.total}`).join(', ');
+  const tagLine = topTags ? ` Top failure modes: ${topTags}.` : '';
+
+  let mttrLine = '';
+  if (avgAutonomousMttrMs !== null && avgManualMttrMs !== null) {
+    mttrLine = ` MTTR: ${fmtMs(avgAutonomousMttrMs)} autonomous (n=${autonomousMttrSamples.length}) vs. ${fmtMs(avgManualMttrMs)} manual (n=${manualMttrSamples.length}).`;
+  } else if (avgManualMttrMs !== null) {
+    mttrLine = ` Est. autonomous MTTR: ${fmtMs(ESTIMATED_AUTONOMOUS_MTTR_MS)} vs. ${fmtMs(avgManualMttrMs)} manual (n=${manualMttrSamples.length}).`;
+  } else if (avgActualMttrMs !== null) {
+    mttrLine = ` Average time-to-fix: ${fmtMs(ESTIMATED_AUTONOMOUS_MTTR_MS)} est. autonomous vs. ${fmtMs(avgActualMttrMs)} observed (n=${allMttrSamples.length}).`;
+  }
+
+  const deckSummary =
+    `Mergen processed ${entries.length} incident${entries.length !== 1 ? 's' : ''} (n=${entries.length}).${tagLine} ` +
     `Autonomous resolution would have applied correctly ${wouldResolve.length} time${wouldResolve.length !== 1 ? 's' : ''} (${rate}%).` +
     mttrLine;
 
@@ -274,6 +305,10 @@ function computeImpactData(windowDays: number): ImpactData {
     wouldResolveRate: entries.length > 0 ? wouldResolve.length / entries.length : 0,
     missedCount: missed.length,
     estimatedAutonomousMttrMs: ESTIMATED_AUTONOMOUS_MTTR_MS,
+    avgAutonomousMttrMs,
+    autonomousMttrSampleSize: autonomousMttrSamples.length,
+    avgManualMttrMs,
+    manualMttrSampleSize: manualMttrSamples.length,
     avgActualMttrMs,
     mttrReductionPct,
     mttrSelectionBiasCaveat:
@@ -304,25 +339,30 @@ function num(n: number): string { return n.toLocaleString(); }
 function buildHtml(d: ImpactData): string {
   const nonce = randomUUID().replace(/-/g, '');
 
-  const mttrRow = d.avgActualMttrMs !== null ? `
+  const autoMttrLabel = d.avgAutonomousMttrMs !== null
+    ? `${fmtMs(d.avgAutonomousMttrMs)} <span class="muted" style="font-weight:400;font-size:11px">(n=${d.autonomousMttrSampleSize} actual)</span>`
+    : `${fmtMs(d.estimatedAutonomousMttrMs)} <span class="muted" style="font-weight:400;font-size:11px">(estimated)</span>`;
+  const manualMttr = d.avgManualMttrMs ?? d.avgActualMttrMs;
+  const manualN    = d.avgManualMttrMs !== null ? d.manualMttrSampleSize : (d.manualMttrSampleSize + d.autonomousMttrSampleSize);
+  const mttrRow = manualMttr !== null ? `
     <tr>
-      <td>Avg. time-to-fix (manual)</td>
-      <td class="val">${fmtMs(d.avgActualMttrMs)}</td>
+      <td>Avg. MTTR — manual resolution</td>
+      <td class="val">${fmtMs(manualMttr)} <span class="muted" style="font-weight:400;font-size:11px">(n=${manualN})</span></td>
     </tr>
     <tr>
-      <td>Avg. time-to-fix (autonomous estimate)</td>
-      <td class="val green">${fmtMs(d.estimatedAutonomousMttrMs)}</td>
+      <td>Avg. MTTR — autonomous resolution</td>
+      <td class="val green">${autoMttrLabel}</td>
     </tr>
     <tr>
       <td>MTTR reduction</td>
       <td class="val green">${d.mttrReductionPct !== null ? d.mttrReductionPct + '%' : '—'}</td>
     </tr>` : `
     <tr>
-      <td>Estimated autonomous MTTR</td>
-      <td class="val green">${fmtMs(d.estimatedAutonomousMttrMs)}</td>
+      <td>Autonomous MTTR</td>
+      <td class="val green">${autoMttrLabel}</td>
     </tr>
     <tr>
-      <td>Actual MTTR</td>
+      <td>Manual MTTR</td>
       <td class="val muted">No resolved incidents in window</td>
     </tr>`;
 
@@ -432,8 +472,8 @@ function buildHtml(d: ImpactData): string {
     <div class="big-label">Incidents processed</div>
   </div>
   <div class="hero-item">
-    <div class="big-number green">${fmtMs(d.estimatedAutonomousMttrMs)}</div>
-    <div class="big-label">Est. autonomous MTTR</div>
+    <div class="big-number green">${fmtMs(d.avgAutonomousMttrMs ?? d.estimatedAutonomousMttrMs)}</div>
+    <div class="big-label">${d.avgAutonomousMttrMs !== null ? `Autonomous MTTR (n=${d.autonomousMttrSampleSize})` : 'Est. autonomous MTTR'}</div>
   </div>
   ${d.avgActualMttrMs !== null ? `
   <div class="hero-item">
