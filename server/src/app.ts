@@ -52,6 +52,8 @@ import { createImpactReportRouter } from './routes/impact-report.js';
 import { createBillingOutcomeRouter } from './routes/billing-outcome.js';
 import { createPostmortemRouter } from './routes/postmortem.js';
 import { createExplainWhyRouter } from './routes/explain-why.js';
+import { createAgentBlundersRouter } from './routes/agent-blunders.js';
+import { createHabituationRouter } from './routes/habituation.js';
 import { cloudAuthMiddleware, CLOUD_MODE } from './sensor/cloud-auth.js';
 import { handleSlackActions, handleFeedbackLink } from './intelligence/slack.js';
 import { getPrometheusMetrics } from './sensor/otel-exporter.js';
@@ -211,6 +213,8 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createBillingOutcomeRouter()); // Y5: outcome-based billing evidence
   app.use(createPostmortemRouter());    // POST /postmortem/from-slack
   app.use(createExplainWhyRouter());    // GET /explain-why/file?path=
+  app.use(createAgentBlundersRouter()); // Agent Blunder Log — safety interceptions
+  app.use(createHabituationRouter());   // Organic habituation — weekly engineer engagement
 
   // GET /service-graph — in cloud mode, require API key (exposes internal topology)
   app.get('/service-graph', ...(CLOUD_MODE ? [cloudAuthMiddleware] : []), (_req, res) => {

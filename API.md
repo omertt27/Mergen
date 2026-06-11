@@ -527,6 +527,125 @@ console.assert(response.ok);
 
 ---
 
+---
+
+### Agent Blunder Log
+
+**GET** `/agent-blunders`
+
+Returns every autonomous action Mergen intercepted — the raw events behind the "Mergen prevented N potentially harmful actions" headline metric.
+
+**Query Parameters:**
+- `limit` — Max recent blunders to return (1–100, default: 20)
+
+**Response:**
+```json
+{
+  "ok": true,
+  "prevented": 23,
+  "total": 23,
+  "byType": {
+    "allowlist_block": 14,
+    "override_corpus_block": 7,
+    "rbac_block": 2
+  },
+  "last7Days": 4,
+  "last30Days": 19,
+  "recentBlunders": [
+    {
+      "id": "uuid",
+      "recordedAt": 1749600000000,
+      "blunderType": "allowlist_block",
+      "command": "rm -rf /var/log/app",
+      "blockReason": "Command does not match any allowed pattern.",
+      "service": "api",
+      "tag": "infra_disk_full",
+      "actor": "autopilot",
+      "pid": "hyp_abc123",
+      "confidenceScore": 0.91
+    }
+  ]
+}
+```
+
+**Blunder types:**
+- `allowlist_block` — command not on the safety allowlist
+- `injection_attempt` — injection pattern detected in command string
+- `rbac_block` — actor missing the `responder` role required for execution
+- `override_corpus_block` — execution halted by override corpus history for this service
+- `pipeline_block` — governance pipeline blocked (level restriction or non-corpus reason)
+- `planning_gate_block` — planning gate confidence or blast-radius check failed
+
+**Status:** 200 OK
+
+---
+
+### Organic Habituation
+
+**GET** `/habituation`
+
+Weekly rate of engineers who received a Mergen PR comment and subsequently engaged (submitted a review) that week. Tracks whether Mergen is becoming part of the review workflow organically — without prompting.
+
+**Query Parameters:**
+- `weeks` — Look-back window in weeks (1–26, default: 8)
+
+**Response:**
+```json
+{
+  "ok": true,
+  "windowWeeks": 8,
+  "totalPRsCommented": 47,
+  "uniqueEngineers": 8,
+  "engineersWithComments": 8,
+  "engagedEngineers": 6,
+  "habituationRate": 0.75,
+  "weekly": [
+    {
+      "week": "2026-W23",
+      "engineersWithComments": 4,
+      "engineersEngaged": 3,
+      "engagementRate": 0.75,
+      "commentsPosted": 6
+    }
+  ]
+}
+```
+
+**Fields:**
+- `habituationRate` — fraction of engineers who received a Mergen comment and engaged, across all time. `null` until first PR comment is posted.
+- `engineersEngaged` — engineers who submitted a review on a PR where Mergen had commented (in the current process session; resets on restart).
+- `weekly` — per-ISO-week breakdown for trend analysis.
+
+Requires `MERGEN_PR_COMMENTS=true` and a valid `GITHUB_TOKEN`. Engagement is recorded when a reviewer submits an approved review on a PR where Mergen posted a comment.
+
+**Status:** 200 OK
+
+---
+
+### Mark Context Brief Viewed
+
+**POST** `/incidents/:pid/mark-context-viewed`
+
+Records that an engineer read Mergen's diagnosis brief before taking manual action on this incident. This timestamp is used to split manual MTTR into context-assisted vs. unassisted in the impact report.
+
+Called automatically when `GET /trust-score/:pid` is fetched. Use this endpoint to mark context viewed from your own tooling (e.g., a Slack button, a war room dashboard).
+
+**Path Parameters:**
+- `pid` — Hypothesis prediction ID (from the incident alert)
+
+**Response:**
+```json
+{
+  "ok": true,
+  "pid": "hyp_abc123",
+  "contextBriefViewedAt": 1749600000000
+}
+```
+
+**Status:** 200 OK · 404 if incident not found
+
+---
+
 ## See Also
 
 - [MCP Tools Reference](MCP_TOOLS.md) - AI IDE integration

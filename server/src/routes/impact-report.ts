@@ -268,10 +268,16 @@ function computeImpactData(windowDays: number): ImpactData {
     mttrLine = ` Average time-to-fix: ${fmtMs(ESTIMATED_AUTONOMOUS_MTTR_MS)} est. autonomous vs. ${fmtMs(avgActualMttrMs)} observed (n=${allMttrSamples.length}).`;
   }
 
+  let contextAssistedLine = '';
+  if (avgContextAssistedMttrMs !== null && avgUnassistedMttrMs !== null) {
+    contextAssistedLine = ` Context-assisted manual MTTR: ${fmtMs(avgContextAssistedMttrMs)} (n=${contextAssistedMttrSamples.length}) vs. ${fmtMs(avgUnassistedMttrMs)} without (n=${unassistedMttrSamples.length}).`;
+  }
+
   const deckSummary =
     `Mergen processed ${entries.length} incident${entries.length !== 1 ? 's' : ''} (n=${entries.length}).${tagLine} ` +
     `Autonomous resolution would have applied correctly ${wouldResolve.length} time${wouldResolve.length !== 1 ? 's' : ''} (${rate}%).` +
-    mttrLine;
+    mttrLine +
+    contextAssistedLine;
 
   // CISO comparison table — one row per incident with side-by-side actions
   const comparisonRows: ComparisonRow[] = entries
@@ -334,6 +340,10 @@ function computeImpactData(windowDays: number): ImpactData {
       'the simpler, well-understood failure modes autopilot picked up. ' +
       'Manual MTTR covers all incidents, including complex ones autopilot skipped. ' +
       'For an unbiased comparison, filter manual MTTR to the same high-confidence cohort.',
+    avgContextAssistedMttrMs,
+    contextAssistedMttrSampleSize: contextAssistedMttrSamples.length,
+    avgUnassistedMttrMs,
+    unassistedMttrSampleSize: unassistedMttrSamples.length,
     highConfidence,
     mediumConfidence,
     lowOrNoCommand,
@@ -399,6 +409,17 @@ function buildHtml(d: ImpactData): string {
 
   const overrideRow = d.overridePatterns > 0
     ? `<tr><td>Override patterns learned</td><td class="val">${num(d.overridePatterns)} pattern${d.overridePatterns !== 1 ? 's' : ''} (${num(d.corpusBlockCount)} block${d.corpusBlockCount !== 1 ? 's' : ''})</td></tr>`
+    : '';
+
+  const contextAssistedRow = d.avgContextAssistedMttrMs !== null && d.avgUnassistedMttrMs !== null
+    ? `<tr>
+        <td>Manual MTTR — context-assisted (read brief)</td>
+        <td class="val green">${fmtMs(d.avgContextAssistedMttrMs)} <span class="muted" style="font-weight:400;font-size:11px">(n=${d.contextAssistedMttrSampleSize})</span></td>
+      </tr>
+      <tr>
+        <td>Manual MTTR — unassisted</td>
+        <td class="val">${fmtMs(d.avgUnassistedMttrMs)} <span class="muted" style="font-weight:400;font-size:11px">(n=${d.unassistedMttrSampleSize})</span></td>
+      </tr>`
     : '';
 
   return `<!DOCTYPE html>
@@ -507,6 +528,7 @@ function buildHtml(d: ImpactData): string {
       <tr><td>Would resolve autonomously</td><td class="val green">${num(d.wouldResolveCount)}</td></tr>
       <tr><td>Would require manual action</td><td class="val">${num(d.missedCount)}</td></tr>
       ${mttrRow}
+      ${contextAssistedRow}
       ${humanRow}
       ${overrideRow}
     </table>

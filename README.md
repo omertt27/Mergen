@@ -250,6 +250,17 @@ When diagnosis or remediation confidence is below the threshold, Mergen posts th
 
 If Mergen executes a fix and errors increase, `validate_fix` returns `REGRESSED`. Mergen immediately derives and runs the inverse command (`kubectl rollout undo`, `helm rollback`, package version revert) and posts the result to the thread. If auto-rollback isn't possible, it surfaces the manual revert command and waits.
 
+**Agent Blunder Log — every interception is recorded**
+
+Every time Mergen's safety layer blocks an autonomous action (allowlist block, RBAC rejection, override corpus halt, planning gate denial), the event is appended to the Agent Blunder Log. Pull it at any time:
+
+```bash
+curl http://127.0.0.1:3000/agent-blunders
+# {"prevented": 23, "byType": {"allowlist_block": 14, "override_corpus_block": 7, ...}, "last7Days": 4}
+```
+
+This is the answer to "why would you trust an AI agent with prod?" — Mergen blocked itself 23 times so your on-call didn't have to.
+
 **Safety blocklist — unconditional**
 
 15 command patterns are blocked regardless of confidence: `rm -rf`, `curl | bash`, `DROP TABLE`, `git push --force`, and others. A blocked command is never run. Mergen posts it to Slack for manual review. All blocked attempts are in `~/.mergen/audit.log`.
@@ -408,6 +419,21 @@ curl http://127.0.0.1:3000/shadow-report/slack-digest
 ```
 
 The impact report shows: incidents processed, autonomous resolution rate, MTTR autonomous vs. manual, per-failure-mode breakdown, and the side-by-side comparison table of what Mergen would have done vs. what your on-call engineer actually did.
+
+**Three additional validation metrics for board-deck level evidence:**
+
+**Agent Blunder Log** — safety interceptions by type. The headline number is `prevented`: every time Mergen blocked itself before an unsafe autonomous action. Grows as you run in autopilot mode; zero on day one.
+```bash
+curl http://127.0.0.1:3000/agent-blunders
+```
+
+**Organic Habituation** — weekly rate of engineers who received a Mergen PR comment and subsequently engaged (submitted a review) that week, without being asked. A rising habituationRate means Mergen is becoming part of the review workflow.
+```bash
+curl http://127.0.0.1:3000/habituation
+# {"habituationRate": 0.71, "weekly": [{"week": "2026-W23", "engagementRate": 0.75, ...}]}
+```
+
+**Context-Assisted MTTR** — among manually resolved incidents, those where the engineer first read Mergen's diagnosis brief (`GET /trust-score/:pid`) resolved faster than those who did not. This isolates Mergen's value even when autopilot is off. Reported automatically in `GET /impact-report` once enough data exists.
 
 ---
 
