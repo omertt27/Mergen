@@ -108,6 +108,14 @@ interface ImpactData {
   // all incidents including complex ones autopilot skipped. Compare within
   // confidence bands for an unbiased view.
   mttrSelectionBiasCaveat: string;
+  // Context-assisted MTTR: among manually resolved incidents, those where the
+  // engineer read Mergen's diagnosis brief first (GET /trust-score/:pid) resolved
+  // faster than those who did not. This isolates Mergen's value even when it
+  // doesn't execute the fix itself.
+  avgContextAssistedMttrMs: number | null;
+  contextAssistedMttrSampleSize: number;
+  avgUnassistedMttrMs: number | null;
+  unassistedMttrSampleSize: number;
   // Confidence distribution
   highConfidence: number;
   mediumConfidence: number;
@@ -151,6 +159,8 @@ function computeImpactData(windowDays: number): ImpactData {
   // Combined: all incidents with MTTR data (used as fallback when split n is small).
   const autonomousMttrSamples: number[] = [];
   const manualMttrSamples: number[] = [];
+  const contextAssistedMttrSamples: number[] = [];
+  const unassistedMttrSamples: number[] = [];
   for (const entry of entries) {
     if (!entry.pid) continue;
     const inc = incidentStore.get(entry.pid);
@@ -160,14 +170,22 @@ function computeImpactData(windowDays: number): ImpactData {
       autonomousMttrSamples.push(mttr);
     } else {
       manualMttrSamples.push(mttr);
+      // Context-assisted split: did the engineer read Mergen's brief before acting?
+      if (inc.contextBriefViewedAt != null) {
+        contextAssistedMttrSamples.push(mttr);
+      } else {
+        unassistedMttrSamples.push(mttr);
+      }
     }
   }
   const allMttrSamples = [...autonomousMttrSamples, ...manualMttrSamples];
 
   const avg = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
-  const avgAutonomousMttrMs = avg(autonomousMttrSamples);
-  const avgManualMttrMs     = avg(manualMttrSamples);
-  const avgActualMttrMs     = avg(allMttrSamples);
+  const avgAutonomousMttrMs      = avg(autonomousMttrSamples);
+  const avgManualMttrMs          = avg(manualMttrSamples);
+  const avgActualMttrMs          = avg(allMttrSamples);
+  const avgContextAssistedMttrMs = avg(contextAssistedMttrSamples);
+  const avgUnassistedMttrMs      = avg(unassistedMttrSamples);
 
   // For reduction %, prefer the split comparison; fall back to combined vs. estimate
   const autonomousBenchmark = avgAutonomousMttrMs ?? ESTIMATED_AUTONOMOUS_MTTR_MS;

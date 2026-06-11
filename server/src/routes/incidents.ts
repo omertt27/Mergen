@@ -58,6 +58,17 @@ export function createIncidentsRouter(): Router {
     res.json({ ok: true, incident: inc });
   });
 
+  // ── Mark context brief viewed ─────────────────────────────────────────────────
+  // Call this when an engineer reads Mergen's diagnosis brief before acting.
+  // Recorded automatically when GET /trust-score/:pid is called.
+  // Used to split MTTR into context-assisted vs. unassisted in the impact report.
+  router.post('/incidents/:pid/mark-context-viewed', (req, res) => {
+    const inc = incidentStore.get(req.params.pid);
+    if (!inc) { res.status(404).json({ error: 'not found' }); return; }
+    incidentStore.markContextViewed(req.params.pid);
+    res.json({ ok: true, pid: req.params.pid, contextBriefViewedAt: inc.contextBriefViewedAt ?? Date.now() });
+  });
+
   // ── Acknowledge ───────────────────────────────────────────────────────────────
   router.post('/incidents/:pid/acknowledge', (req, res) => {
     const { by } = (req.body ?? {}) as { by?: string };

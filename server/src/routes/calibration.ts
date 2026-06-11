@@ -268,6 +268,9 @@ export function createCalibrationRouter(): Router {
       return;
     }
 
+    // Reading the trust-score brief counts as the engineer consulting Mergen's diagnosis
+    incidentStore.markContextViewed(pid);
+
     const rawScore = inc.confidence;
     const tag      = inc.tag;
     const result   = plattScale(rawScore, tag);

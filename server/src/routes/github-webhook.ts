@@ -33,7 +33,8 @@ import os from 'os';
 import { commitContextStore, extractLinkedIssues, type CommitContext } from '../sensor/commit-context-store.js';
 import { detectAiCommit } from '../intelligence/ai-commit.js';
 import { analyzePRForShadow } from '../intelligence/pr-shadow-analyzer.js';
-import { maybePostPRComment } from '../intelligence/pr-commenter.js';
+import { maybePostPRComment, hasMergenComment } from '../intelligence/pr-commenter.js';
+import { recordHabituationEvent } from '../sensor/habituation-store.js';
 import { type PRShadowResult } from '../sensor/pr-shadow-store.js';
 import logger from '../sensor/logger.js';
 
@@ -300,6 +301,17 @@ function handleReviewEvent(payload: PullRequestReviewPayload): void {
   if (!_pendingApprovers.has(key)) _pendingApprovers.set(key, new Set());
   _pendingApprovers.get(key)!.add(payload.review.user.login);
   logger.debug({ repo, prNum, approver: payload.review.user.login }, 'github-webhook: approval captured');
+
+  // Habituation signal: engineer submitted a review on a PR where Mergen commented
+  if (hasMergenComment(key)) {
+    recordHabituationEvent({
+      recordedAt: Date.now(),
+      eventType: 'pr_review_submitted',
+      actor: payload.review.user.login,
+      repo,
+      prNumber: prNum,
+    });
+  }
 }
 
 async function handlePREvent(payload: PullRequestPayload): Promise<void> {

@@ -29,6 +29,7 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import { AUDIT_LOG } from '../sensor/paths.js';
 import { hasPermission } from '../sensor/rbac.js';
+import { recordBlunder } from '../sensor/agent-blunder-store.js';
 import logger from '../sensor/logger.js';
 
 // ── Allowlist (primary gate) ──────────────────────────────────────────────────
@@ -148,6 +149,7 @@ export async function executeRemediation(
     };
     _auditExecution(command, result, actor);
     logger.warn({ actor, command }, 'autonomy: command blocked by RBAC (insufficient role)');
+    recordBlunder({ blunderType: 'rbac_block', command, blockReason: result.blockReason!, service: null, tag: null, actor, pid: null, confidenceScore: null });
     return result;
   }
 
@@ -161,6 +163,8 @@ export async function executeRemediation(
     };
     _auditExecution(command, result, actor);
     logger.warn({ command, blockReason }, 'autonomy: command blocked by allowlist');
+    const blunderType = typeof blockReason === 'string' && /inject/i.test(blockReason) ? 'injection_attempt' : 'allowlist_block';
+    recordBlunder({ blunderType, command, blockReason: blockReason ?? '', service: null, tag: null, actor, pid: null, confidenceScore: null });
     return result;
   }
   logger.debug({ command, matchedRule }, 'autonomy: command passed allowlist');

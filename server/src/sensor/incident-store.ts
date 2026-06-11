@@ -54,6 +54,13 @@ export interface Incident {
    * confirmed. This is the LeCun metric: not just "fast-resolved" but causally correct.
    */
   causallyCorrect: boolean;
+  /**
+   * Timestamp when an engineer first called GET /trust-score/:pid or
+   * POST /incidents/:pid/mark-context-viewed — meaning they read Mergen's
+   * diagnosis brief before taking manual action. Used to split MTTR by
+   * context-assisted vs. unassisted in the impact report.
+   */
+  contextBriefViewedAt: number | null;
 }
 
 class IncidentStore {
@@ -119,6 +126,7 @@ class IncidentStore {
       try { this.db.run(`ALTER TABLE incidents ADD COLUMN service TEXT`); } catch { /**/ }
       try { this.db.run(`ALTER TABLE incidents ADD COLUMN cluster TEXT`); } catch { /**/ }
       try { this.db.run(`ALTER TABLE incidents ADD COLUMN causally_correct INTEGER NOT NULL DEFAULT 0`); } catch { /**/ }
+      try { this.db.run(`ALTER TABLE incidents ADD COLUMN context_brief_viewed_at INTEGER`); } catch { /**/ }
       this._flush();
       logger.info({ path: INCIDENT_DB }, 'incident store initialised');
     } catch (err) {
@@ -155,6 +163,7 @@ class IncidentStore {
       resolvedAt: row.resolved_at ? Number(row.resolved_at) : null,
       resolvedAutonomously: Boolean(row.resolved_autonomously),
       causallyCorrect: Boolean(row.causally_correct),
+      contextBriefViewedAt: row.context_brief_viewed_at ? Number(row.context_brief_viewed_at) : null,
     };
   }
 
@@ -165,7 +174,8 @@ class IncidentStore {
         pid, status: 'open', hypothesis: '', tag: '', assignee: null, notes: [],
         sha: null, environment: null, service: null, cluster: null, confidence: 0,
         createdAt: now, updatedAt: now,
-        acknowledgedBy: null, resolvedAt: null, resolvedAutonomously: false, causallyCorrect: false, ...fields,
+        acknowledgedBy: null, resolvedAt: null, resolvedAutonomously: false, causallyCorrect: false,
+        contextBriefViewedAt: null, ...fields,
       };
     }
 
@@ -246,6 +256,21 @@ class IncidentStore {
         return this._row(row);
       });
     } catch { return []; }
+  }
+
+  markContextViewed(pid: string): void {
+    if (!this.db) return;
+    const existing = this.get(pid);
+    if (!existing || existing.contextBriefViewedAt != null) return;
+    try {
+      this.db.run(
+        `UPDATE incidents SET context_brief_viewed_at=? WHERE pid=?`,
+        [Date.now(), pid],
+      );
+      this._flush();
+    } catch (err) {
+      logger.warn({ err, pid }, 'incident store: markContextViewed failed');
+    }
   }
 
   /**

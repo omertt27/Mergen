@@ -12,6 +12,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { type PRShadowResult } from '../sensor/pr-shadow-store.js';
+import { recordHabituationEvent } from '../sensor/habituation-store.js';
 import logger from '../sensor/logger.js';
 
 const COMMENT_THRESHOLD = 0.85;
@@ -19,6 +20,11 @@ const COMMENT_THRESHOLD = 0.85;
 // Keyed by "org/repo#prNumber". Resets on server restart — a duplicate
 // comment on restart is less harmful than blocking the pipeline.
 const _commented = new Set<string>();
+
+/** True when Mergen has posted a comment on this repo#prNumber in the current process. */
+export function hasMergenComment(repoAndPr: string): boolean {
+  return _commented.has(repoAndPr);
+}
 
 function loadGitHubToken(): string {
   if (process.env.GITHUB_TOKEN) return process.env.GITHUB_TOKEN;
@@ -86,6 +92,14 @@ export async function maybePostPRComment(result: PRShadowResult): Promise<void> 
       { prId: result.prId, score: result.relevanceScore },
       'pr-commenter: comment posted',
     );
+    recordHabituationEvent({
+      recordedAt: Date.now(),
+      eventType: 'comment_posted',
+      actor: result.author,
+      repo: result.repo,
+      prNumber: result.prNumber,
+      relevanceScore: result.relevanceScore,
+    });
   } catch (err) {
     // Roll back dedup on failure so the next synchronize event can retry
     _commented.delete(key);

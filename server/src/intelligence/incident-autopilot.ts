@@ -38,6 +38,7 @@ import { getK8sEvents } from '../sensor/k8s-events.js';
 import { hasRecentOverride, dominantOverrideReason } from './override-corpus.js';
 import { recordShadow } from './shadow-log.js';
 import { getAutopilotLevel, autopilotLevelPermits, classifyCommandRisk, autopilotLevelDescription } from './action-risk.js';
+import { recordBlunder } from '../sensor/agent-blunder-store.js';
 import { getStatsForTag } from './calibration.js';
 import { runAgentPipeline, renderPipelineStages } from './agent-pipeline.js';
 import { planningGate } from './planning-gate.js';
@@ -379,6 +380,16 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
     }
 
     logger.info({ service, pid, skipReason, diagPct: pct, execPct, pipelineVerdict: pipeline.verdict }, 'incident-autopilot: skipping auto-execute');
+
+    // Record blunders only for active blocks (not low-confidence or shadow-mode skips)
+    if (skipReason === 'override-corpus') {
+      recordBlunder({ blunderType: 'override_corpus_block', command, blockReason: slackReason, service, tag: topHyp.tag, actor: 'autopilot', pid: topHyp.pid ?? pid, confidenceScore: execConfidence });
+    } else if (skipReason === 'pipeline-block' || skipReason === 'level-restricted') {
+      recordBlunder({ blunderType: 'pipeline_block', command, blockReason: slackReason, service, tag: topHyp.tag, actor: 'autopilot', pid: topHyp.pid ?? pid, confidenceScore: execConfidence });
+    } else if (skipReason === 'planning-gate') {
+      recordBlunder({ blunderType: 'planning_gate_block', command, blockReason: slackReason, service, tag: topHyp.tag, actor: 'autopilot', pid: topHyp.pid ?? pid, confidenceScore: execConfidence });
+    }
+
     const icon = SHADOW_MODE ? '👁️' : '⚠️';
     void postThreadReply(pid, `${icon} _Autopilot: ${slackReason}. Awaiting manual action._`);
     return;
@@ -402,6 +413,8 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
   if (execResult.blocked) {
     logger.warn({ service, pid, reason: execResult.blockReason }, 'incident-autopilot: fix blocked by safety filter');
     void postThreadReply(pid, `🚫 *Fix blocked by safety filter*: ${execResult.blockReason}\nApply manually.`);
+    const execBlunderType = typeof execResult.blockReason === 'string' && /inject/i.test(execResult.blockReason) ? 'injection_attempt' : 'allowlist_block';
+    recordBlunder({ blunderType: execBlunderType, command, blockReason: execResult.blockReason ?? '', service, tag: topHyp.tag, actor: 'autopilot', pid: topHyp.pid ?? pid, confidenceScore: execConfidence });
     return;
   }
 
