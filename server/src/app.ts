@@ -50,6 +50,7 @@ import { createShadowReportRouter } from './routes/shadow-report.js';
 import { createPRShadowRouter } from './routes/pr-shadow.js';
 import { createImpactReportRouter } from './routes/impact-report.js';
 import { createBillingOutcomeRouter } from './routes/billing-outcome.js';
+import { createActiveAuthorsRouter } from './routes/active-authors.js';
 import { createPostmortemRouter } from './routes/postmortem.js';
 import { createExplainWhyRouter } from './routes/explain-why.js';
 import { createAgentBlundersRouter } from './routes/agent-blunders.js';
@@ -60,6 +61,7 @@ import { getPrometheusMetrics } from './sensor/otel-exporter.js';
 import { auditMiddleware } from './sensor/audit-log.js';
 import { ssoMiddleware } from './sensor/sso.js';
 import { serviceGraph } from './sensor/service-graph.js';
+import { routeReachability } from './sensor/route-reachability.js';
 
 /** Paths that require the x-mergen-secret header on non-GET requests. */
 const MUTATING_PATHS = ['/feedback', '/license', '/clear', '/checkpoint', '/telemetry', '/otel-config', '/postmortem'];
@@ -211,6 +213,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createPRShadowRouter());      // PR shadow mode (comment readiness signal)
   app.use(createImpactReportRouter());  // Deck-quality impact artifact
   app.use(createBillingOutcomeRouter()); // Y5: outcome-based billing evidence
+  app.use(createActiveAuthorsRouter());  // Billing unit: unique PR authors per month
   app.use(createPostmortemRouter());    // POST /postmortem/from-slack
   app.use(createExplainWhyRouter());    // GET /explain-why/file?path=
   app.use(createAgentBlundersRouter()); // Agent Blunder Log — safety interceptions
@@ -219,6 +222,12 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   // GET /service-graph — in cloud mode, require API key (exposes internal topology)
   app.get('/service-graph', ...(CLOUD_MODE ? [cloudAuthMiddleware] : []), (_req, res) => {
     res.json({ ok: true, graph: serviceGraph.toJSON() });
+  });
+
+  // GET /route-reachability — live HTTP routes observed in OTLP SERVER spans.
+  // Used by the topology filter to suppress hypotheses about unreachable paths.
+  app.get('/route-reachability', ...(CLOUD_MODE ? [cloudAuthMiddleware] : []), (_req, res) => {
+    res.json({ ok: true, ...routeReachability.toJSON() });
   });
 
   // ── Prometheus metrics endpoint ───────────────────────────────────────────

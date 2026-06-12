@@ -46,6 +46,7 @@ import { planningGate } from './planning-gate.js';
 import { plattScale } from './platt-scaling.js';
 import { formatValidatedFactsForLLM } from './llm-spokesperson.js';
 import { serviceGraph } from '../sensor/service-graph.js';
+import { routeReachability } from '../sensor/route-reachability.js';
 import logger from '../sensor/logger.js';
 
 // Forward approval expiry events to the Slack thread without coupling
@@ -215,9 +216,18 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
       if (isExternal && callees.size === 0) {
         hyp.confidenceScore = Math.max(0, hyp.confidenceScore * 0.75);
       }
+
+      // Route reachability filter: if the hypothesis names a specific HTTP
+      // route or endpoint and that route has never appeared in live OTLP
+      // SERVER spans, penalise it. This suppresses hypotheses about dead-code
+      // paths that a static scanner or LLM may hallucinate as exploitable.
+      const routeMatch = hyp.summary.match(/\/(api|v\d|webhooks|auth|admin|internal)[^\s"')>]*/i);
+      if (routeMatch && routeReachability.size > 0 && !routeReachability.isReachable(routeMatch[0])) {
+        hyp.confidenceScore = Math.max(0, hyp.confidenceScore * 0.7);
+      }
     }
     logger.debug(
-      { service, callers: callers.size, callees: callees.size, hypotheses: causal.hypotheses.length },
+      { service, callers: callers.size, callees: callees.size, routes: routeReachability.size, hypotheses: causal.hypotheses.length },
       'incident-autopilot: topology filter applied',
     );
   }

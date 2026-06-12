@@ -1,11 +1,17 @@
 # Mergen
 
-Claude Code doesn't know what happened in production. Mergen does.
+Your AI IDE is great at writing code. It has no idea what broke in production.
 
-It's an MCP server for your AI IDE. Once connected, ask *"what caused the 3am incident"* and get a causal chain from live telemetry — not a log dump, an actual hypothesis with evidence and a fix command. At ≥85% confidence it executes the fix, validates the result, and posts the audit trail to your Slack thread.
+Mergen is an MCP server that gives your AI IDE live production memory. Once connected, ask *"what caused the 3am incident"* and get a causal chain from live telemetry — not a log dump, an actual hypothesis with evidence and a fix command. At ≥85% confidence it executes the fix, validates the result, and posts the audit trail to your Slack thread.
+
+Works with **Claude Code**, **Cursor**, **Windsurf**, and **VS Code** — any IDE that supports MCP.
 
 ```bash
+# Claude Code
 claude mcp add mergen --transport stdio -- mergen-server start
+
+# Cursor / Windsurf / VS Code
+mergen-server setup   # writes the config file for your IDE automatically
 ```
 
 Then ask: *"Triage the api-service."*
@@ -21,17 +27,21 @@ Then ask: *"Triage the api-service."*
 
 ## Who it's for
 
-Engineering teams where the on-call rotation is developers who also ship features — no dedicated SRE, no internal ops automation platform. If you're a 20-person startup where the CTO is on the pager, this is for you.
+**Startups without a dedicated SRE** — If your on-call rotation is developers who also ship features and the CTO is on the pager, Mergen removes the 3am manual triage entirely.
 
-Claude Code users specifically: you already have the AI IDE. Mergen is the piece that makes it aware of production. It doesn't compete with Claude Code — it gives Claude Code the tools to act on incidents the same way it acts on code.
+**Platform teams at growing companies (50–500 engineers)** — You already have PagerDuty and Datadog. Mergen sits above that stack as an execution layer. It acts on what your observability tools tell it, so your SRE team handles escalations instead of routine restarts.
+
+**Compliance-heavy engineering orgs** — Every autonomous action, every blocked command, and every override is written to `~/.mergen/audit.log` as immutable JSONL. The Agent Blunder Log shows every time Mergen blocked itself. The PII shield is always on. If your CISO needs to approve autonomous execution before you flip `MERGEN_AUTOPILOT=true`, shadow mode gives you a 30-day PDF of exactly what Mergen would have done — and how often it would have been right.
+
+**Any team using an AI IDE** — If you use Claude Code, Cursor, Windsurf, or VS Code with MCP, Mergen connects your IDE to live production telemetry without changing how you work.
 
 ---
 
 ## The gap it closes
 
-Claude Code is exceptional at writing, reviewing, and shipping code. It has no visibility into what broke in production, what the error rate looked like before and after a deploy, or what the on-call engineer did at 3am last Tuesday.
+AI IDEs are exceptional at writing, reviewing, and shipping code. They have no visibility into what broke in production, what the error rate looked like before and after a deploy, or what the on-call engineer did at 3am last Tuesday.
 
-Mergen connects your AI IDE to that context: PagerDuty alerts, OpenTelemetry traces, Docker logs, Datadog spans. When an incident fires, Claude Code can call `triage_incident` and get a structured causal chain instead of asking you to paste logs into the chat.
+Mergen connects your AI IDE to that context: PagerDuty alerts, OpenTelemetry traces, Docker logs, Datadog spans. When an incident fires, your IDE calls `triage_incident` and gets a structured causal chain instead of asking you to paste logs into the chat.
 
 ---
 
@@ -105,7 +115,9 @@ mergen-server start
 
 When you first install Mergen, confidence scores like "91%" are **initial engineering estimates** — not measured from your production incidents. They reflect our judgment of how reliable each detector is across common failure modes.
 
-After you record verdicts on your own incidents (via `/feedback` or the shadow mode annotation API), those numbers become **empirically calibrated to your system**. The Slack thread and MCP output always show whether a confidence score is `estimated` or `calibrated — N verdicts`, so you're never guessing which is which.
+**Day 0 state:** Platt scaling (the statistical layer that converts raw scores into calibrated probabilities) is dormant until your local verdict corpus has at least 10 confirmed outcomes for a given detector. Until then, the score shown is the raw prior — honest, but uncalibrated. The Slack thread and MCP output always label this: `estimated — self-calibrates with use` vs `calibrated — N verdicts`, so you always know which you're looking at.
+
+After you record verdicts on your own incidents (via `/feedback` or the shadow mode annotation API), those numbers become **empirically calibrated to your system**. Per-detector calibration activates at 10 verdicts; a global model activates across all detectors once 10 total verdicts exist.
 
 Detectors that are consistently wrong on your system get demoted or suppressed automatically. Detectors that are consistently right earn trust. The system disciplines itself.
 
@@ -523,15 +535,9 @@ Mergen runs entirely on your infrastructure. Your telemetry never leaves. For te
 
 ---
 
-## Community
-
-- [GitHub Discussions](https://github.com/omertt27/Mergen/discussions) — questions, patterns, false positives
-- [Issues](https://github.com/omertt27/Mergen/issues) — bugs and feature requests
-
----
 
 <div align="center">
 
-**Mergen — production memory for Claude Code.**
+**Mergen — production memory for your AI IDE.**
 
 </div>

@@ -20,6 +20,7 @@ import { Router, type Request, type Response } from 'express';
 import { store } from '../sensor/buffer.js';
 import { historyStore } from '../sensor/sqlite-store.js';
 import { serviceGraph, extractCalleeService } from '../sensor/service-graph.js';
+import { routeReachability } from '../sensor/route-reachability.js';
 import logger from '../sensor/logger.js';
 
 export const otlpReceiverRouter = Router();
@@ -185,6 +186,7 @@ otlpReceiverRouter.post('/v1/traces', (req: Request, res: Response): void => {
           };
           store.push(event);
           historyStore.push(event);
+          routeReachability.record(route, isError);
           ingested++;
         } else if (span.kind === SPAN_KIND_CLIENT) {
           // Outbound HTTP client span → network event

@@ -19,6 +19,7 @@
 import { commitContextStore } from '../sensor/commit-context-store.js';
 import { incidentStore } from '../sensor/incident-store.js';
 import { recordPRShadow, type PRShadowResult } from '../sensor/pr-shadow-store.js';
+import { getOverrideSummary } from './override-corpus.js';
 import logger from '../sensor/logger.js';
 
 // ── Tokenizer ─────────────────────────────────────────────────────────────────
@@ -50,10 +51,34 @@ function overlapScore(query: Set<string>, doc: Set<string>): number {
 
 // ── Comment builder ───────────────────────────────────────────────────────────
 
+interface ContextMatch {
+  title: string;
+  author: string;
+  prNumber: number | null;
+  daysAgo: number;
+  rationale?: string | null;
+  aiGenerated?: boolean;
+}
+
+interface IncidentMatch {
+  hypothesis: string;
+  daysAgo: number;
+  confidence: number;
+  resolvedAutonomously?: boolean;
+  causallyCorrect?: boolean;
+}
+
+interface OperationalConstraint {
+  tag: string;
+  topReason: string;
+  count: number;
+}
+
 function buildComment(
   prTitle: string,
-  matchedContextResults: Array<{ title: string; author: string; prNumber: number | null; daysAgo: number }>,
-  matchedIncidentResults: Array<{ hypothesis: string; daysAgo: number; confidence: number }>,
+  matchedContextResults: ContextMatch[],
+  matchedIncidentResults: IncidentMatch[],
+  operationalConstraints: OperationalConstraint[],
 ): string {
   const lines: string[] = [
     '## 🔍 Mergen Context',
@@ -65,7 +90,12 @@ function buildComment(
     for (const inc of matchedIncidentResults.slice(0, 3)) {
       const when = inc.daysAgo === 0 ? 'today' : `${inc.daysAgo}d ago`;
       const pct = Math.round(inc.confidence * 100);
-      lines.push(`- ${inc.hypothesis} _(${pct}% confidence · ${when})_`);
+      const outcome = inc.causallyCorrect
+        ? ' · ✅ fix confirmed'
+        : inc.resolvedAutonomously
+          ? ' · ⚙️ auto-resolved'
+          : '';
+      lines.push(`- ${inc.hypothesis} _(${pct}% confidence · ${when}${outcome})_`);
     }
     lines.push('');
   }
@@ -75,7 +105,25 @@ function buildComment(
     for (const ctx of matchedContextResults.slice(0, 3)) {
       const ref = ctx.prNumber ? `#${ctx.prNumber}` : 'direct push';
       const when = ctx.daysAgo === 0 ? 'today' : `${ctx.daysAgo}d ago`;
-      lines.push(`- ${ref}: **${ctx.title}** — @${ctx.author} _(${when})_`);
+      const aiTag = ctx.aiGenerated ? ' · 🤖 AI-generated' : '';
+      lines.push(`- ${ref}: **${ctx.title}** — @${ctx.author} _(${when}${aiTag})_`);
+      if (ctx.rationale) {
+        // Show the first sentence of the PR description — this is the "why" that
+        // junior engineers need to see: the constraint or reasoning the original
+        // author recorded, not just the title.
+        const firstSentence = ctx.rationale.split(/[.\n]/)[0]?.trim();
+        if (firstSentence && firstSentence.length > 10) {
+          lines.push(`  > ${firstSentence.slice(0, 160)}`);
+        }
+      }
+    }
+    lines.push('');
+  }
+
+  if (operationalConstraints.length > 0) {
+    lines.push('**Operational constraints on this service:**');
+    for (const c of operationalConstraints.slice(0, 3)) {
+      lines.push(`- \`${c.tag}\` overridden ${c.count}× — top reason: \`${c.topReason}\``);
     }
     lines.push('');
   }
@@ -117,6 +165,8 @@ export async function analyzePRForShadow(
     author: string;
     prNumber: number | null;
     daysAgo: number;
+    rationale: string | null;
+    aiGenerated: boolean;
   }> = [];
 
   for (const ctx of historicalPRs) {
@@ -131,6 +181,8 @@ export async function analyzePRForShadow(
         author: ctx.author ?? 'unknown',
         prNumber: ctx.prNumber,
         daysAgo: Math.floor((now - (ctx.mergedAt ?? ctx.capturedAt)) / DAY_MS),
+        rationale: ctx.prBody ?? null,
+        aiGenerated: ctx.aiGenerated ?? false,
       });
     }
   }
@@ -149,6 +201,8 @@ export async function analyzePRForShadow(
     hypothesis: string;
     daysAgo: number;
     confidence: number;
+    resolvedAutonomously: boolean;
+    causallyCorrect: boolean;
   }> = [];
 
   const serviceNameLower = serviceName.toLowerCase();
@@ -161,6 +215,8 @@ export async function analyzePRForShadow(
         hypothesis: inc.hypothesis,
         daysAgo: Math.floor((now - inc.createdAt) / DAY_MS),
         confidence: inc.confidence,
+        resolvedAutonomously: inc.resolvedAutonomously ?? false,
+        causallyCorrect: inc.causallyCorrect ?? false,
       });
     }
   }
@@ -192,8 +248,19 @@ export async function analyzePRForShadow(
   // This is the conservative threshold that earns the right to interrupt.
   const wouldHaveShown = matchedIncidents >= 1 && relevanceScore >= 0.7;
 
+  // Build operational constraints section from the override corpus so that
+  // junior engineers see why certain actions on this service have been
+  // overridden — the "why this constraint exists" layer.
+  const overrideSummary = getOverrideSummary()
+    .filter((s) => s.services.includes(serviceName))
+    .map((s) => ({
+      tag: s.tag,
+      topReason: s.dominantReason ?? 'other',
+      count: s.total,
+    }));
+
   const wouldHaveComment = wouldHaveShown
-    ? buildComment(prTitle, topContextMatches, topIncidentMatches)
+    ? buildComment(prTitle, topContextMatches, topIncidentMatches, overrideSummary)
     : null;
 
   const result = recordPRShadow({

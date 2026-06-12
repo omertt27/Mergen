@@ -23,7 +23,27 @@ import { postmortemStore } from '../intelligence/postmortem-store.js';
 import { getIncidentCount } from '../intelligence/usage.js';
 
 const DEFAULT_REVENUE_PER_MINUTE_USD = 100;
-const AUTONOMOUS_MTTR_MS = 2 * 60 * 1000; // 2-minute conservative estimate
+const AUTONOMOUS_MTTR_FALLBACK_MS = 2 * 60 * 1000; // fallback when no empirical data exists
+
+/**
+ * Compute the median autonomous MTTR from resolved incidents.
+ * Returns null when fewer than 3 autonomous resolutions exist (not enough
+ * data to be statistically meaningful — fall back to the conservative prior).
+ */
+function getMedianAutonomousMttrMs(
+  resolved: Array<{ resolvedAutonomously: boolean; resolvedAt: number | null; createdAt: number }>,
+): number | null {
+  const samples = resolved
+    .filter((i) => i.resolvedAutonomously && i.resolvedAt != null)
+    .map((i) => i.resolvedAt! - i.createdAt)
+    .filter((ms) => ms > 0)
+    .sort((a, b) => a - b);
+  if (samples.length < 3) return null;
+  const mid = Math.floor(samples.length / 2);
+  return samples.length % 2 === 0
+    ? (samples[mid - 1] + samples[mid]) / 2
+    : samples[mid];
+}
 
 function fmtMs(ms: number): string {
   if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
@@ -54,9 +74,17 @@ export function createBillingOutcomeRouter(): Router {
     const totalResolved = resolved.length;
 
     // ── Revenue preservation ───────────────────────────────────────────────
-    // For each autonomously resolved incident: baseline MTTR - autonomous MTTR = time saved
+    // Autonomous MTTR: use the empirical median when ≥3 data points exist.
+    // Below that threshold fall back to the conservative 2-minute prior so the
+    // report doesn't look fabricated when a customer first installs Mergen.
+    const empiricalAutonomousMttrMs = getMedianAutonomousMttrMs(resolved);
+    const autonomousMttrMs = empiricalAutonomousMttrMs ?? AUTONOMOUS_MTTR_FALLBACK_MS;
+    const autonomousMttrSource = empiricalAutonomousMttrMs != null
+      ? `empirical median (n=${resolved.filter((i) => i.resolvedAutonomously && i.resolvedAt).length})`
+      : 'conservative prior — updates after 3+ autonomous resolutions';
+
     const baselineMttrMs = avgManualMttrMs ?? 30 * 60 * 1000; // 30-min fallback
-    const mttrSavedPerIncidentMs = Math.max(0, baselineMttrMs - AUTONOMOUS_MTTR_MS);
+    const mttrSavedPerIncidentMs = Math.max(0, baselineMttrMs - autonomousMttrMs);
     const totalTimeSavedMs = mttrSavedPerIncidentMs * autonomousCount;
     const totalTimeSavedMin = totalTimeSavedMs / 60_000;
     const estimatedRevenuePreservedUsd = totalTimeSavedMin * revenuePerMinute;
@@ -78,7 +106,8 @@ export function createBillingOutcomeRouter(): Router {
       autonomousRate: totalResolved > 0 ? Math.round((autonomousCount / totalResolved) * 100) : 0,
       avgManualMttrMs,
       avgManualMttrLabel: avgManualMttrMs != null ? fmtMs(avgManualMttrMs) : null,
-      estimatedAutonomousMttrMs: AUTONOMOUS_MTTR_MS,
+      estimatedAutonomousMttrMs: autonomousMttrMs,
+      autonomousMttrSource,
       // Time savings
       mttrSavedPerIncidentMs: avgManualMttrMs != null ? mttrSavedPerIncidentMs : null,
       totalTimeSavedMs: avgManualMttrMs != null ? totalTimeSavedMs : null,
@@ -90,7 +119,7 @@ export function createBillingOutcomeRouter(): Router {
         : null,
       revenuePreservedNote: avgManualMttrMs == null
         ? 'Insufficient data: need at least one manually-resolved incident for MTTR baseline.'
-        : `Based on ${fmtMs(baselineMttrMs)} avg manual MTTR vs ${fmtMs(AUTONOMOUS_MTTR_MS)} autonomous. Configure MERGEN_REVENUE_PER_MINUTE_USD for your revenue rate.`,
+        : `Based on ${fmtMs(baselineMttrMs)} avg manual MTTR vs ${fmtMs(autonomousMttrMs)} autonomous (${autonomousMttrSource}). Configure MERGEN_REVENUE_PER_MINUTE_USD for your revenue rate.`,
       // Corpus health (corpus moat metrics)
       corpusPostmortems: corpusTotal,
       topFailureModes: tagStats.slice(0, 5).map((s) => ({
