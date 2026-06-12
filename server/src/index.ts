@@ -166,6 +166,11 @@ async function main(): Promise<void> {
     if (redisStore !== store) setStore(redisStore);
   }
 
+  // ── Crash-safe session flush (every 30 s) ────────────────────────────────
+  // Graceful shutdown already saves the buffer, but a SIGKILL / OOM kill skips
+  // that path. Flushing every 30 s bounds event loss on crash to ≤ 30 seconds.
+  setInterval(() => saveSession(store.serialize()), 30_000).unref();
+
   // Wire team broadcast: events ingested by the sensor layer are fanned out
   // to all connected SSE peers that share the same team token.
   registerTeamBroadcaster(broadcastToTeam);

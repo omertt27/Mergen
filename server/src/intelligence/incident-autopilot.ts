@@ -25,7 +25,8 @@ import type { CausalChain, Hypothesis } from './causal.js';
 import { getRecords, recordVerdict } from './calibration.js';
 import { executeRemediation, extractCommand } from './autonomy.js';
 import { postThreadReply, postApprovalRequest, fetchIncidentChannelContext } from './slack.js';
-import { requestApproval, setApprovalReplyFn } from './execution-gate.js';
+import { requestApproval } from './execution-gate.js';
+import { approvalEvents } from './approval-events.js';
 import { deriveRollback, executeRollback } from './rollback.js';
 import { captureSnapshot } from './incident-replay.js';
 import { computeBlastRadius } from './blast-radius.js';
@@ -47,9 +48,11 @@ import { formatValidatedFactsForLLM } from './llm-spokesperson.js';
 import { serviceGraph } from '../sensor/service-graph.js';
 import logger from '../sensor/logger.js';
 
-// Wire the expiry-reply callback so execution-gate.ts can post to Slack threads
-// without importing slack.ts (which would create a circular dependency).
-setApprovalReplyFn((pid, text) => { void postThreadReply(pid, text); });
+// Forward approval expiry events to the Slack thread without coupling
+// execution-gate.ts → slack.ts directly.
+approvalEvents.on('approval:expired', (pid: string, text: string) => {
+  void postThreadReply(pid, text);
+});
 
 const ANALYSIS_TIMEOUT_MS = 30_000;
 

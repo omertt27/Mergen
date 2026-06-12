@@ -13,6 +13,8 @@ import { trackCall, buildCreditBar, getLastClearAt, setFirstAnalyzeAt, setLastTi
 import { startSession } from './session-metrics.js';
 import logger from '../sensor/logger.js';
 
+const PLAN_TIER_DESCRIPTION = 'Free: up to 25 incidents/month (shadow mode). Pro ($29/mo): 200 incidents/month, $50 overage ceiling.';
+
 /** Registers only `reconstruct_context` — used by slim (5-tool) MCP mode. */
 export function registerAnalyzeRuntime(server: McpServer): void {
   _registerAnalyzeRuntime(server);
@@ -29,7 +31,7 @@ function _registerAnalyzeRuntime(server: McpServer): void {
         'and produces a structured diagnosis with root-cause summary, causal path, and fix hint. ' +
         'Use whenever the user asks why something broke, what changed before an error, or needs ' +
         'context about an AI-written service they did not author. ' +
-        'Free: up to 25 incidents/month (shadow mode). Pro ($29/mo): 200 incidents/month, $50 overage ceiling.',
+        PLAN_TIER_DESCRIPTION,
       inputSchema: {
         focus: z.enum(['errors', 'network', 'all']).optional()
           .describe('Limit analysis scope (default: all)'),

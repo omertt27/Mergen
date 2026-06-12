@@ -1,14 +1,32 @@
-const KNOWN_TOOLS = new Set([
+export const KNOWN_TOOLS = new Set([
+  // Analysis
   'quick_check', 'explain_warning', 'session_summary', 'analyze_runtime', 'reconstruct_context',
-  'get_recent_logs', 'get_network_activity', 'get_dom_context', 'clear_buffer', 'get_status',
-  'get_change_timeline', 'explain_why',
-  'get_component_tree', 'suggest_logging_locations', 'get_diagnostics', 'get_test_results',
-  'mark_capture_start', 'export_session', 'get_process_logs', 'get_ci_results', 'get_deployments', 'get_unified_timeline', 'get_code_owners',
-  'get_error_frequency', 'get_anomaly_baseline', 'get_regression_start', 'get_repro_steps', 'create_ticket',
-  'get_backend_logs', 'get_backend_spans', 'get_correlated_trace',
-  'get_snapshots', 'inject_logpoint', 'remove_logpoint',
+  'explain_why', 'get_change_timeline',
+  'get_error_frequency', 'get_anomaly_baseline', 'get_regression_start', 'get_repro_steps',
+  // Buffer reads
+  'get_recent_logs', 'get_network_activity', 'get_dom_context',
+  'get_component_tree', 'get_diagnostics', 'get_test_results',
+  'get_snapshots', 'get_websockets', 'get_sse',
+  // Backend / infra
+  'get_process_logs', 'get_backend_logs', 'get_backend_spans', 'get_correlated_trace',
+  'get_ci_results', 'get_deployments', 'get_unified_timeline',
+  // Blast radius
+  'get_blast_radius', 'get_code_owners',
+  // Incidents
+  'triage_incident', 'execute_fix', 'validate_fix',
   'get_incident_history', 'list_open_incidents',
+  // Datadog
+  'get_incident_context', 'get_datadog_trace', 'get_datadog_logs',
+  // Debug sessions
+  'inject_logpoint', 'remove_logpoint',
+  // Runbook / postmortem
+  'create_postmortem', 'list_postmortems',
+  // Memory
   'store_agent_memory', 'recall_agent_memory',
+  // Intent
+  'create_ticket',
+  // Utility
+  'clear_buffer', 'get_status', 'mark_capture_start', 'export_session', 'suggest_logging_locations',
 ]);
 
 export const toolCallCounts: Record<string, number> = {};

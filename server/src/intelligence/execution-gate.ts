@@ -14,6 +14,7 @@
 
 import type { CommandRiskTier } from './action-risk.js';
 import type { BlastRadius } from './blast-radius.js';
+import { approvalEvents } from './approval-events.js';
 import logger from '../sensor/logger.js';
 
 export interface PendingExecution {
@@ -30,15 +31,6 @@ export interface PendingExecution {
 
 const APPROVAL_WINDOW_MS = 15 * 60 * 1_000;
 const _pending = new Map<string, PendingExecution>();
-
-// Injected by incident-autopilot.ts at startup — breaks the circular
-// slack.ts ↔ execution-gate.ts import cycle.
-type ThreadReplyFn = (pid: string, text: string) => void;
-let _replyFn: ThreadReplyFn | null = null;
-
-export function setApprovalReplyFn(fn: ThreadReplyFn): void {
-  _replyFn = fn;
-}
 
 /**
  * Register a pending execution. The caller is responsible for posting the
@@ -73,9 +65,7 @@ export function pruneExpired(): void {
   for (const [pid, record] of _pending) {
     if (now <= record.expiresAt) continue;
     _pending.delete(pid);
-    if (_replyFn) {
-      _replyFn(pid, '⏰ _Approval window expired (15 min). Re-trigger autopilot or apply fix manually._');
-    }
+    approvalEvents.emit('approval:expired', pid, '⏰ _Approval window expired (15 min). Re-trigger autopilot or apply fix manually._');
     logger.info({ pid, command: record.command }, 'execution-gate: approval window expired');
   }
 }
