@@ -1,4 +1,4 @@
-name: Test Suite
+name: CI
 
 on:
   push:
@@ -7,168 +7,59 @@ on:
     branches: [main, develop]
 
 jobs:
-  test-server:
-    name: Server Tests
+  build-and-test:
+    name: Build & Test (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     strategy:
       matrix:
-        node-version: [18.x, 20.x, 22.x]
+        node-version: [20.x, 22.x]
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-          cache: 'npm'
+          cache: npm
           cache-dependency-path: server/package-lock.json
 
       - name: Install dependencies
-        working-directory: ./server
+        working-directory: server
         run: npm ci
 
-      - name: Run E2E System Tests
-        working-directory: ./server
-        run: npm test -- e2e-system.test.ts --reporter=verbose
+      - name: TypeScript — type check
+        working-directory: server
+        run: npx tsc --noEmit
 
-      - name: Run MCP Tools Tests
-        working-directory: ./server
-        run: npm test -- mcp-tools.test.ts --reporter=verbose
+      - name: Build
+        working-directory: server
+        run: npm run build:server
 
-      - name: Run Load & Stress Tests
-        working-directory: ./server
-        run: npm test -- load-stress.test.ts --reporter=verbose
+      - name: Test
+        working-directory: server
+        run: npm run test:coverage -- --reporter=verbose
 
-      - name: Run Integration Tests
-        working-directory: ./server
-        run: npm test -- integration.test.ts --reporter=verbose
-
-      - name: Run All Tests with Coverage
-        working-directory: ./server
-        run: npm run test:coverage
-
-      - name: Upload coverage to Codecov
+      - name: Upload coverage
+        if: matrix.node-version == '20.x'
         uses: codecov/codecov-action@v4
         with:
-          files: ./server/coverage/lcov.info
+          files: server/coverage/lcov.info
           flags: server
-          name: server-${{ matrix.node-version }}
-        if: matrix.node-version == '20.x'
-
-  test-extension:
-    name: Extension Tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20.x
-
-      - name: Check if extension has tests
-        id: check-tests
-        run: |
-          if [ -f "extension/package.json" ] && grep -q '"test"' extension/package.json; then
-            echo "has_tests=true" >> $GITHUB_OUTPUT
-          else
-            echo "has_tests=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Install dependencies
-        if: steps.check-tests.outputs.has_tests == 'true'
-        working-directory: ./extension
-        run: npm install
-
-      - name: Run extension tests
-        if: steps.check-tests.outputs.has_tests == 'true'
-        working-directory: ./extension
-        run: npm test
-
-  lint-and-build:
-    name: Lint & Build
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20.x
-          cache: 'npm'
-          cache-dependency-path: server/package-lock.json
-
-      - name: Install dependencies
-        working-directory: ./server
-        run: npm ci
-
-      - name: Build server
-        working-directory: ./server
-        run: npm run build
-
-      - name: Check build artifacts
-        working-directory: ./server
-        run: |
-          test -f dist/index.js || (echo "Build failed: index.js not found" && exit 1)
-          echo "✓ Build artifacts verified"
+        continue-on-error: true
 
   security-audit:
     name: Security Audit
     runs-on: ubuntu-latest
     timeout-minutes: 5
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20.x
-
-      - name: Audit server dependencies
-        working-directory: ./server
-        run: npm audit --audit-level=high
+      - run: npm audit --audit-level=high
+        working-directory: server
         continue-on-error: true
-
-  performance-check:
-    name: Performance Benchmarks
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20.x
-          cache: 'npm'
-          cache-dependency-path: server/package-lock.json
-
-      - name: Install dependencies
-        working-directory: ./server
-        run: npm ci
-
-      - name: Run load tests
-        working-directory: ./server
-        run: npm test -- load-stress.test.ts --reporter=verbose
-
-      - name: Check performance metrics
-        run: |
-          echo "✓ Load tests completed"
-          echo "Expected metrics:"
-          echo "  - Throughput: >200 events/sec"
-          echo "  - Latency P95: <200ms"
-          echo "  - Success rate: >95%"

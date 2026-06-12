@@ -1,0 +1,1 @@
+export declare function getPlan(planId?: string): Record<string, unknown>;
