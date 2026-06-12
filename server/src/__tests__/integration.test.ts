@@ -112,18 +112,19 @@ describe('ingest → buffer → tool pipeline', () => {
   });
 
   it('priority eviction preserves errors over console.log when buffer is full', () => {
-    // Fill buffer with 200 console.log events
-    for (let i = 0; i < 200; i++) {
+    const LIMIT = 2000;
+    // Fill buffer to the limit with console.log events
+    for (let i = 0; i < LIMIT; i++) {
       store.push({ type: 'console', level: 'log', args: [`log-${i}`], url: 'u', timestamp: i });
     }
-    expect(store.size()).toBe(200);
+    expect(store.size()).toBe(LIMIT);
 
-    // Push an error — it should evict a log, not be lost
-    store.push({ type: 'console', level: 'error', args: ['critical error'], url: 'u', timestamp: 300 });
+    // Push an error — it should evict a log (priority eviction), not be lost
+    store.push({ type: 'console', level: 'error', args: ['critical error'], url: 'u', timestamp: LIMIT + 1 });
 
-    const errors = store.getLogs(200, 'error');
+    const errors = store.getLogs(LIMIT, 'error');
     expect(errors).toHaveLength(1);
     expect(errors[0].args[0]).toBe('critical error');
-    expect(store.size()).toBe(200); // still 200 total
+    expect(store.size()).toBe(LIMIT); // still at limit — one log was evicted
   });
 });

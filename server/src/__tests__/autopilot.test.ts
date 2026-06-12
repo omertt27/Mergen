@@ -19,13 +19,18 @@
  *   time the dynamic import runs. vi.doMock() is registered inline (not
  *   hoisted) and survives the resetModules → doMock → import sequence.
  *
- *   causal.js and calibration.js are closed-source and don't exist on disk,
- *   so they must be mocked; without doMock they'd cause a "Cannot find module"
- *   error on every re-import.
+ *   causal.ts and calibration.ts are closed-source and gitignored; vitest.config.ts
+ *   maps their import paths to open-source stubs (src/__stubs__/) so Vite can
+ *   resolve them. vi.doMock() then replaces the stubs with test-specific fakes.
+ *
+ * Why vi.useFakeTimers() in shadow-mode beforeEach:
+ *   waitForTelemetry polls for up to 10 s; without fake timers each test
+ *   would take ≥ 10 s and exceed the 5 s default timeout.  Fake timers let
+ *   vi.runAllTimersAsync() advance past the wait instantly.
  */
 
 import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
-import { store } from '../sensor/buffer.js';
+import type { BufferStore } from '../sensor/buffer.js';
 
 // ── Shared mock fns (module-level so test assertions can reference them) ─────
 
@@ -34,22 +39,22 @@ const mockPostThreadReply   = vi.fn().mockResolvedValue(undefined);
 const mockFetchChannelCtx   = vi.fn().mockResolvedValue(null);
 
 // ── Mock registration ─────────────────────────────────────────────────────────
-// Called in beforeEach after vi.resetModules() so all mocks survive the module
-// re-import cycle. Paths are relative to this test file.
+// Must run after vi.resetModules() — see module-level JSDoc for explanation.
 
 function registerMocks(): void {
-  // Closed-source — don't exist on disk, must be mocked or import fails
-  vi.doMock('../intelligence/causal.js', () => ({
+  // vitest.config.ts aliases `./causal.js` → `src/__stubs__/causal.ts`, so
+  // the mock must target the stub path (the resolved id Vite actually loads),
+  // not the original `intelligence/causal.js` path.
+  vi.doMock('../__stubs__/causal.js', () => ({
     buildCausalChain:   (...args: unknown[]) => mockBuildCausalChain(...args),
     fixActionToCommand: vi.fn().mockReturnValue(null),
   }));
-  vi.doMock('../intelligence/calibration.js', () => ({
+  vi.doMock('../__stubs__/calibration.js', () => ({
     getRecords:     vi.fn().mockReturnValue([]),
     recordVerdict:  vi.fn(),
     getStatsForTag: vi.fn().mockReturnValue(null),
   }));
 
-  // Open-source modules with heavy or external dependencies
   vi.doMock('../intelligence/slack.js', () => ({
     postThreadReply:             (...args: unknown[]) => mockPostThreadReply(...args),
     postApprovalRequest:         vi.fn().mockResolvedValue(undefined),
@@ -90,20 +95,33 @@ function registerMocks(): void {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function pushError(msg: string): void {
-  store.push({ type: 'console', level: 'error', args: [msg], url: 'http://api', timestamp: Date.now() });
+// vi.resetModules() creates a fresh module registry, so incident-autopilot.ts
+// gets a NEW store instance on each dynamic import.  We must push events into
+// that same instance — not the stale one from the top-level static import.
+let activeStore: BufferStore;
+
+function pushErrors(msg: string, count = 3): void {
+  for (let i = 0; i < count; i++) {
+    activeStore.push({ type: 'console', level: 'error', args: [msg], url: 'http://api', timestamp: Date.now() });
+  }
 }
 
-async function importAutopilot() {
+async function importAutopilot(): Promise<typeof import('../intelligence/incident-autopilot.js')['runIncidentAutopilot']> {
+  // Import buffer first so both the test and the autopilot share the same store instance.
+  const bufMod = await import('../sensor/buffer.js');
+  activeStore = bufMod.store;
   const mod = await import('../intelligence/incident-autopilot.js');
   return mod.runIncidentAutopilot;
+}
+
+function joinSlackCalls(): string {
+  return mockPostThreadReply.mock.calls.map((c: unknown[]) => c[1]).join('\n');
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('runIncidentAutopilot — guard', () => {
   beforeEach(() => {
-    store.clear();
     vi.clearAllMocks();
     vi.resetModules();
     delete process.env.MERGEN_SHADOW_MODE;
@@ -124,63 +142,63 @@ describe('runIncidentAutopilot — shadow mode', () => {
   let runIncidentAutopilot: Awaited<ReturnType<typeof importAutopilot>>;
 
   beforeEach(async () => {
-    store.clear();
     vi.clearAllMocks();
+    vi.useFakeTimers();
     vi.resetModules();
     process.env.MERGEN_SHADOW_MODE = 'true';
     delete process.env.MERGEN_AUTOPILOT;
     registerMocks();
     runIncidentAutopilot = await importAutopilot();
+    activeStore.clear();
   });
 
   afterEach(() => {
     delete process.env.MERGEN_SHADOW_MODE;
+    vi.useRealTimers();
   });
 
   it('posts "no signals" to Slack when the buffer is empty — never silent', async () => {
     mockFetchChannelCtx.mockResolvedValue(null);
 
-    await runIncidentAutopilot({ service: 'api', pid: 'p-nosig', firedAt: Date.now() });
+    const promise = runIncidentAutopilot({ service: 'api', pid: 'p-nosig', firedAt: Date.now() });
+    // Advance past waitForTelemetry (max 10 s) — capped to avoid the 60 s
+    // setInterval in execution-gate.ts which would loop infinitely with runAllTimersAsync.
+    await vi.advanceTimersByTimeAsync(11_000);
+    await promise;
 
     expect(mockPostThreadReply).toHaveBeenCalledOnce();
-    const [, text] = mockPostThreadReply.mock.calls[0];
+    const text = String(mockPostThreadReply.mock.calls[0][1]);
     expect(text).toMatch(/no errors|no signals/i);
   });
 
   it('posts raw telemetry fallback on analysis timeout — never swallows silently', async () => {
-    vi.useFakeTimers();
-    pushError('TypeError: Cannot read properties of undefined');
-    pushError('TypeError: Cannot read properties of undefined');
-
+    pushErrors('TypeError: Cannot read properties of undefined');
     mockBuildCausalChain.mockReturnValue(new Promise(() => {}));
 
     const promise = runIncidentAutopilot({ service: 'api', pid: 'p-timeout', firedAt: Date.now() });
     // Advance past waitForTelemetry (10 s) + analysis timeout (30 s)
-    await vi.runAllTimersAsync();
+    await vi.advanceTimersByTimeAsync(45_000);
     await promise;
-
-    vi.useRealTimers();
 
     const calls = mockPostThreadReply.mock.calls;
     expect(calls.length).toBeGreaterThanOrEqual(1);
-    const allText = calls.map(([, text]: [string, string]) => text).join('\n');
-    expect(allText).toMatch(/raw telemetry|analysis unavailable|manual investigation/i);
+    expect(joinSlackCalls()).toMatch(/raw telemetry|analysis unavailable|manual investigation/i);
   });
 
   it('posts diagnosis message when causal chain returns empty hypotheses — never silent', async () => {
-    pushError('database connection timeout');
+    pushErrors('database connection timeout');
     mockBuildCausalChain.mockResolvedValue({ hypotheses: [] });
 
-    await runIncidentAutopilot({ service: 'api', pid: 'p-nohyp', firedAt: Date.now() });
+    const promise = runIncidentAutopilot({ service: 'api', pid: 'p-nohyp', firedAt: Date.now() });
+    await vi.advanceTimersByTimeAsync(11_000);
+    await promise;
 
     expect(mockPostThreadReply).toHaveBeenCalled();
-    const allText = mockPostThreadReply.mock.calls
-      .map(([, text]: [string, string]) => text).join('\n');
-    expect(allText).toMatch(/no actionable root cause|no hypothesis/i);
+    expect(joinSlackCalls()).toMatch(/no actionable root cause|no hypothesis/i);
   });
 
   it('posts diagnosis when hypothesis is below execution threshold', async () => {
-    pushError('null pointer exception');
+    pushErrors('null pointer exception');
     mockBuildCausalChain.mockResolvedValue({
       hypotheses: [{
         tag:                    'null_deref',
@@ -195,11 +213,11 @@ describe('runIncidentAutopilot — shadow mode', () => {
       }],
     });
 
-    await runIncidentAutopilot({ service: 'api', pid: 'p-lowconf', firedAt: Date.now() });
+    const promise = runIncidentAutopilot({ service: 'api', pid: 'p-lowconf', firedAt: Date.now() });
+    await vi.advanceTimersByTimeAsync(11_000);
+    await promise;
 
     expect(mockPostThreadReply).toHaveBeenCalled();
-    const allText = mockPostThreadReply.mock.calls
-      .map(([, text]: [string, string]) => text).join('\n');
-    expect(allText).toMatch(/Root Cause|Hypothesis|Mergen Autopilot/i);
+    expect(joinSlackCalls()).toMatch(/Root Cause|Hypothesis|Mergen Autopilot/i);
   });
 });

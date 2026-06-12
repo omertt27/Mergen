@@ -32,11 +32,11 @@ describe('BufferStore', () => {
     expect(s.getLogs()).toHaveLength(1);
   });
 
-  it('respects the ring-buffer limit (200)', () => {
-    for (let i = 0; i < 210; i++) s.push(makeConsole('log', i));
-    expect(s.size()).toBe(200);
+  it('respects the ring-buffer limit (2000)', () => {
+    for (let i = 0; i < 2010; i++) s.push(makeConsole('log', i));
+    expect(s.size()).toBe(2000);
     // Oldest 10 evicted — first remaining timestamp should be 10
-    const logs = s.getLogs(200);
+    const logs = s.getLogs(2000);
     expect(logs[0].timestamp).toBe(10);
   });
 
