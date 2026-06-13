@@ -1,9 +1,8 @@
-# Mergen — AI Operations Layer for Backend & Infrastructure
+# Mergen — Operational Memory Layer for Autonomous Engineering
 
-Mergen is the MCP layer that turns your AI IDE (Claude Code, Cursor, Windsurf, VS Code)
-into an autonomous ops agent. Connect Mergen to your backend telemetry — PagerDuty fires,
-your AI IDE calls `triage_incident`, Mergen diagnoses root cause, executes the fix at ≥85%
-confidence, validates the result, and posts the audit trail to your Slack thread.
+AI coding agents are taking over software development. The bottleneck is not code generation — it is operational memory. GitHub stores what changed. Not why the Friday settlement window makes connection pool resizing unsafe. Not which fix your on-call reaches for at 3am. Coding agents fly blind into these constraints.
+
+Mergen is the missing primitive: an MCP server that compresses raw production telemetry into structured machine context, encodes your team's override decisions as queryable policy, and gives AI coding agents (Claude Code, Cursor, Windsurf, VS Code) the operational facts they need to act safely in production.
 
 All data stays on your infrastructure. No cloud. No copy-paste.
 

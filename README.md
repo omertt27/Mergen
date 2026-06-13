@@ -1,8 +1,10 @@
 # Mergen
 
-Your AI IDE is great at writing code. It has no idea what broke in production.
+AI agents are taking over software development. The bottleneck is not code generation — it is operational memory.
 
-Mergen is an MCP server that gives your AI IDE live production memory. Once connected, ask *"what caused the 3am incident"* and get a causal chain from live telemetry — not a log dump, an actual hypothesis with evidence and a fix command. At ≥85% confidence it executes the fix, validates the result, and posts the audit trail to your Slack thread.
+GitHub stores what changed. Not why the Friday settlement window makes connection pool resizing unsafe. Not that your JWT middleware breaks after `jsonwebtoken` upgrades. Not which fix your on-call reaches for at 3am. Coding agents fly blind into these constraints.
+
+**Mergen is the operational memory layer for autonomous engineering.** It compresses raw production telemetry into structured machine context, encodes your team's override decisions as queryable policy, and gives AI coding agents the production facts they need to act safely — without asking you to paste logs into a chat. At ≥85% confidence it executes the fix, validates the result, and posts the audit trail to your Slack thread.
 
 Works with **Claude Code**, **Cursor**, **Windsurf**, and **VS Code** — any IDE that supports MCP.
 
@@ -17,7 +19,7 @@ mergen-server setup   # writes the config file for your IDE automatically
 Then ask: *"Triage the api-service."*
 
 [![npm](https://img.shields.io/npm/v/mergen-server)](https://www.npmjs.com/package/mergen-server)
-[![License](https://img.shields.io/badge/license-MIT%20%2B%20Proprietary-blue)](./LICENSE)
+[![License](https://img.shields.io/badge/license-MIT%20%2B%20ELv2-blue)](./LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-stdio-black)](https://modelcontextprotocol.io)
 [![Privacy](https://img.shields.io/badge/data-your%20infra%20only-success)](#security)
 
@@ -532,6 +534,25 @@ open http://127.0.0.1:3000/impact-report?format=html
 ## Self-host vs. cloud
 
 Mergen runs entirely on your infrastructure. Your telemetry never leaves. For teams that want hosted Mergen (multi-tenant, managed updates, compliance exports), reach out: **hello@mergen.dev**
+
+---
+
+## Governance
+
+Mergen is **public-source, closed-governance** infrastructure.
+
+The source code is public so that enterprise security teams and CISOs can audit our PII shield, command allowlist, and autonomous execution model before deploying inside their production VPCs. **We do not accept external pull requests.**
+
+This is a deliberate supply-chain security decision: Mergen executes autonomous remediation commands inside your infrastructure. Every line of server code is reviewed and signed by the core team to guarantee the integrity of the confidence calibration and command execution logic.
+
+| Want to... | Do this |
+|---|---|
+| Report a bug | [Open an Issue](https://github.com/omertt27/Mergen/issues) |
+| Suggest a feature | [Start a Discussion](https://github.com/omertt27/Mergen/discussions) |
+| Improve the Hypothesis Engine | Rate hypotheses 👍/👎 in the VS Code panel — this directly updates the calibration corpus |
+| Enterprise / custom integration | [mergen.dev/pricing](https://mergen.dev/pricing) |
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full governance model.
 
 ---
 

@@ -1,416 +1,67 @@
 # Contributing to Mergen
 
-Thank you for your interest in contributing to Mergen!
+## Governance model: Public Source, Closed Development
 
-## What you can contribute
+Mergen is **public-source infrastructure** — the source code is published so that enterprise security teams, CISOs, and platform engineers can audit our PII shield, command allowlist, and autonomous execution logic before deploying Mergen inside their production VPCs.
 
-Mergen is open-core. The distribution layer is MIT and fully open to contributions. The Hypothesis Engine is proprietary and not open to external PRs.
+**It is not a community-development project. We do not accept external pull requests.**
 
-**Open for contributions (MIT):**
-- `extension/` — Chrome/Edge browser extension
-- `extension-firefox/` — Firefox browser extension
-- `vscode-extension/` — VS Code sidebar extension
-- `packages/` — mergen-node and mergen-python SDKs
-- `server/src/sensor/` — Ingest, ring buffer, event schemas
-- `server/src/routes/` — HTTP API routes
-- `scripts/` — Setup and tooling scripts
-- Documentation, tests, and bug fixes for the above
+This is a deliberate architectural and security decision, not a bandwidth problem:
 
-**Not open for external contributions:**
-- `server/src/intelligence/` — Hypothesis Engine (causal chain, detectors, calibration). This directory is not fully published to GitHub and accepts contributions only from the core team.
-
-If you have ideas for improving the analysis or detection logic, open a GitHub Discussion. We review all suggestions and incorporate the good ones.
+> *"Mergen is local-first, public-source infrastructure with autonomous production execution rights. Because our server controls live remediation commands inside enterprise VPCs, we maintain strict code-signing and architectural governance. We do not accept external pull requests to guarantee absolute supply-chain security and mathematical calibration integrity for our enterprise clients."*
 
 ---
 
-## 🔁 Community Feedback Loop
+## Why no external PRs?
 
-Mergen improves fastest when runtime issues, false positives, and detector feedback are shared back with the project.
+### 1. Supply-chain security
+Mergen executes autonomous remediation commands (`MERGEN_AUTOPILOT=true`) inside your production infrastructure. Every line of server code is reviewed and signed by the core team before it ships. We cannot make that guarantee for external contributions.
 
-- **GitHub Discussions** — use for questions, debugging patterns, and early design discussions.
-- **GitHub Issues** — use for confirmed bugs and scoped feature requests.
-- **VS Code feedback buttons** — when you rate a hypothesis 👍/👎 in the panel, you help calibrate which detectors are trustworthy.
+### 2. Calibration integrity
+The Hypothesis Engine's confidence thresholds are mathematically calibrated against our incident corpus. External modifications to detection or scoring logic would corrupt the calibration and produce false positives or missed incidents — directly affecting production systems.
 
----
-
-## 🚀 Quick Start
-
-1. **Fork the repository**
-   ```bash
-   # Click "Fork" on GitHub
-   ```
-
-2. **Clone your fork**
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/Mergen.git
-   cd Mergen
-   ```
-
-3. **Create a branch**
-   ```bash
-   git checkout -b feature/amazing-feature
-   ```
-
-4. **Make your changes**
-   ```bash
-   # Edit files
-   ```
-
-5. **Test your changes**
-   ```bash
-   cd server
-   npm install
-   npm run build
-   npm test
-   ```
-
-6. **Commit your changes**
-   ```bash
-   git add .
-   git commit -m "Add amazing feature"
-   ```
-
-7. **Push to your fork**
-   ```bash
-   git push origin feature/amazing-feature
-   ```
-
-8. **Open a Pull Request**
-   - Go to your fork on GitHub
-   - Click "Pull Request"
-   - Fill in description
-   - Submit!
+### 3. Execution speed
+At our current stage, every sprint is focused on product-market fit and enterprise ARR. Open governance adds review overhead that is incompatible with our velocity requirements.
 
 ---
 
-## 📁 Project Structure
+## How you can participate
 
-```
-Mergen/
-├── server/              # Node.js MCP server
-│   ├── src/            # TypeScript source
-│   ├── dist/           # Compiled JavaScript
-│   └── __tests__/      # Test files
-│
-├── extension/          # Chrome extension
-│   ├── src/           # JavaScript source
-│   └── manifest.json  # Extension config
-│
-├── vscode-extension/  # VS Code extension (WIP)
-│
-├── scripts/           # Utility scripts
-│
-└── docs/             # Documentation
-```
+| Channel | Use for |
+|---------|---------|
+| [💬 GitHub Discussions](https://github.com/omertt27/Mergen/discussions) | Questions, ideas, debugging patterns, design feedback |
+| [🐛 GitHub Issues](https://github.com/omertt27/Mergen/issues) | Confirmed bugs with reproduction steps |
+| [🗺️ ROADMAP.md](./ROADMAP.md) | See what's planned and vote with reactions |
+| [📧 Enterprise](https://mergen.dev/pricing) | Custom integrations, SLAs, on-prem support |
+
+We read every Discussion and Issue. Strong ideas land on the roadmap. The [VS Code feedback buttons](./vscode-extension/) (👍/👎 on hypotheses) directly improve the Hypothesis Engine's calibration corpus — that is the highest-signal contribution path available.
 
 ---
 
-## 🧪 Testing
+## What the open-source layer is for
 
-### Run All Tests
-```bash
-cd server
-npm test
-```
+The following components are MIT-licensed and their source is published for transparency and SDK reuse:
 
-### Run Specific Tests
-```bash
-npm test integration.test.ts
-npm test mcp-tools.test.ts
-npm test -- --grep "should handle errors"
-```
+| Path | Purpose |
+|------|---------|
+| `extension/` | Chrome/Edge browser extension — audit our data collection |
+| `extension-firefox/` | Firefox browser extension |
+| `vscode-extension/` | VS Code sidebar extension |
+| `packages/` | `mergen-node` and `mergen-python` SDKs |
+| `sdk/` | Integration helpers and plugins |
+| `server/src/sensor/` | Ingest pipeline, ring buffer, event schemas |
+| `server/src/routes/` | HTTP API routes |
+| `server/src/app.ts` | Express application factory |
+| `server/src/index.ts` | Boot entrypoint |
+| `scripts/` | Setup and tooling scripts |
 
-### Run Tests with Coverage
-```bash
-npm run test:coverage
-```
-
-### Test Guidelines
-- Write tests for new features
-- Maintain or improve coverage (>80%)
-- Use descriptive test names
-- Test edge cases
-- Test error handling
+The **Hypothesis Engine** (`server/src/intelligence/`) is licensed under the [Elastic License 2.0](./LICENSE). It is published for auditability but may not be used to build a competing hosted or managed service.
 
 ---
 
-## 📝 Code Style
+## License
 
-### TypeScript (Server)
-- Use TypeScript strict mode
-- Prefer `const` over `let`
-- Use interfaces for public APIs
-- Document complex functions
-- Keep functions under 50 lines
+By interacting with this repository you agree to the terms described in [LICENSE](./LICENSE).
 
-### JavaScript (Extension)
-- Use ES6+ features
-- No external dependencies (extension must be self-contained)
-- Handle all errors gracefully (never break the host page)
-
-### Formatting
-```bash
-# Auto-format (if configured)
-npm run lint:fix
-npm run format
-```
-
-### Naming Conventions
-- Files: `kebab-case.ts`
-- Functions: `camelCase()`
-- Classes: `PascalCase`
-- Constants: `UPPER_SNAKE_CASE`
-- Types/Interfaces: `PascalCase`
-
----
-
-## 🎯 Contribution Areas
-
-### Good First Issues
-Look for issues labeled `good first issue`:
-- Documentation improvements
-- Test additions
-- Bug fixes
-- Error message improvements
-
-### High-Value Contributions
-- Performance improvements
-- New MCP tools
-- IDE integrations
-- Browser compatibility
-- Test coverage
-
-### What We're Looking For
-✅ Bug fixes  
-✅ Documentation improvements  
-✅ Test additions  
-✅ Performance optimizations  
-✅ IDE integration improvements  
-✅ Browser compatibility fixes  
-
-### What to Discuss First
-🤔 New features  
-🤔 Breaking changes  
-🤔 Architecture changes  
-🤔 New dependencies  
-
-Open a [discussion](https://github.com/omertt27/Mergen/discussions) for these!
-
----
-
-## 🐛 Bug Reports
-
-### Before Reporting
-1. Search existing issues
-2. Try latest version
-3. Run `mergen-server test`
-4. Check [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
-
-### Issue Template
-```markdown
-**Describe the bug**
-A clear description of what the bug is.
-
-**To Reproduce**
-Steps to reproduce:
-1. Go to '...'
-2. Click on '...'
-3. See error
-
-**Expected behavior**
-What you expected to happen.
-
-**Actual behavior**
-What actually happened.
-
-**Environment:**
-- OS: [e.g., macOS 14.0]
-- Node.js: [e.g., 20.11.0]
-- Mergen version: [e.g., 1.0.0]
-- IDE: [e.g., Cursor 0.40.0]
-- Browser: [e.g., Chrome 122]
-
-**Additional context**
-- Error messages
-- Screenshots
-- Output of `mergen-server test`
-```
-
----
-
-## 💡 Feature Requests
-
-### Open a Discussion First
-For new features, open a [discussion](https://github.com/omertt27/Mergen/discussions) with:
-- **Problem:** What problem does this solve?
-- **Solution:** How would it work?
-- **Alternatives:** What else did you consider?
-- **Use case:** When would you use this?
-
-### What Makes a Good Feature Request
-- Solves a real problem
-- Fits Mergen's scope (local-first, dev observability)
-- Doesn't duplicate existing features
-- Has clear use cases
-
----
-
-## 📖 Documentation
-
-### What to Document
-- New features
-- Configuration options
-- MCP tools
-- IDE setup steps
-- Troubleshooting solutions
-
-### Where to Add Docs
-- README.md — High-level overview
-- QUICKSTART.md — Getting started
-- TROUBLESHOOTING.md — Common issues
-- FAQ.md — Questions
-- Code comments — Complex logic
-
-### Documentation Style
-- Clear and concise
-- Show examples
-- Include commands
-- Test all commands
-- Update table of contents
-
----
-
-## 🔍 Code Review Process
-
-### What We Look For
-- ✅ Tests pass
-- ✅ Code follows style guide
-- ✅ Documentation updated
-- ✅ No breaking changes (or discussed)
-- ✅ Reasonable scope (focused PR)
-
-### Review Timeline
-- Initial response: 1-3 days
-- Full review: 3-7 days
-- Follow-up: 1-2 days
-
-### Tips for Faster Reviews
-- Keep PRs small (<500 lines)
-- One feature per PR
-- Write clear commit messages
-- Respond to feedback promptly
-- Rebase on main if needed
-
----
-
-## 🎨 Commit Message Guidelines
-
-We follow [Conventional Commits](https://www.conventionalcommits.org/):
-
-```
-<type>(<scope>): <description>
-
-[optional body]
-
-[optional footer]
-```
-
-### Types
-- `feat:` New feature
-- `fix:` Bug fix
-- `docs:` Documentation
-- `test:` Test additions
-- `refactor:` Code refactoring
-- `perf:` Performance improvement
-- `chore:` Maintenance
-
-### Examples
-```bash
-feat(mcp): add get_dom_context tool
-fix(extension): handle circular references
-docs(readme): update installation steps
-test(buffer): add edge case for overflow
-refactor(ingest): simplify validation logic
-perf(buffer): optimize priority eviction
-chore(deps): update dependencies
-```
-
----
-
-## 🏗️ Development Setup
-
-### Prerequisites
-- Node.js 18.17+
-- npm 9+
-- Git
-- Chrome/Edge browser
-
-### Initial Setup
-```bash
-# Clone and install
-git clone https://github.com/omertt27/Mergen.git
-cd Mergen/server
-npm install
-
-# Build
-npm run build
-
-# Run tests
-npm test
-
-# Start server
-npm start
-```
-
-### Development Workflow
-```bash
-# Make changes in server/src/
-
-# Watch mode (auto-rebuild)
-npm run dev
-
-# Run tests
-npm test -- --watch
-
-# Before commit
-npm test
-npm run lint
-```
-
----
-
-## 🤝 Community Guidelines
-
-- Be respectful and professional
-- Help others when you can
-- Give constructive feedback
-- Assume good intentions
-- Keep discussions on-topic
-
-See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for details.
-
----
-
-## 📞 Getting Help
-
-- **Questions:** [GitHub Discussions](https://github.com/omertt27/Mergen/discussions)
-- **Bugs:** [GitHub Issues](https://github.com/omertt27/Mergen/issues)
-- **Chat:** (If applicable: Discord, Slack, etc.)
-
----
-
-## 📄 License
-
-By contributing, you agree that your contributions will be licensed under the MIT License.
-
----
-
-## 🙏 Thank You!
-
-Every contribution makes Mergen better. Whether it's:
-- A typo fix
-- A bug report
-- A feature request
-- A full PR
-
-**We appreciate you!** 🎉
+- **MIT layer** (extensions, SDKs, routes, ingest): standard MIT terms
+- **ELv2 layer** (Hypothesis Engine): you may use, audit, and modify for internal purposes; you may not offer it as a managed service
