@@ -1,4 +1,11 @@
+import type { Hypothesis } from './causal.js';
+
 export type VerdictDimension = string;
+
+export interface FailureMode {
+  note:  string;
+  count: number;
+}
 
 export interface CalibrationStat {
   tag:                 string;
@@ -8,8 +15,8 @@ export interface CalibrationStat {
   isEmpirical:         boolean;
   active:              CalibrationStat[];
   suppressed:          CalibrationStat[];
-  predictions:         unknown[];
-  commonFailureModes:  string[];
+  predictions:         number;
+  commonFailureModes:  FailureMode[];
   shouldInterrupt:     boolean;
   diagnosisAccuracy:   number;
   remediationAccuracy: number;
@@ -20,12 +27,15 @@ export interface CalibrationStat {
 export interface PredictionRecord {
   pid:              string;
   tag:              string;
-  confidence:       'low' | 'medium' | 'high';
+  confidence:       string;
   verdict:          string | null;
   errorFingerprint: string | null;
   score?:           number;
+  numericScore?:    number;
   [key: string]:    unknown;
 }
+
+export type CalibratedHypothesis = Hypothesis & { pid: string; calibrationAction?: string };
 
 export declare const CALIBRATION_CONFIG: Record<string, unknown>;
 export declare function recordVerdict(...args: unknown[]): { found: boolean; persisted: boolean };
@@ -34,8 +44,8 @@ export declare function getGlobalStats(): CalibrationStat | null;
 export declare function getStatsForTag(tag: string): CalibrationStat | undefined;
 export declare function getRecords(): PredictionRecord[];
 export declare function exportCsv(): string;
-export declare function getPendingFeedback(): unknown[];
-export declare function applyCalibration(hypotheses: unknown[]): unknown[];
-export declare function recordPrediction(...args: unknown[]): { pid: string; tag: string; [key: string]: unknown };
+export declare function getPendingFeedback(): Array<{ pid: string; expiresAt: number; [key: string]: unknown }>;
+export declare function applyCalibration(hypotheses: Hypothesis[]): { active: CalibratedHypothesis[]; suppressed: CalibratedHypothesis[] };
+export declare function recordPrediction(hypotheses: Hypothesis[]): CalibratedHypothesis[];
 export declare function seedCalibration(...args: unknown[]): void;
 export declare function _resetForTesting(): void;

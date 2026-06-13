@@ -34,6 +34,7 @@ function fmtMs(ms: number): string {
 export function registerRunbookTools(server: McpServer): void {
 
   // ── check_fix_history ───────────────────────────────────────────────────────
+  // @ts-ignore — TS2589: MCP SDK's deep generic inference hits the recursion limit
   server.registerTool(
     'check_fix_history',
     {
@@ -169,6 +170,7 @@ export function registerRunbookTools(server: McpServer): void {
   );
 
   // ── explain_service ─────────────────────────────────────────────────────────
+  // @ts-ignore — TS2589: MCP SDK's deep generic inference hits the recursion limit
   server.registerTool(
     'explain_service',
     {
@@ -306,6 +308,7 @@ export function registerRunbookTools(server: McpServer): void {
   );
 
   // ── generate_runbook ────────────────────────────────────────────────────────
+  // @ts-ignore — TS2589: MCP SDK's deep generic inference hits the recursion limit
   server.registerTool(
     'generate_runbook',
     {
@@ -495,6 +498,7 @@ export function registerRunbookTools(server: McpServer): void {
   );
 
   // ── search_postmortems ──────────────────────────────────────────────────────
+  // @ts-ignore — TS2589: MCP SDK's deep generic inference hits the recursion limit
   server.registerTool(
     'search_postmortems',
     {
@@ -578,6 +582,7 @@ export function registerRunbookTools(server: McpServer): void {
   );
 
   // ── draft_postmortem ────────────────────────────────────────────────────────
+  // @ts-ignore — TS2589: MCP SDK's deep generic inference hits the recursion limit
   server.registerTool(
     'draft_postmortem',
     {

@@ -1,4 +1,4 @@
-export type FixAction = string | null;
+export type FixAction = string | { type: string; target: string; method: string; [key: string]: unknown } | null;
 
 export interface CausalEvent {
   kind:     string;
@@ -9,23 +9,40 @@ export interface CausalEvent {
   source?:  string;
 }
 
+export interface NetworkEvent {
+  url:           string;
+  status?:       number;
+  error?:        string;
+  traceId?:      string;
+  msBeforeError: number | null;
+  [key: string]: unknown;
+}
+
+export interface ErrorBlock {
+  timestamp:      number;
+  message:        string;
+  primaryFrame?:  { file?: string; [key: string]: unknown } | null;
+  resolvedStack?: string;
+}
+
+export interface StateAtError {
+  component?:   string;
+  localStorage?: Record<string, string>;
+  [key: string]: unknown;
+}
+
 export interface Hypothesis {
-  pid:                   string;
+  pid?:                  string;
   tag:                   string;
   summary:               string;
-  confidence:            'low' | 'medium' | 'high';
+  confidence:            string;
   confidenceScore:       number;
   causalPath:            string[];
   evidence:              string[];
-  fixHint:               string;
+  fixHint:               string | null;
   fixAction?:            FixAction;
   remediationConfidence?: number;
-}
-
-interface ErrorBlock {
-  timestamp:      number;
-  primaryFrame?:  unknown;
-  resolvedStack?: string;
+  [key: string]:         unknown;
 }
 
 export interface CausalChain {
@@ -35,10 +52,10 @@ export interface CausalChain {
   contextPack:          string;
   errors:               ErrorBlock[];
   capturedAt:           number;
-  correlatedNetwork:    unknown[];
+  correlatedNetwork:    NetworkEvent[];
   correlatedBackend:    unknown[];
   errorFingerprint?:    string;
-  [key: string]:        unknown;
+  stateAtError?:        StateAtError | null;
 }
 
 export declare function buildCausalChain(...args: unknown[]): Promise<CausalChain>;
