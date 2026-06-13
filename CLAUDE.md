@@ -200,7 +200,7 @@ import 'mergen-server/sdk/node.js';
 
 ```bash
 # Stream logs from all running containers
-curl -X POST http://127.0.0.1:3000/docker/stream
+curl -X POST http://127.0.0.1:3000/watchers/docker
 ```
 
 ### CI/CD pipelines

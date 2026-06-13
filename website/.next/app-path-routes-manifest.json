@@ -1,10 +1,10 @@
 {
   "/robots.txt/route": "/robots.txt",
-  "/_not-found/page": "/_not-found",
   "/sitemap.xml/route": "/sitemap.xml",
+  "/_not-found/page": "/_not-found",
   "/page": "/",
   "/account/page": "/account",
-  "/install/page": "/install",
   "/privacy/page": "/privacy",
+  "/install/page": "/install",
   "/opengraph-image/route": "/opengraph-image"
 }

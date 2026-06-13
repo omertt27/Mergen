@@ -58,7 +58,15 @@ export const firstAnalyzeAt         = null;
 export const lastTimeToFirstAnalysisMs = null;
 
 // ── Hypothesis history ────────────────────────────────────────────────────────
-export const hypothesisHistory = { getAll: () => [], add: noop };
+export const hypothesisHistory = {
+  list:                    (): unknown[] => [],
+  latest:                  (): null => null,
+  clear:                   noop,
+  notifyError:             noop,
+  add:                     noop,
+  size:                    (): number => 0,
+  _rebuildNowForTesting:   noopAsync,
+};
 
 // ── Calibration (fallback — specific stub in __stubs__/calibration.ts wins) ───
 export const getStats    = (): null => null;
@@ -77,3 +85,34 @@ export const analyzePRShadow     = noopAsync;
 export const getSessionMetrics   = (): Record<string, unknown> => ({});
 export const getUnclassified     = (): unknown[] => [];
 export const slackRoutingRouter  = r;
+
+// ── License accessors ─────────────────────────────────────────────────────────
+export const getLicenseState    = (): Record<string, unknown> => ({});
+export const activateKey        = (_key: string): Promise<Record<string, unknown>> => Promise.resolve({});
+export const deactivateKey      = noopAsync;
+export const planFromVariantId  = (_v: unknown): string => 'free';
+export const PLANS              = { free: { bufferSize: 2000, name: 'free', backendObservability: true } } as Record<string, unknown>;
+
+// ── Usage billing ─────────────────────────────────────────────────────────────
+export const consumeCredit   = (): Promise<{ allowed: boolean }> => Promise.resolve({ allowed: true });
+export const consumeIncident = (): Promise<{ allowed: boolean }> => Promise.resolve({ allowed: true });
+export const recordExplainWhy = noop;
+export const _resetForTesting = noop;
+export const _setSleepForTesting = noop;
+
+// ── Anomaly / baseline ────────────────────────────────────────────────────────
+export const computeAnomaly        = (): Promise<{ summary: string }> => Promise.resolve({ summary: '' });
+export const getAnomalousPatterns  = (): Promise<unknown[]> => Promise.resolve([]);
+
+// ── Error fingerprinting ──────────────────────────────────────────────────────
+export const computeErrorFrequency   = (_logs: unknown[]): unknown[] => [];
+export const computeNetworkFrequency = (_net: unknown[]): unknown[] => [];
+export const normaliseMessage        = (msg: string): string => msg;
+
+// ── Detectors ─────────────────────────────────────────────────────────────────
+export const scoreToConfidence = (score: number): string =>
+  score >= 0.8 ? 'high' : score >= 0.5 ? 'medium' : 'low';
+
+// ── Repro steps ───────────────────────────────────────────────────────────────
+export const generateReproSteps = (): { confidence: string; markdown: string; steps: string[] } =>
+  ({ confidence: 'low', markdown: '', steps: [] });
