@@ -19,7 +19,7 @@ const ides = [
 export default function Integrations() {
   return (
     <section id="integrations">
-      <span className="section-label">03 // Integrations</span>
+      <span className="section-label">04 // Integrations</span>
       <h2>
         Connect your stack.
         <br />
