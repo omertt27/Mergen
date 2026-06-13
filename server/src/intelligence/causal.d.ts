@@ -11,7 +11,7 @@ export interface CausalEvent {
 
 export interface NetworkEvent {
   url:           string;
-  status?:       number;
+  status:        number;
   error?:        string;
   traceId?:      string;
   msBeforeError: number | null;
@@ -26,8 +26,8 @@ export interface ErrorBlock {
 }
 
 export interface StateAtError {
-  component?:   string;
-  localStorage?: Record<string, string>;
+  component?:  string;
+  localStorage: Record<string, string>;
   [key: string]: unknown;
 }
 

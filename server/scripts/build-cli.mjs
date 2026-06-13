@@ -33,3 +33,40 @@ if (!head.startsWith('#!')) {
 
 fs.chmodSync(ENTRY, 0o755);
 console.log('build-cli: dist/index.js → 0755, shebang OK');
+
+// ── Inject stub proxy files for closed-source intelligence modules ─────────────
+// Each .d.ts in src/intelligence/ that has no corresponding .ts is a closed-source
+// module. At runtime (dist/) it needs a real .js file — we proxy to the stubs that
+// vitest already uses. This mirrors the closedSourceStubs() Vite plugin in
+// vitest.config.ts, but for the production ESM runtime.
+const INTEL_SRC  = path.resolve(__dirname, '..', 'src', 'intelligence');
+const INTEL_DIST = path.resolve(__dirname, '..', 'dist', 'intelligence');
+
+const SPECIFIC_STUBS = new Set(['causal', 'calibration']);
+const CLOSED_SOURCE_STUB = '../__stubs__/closed-source.js';
+
+const dtsFiles = fs.readdirSync(INTEL_SRC)
+  .filter(f => f.endsWith('.d.ts'))
+  .map(f => f.replace('.d.ts', ''));
+
+let injected = 0;
+for (const mod of dtsFiles) {
+  const tsSource  = path.join(INTEL_SRC, `${mod}.ts`);
+  const distProxy = path.join(INTEL_DIST, `${mod}.js`);
+
+  // Skip if a real compiled .ts exists (open-source module)
+  if (fs.existsSync(tsSource)) continue;
+  // Skip if the production .js was already installed (paid build)
+  if (fs.existsSync(distProxy)) continue;
+
+  const stubPath = SPECIFIC_STUBS.has(mod)
+    ? `../__stubs__/${mod}.js`
+    : CLOSED_SOURCE_STUB;
+
+  fs.writeFileSync(distProxy, `export * from '${stubPath}';\n`, 'utf8');
+  injected++;
+}
+
+if (injected > 0) {
+  console.log(`build-cli: injected ${injected} stub proxy file(s) in dist/intelligence/`);
+}

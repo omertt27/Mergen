@@ -55,7 +55,7 @@ export interface GraphEdge {
 }
 
 export interface CausalGraph {
-  capturedAt: string;
+  capturedAt: number;
   nodes: GraphNode[];
   edges: GraphEdge[];
   /** Node ids with no incoming causal edges (CAUSED_BY / CORRELATED_WITH / TRACE_JOINED). */
