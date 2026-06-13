@@ -31,6 +31,8 @@ Then ask: *"Triage the api-service."*
 
 ## Who it's for
 
+**Solo developers and early-stage startups** — No Datadog required. No OTLP setup. Point Mergen at your Docker containers or drop one import into your Node.js entry point, and your AI IDE immediately has live context from your production logs. When Claude Code or Cursor asks "what's broken?", it gets a real answer instead of asking you to paste logs into a chat. The local verdict corpus builds automatically — the longer you run, the more Mergen knows about your specific system.
+
 **The human developer drowning in microservice complexity** — You're not tired of writing code; you're tired of debugging the code AI wrote for you. Mergen is your Automated Triage Engine. When an incident fires at 2am, you don't dig through raw Datadog traces or paste logs into a chat window. Mergen compresses 500KB of telemetry noise into a 1KB runtime fact: the exact service, the exact failure signature, and the exact fix command.
 
 **The VP of Engineering managing autonomous agents** — Your coding agents clear Jira backlogs fast and generate bugs faster. They have no institutional memory. Mergen is the mandatory guardrail: before an agent executes a change, it queries Mergen's Local Verdict Corpus to check previous failure signatures and system invariants. If the agent tries to ship something that mirrors a past production outage, Mergen blocks it. You are buying insurance against the **Agent Outage Tax**.
@@ -58,6 +60,22 @@ Datadog and PagerDuty tell you what's broken. They page a human. The human fixes
 Mergen acts on what they tell it. When PagerDuty fires, Mergen pulls the correlated telemetry, runs causal analysis, consults your team's override history, and either executes the fix or hands your AI IDE a structured brief with evidence and a specific command. It does not replace your observability tools — it is the execution and memory layer above them.
 
 **The moat is what accumulates.** Every incident Mergen sees is stored as a replayable snapshot. Every override your team records becomes policy — Mergen will pause before repeating that action in the same context. After six months of production: your Friday settlement windows, your compliance holds, the fixes your on-call always reaches for — structured, queryable, and impossible to replicate from a standing start. The diagnosis algorithm is reproducible. The accumulated operational memory of your infrastructure is not.
+
+---
+
+## Why this gets more valuable as AI coding accelerates
+
+Every other startup is building the accelerator pedal — tools to make AI write code faster. Mergen is building the brakes, the steering wheel, and the black-box flight recorder.
+
+Three structural flaws of AI code generation are compounding in parallel, and each one makes Mergen more necessary:
+
+**Velocity trap — spaghetti automation at scale.** AI agents produce syntactically perfect code that ignores systemic architecture constraints. The result is high-velocity technical debt shipped at machine speed. When code generation is free and instantaneous, code comprehension and production safety become the scarcest resources in an engineering org. Mergen compresses the mess into structured context before it tanks the infrastructure.
+
+**Destruction of institutional memory.** When a human spent three days writing a complex routing loop, the context lived in their head — edge cases, database quirks, the *why* behind the choices. When an AI agent generates the same block in four seconds, nobody remembers why it exists. The moment it hits production, it becomes instant, unmaintainable legacy. Mergen recaptures that intent: every incident, every override, every causal chain is stored as a replayable snapshot. Future engineers and future agents query Mergen before touching that code — not documentation that was already stale when it was written.
+
+**Exponential surge in distributed incidents.** Autonomous agents shipping code at machine speed introduce distributed systems failures that only manifest under production load — connection pool exhaustion, timeout cascades, silent microservice regressions that escape all static tests. The Agent Blunder Log and override corpus act as the governance checkpoint: when an autonomous coding loop tries to ship something that mirrors a historical outage signature, Mergen detects the pattern drift, halts the execution path, and records why.
+
+The macro thesis: Mergen scales directly in proportion to the failures of AI-generated code. The faster the industry accelerates, the more necessary the safety and memory layer becomes.
 
 ---
 

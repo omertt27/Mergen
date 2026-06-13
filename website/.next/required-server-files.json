@@ -99,7 +99,7 @@
         "transform": "lodash/{{member}}"
       }
     },
-    "outputFileTracingRoot": "/Users/omer/Documents/GitHub/Mergen/website",
+    "outputFileTracingRoot": "/Users/omer/Documents/GitHub/Mergen.....",
     "experimental": {
       "useSkewCookie": false,
       "cacheLife": {
@@ -289,11 +289,11 @@
     "bundlePagesRouterDependencies": false,
     "configFileName": "next.config.ts",
     "turbopack": {
-      "root": "/Users/omer/Documents/GitHub/Mergen/website"
+      "root": "/Users/omer/Documents/GitHub/Mergen....."
     }
   },
-  "appDir": "/Users/omer/Documents/GitHub/Mergen/website",
-  "relativeAppDir": "",
+  "appDir": "/Users/omer/Documents/GitHub/Mergen...../website",
+  "relativeAppDir": "website",
   "files": [
     ".next/routes-manifest.json",
     ".next/server/pages-manifest.json",

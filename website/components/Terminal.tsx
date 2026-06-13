@@ -3,21 +3,23 @@
 import { useState, useEffect } from 'react'
 
 const lines = [
-  { text: 'claude -c "analyze active incident with mergen"', type: 'system', delay: 0 },
-  { text: 'Fetching incident context from PagerDuty...', type: 'log', delay: 800 },
-  { text: '⚠️  Detected Incident #1294: "checkout-service latency spike"', type: 'event', delay: 400 },
-  { text: 'Pulling Datadog trace for root cause analysis...', type: 'log', delay: 600 },
+  { text: '[03:17] PagerDuty → incident.triggered: "api-service HIGH error rate"', type: 'event', delay: 0 },
+  { text: 'Fetching trace context...', type: 'log', delay: 700 },
+  { text: 'Running causal analysis across 847 telemetry events...', type: 'log', delay: 500 },
+  { text: '', type: 'gap', delay: 200 },
+  { text: 'Consulting override corpus for api-service...', type: 'system', delay: 400 },
+  { text: '  ✓ No matching override pattern — proceeding', type: 'success', delay: 300 },
   { text: '', type: 'gap', delay: 100 },
-  { text: 'Semantic Compactor: 412KB Trace → 1.2KB Fact Card', type: 'system', delay: 400 },
-  { text: 'Root Cause Identified', type: 'system', delay: 400 },
-  { text: 'Service: checkout-service', type: 'log', delay: 200 },
-  { text: 'Error: Database connection pool exhausted (32/32 connections)', type: 'event', delay: 200 },
-  { text: 'Trace Span: pg.connect (latency: 12.4s)', type: 'log', delay: 200 },
+  { text: 'Root cause: JWT middleware rejecting valid tokens (91% confidence)', type: 'system', delay: 600 },
+  { text: 'Deploy a3f8c12 · auth/middleware.ts in changed files · 4m before spike', type: 'log', delay: 300 },
   { text: '', type: 'gap', delay: 100 },
-  { text: 'Suggested Fix (Applied 14× in similar incidents):', type: 'system', delay: 400 },
-  { text: 'kubectl scale deployment/checkout-db-pool --replicas=5', type: 'success', delay: 300 },
-  { text: '', type: 'gap', delay: 100 },
-  { text: 'Claude: "I have identified that the checkout service is hitting its DB pool limit. Scaling up the pool now."', type: 'log', delay: 800 },
+  { text: 'Autopilot executing fix (remediation confidence: 88%)', type: 'system', delay: 500 },
+  { text: '  npm install jsonwebtoken@9.0.0 && pm2 restart api', type: 'success', delay: 300 },
+  { text: '', type: 'gap', delay: 1200 },
+  { text: 'Validating... error count: 14 → 0', type: 'system', delay: 400 },
+  { text: '✅ RESOLVED — MTTR: 5m 23s · resolvedAutonomously=true', type: 'success', delay: 300 },
+  { text: 'Agent Blunder Log: 0 blocks this incident', type: 'log', delay: 200 },
+  { text: 'Posting audit trail to #incidents thread...', type: 'log', delay: 400 },
 ]
 
 export default function Terminal() {
@@ -47,7 +49,7 @@ export default function Terminal() {
         <div className="terminal-dots">
           <span /> <span /> <span />
         </div>
-        <div className="terminal-title">mergen — get_incident_context</div>
+        <div className="terminal-title">mergen — autonomous incident loop</div>
       </div>
       <div className="terminal-body" style={{ minHeight: '450px' }}>
         {visibleLines.map((line, i) => (

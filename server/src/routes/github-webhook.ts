@@ -262,6 +262,12 @@ async function handleEvent(event: string, payload: unknown): Promise<void> {
       action === 'ready_for_review'
     ) {
       const headSha = pr?.head?.sha ?? '';
+      const ghToken = loadGitHubToken();
+      // Fetch changed files eagerly so analyzePRForShadow can run diff-level
+      // outage pattern matching against the incident and postmortem corpus.
+      const changedFiles = ghToken
+        ? await fetchPRFiles(repository?.full_name ?? '', pr?.number ?? 0, ghToken).catch(() => [] as string[])
+        : [];
       void analyzePRForShadow({
         repo: repository?.full_name ?? '',
         prNumber: pr?.number ?? 0,
@@ -270,10 +276,10 @@ async function handleEvent(event: string, payload: unknown): Promise<void> {
         author: pr?.user?.login ?? '',
         branch: pr?.head?.ref ?? '',
         action,
+        changedFiles,
       }).then(async (shadowResult) => {
         await maybePostPRComment(shadowResult);
-        const token = loadGitHubToken();
-        await maybeCreateCheckRun(shadowResult, headSha, token);
+        await maybeCreateCheckRun(shadowResult, headSha, ghToken);
       }).catch((err: unknown) => {
         logger.warn({ err }, 'pr-shadow/comment/checkrun: error (non-fatal)');
       });

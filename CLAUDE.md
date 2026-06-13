@@ -15,8 +15,29 @@ All data stays on your infrastructure. No cloud. No copy-paste.
 | **Action** | Alert → page engineer | ✅ **Alert → diagnose → fix → validate** |
 | **AI integration** | Dashboard with AI summaries | ✅ **MCP tools your AI IDE calls directly** |
 | **Execution** | Human runs the fix | ✅ **Autonomous execution at ≥85% confidence** |
-| **Learning** | Static rules | ✅ **Calibration corpus — accuracy improves per incident** |
+| **Operational memory** | None — stateless alerting | ✅ **Override corpus + calibration corpus — safety and accuracy improve with every incident** |
+| **Agent safety** | None | ✅ **Agent Blunder Log — every blocked action recorded; corpus-enforced override policy** |
 | **Slack** | One-way webhook | ✅ **Owns the thread — posts progress through resolution** |
+
+---
+
+## Defensibility: two primitives that compound with use
+
+### Agent Blunder Log — `GET /agent-blunders`
+
+Every time Mergen's safety layer blocks an autonomous action the event is recorded. `prevented` = total intercepted actions. Types: `allowlist_block` · `injection_attempt` · `rbac_block` · `override_corpus_block` · `pipeline_block` · `planning_gate_block`. Wired automatically — no setup required. This is the board-deck answer to "why would you trust an AI agent with prod?"
+
+### Override Corpus — queryable operational DNA
+
+Every team override is encoded as policy. The corpus is consulted before every autonomous action — Mergen will pause before repeating an action overridden in the same context. `GET /override-corpus` shows what the system has learned. Builds automatically from shadow mode annotations. After six months: your Friday settlement windows, your compliance holds, your on-call's preferred fixes — impossible to replicate from a standing start.
+
+### Organic Habituation — `GET /habituation`
+
+Weekly rate of engineers who received a Mergen PR comment and then submitted a review on that PR. `habituationRate` = engaged / engineers_with_comments. Requires `MERGEN_PR_COMMENTS=true`. Wired automatically when comments are posted and reviews received.
+
+### Context-Assisted MTTR
+
+`GET /trust-score/:pid` auto-marks the incident context as viewed. `GET /impact-report` then shows `avgContextAssistedMttrMs` vs `avgUnassistedMttrMs` — how much faster engineers resolve when they read Mergen's brief first.
 
 ---
 
@@ -126,24 +147,6 @@ The MCP tool `triage_incident` is still available for on-demand analysis.
 | `get_unified_timeline` | Browser request joined to backend span (exact causal join) |
 | `validate_fix` | Compare error counts before/after a fix — records verdict |
 | `clear_buffer` | Empties the ring buffer |
-
----
-
-## Validation metrics (YC pitch evidence)
-
-Three additional endpoints that produce board-deck quality evidence:
-
-### Agent Blunder Log — `GET /agent-blunders`
-
-Every time Mergen's safety layer blocked an autonomous action the event is recorded. `prevented` = total intercepted actions. Types: `allowlist_block` · `injection_attempt` · `rbac_block` · `override_corpus_block` · `pipeline_block` · `planning_gate_block`. Wired automatically — no setup required.
-
-### Organic Habituation — `GET /habituation`
-
-Weekly rate of engineers who received a Mergen PR comment and then submitted a review on that PR. `habituationRate` = engaged / engineers_with_comments. Requires `MERGEN_PR_COMMENTS=true`. Wired automatically when comments are posted and reviews received.
-
-### Context-Assisted MTTR
-
-`GET /trust-score/:pid` auto-marks the incident context as viewed. `POST /incidents/:pid/mark-context-viewed` lets you mark it from your own tooling. `GET /impact-report` then shows `avgContextAssistedMttrMs` vs `avgUnassistedMttrMs` — how much faster engineers resolve when they read Mergen's brief first.
 
 ---
 

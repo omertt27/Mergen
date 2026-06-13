@@ -1,4 +1,4 @@
-// File: /Users/omer/Documents/GitHub/Mergen/website/app/account/page.tsx
+// File: /Users/omer/Documents/GitHub/Mergen...../website/app/account/page.tsx
 import * as entry from '../../../../app/account/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 

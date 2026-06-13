@@ -3,6 +3,7 @@ import Nav from '@/components/Nav'
 import Hero from '@/components/Hero'
 import Terminal from '@/components/Terminal'
 import Architecture from '@/components/Architecture'
+import MacroThesis from '@/components/MacroThesis'
 import Features from '@/components/Features'
 import Integrations from '@/components/Integrations'
 import Pricing from '@/components/Pricing'
@@ -17,6 +18,7 @@ export default function Home() {
         <Hero />
         <Terminal />
         <Architecture />
+        <MacroThesis />
         <Features />
         <Integrations />
         <Pricing />

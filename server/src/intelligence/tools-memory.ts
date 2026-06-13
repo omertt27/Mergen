@@ -46,7 +46,7 @@ export function registerMemoryTools(server: McpServer): void {
         service: z
           .string()
           .optional()
-          .describe('Filter by Datadog service name instead of fingerprint'),
+          .describe('Filter by service name instead of fingerprint (e.g. "api", "auth-service", "payments")'),
         limit: z
           .number()
           .int()

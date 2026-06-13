@@ -16,10 +16,13 @@
  *   "Would this have been useful or just noise?"
  */
 
+import path from 'path';
 import { commitContextStore } from '../sensor/commit-context-store.js';
 import { incidentStore } from '../sensor/incident-store.js';
 import { recordPRShadow, type PRShadowResult } from '../sensor/pr-shadow-store.js';
 import { getOverrideSummary } from './override-corpus.js';
+import { hybridSearch } from './postmortem-retrieval.js';
+import { memoryStore } from '../datadog/memory-store.js';
 import logger from '../sensor/logger.js';
 
 // ── Tokenizer ─────────────────────────────────────────────────────────────────
@@ -74,16 +77,45 @@ interface OperationalConstraint {
   count: number;
 }
 
+interface FileDangerMatch {
+  file: string;
+  /** Incidents from the Datadog memory store that implicated this file. */
+  memoryIncidents: number;
+  /** Top postmortem corpus hits for this filename. */
+  postmortems: Array<{ rootCause: string; confidence: number; service: string }>;
+}
+
+function truncate(s: string, n: number): string {
+  return s.length > n ? s.slice(0, n - 1) + '…' : s;
+}
+
 function buildComment(
   prTitle: string,
   matchedContextResults: ContextMatch[],
   matchedIncidentResults: IncidentMatch[],
   operationalConstraints: OperationalConstraint[],
+  fileDangerMatches: FileDangerMatch[],
 ): string {
   const lines: string[] = [
     '## 🔍 Mergen Context',
     '',
   ];
+
+  if (fileDangerMatches.length > 0) {
+    lines.push('**Files with production incident history:**');
+    for (const f of fileDangerMatches.slice(0, 5)) {
+      const parts: string[] = [];
+      if (f.memoryIncidents > 0) {
+        parts.push(`${f.memoryIncidents} tracked incident${f.memoryIncidents !== 1 ? 's' : ''}`);
+      }
+      if (f.postmortems.length > 0) {
+        const pm = f.postmortems[0];
+        parts.push(`corpus: ${truncate(pm.rootCause, 60)} (${Math.round(pm.confidence * 100)}% conf · ${pm.service})`);
+      }
+      lines.push(`- \`${f.file}\` — ${parts.join('; ')}`);
+    }
+    lines.push('');
+  }
 
   if (matchedIncidentResults.length > 0) {
     lines.push('**Related incidents from memory:**');
@@ -142,12 +174,14 @@ export interface PRAnalysisInput {
   author: string;
   branch: string;
   action: string;
+  /** File paths changed by this PR — used for diff-level outage pattern matching. */
+  changedFiles?: string[];
 }
 
 export async function analyzePRForShadow(
   input: PRAnalysisInput,
 ): Promise<PRShadowResult> {
-  const { repo, prNumber, prTitle, prBody, author, branch, action } = input;
+  const { repo, prNumber, prTitle, prBody, author, branch, action, changedFiles = [] } = input;
   const serviceName = repo.split('/').pop() ?? repo;
 
   const queryText = [prTitle, prBody ?? ''].join(' ');
@@ -229,11 +263,43 @@ export async function analyzePRForShadow(
       ? 0
       : Math.min(1, topIncidentMatches.length / 3 + topIncidentMatches[0].confidence * 0.5);
 
+  // ── File danger match — diff-level outage signature detection ────────────
+  // For each changed file, check the Datadog memory store (file-level incident
+  // history) and the postmortem corpus (BM25+TF-IDF on filename). A file that
+  // has previously been implicated in a production incident is a danger signal
+  // even when PR title/body keywords don't overlap.
+
+  const fileDangerMatches: FileDangerMatch[] = [];
+  for (const file of changedFiles.slice(0, 20)) {
+    const base = path.basename(file, path.extname(file));
+    const memIncidents = memoryStore.findByFile(file, 3);
+    let pmMatches: Array<{ rootCause: string; confidence: number; service: string }> = [];
+    if (base.length >= 3) {
+      try {
+        const pmResults = hybridSearch(base, { topK: 2, maxCorpus: 200 });
+        pmMatches = pmResults.map((r) => ({
+          rootCause: r.postmortem.rootCause,
+          confidence: r.postmortem.confidence,
+          service: r.postmortem.service,
+        }));
+      } catch { /* postmortem store may not be initialised yet */ }
+    }
+    if (memIncidents.length > 0 || pmMatches.length > 0) {
+      fileDangerMatches.push({ file, memoryIncidents: memIncidents.length, postmortems: pmMatches });
+    }
+  }
+
   // ── Composite score & decision ────────────────────────────────────────────
+  // File danger contributes up to 0.3 of the final score (capped), weighted
+  // at 20% so keyword/incident signals still dominate when both are present.
+
+  const fileDangerScore = fileDangerMatches.length > 0
+    ? Math.min(0.3, fileDangerMatches.length * 0.15)
+    : 0;
 
   const relevanceScore = Math.min(
     1,
-    Math.round((contextScore * 0.6 + incidentScore * 0.4) * 1000) / 1000,
+    Math.round((contextScore * 0.5 + incidentScore * 0.3 + fileDangerScore * 0.2) * 1000) / 1000,
   );
 
   const matchedIncidents = topIncidentMatches.length;
@@ -243,10 +309,14 @@ export async function analyzePRForShadow(
   if (matchedIncidents > 0) triggeredBy.push('incident_match');
   if (topContextMatches.some((c) => c.score >= 0.3)) triggeredBy.push('context_match');
   if (historicalPRs.length >= 10) triggeredBy.push('rich_history');
+  if (fileDangerMatches.length > 0) triggeredBy.push('file_danger_match');
 
-  // Phase 2 gate: only show when we have incident evidence AND high relevance.
-  // This is the conservative threshold that earns the right to interrupt.
-  const wouldHaveShown = matchedIncidents >= 1 && relevanceScore >= 0.7;
+  // Phase 2 gate: show when we have incident evidence AND high relevance,
+  // OR when any changed file has a confirmed incident history (highest-signal
+  // case — the diff directly touches code that has broken production before).
+  const wouldHaveShown =
+    (matchedIncidents >= 1 && relevanceScore >= 0.7) ||
+    fileDangerMatches.length >= 1;
 
   // Build operational constraints section from the override corpus so that
   // junior engineers see why certain actions on this service have been
@@ -260,7 +330,7 @@ export async function analyzePRForShadow(
     }));
 
   const wouldHaveComment = wouldHaveShown
-    ? buildComment(prTitle, topContextMatches, topIncidentMatches, overrideSummary)
+    ? buildComment(prTitle, topContextMatches, topIncidentMatches, overrideSummary, fileDangerMatches)
     : null;
 
   const result = recordPRShadow({

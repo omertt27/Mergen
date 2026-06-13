@@ -1,55 +1,72 @@
 const features = [
   {
     num: '01',
-    title: 'Semantic Compactor',
+    title: 'Override Corpus',
     desc: (
       <>
-        Raw Datadog traces are too large and noisy for LLMs. Our <span className="highlight">4-stage compaction pipeline</span> strips the noise, compressing 500KB traces into 1KB "Runtime Facts" that agents can actually use.
+        Every time your team overrides Mergen's recommendation, that decision is encoded as policy.
+        After six months of production: your Friday settlement windows, your compliance holds,
+        your on-call's preferred fixes — <span className="highlight">structured, queryable, and impossible to replicate from a standing start.</span> The diagnosis algorithm is reproducible. The accumulated operational memory of your infrastructure is not.
       </>
     ),
   },
   {
     num: '02',
-    title: 'Incident-State Awareness',
+    title: 'Agent Blunder Log',
     desc: (
       <>
-        Mergen tracks active incidents in real-time. By connecting to <span className="highlight">PagerDuty webhooks</span>, we automatically fetch relevant observability context the moment an alert fires, grounding your agent instantly.
+        Every autonomous action Mergen's safety layer blocks is recorded with its reason:
+        allowlist block, RBAC rejection, override corpus halt, planning gate denial.
+        <span className="highlight"> The headline number is "prevented" — autonomous actions your on-call didn't have to handle.</span>{' '}
+        This is the answer to "why would you trust an AI agent with prod?" The system blocked itself, logged why, and waited.
       </>
     ),
   },
   {
     num: '03',
-    title: 'Context Routing Layer',
+    title: 'Autonomous Incident Loop',
     desc: (
       <>
-        We sit above your observability stack as a <span className="highlight">dedicated context-routing layer</span>. Mergen ensures your AI assistant always has the right data—from traces to logs to topology—without overwhelming its context window.
+        PagerDuty fires → causal analysis across all telemetry → override corpus consulted →
+        fix executes at <span className="highlight">≥85% confidence</span> → validated (error count before/after) →
+        RESOLVED posted to your Slack thread. Engineer wakes up to a closed incident and a full audit trail.
+        MTTR: 5 minutes. Manual: 45.
       </>
     ),
   },
   {
     num: '04',
-    title: 'Datadog-Native Integration',
+    title: 'Institutional Memory',
     desc: (
       <>
-        Deeply integrated with <span className="highlight">Datadog APM and Logs</span>. Mergen maps production stack frames to local source code and correlates spans with log events to give your AI a complete picture of the failure.
+        Every resolved incident generates a structured postmortem, indexed by{' '}
+        <span className="highlight">BM25 + TF-IDF hybrid retrieval</span>. When an agent opens a file,
+        the IDE receives relevant past incidents automatically — before it's asked, before it writes a line.
+        Future agents don't re-discover constraints that burned your on-call at 3am six months ago.
       </>
     ),
   },
   {
     num: '05',
-    title: 'Reduced MTTR for 2 AM',
+    title: '5-Minute MTTR',
     desc: (
       <>
-        Designed for the <span className="highlight">sleep-deprived on-call engineer</span>. Mergen + Claude Code can resolve complex production incidents in under 5 minutes, replacing 45 minutes of manual dashboard jumping.
+        Designed for the <span className="highlight">sleep-deprived on-call engineer</span>. Mergen resolves
+        routine production incidents in under 5 minutes — replacing 45 minutes of manual dashboard jumping,
+        log grepping, and Slack back-and-forth. The impact report shows autonomous MTTR vs. manual MTTR,
+        per failure mode, as a shareable PDF your CTO can present to the board.
       </>
     ),
   },
   {
     num: '06',
-    title: 'Local-First Proxy',
+    title: 'Local-First. VPC-Ready.',
     desc: (
       <>
-        Run Mergen <span className="highlight">locally or self-hosted in your VPC</span>. No sensitive Datadog API keys or production data ever leave your infrastructure. Zero-trust by design, enterprise-ready from day one.
+        Mergen runs <span className="highlight">entirely on your infrastructure</span>. No Datadog required to start —
+        point it at Docker containers or drop one import into your Node.js entry point.
+        PII shield is always on. Execution audit trail written to <code>~/.mergen/audit.log</code> as immutable JSONL.
+        Cloud mode adds TLS, SSO, RBAC, and per-tenant event isolation when you need it.
       </>
     ),
   },
@@ -58,11 +75,11 @@ const features = [
 export default function Features() {
   return (
     <section id="why">
-      <span className="section-label">02 // Capabilities</span>
+      <span className="section-label">03 // Capabilities</span>
       <h2>
-        AI-Native Infrastructure.
+        The moat is what
         <br />
-        Built for the On-Call.
+        accumulates.
       </h2>
       <div className="feature-grid">
         {features.map((f, i) => (

@@ -1,29 +1,44 @@
 const plans = [
   {
-    name: 'Individual / Solo',
+    name: 'Solo / Open Source',
     price: '$0',
     period: '/forever',
     features: [
-      '100% Local Execution via MCP stdio',
-      'Local Datadog Trace Compactor (Limited)',
-      'Single-service PagerDuty awareness',
-      'get_incident_context and get_datadog_trace tools',
-      'Read-only infra data routing',
+      'No Datadog required — works with Docker logs and OpenTelemetry',
+      'Local override corpus builds automatically from your incidents',
+      'All MCP tools: triage_incident, analyze_runtime, validate_fix',
+      'Agent Blunder Log + full audit trail (~/.mergen/audit.log)',
+      'Shadow mode — 30-day track record before enabling autopilot',
     ],
     cta: 'Get Started',
     ctaClass: 'btn btn-outline',
     href: 'https://github.com/omertt27/Mergen/blob/main/INSTALL.md',
   },
   {
-    name: 'Enterprise / Team',
-    price: 'Contact us',
+    name: 'Team',
+    price: '$49',
+    period: '/mo',
+    features: [
+      'Everything in Solo',
+      'Multi-service override corpus with shared team policies',
+      'Shadow mode analytics — accuracy report as shareable PDF',
+      'Per-service Slack routing with escalation thresholds',
+      'Context-assisted MTTR dashboard (assisted vs. unassisted)',
+    ],
+    cta: 'Start Free Trial',
+    ctaClass: 'btn btn-outline',
+    href: 'mailto:hello@mergen.dev',
+  },
+  {
+    name: 'Enterprise',
+    price: 'Contact',
     period: '',
     features: [
-      'Shared Team Context: Unified Incident Timeline',
-      'Unlimited Datadog Trace Compaction (500KB → 1KB)',
-      'PagerDuty Webhook Automation (Auto-fetch Traces)',
-      'Self-Hosted VPC Deployment with SSO/RBAC',
-      'Outcome-Linked MTTR Proof & ROI Dashboard',
+      'Self-hosted VPC deployment with TLS',
+      'SSO + RBAC — role-based execution permissions',
+      'Compliance exports — immutable JSONL + SOC 2 packaging',
+      'Outcome-linked MTTR proof for board-deck reporting',
+      'Dedicated onboarding + SLA',
     ],
     cta: 'Contact Sales',
     ctaClass: 'btn btn-white',
@@ -35,10 +50,10 @@ const plans = [
 export default function Pricing() {
   return (
     <section id="access">
-      <span className="section-label">04 // Pricing</span>
-      <h2>One command.<br />Full production intelligence.</h2>
+      <span className="section-label">05 // Pricing</span>
+      <h2>Start free.<br />Scale when the corpus does.</h2>
 
-      <div className="price-row mt-lg" style={{ maxWidth: '900px', margin: '8rem auto 0' }}>
+      <div className="price-row mt-lg" style={{ maxWidth: '1100px', margin: '8rem auto 0' }}>
         {plans.map((plan) => (
           <div
             key={plan.name}

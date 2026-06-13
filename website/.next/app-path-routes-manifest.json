@@ -1,7 +1,7 @@
 {
   "/_not-found/page": "/_not-found",
-  "/page": "/",
   "/account/page": "/account",
+  "/page": "/",
   "/privacy/page": "/privacy",
   "/install/page": "/install"
 }

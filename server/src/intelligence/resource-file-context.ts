@@ -15,11 +15,14 @@
  * This achieves A=0 in P(Util) = e^{-λA}: zero-action ambient intelligence.
  */
 
+import path from 'path';
 import { ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { memoryStore, formatMttr } from '../datadog/memory-store.js';
 import { getActiveIncident } from '../datadog/incident-state.js';
 import { getCurrentTraceContext } from '../datadog/otel-trace.js';
+import { hybridSearch } from './postmortem-retrieval.js';
+import { getOverrideSummary } from './override-corpus.js';
 import logger from '../sensor/logger.js';
 
 export function registerFileContextResource(server: McpServer): void {
@@ -97,7 +100,47 @@ export function registerFileContextResource(server: McpServer): void {
         sections.push(`## Production Incident History\n\nNo incidents on record for \`${filePath}\`.`);
       }
 
-      // ── 4. Trace context (for downstream propagation) ──────────────────────
+      // ── 4. Postmortem corpus — incidents mentioning this file ─────────────
+      // Uses the hybrid BM25+TF-IDF retrieval engine — works without Datadog.
+      const basename = path.basename(filePath, path.extname(filePath));
+      if (basename.length >= 3) {
+        const pmResults = hybridSearch(basename, { topK: 3, maxCorpus: 200 });
+        if (pmResults.length > 0) {
+          const lines: string[] = [`## Corpus Postmortems (related to \`${filePath}\`)\n`];
+          for (const r of pmResults) {
+            const pm = r.postmortem;
+            const age = formatAge(pm.generatedAt);
+            const auto = pm.resolvedAutonomously ? ' · auto-resolved' : '';
+            const fix = pm.fixCommand ? `\n  Fix: \`${truncate(pm.fixCommand, 80)}\`` : '';
+            lines.push(
+              `- **[${pm.service}] ${truncate(pm.rootCause, 100)}** ` +
+              `_(${age} ago${auto}, ${Math.round(pm.confidence * 100)}% confidence)_${fix}`,
+            );
+          }
+          sections.push(lines.join('\n'));
+        }
+      }
+
+      // ── 5. Override corpus — active operational constraints ────────────────
+      // Surfaces the team's accumulated override decisions so agents know which
+      // autonomous actions have been blocked before on related services.
+      const overrides = getOverrideSummary().slice(0, 5);
+      if (overrides.length > 0) {
+        const lines: string[] = ['## Override Corpus — Active Constraints\n'];
+        for (const o of overrides) {
+          const timeNote = o.timePattern ? ` · ${o.timePattern}` : '';
+          const svcs = o.services.length > 0
+            ? ` · services: ${o.services.slice(0, 3).map((s) => `\`${s}\``).join(', ')}`
+            : '';
+          lines.push(
+            `- \`${o.tag}\` — overridden **${o.total}×** · top reason: \`${o.dominantReason ?? 'other'}\`${timeNote}${svcs}`,
+          );
+        }
+        lines.push('\n_Check if any of these constraints apply before modifying this file._');
+        sections.push(lines.join('\n'));
+      }
+
+      // ── 6. Trace context (for downstream propagation) ──────────────────────
       const ctx = getCurrentTraceContext();
       sections.push(
         `## Mergen Trace Context\n\n` +
