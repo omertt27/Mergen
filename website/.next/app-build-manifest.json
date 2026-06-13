@@ -7,12 +7,19 @@
       "static/chunks/main-app-584db5d32193230a.js",
       "static/chunks/app/_not-found/page-d49fc6e317f63acc.js"
     ],
+    "/robots.txt/route": [
+      "static/chunks/webpack-d2460d88cb16df48.js",
+      "static/chunks/4bd1b696-c023c6e3521b1417.js",
+      "static/chunks/255-98a0bdaa30757bda.js",
+      "static/chunks/main-app-584db5d32193230a.js",
+      "static/chunks/app/robots.txt/route-040897a1102de979.js"
+    ],
     "/layout": [
       "static/chunks/webpack-d2460d88cb16df48.js",
       "static/chunks/4bd1b696-c023c6e3521b1417.js",
       "static/chunks/255-98a0bdaa30757bda.js",
       "static/chunks/main-app-584db5d32193230a.js",
-      "static/css/e77fc5f3729749fb.css",
+      "static/css/a88e88299e46bf1a.css",
       "static/chunks/app/layout-a94d54b6650b9b0b.js"
     ],
     "/sitemap.xml/route": [
@@ -22,12 +29,12 @@
       "static/chunks/main-app-584db5d32193230a.js",
       "static/chunks/app/sitemap.xml/route-040897a1102de979.js"
     ],
-    "/robots.txt/route": [
+    "/page": [
       "static/chunks/webpack-d2460d88cb16df48.js",
       "static/chunks/4bd1b696-c023c6e3521b1417.js",
       "static/chunks/255-98a0bdaa30757bda.js",
       "static/chunks/main-app-584db5d32193230a.js",
-      "static/chunks/app/robots.txt/route-040897a1102de979.js"
+      "static/chunks/app/page-a20dadbe2e03dff2.js"
     ],
     "/account/page": [
       "static/chunks/webpack-d2460d88cb16df48.js",
@@ -36,12 +43,12 @@
       "static/chunks/main-app-584db5d32193230a.js",
       "static/chunks/app/account/page-665d625e8e1fa59b.js"
     ],
-    "/page": [
+    "/install/page": [
       "static/chunks/webpack-d2460d88cb16df48.js",
       "static/chunks/4bd1b696-c023c6e3521b1417.js",
       "static/chunks/255-98a0bdaa30757bda.js",
       "static/chunks/main-app-584db5d32193230a.js",
-      "static/chunks/app/page-b6d5b6d71a75d249.js"
+      "static/chunks/app/install/page-040897a1102de979.js"
     ],
     "/privacy/page": [
       "static/chunks/webpack-d2460d88cb16df48.js",
@@ -49,13 +56,6 @@
       "static/chunks/255-98a0bdaa30757bda.js",
       "static/chunks/main-app-584db5d32193230a.js",
       "static/chunks/app/privacy/page-040897a1102de979.js"
-    ],
-    "/install/page": [
-      "static/chunks/webpack-d2460d88cb16df48.js",
-      "static/chunks/4bd1b696-c023c6e3521b1417.js",
-      "static/chunks/255-98a0bdaa30757bda.js",
-      "static/chunks/main-app-584db5d32193230a.js",
-      "static/chunks/app/install/page-040897a1102de979.js"
     ],
     "/opengraph-image/route": [
       "static/chunks/webpack-d2460d88cb16df48.js",

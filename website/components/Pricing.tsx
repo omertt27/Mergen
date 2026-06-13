@@ -61,9 +61,9 @@ export default function Pricing() {
             style={
               plan.featured
                 ? {
-                    background: '#080808',
+                    background: '#f0f0f0',
                     borderColor: 'var(--accent)',
-                    boxShadow: 'inset 0 0 50px rgba(165, 243, 252, 0.05)',
+                    boxShadow: 'inset 0 0 50px rgba(8, 145, 178, 0.05)',
                   }
                 : undefined
             }

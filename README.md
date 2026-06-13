@@ -1,12 +1,12 @@
 # Mergen
 
-> **AI coding agents have made writing code free. Mergen makes debugging it automatic.**
+> **AI makes writing code cheap. Understanding what it does in production is still expensive. Mergen closes that gap.**
 
-Code generation is now instantaneous. The bottleneck has shifted entirely: the modern engineering team's day is no longer spent writing code — it is spent debugging, validating, and tracing why AI-generated code is breaking production. Every sprint that adds velocity on the write side creates compounding complexity on the debug side.
+Code generation is now instantaneous. The bottleneck has shifted: engineering teams no longer struggle to write code — they struggle to understand what AI-generated code does in production before it breaks something. Every sprint that adds velocity on the write side creates compounding uncertainty on the change side.
 
-GitHub and Cursor help you create code. Mergen helps you survive the code you just created.
+When an engineer or AI agent wants to modify a system, Mergen surfaces the hidden constraints, historical decisions, and operational context needed to make that change safely.
 
-**Mergen is the Debugging, Compliance, and Safety Layer for automated software development.** It compresses raw production telemetry into a structured causal chain, encodes your team's override decisions as enforceable policy, and gives your AI IDE the production facts it needs to act safely — without asking you to paste logs into a chat. At ≥85% confidence it executes the fix, validates the result, and posts the audit trail to your Slack thread.
+**Mergen is the real-time system understanding layer for high-change software environments.** It compresses raw production telemetry into a structured causal chain, encodes your team's override decisions as enforceable policy, and gives your AI IDE the operational facts it needs to act safely — without asking you to paste logs into a chat. At ≥85% confidence it executes the fix, validates the result, and posts the audit trail to your Slack thread.
 
 Works with **Claude Code**, **Cursor**, **Windsurf**, and **VS Code** — any IDE that supports MCP.
 
@@ -43,13 +43,13 @@ Then ask: *"Triage the api-service."*
 
 ---
 
-## The missing primitive
+## The bottleneck shift
 
 AI IDEs write, review, and ship code well. They have no visibility into what broke in production, what the error rate looked like before and after a deploy, or what the on-call engineer did at 3am last Tuesday.
 
-This is not a logging problem. Datadog has the logs. PagerDuty has the alerts. The missing primitive is *structured operational memory* — a layer that extracts constraint knowledge from production incidents, encodes your team's override decisions as policy, and makes that context machine-readable so AI agents can act safely without asking a human first.
+This is not a logging problem. Datadog has the logs. PagerDuty has the alerts. The gap is *system understanding* — knowing why a system behaves the way it does before you change it. That understanding used to live in engineers' heads. As AI increases the volume and velocity of changes, the cost of not having it becomes critical.
 
-Mergen is that layer. It connects your AI IDE to live telemetry (PagerDuty alerts, OpenTelemetry traces, Docker logs, Datadog spans) and builds a queryable corpus of how your team handles production. When an incident fires, your IDE calls `triage_incident` and gets a structured causal chain, not a log dump.
+Mergen is the infrastructure that makes that understanding machine-readable. It connects your AI IDE to live telemetry (PagerDuty alerts, OpenTelemetry traces, Docker logs, Datadog spans) and builds a queryable corpus of how your system actually behaves and how your team handles production. When an incident fires, your IDE calls `triage_incident` and gets a structured causal chain, not a log dump.
 
 ---
 
@@ -67,15 +67,15 @@ Mergen acts on what they tell it. When PagerDuty fires, Mergen pulls the correla
 
 Every other startup is building the accelerator pedal — tools to make AI write code faster. Mergen is building the brakes, the steering wheel, and the black-box flight recorder.
 
-Three structural flaws of AI code generation are compounding in parallel, and each one makes Mergen more necessary:
+The core bet: as code generation becomes nearly free, understanding software systems becomes the bottleneck. Three structural pressures are compounding in parallel:
 
-**Velocity trap — spaghetti automation at scale.** AI agents produce syntactically perfect code that ignores systemic architecture constraints. The result is high-velocity technical debt shipped at machine speed. When code generation is free and instantaneous, code comprehension and production safety become the scarcest resources in an engineering org. Mergen compresses the mess into structured context before it tanks the infrastructure.
+**Velocity trap — spaghetti automation at scale.** AI agents produce syntactically perfect code that ignores systemic architecture constraints. The result is high-velocity technical debt shipped at machine speed. When code generation is free and instantaneous, understanding what a system actually does in production becomes the scarcest resource in an engineering org. Mergen compresses that uncertainty into structured context before it tanks the infrastructure.
 
-**Destruction of institutional memory.** When a human spent three days writing a complex routing loop, the context lived in their head — edge cases, database quirks, the *why* behind the choices. When an AI agent generates the same block in four seconds, nobody remembers why it exists. The moment it hits production, it becomes instant, unmaintainable legacy. Mergen recaptures that intent: every incident, every override, every causal chain is stored as a replayable snapshot. Future engineers and future agents query Mergen before touching that code — not documentation that was already stale when it was written.
+**Loss of system context at the moment of change.** When a human spent three days writing a complex routing loop, the context lived in their head — edge cases, database quirks, the *why* behind the choices. When an AI agent generates the same block in four seconds, nobody knows why it exists. The moment it hits production, it becomes instant, unmaintainable legacy. Mergen recaptures that context: every incident, every override, every causal chain is stored as a replayable snapshot. Future engineers and future agents query Mergen before touching that code — not documentation that was already stale when it was written.
 
 **Exponential surge in distributed incidents.** Autonomous agents shipping code at machine speed introduce distributed systems failures that only manifest under production load — connection pool exhaustion, timeout cascades, silent microservice regressions that escape all static tests. The Agent Blunder Log and override corpus act as the governance checkpoint: when an autonomous coding loop tries to ship something that mirrors a historical outage signature, Mergen detects the pattern drift, halts the execution path, and records why.
 
-The macro thesis: Mergen scales directly in proportion to the failures of AI-generated code. The faster the industry accelerates, the more necessary the safety and memory layer becomes.
+The macro thesis: Mergen scales directly in proportion to the change pressure AI puts on software systems. The faster the industry accelerates, the more necessary the system understanding layer becomes.
 
 ---
 
@@ -609,6 +609,6 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full governance model.
 
 <div align="center">
 
-**Mergen — production memory for your AI IDE.**
+**Mergen — system understanding infrastructure for high-change software environments.**
 
 </div>

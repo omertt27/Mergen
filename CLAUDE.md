@@ -1,8 +1,8 @@
-# Mergen — Operational Memory Layer for Autonomous Engineering
+# Mergen — System Understanding Infrastructure for High-Change Software Environments
 
-AI coding agents are taking over software development. The bottleneck is not code generation — it is operational memory. GitHub stores what changed. Not why the Friday settlement window makes connection pool resizing unsafe. Not which fix your on-call reaches for at 3am. Coding agents fly blind into these constraints.
+As AI makes writing code cheap, understanding software systems becomes the bottleneck. GitHub stores what changed. Not why the Friday settlement window makes connection pool resizing unsafe. Not which fix your on-call reaches for at 3am. Engineers and AI agents make changes blind to those constraints.
 
-Mergen is the missing primitive: an MCP server that compresses raw production telemetry into structured machine context, encodes your team's override decisions as queryable policy, and gives AI coding agents (Claude Code, Cursor, Windsurf, VS Code) the operational facts they need to act safely in production.
+Mergen is the real-time system understanding layer: an MCP server that surfaces hidden constraints, historical decisions, and operational context so engineers and AI agents can make changes safely. It compresses raw production telemetry into structured machine context and encodes your team's override decisions as queryable policy. When a change is about to be made, Mergen answers the question: *is it safe to make this change here, now, given what this system has done before?*
 
 All data stays on your infrastructure. No cloud. No copy-paste.
 
@@ -15,7 +15,7 @@ All data stays on your infrastructure. No cloud. No copy-paste.
 | **Action** | Alert → page engineer | ✅ **Alert → diagnose → fix → validate** |
 | **AI integration** | Dashboard with AI summaries | ✅ **MCP tools your AI IDE calls directly** |
 | **Execution** | Human runs the fix | ✅ **Autonomous execution at ≥85% confidence** |
-| **Operational memory** | None — stateless alerting | ✅ **Override corpus + calibration corpus — safety and accuracy improve with every incident** |
+| **System understanding** | None — stateless alerting | ✅ **Override corpus + calibration corpus — system context and safety accuracy improve with every incident** |
 | **Agent safety** | None | ✅ **Agent Blunder Log — every blocked action recorded; corpus-enforced override policy** |
 | **Slack** | One-way webhook | ✅ **Owns the thread — posts progress through resolution** |
 
