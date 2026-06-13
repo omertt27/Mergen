@@ -43,6 +43,17 @@ jobs:
         working-directory: server
         run: npm run test:coverage -- --reporter=verbose
 
+      - name: Eval Regression Gate
+        working-directory: server
+        run: npm test -- --reporter=verbose evals 2>&1 | tee eval-report.txt
+
+      - name: Upload eval report
+        if: always() && matrix.node-version == '20.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-accuracy-report
+          path: server/eval-report.txt
+
       - name: Upload coverage
         if: matrix.node-version == '20.x'
         uses: codecov/codecov-action@v4

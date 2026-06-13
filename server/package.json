@@ -64,7 +64,10 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "eval": "node ../scripts/eval.mjs",
-    "eval:fast": "node ../scripts/eval.mjs --model gpt-4o-mini"
+    "eval:fast": "node ../scripts/eval.mjs --model gpt-4o-mini",
+    "eval:regression": "vitest run evals",
+    "eval:update-baseline": "node ../scripts/update-eval-baseline.mjs",
+    "eval:seed-corpus": "node ../scripts/seed-corpus.mjs"
   },
   "dependencies": {
     "@lemonsqueezy/lemonsqueezy.js": "^4.0.0",

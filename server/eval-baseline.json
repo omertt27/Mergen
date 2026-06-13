@@ -1,0 +1,57 @@
+{
+  "updatedAt": "2026-06-13T20:30:47.498Z",
+  "corpusSize": 25,
+  "overall": 100,
+  "byTag": {
+    "infra_db_connection_pool": {
+      "total": 4,
+      "passed": 4,
+      "pct": 100
+    },
+    "infra_oom_kill": {
+      "total": 4,
+      "passed": 4,
+      "pct": 100
+    },
+    "infra_rate_limit_cascade": {
+      "total": 2,
+      "passed": 2,
+      "pct": 100
+    },
+    "infra_certificate_expiry": {
+      "total": 2,
+      "passed": 2,
+      "pct": 100
+    },
+    "infra_disk_pressure": {
+      "total": 2,
+      "passed": 2,
+      "pct": 100
+    },
+    "infra_service_unavailable": {
+      "total": 2,
+      "passed": 2,
+      "pct": 100
+    },
+    "infra_slow_query": {
+      "total": 2,
+      "passed": 2,
+      "pct": 100
+    },
+    "infra_downstream_latency": {
+      "total": 2,
+      "passed": 2,
+      "pct": 100
+    },
+    "infra_queue_backlog": {
+      "total": 2,
+      "passed": 2,
+      "pct": 100
+    },
+    "infra_upstream_error": {
+      "total": 3,
+      "passed": 3,
+      "pct": 100
+    }
+  }
+}
