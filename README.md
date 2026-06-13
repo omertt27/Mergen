@@ -1,10 +1,12 @@
 # Mergen
 
-AI agents are taking over software development. The bottleneck is not code generation — it is operational memory.
+> **AI coding agents have made writing code free. Mergen makes debugging it automatic.**
 
-GitHub stores what changed. Not why the Friday settlement window makes connection pool resizing unsafe. Not that your JWT middleware breaks after `jsonwebtoken` upgrades. Not which fix your on-call reaches for at 3am. Coding agents fly blind into these constraints.
+Code generation is now instantaneous. The bottleneck has shifted entirely: the modern engineering team's day is no longer spent writing code — it is spent debugging, validating, and tracing why AI-generated code is breaking production. Every sprint that adds velocity on the write side creates compounding complexity on the debug side.
 
-**Mergen is the operational memory layer for autonomous engineering.** It compresses raw production telemetry into structured machine context, encodes your team's override decisions as queryable policy, and gives AI coding agents the production facts they need to act safely — without asking you to paste logs into a chat. At ≥85% confidence it executes the fix, validates the result, and posts the audit trail to your Slack thread.
+GitHub and Cursor help you create code. Mergen helps you survive the code you just created.
+
+**Mergen is the Debugging, Compliance, and Safety Layer for automated software development.** It compresses raw production telemetry into a structured causal chain, encodes your team's override decisions as enforceable policy, and gives your AI IDE the production facts it needs to act safely — without asking you to paste logs into a chat. At ≥85% confidence it executes the fix, validates the result, and posts the audit trail to your Slack thread.
 
 Works with **Claude Code**, **Cursor**, **Windsurf**, and **VS Code** — any IDE that supports MCP.
 
@@ -29,21 +31,23 @@ Then ask: *"Triage the api-service."*
 
 ## Who it's for
 
-**Startups without a dedicated SRE** — If your on-call rotation is developers who also ship features and the CTO is on the pager, Mergen removes the 3am manual triage entirely.
+**The human developer drowning in microservice complexity** — You're not tired of writing code; you're tired of debugging the code AI wrote for you. Mergen is your Automated Triage Engine. When an incident fires at 2am, you don't dig through raw Datadog traces or paste logs into a chat window. Mergen compresses 500KB of telemetry noise into a 1KB runtime fact: the exact service, the exact failure signature, and the exact fix command.
 
-**Platform teams at growing companies (50–500 engineers)** — You already have PagerDuty and Datadog. Mergen sits above that stack as an execution layer. It acts on what your observability tools tell it, so your SRE team handles escalations instead of routine restarts.
+**The VP of Engineering managing autonomous agents** — Your coding agents clear Jira backlogs fast and generate bugs faster. They have no institutional memory. Mergen is the mandatory guardrail: before an agent executes a change, it queries Mergen's Local Verdict Corpus to check previous failure signatures and system invariants. If the agent tries to ship something that mirrors a past production outage, Mergen blocks it. You are buying insurance against the **Agent Outage Tax**.
 
-**Compliance-heavy engineering orgs** — Every autonomous action, every blocked command, and every override is written to `~/.mergen/audit.log` as immutable JSONL. The Agent Blunder Log shows every time Mergen blocked itself. The PII shield is always on. If your CISO needs to approve autonomous execution before you flip `MERGEN_AUTOPILOT=true`, shadow mode gives you a 30-day PDF of exactly what Mergen would have done — and how often it would have been right.
+**Startups without a dedicated SRE** — Your on-call rotation is developers who also ship features. Mergen removes the 3am manual triage entirely.
 
-**Any team using an AI IDE** — If you use Claude Code, Cursor, Windsurf, or VS Code with MCP, Mergen connects your IDE to live production telemetry without changing how you work.
+**Compliance-heavy orgs** — Every autonomous action and every blocked command is written to `~/.mergen/audit.log` as immutable JSONL. The Agent Blunder Log shows every time Mergen blocked itself. Shadow mode gives your CISO a 30-day PDF of exactly what Mergen would have done autonomously — and how often it would have been right — before you flip `MERGEN_AUTOPILOT=true`.
 
 ---
 
-## The gap it closes
+## The missing primitive
 
-AI IDEs are exceptional at writing, reviewing, and shipping code. They have no visibility into what broke in production, what the error rate looked like before and after a deploy, or what the on-call engineer did at 3am last Tuesday.
+AI IDEs write, review, and ship code well. They have no visibility into what broke in production, what the error rate looked like before and after a deploy, or what the on-call engineer did at 3am last Tuesday.
 
-Mergen connects your AI IDE to that context: PagerDuty alerts, OpenTelemetry traces, Docker logs, Datadog spans. When an incident fires, your IDE calls `triage_incident` and gets a structured causal chain instead of asking you to paste logs into the chat.
+This is not a logging problem. Datadog has the logs. PagerDuty has the alerts. The missing primitive is *structured operational memory* — a layer that extracts constraint knowledge from production incidents, encodes your team's override decisions as policy, and makes that context machine-readable so AI agents can act safely without asking a human first.
+
+Mergen is that layer. It connects your AI IDE to live telemetry (PagerDuty alerts, OpenTelemetry traces, Docker logs, Datadog spans) and builds a queryable corpus of how your team handles production. When an incident fires, your IDE calls `triage_incident` and gets a structured causal chain, not a log dump.
 
 ---
 
@@ -51,9 +55,44 @@ Mergen connects your AI IDE to that context: PagerDuty alerts, OpenTelemetry tra
 
 Datadog and PagerDuty tell you what's broken. They page a human. The human fixes it.
 
-Mergen sits above that stack. When PagerDuty fires, Mergen pulls the correlated telemetry, runs causal analysis, and either executes the fix (autopilot mode) or hands Claude Code a structured brief with evidence and a specific command to run. It doesn't replace your observability tools — it acts on what they tell it.
+Mergen acts on what they tell it. When PagerDuty fires, Mergen pulls the correlated telemetry, runs causal analysis, consults your team's override history, and either executes the fix or hands your AI IDE a structured brief with evidence and a specific command. It does not replace your observability tools — it is the execution and memory layer above them.
 
-The meaningful difference over time is memory. Every incident Mergen sees is stored as a replayable telemetry snapshot. Your team's override decisions build a corpus of operational context that a generic vendor starting from zero can't replicate. After enough incidents: your Friday settlement windows, your compliance holds, the fixes your on-call always reaches for — structured and queryable, not locked in someone's head or a Notion doc.
+**The moat is what accumulates.** Every incident Mergen sees is stored as a replayable snapshot. Every override your team records becomes policy — Mergen will pause before repeating that action in the same context. After six months of production: your Friday settlement windows, your compliance holds, the fixes your on-call always reaches for — structured, queryable, and impossible to replicate from a standing start. The diagnosis algorithm is reproducible. The accumulated operational memory of your infrastructure is not.
+
+---
+
+## Why this is defensible: two primitives that compound with use
+
+### The Override Corpus — operational DNA that enforces itself
+
+Every time your team overrides Mergen's recommendation, that decision is encoded as policy. Shadow mode annotations build it automatically:
+
+```bash
+# After reviewing a shadow recommendation your team would have handled differently:
+curl -X POST http://127.0.0.1:3000/shadow-report/<id>/verdict \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "verdict": "would-override",
+    "overrideReason": "batch-window",
+    "note": "Friday 20-24 UTC — settlement run makes pool resize unsafe",
+    "manualAction": "kubectl rollout restart deployment/api"
+  }'
+```
+
+Mergen consults the corpus before every autonomous action. After enough production cycles, it knows your Friday settlement windows, your compliance holds, your on-call's preferred fixes — structured, queryable, and impossible to reconstruct from documentation alone. A generic vendor entering this space builds a general model. You build the operational DNA of your specific infrastructure.
+
+### The Agent Blunder Log — proof that autonomous agents need guardrails
+
+Every time Mergen's safety layer blocks an autonomous action, the event is recorded:
+
+```bash
+curl http://127.0.0.1:3000/agent-blunders
+# {"prevented": 23, "byType": {"allowlist_block": 14, "override_corpus_block": 7, "rbac_block": 2}, "last7Days": 4}
+```
+
+`prevented: 23` means your on-call did not handle 23 potentially unsafe autonomous actions. It is also the answer to "why would you trust an AI agent with prod?" — the system blocked itself, logged why, and waited. The Blunder Log compounds the same way the Override Corpus does: the more incidents Mergen sees, the richer the audit trail, and the more precisely the safety layer distinguishes safe from unsafe in your specific environment.
+
+**These two primitives are the long-term moat.** The diagnosis algorithm is reproducible. The accumulated operational memory of your infrastructure is not.
 
 ---
 
@@ -266,14 +305,7 @@ If Mergen executes a fix and errors increase, `validate_fix` returns `REGRESSED`
 
 **Agent Blunder Log — every interception is recorded**
 
-Every time Mergen's safety layer blocks an autonomous action (allowlist block, RBAC rejection, override corpus halt, planning gate denial), the event is appended to the Agent Blunder Log. Pull it at any time:
-
-```bash
-curl http://127.0.0.1:3000/agent-blunders
-# {"prevented": 23, "byType": {"allowlist_block": 14, "override_corpus_block": 7, ...}, "last7Days": 4}
-```
-
-This is the answer to "why would you trust an AI agent with prod?" — Mergen blocked itself 23 times so your on-call didn't have to.
+Every blocked action is appended to the log and queryable at `GET /agent-blunders`. Block types: `allowlist_block` · `rbac_block` · `override_corpus_block` · `injection_attempt` · `planning_gate_block`. See [Why this is defensible](#why-this-is-defensible-two-primitives-that-compound-with-use) for the full breakdown of what this compounds into over time.
 
 **Safety blocklist — unconditional**
 

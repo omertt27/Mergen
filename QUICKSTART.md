@@ -1,6 +1,8 @@
 # Mergen Quick Start
 
-Get up and running in 2 minutes.
+> AI coding agents made writing code free. Mergen makes debugging it automatic.
+
+Connect your AI IDE to live production telemetry in under 2 minutes. Once connected, ask *"Triage the api-service"* and get a causal chain with a fix command — not a log dump.
 
 ---
 

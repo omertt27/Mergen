@@ -8,11 +8,19 @@ Frequently asked questions about Mergen.
 
 ### What is Mergen?
 
-Mergen streams live browser telemetry (console logs, network requests, DOM state) to your AI IDE, enabling your AI assistant to debug your app in real-time without copy-pasting.
+AI coding agents have made writing code free. They have not made debugging it free.
+
+Mergen is the **Debugging, Compliance, and Safety Layer for automated software development.** It connects your AI IDE (Claude Code, Cursor, Windsurf, VS Code) to live production telemetry — PagerDuty alerts, OpenTelemetry traces, Docker logs, Datadog spans — and compresses that raw signal into a structured causal chain your IDE can act on.
+
+When an incident fires, your IDE calls `triage_incident`. Mergen strips the noise, surfaces the root cause with evidence, and at ≥85% confidence executes the fix, validates the result, and posts the audit trail to your Slack thread. No log pasting. No manual triage.
+
+Two audiences get different value:
+- **Individual developers** — stop debugging AI-generated code manually; get a concrete runtime fact instead of a raw trace dump.
+- **VPs of Engineering** — Mergen's Override Corpus and Agent Blunder Log are mandatory guardrails for autonomous coding agents. Before an agent ships a change, Mergen checks it against your team's failure history. If it mirrors a past outage, it's blocked.
 
 ### Is it free?
 
-Yes! Mergen is 100% free and open source (MIT license).
+Mergen uses an open-core model. The server, SDKs, browser extensions, and IDE integrations are MIT-licensed and free. The Hypothesis Engine (causal chain reconstruction, confidence calibration, autonomous remediation) is licensed under the Elastic License 2.0 — free for internal use, not for resale as a managed service. See [mergen.dev/pricing](https://mergen.dev/pricing) for enterprise tiers.
 
 ### Does my data leave my computer?
 
