@@ -63,6 +63,10 @@ class DedupWindow {
     }
     return false;
   }
+
+  reset(): void {
+    this._seen.clear();
+  }
 }
 
 const _dedup = new DedupWindow(5_000);
@@ -114,6 +118,12 @@ export class TokenBucket {
 }
 
 const _bucket = new TokenBucket();
+
+/** Resets rate-limiter and dedup state. Call in test beforeEach to isolate tests. */
+export function resetForTesting(): void {
+  _bucket.reset();
+  _dedup.reset();
+}
 
 function isRateLimited(): boolean {
   return _bucket.isRateLimited();
