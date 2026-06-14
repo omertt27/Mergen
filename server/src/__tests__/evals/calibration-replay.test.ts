@@ -14,7 +14,11 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { readFileSync, existsSync } from 'fs';
-import { resolve } from 'path';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+// __dirname is not defined in ESM; derive it from import.meta.url instead.
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // detectors.js is closed-source; mock it so infra-detectors.ts can be imported in CI.
 vi.mock('../../intelligence/detectors.js', () => ({
@@ -41,24 +45,44 @@ function runInfraPipeline(events: InfraEvent[]): Hypothesis | null {
   return results.reduce((best, h) => h.confidenceScore > best.confidenceScore ? h : best);
 }
 
-function replayCorpus(corpus: CorpusEntry[]): EvalSummary & { byTag: Record<string, { total: number; passed: number }> } {
+function replayCorpus(corpus: CorpusEntry[]): EvalSummary & { byTag: Record<string, { total: number; passed: number; pct: number }> } {
   const failures: EvalSummary['failures'] = [];
-  const byTag: Record<string, { total: number; passed: number }> = {};
+  const byTag: Record<string, { total: number; passed: number; pct: number }> = {};
   let passed = 0;
 
   for (const entry of corpus) {
-    const top = runInfraPipeline(entry.events);
-    const ok = top !== null && top.tag === entry.expectedTag;
+    const top        = runInfraPipeline(entry.events);
+    const shouldFire = entry.shouldFire !== false;
 
-    const tag = entry.expectedTag;
-    byTag[tag] = byTag[tag] ?? { total: 0, passed: 0 };
-    byTag[tag].total++;
+    // shouldFire:true  — detector must return the expected tag at the minimum confidence.
+    // shouldFire:false — detector must return null OR fire with confidence < 0.5 (noise guard).
+    const ok = shouldFire
+      ? (top !== null && top.tag === entry.expectedTag)
+      : (top === null || top.confidenceScore < 0.5);
+
+    // Only shouldFire entries contribute to per-tag accuracy; noise entries are
+    // tracked in the overall passed/total but kept out of byTag so per-tag 100%
+    // assertions aren't polluted by entries that expect silence.
+    if (shouldFire) {
+      const tag = entry.expectedTag;
+      byTag[tag] = byTag[tag] ?? { total: 0, passed: 0, pct: 0 };
+      byTag[tag].total++;
+      if (ok) byTag[tag].passed++;
+    }
+
     if (ok) {
       passed++;
-      byTag[tag].passed++;
     } else {
-      failures.push({ name: entry.expectedTag, expected: entry.expectedTag, actual: top?.tag ?? null });
+      failures.push({
+        name:     shouldFire ? entry.expectedTag : '(should-not-fire)',
+        expected: shouldFire ? entry.expectedTag : 'null or low-confidence',
+        actual:   top?.tag ?? null,
+      });
     }
+  }
+
+  for (const s of Object.values(byTag)) {
+    s.pct = Math.round((s.passed / s.total) * 100);
   }
 
   return {
@@ -138,6 +162,49 @@ describe('Level 2 — corpus replay accuracy', () => {
         expect(top.fixHint, `${entry.expectedTag}: missing fixHint`).toBeTruthy();
       }
     }
+  });
+});
+
+// ── A2. False-positive / noise guard ─────────────────────────────────────────
+//
+// Entries with verdict:'wrong' represent incidents where the detector fired
+// but a human override was needed — meaning the hypothesis was a false positive.
+// These must never fire with high confidence regardless of what keywords are
+// present in the telemetry.
+
+describe('Level 2 — false-positive noise guard', () => {
+  it('verdict=wrong entries do not fire with high confidence (>= 0.5)', () => {
+    const wrongEntries = REPLAY_CORPUS.filter((e) => e.verdict === 'wrong');
+    expect(wrongEntries.length).toBeGreaterThan(0); // guard: corpus must have wrong entries
+
+    const violations: string[] = [];
+    for (const entry of wrongEntries) {
+      const top = runInfraPipeline(entry.events);
+      if (top !== null && top.confidenceScore >= 0.5) {
+        violations.push(
+          `  • tag=${top.tag} confidence=${top.confidenceScore} msg="${entry.events[0]?.message}"`,
+        );
+      }
+    }
+
+    if (violations.length > 0) {
+      expect.fail(
+        `Detector fired with high confidence on known false-positive events:\n` +
+        violations.join('\n') +
+        `\nFix the detector to filter these noise patterns, or add them to NOISE_ENDPOINT_PATTERNS.`,
+      );
+    }
+
+    expect(violations).toHaveLength(0);
+  });
+
+  it('shouldFire:false entries are included in overall accuracy gate', () => {
+    const noFireEntries = REPLAY_CORPUS.filter((e) => e.shouldFire === false);
+    expect(noFireEntries.length).toBeGreaterThan(0);
+
+    const result = replayCorpus(noFireEntries);
+    // Every no-fire entry should pass (detector silent or low-confidence)
+    expect(result.accuracyPct).toBe(100);
   });
 });
 

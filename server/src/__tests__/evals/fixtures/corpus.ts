@@ -77,9 +77,76 @@ export const REPLAY_CORPUS: CorpusEntry[] = [
   { events: [evt('queue_backlog', 'notification-worker', 'consumer lag: 48291 messages behind')], expectedTag: 'infra_queue_backlog', verdict: 'correct' },
   { events: [evt('queue_backlog', 'analytics-pipeline', 'Kafka consumer group lag: 120k messages', 'datadog')], expectedTag: 'infra_queue_backlog', verdict: 'correct' },
 
-  // ── Upstream error catch-all (2 correct, 2 wrong — reflects real noise) ──────
+  // ── Upstream error catch-all (1 correct; 2 noise entries that must NOT fire) ──
 
   { events: [evt('upstream_error', 'api', 'production error on /v2/users', 'otlp', { traceId: 'trace-abc' })], expectedTag: 'infra_upstream_error', verdict: 'correct' },
-  { events: [evt('upstream_error', 'api', 'error on /health — liveness probe failure')], expectedTag: 'infra_upstream_error', verdict: 'wrong' },
-  { events: [evt('upstream_error', 'api', 'error on /metrics — Prometheus scrape failed')], expectedTag: 'infra_upstream_error', verdict: 'wrong' },
+
+  // These two had verdict:wrong in production — humans overrode because they are
+  // infrastructure monitoring noise, never actionable incidents.  shouldFire:false
+  // means the accuracy gate passes when the detector returns null or fires with
+  // confidence < 0.5, and fails when it fires with high confidence.
+  { events: [evt('upstream_error', 'api', 'error on /health — liveness probe failure')], expectedTag: '', shouldFire: false, verdict: 'wrong' },
+  { events: [evt('upstream_error', 'api', 'error on /metrics — Prometheus scrape failed')], expectedTag: '', shouldFire: false, verdict: 'wrong' },
+
+  // ── Multi-event: specific detector + upstream_error noise ────────────────────
+  // Real incidents arrive as windows with noisy co-occurring events.  Each entry
+  // below injects the canonical signal alongside a plausible upstream_error (the
+  // catch-all at 0.40) to verify the specific detector always wins.
+
+  {
+    events: [
+      evt('db_connection_pool_exhausted', 'api', 'pool exhausted — ECONNREFUSED on postgres:5432'),
+      evt('upstream_error', 'api', 'error on /v1/orders — 500 Internal Server Error'),
+    ],
+    expectedTag: 'infra_db_connection_pool', verdict: 'correct',
+  },
+  {
+    events: [
+      evt('oom_kill', 'worker', 'OOM killed — exit 137', 'otlp', { exitCode: 137, memoryLimitMb: 512 }),
+      evt('upstream_error', 'worker', 'error on /api/jobs — 500 Internal Server Error'),
+    ],
+    expectedTag: 'infra_oom_kill', verdict: 'correct',
+  },
+  {
+    events: [
+      evt('rate_limit_cascade', 'payment-service', '429 from Stripe — retry budget exhausted', 'datadog'),
+      evt('upstream_error', 'payment-service', 'error on /api/charges — upstream timeout'),
+    ],
+    expectedTag: 'infra_rate_limit_cascade', verdict: 'correct',
+  },
+  {
+    events: [
+      evt('certificate_expiry', 'api-gateway', 'TLS handshake failed — certificate expired 2 days ago'),
+      evt('upstream_error', 'api-gateway', 'error on /v2/payments — SSL error'),
+    ],
+    expectedTag: 'infra_certificate_expiry', verdict: 'correct',
+  },
+  {
+    events: [
+      evt('disk_pressure', 'logging-agent', 'WAL archive write failed — no space left on device'),
+      evt('upstream_error', 'logging-agent', 'error on /api/logs — 500 write failure'),
+    ],
+    expectedTag: 'infra_disk_pressure', verdict: 'correct',
+  },
+  {
+    events: [
+      evt('service_unavailable', 'checkout', '503 — no healthy upstream on payment-service:8080', 'otlp', { endpoint: 'payment-service:8080' }),
+      evt('upstream_error', 'checkout', 'error on /api/cart — dependency unavailable'),
+    ],
+    expectedTag: 'infra_service_unavailable', verdict: 'correct',
+  },
+  {
+    events: [
+      evt('queue_backlog', 'analytics-pipeline', 'Kafka consumer group lag: 85k messages behind', 'datadog'),
+      evt('upstream_error', 'analytics-pipeline', 'error on /api/events — processing delayed'),
+    ],
+    expectedTag: 'infra_queue_backlog', verdict: 'correct',
+  },
+  {
+    events: [
+      evt('downstream_latency_spike', 'api-gateway', 'p99 to auth-service exceeded 8s — callers timing out', 'datadog'),
+      evt('upstream_error', 'api-gateway', 'error on /api/users — upstream slow'),
+    ],
+    expectedTag: 'infra_downstream_latency', verdict: 'correct',
+  },
 ];

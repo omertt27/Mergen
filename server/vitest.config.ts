@@ -52,6 +52,13 @@ export default defineConfig({
       reporter: ['text', 'lcov'],
       include: ['src/**/*.ts'],
       exclude: ['src/__tests__/**', 'src/**/*.test.ts', 'src/index.ts'],
+      // Floor for all covered files. Ratchet upward as coverage improves —
+      // never lower these values. Per-file custom floors are set in CI config.
+      thresholds: {
+        lines: 80,
+        functions: 80,
+        branches: 75,
+      },
     },
   },
 });

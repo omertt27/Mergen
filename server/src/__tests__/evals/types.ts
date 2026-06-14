@@ -27,6 +27,8 @@ export interface CorpusEntry {
   events: InfraEvent[];
   expectedTag: string;
   verdict: 'correct' | 'wrong' | 'partial';
+  /** False when the detector should NOT fire (noise / false-positive entries). Defaults to true. */
+  shouldFire?: boolean;
 }
 
 export interface EvalSummary {

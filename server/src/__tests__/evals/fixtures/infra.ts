@@ -115,6 +115,31 @@ export const INFRA_FIXTURES: InfraFixture[] = [
     expected: { tag: '', confidenceMin: 0, shouldFire: false },
   },
 
+  // ── Negative: infrastructure monitoring noise — must NOT fire ────────────────
+  // These events arrive constantly from k8s probes and Prometheus and are never
+  // actionable incidents. The catch-all must stay silent on them.
+
+  {
+    name: 'liveness-probe-no-fire',
+    events: [evt('upstream_error', 'api', 'GET /health/live 404 — liveness probe failure', { endpoint: '/health/live' })],
+    expected: { tag: '', confidenceMin: 0, shouldFire: false },
+  },
+  {
+    name: 'healthcheck-404-no-fire',
+    events: [evt('upstream_error', 'api', 'GET /health 503 — health check failed', { endpoint: '/health' })],
+    expected: { tag: '', confidenceMin: 0, shouldFire: false },
+  },
+  {
+    name: 'prometheus-scrape-no-fire',
+    events: [evt('upstream_error', 'api', 'GET /metrics 500 — Prometheus scrape failed', { endpoint: '/metrics' })],
+    expected: { tag: '', confidenceMin: 0, shouldFire: false },
+  },
+  {
+    name: 'readiness-probe-no-fire',
+    events: [evt('upstream_error', 'api', 'GET /ready 503 — readiness check timeout', { endpoint: '/ready' })],
+    expected: { tag: '', confidenceMin: 0, shouldFire: false },
+  },
+
   // ── Multi-signal: more specific detector beats catch-all ─────────────────────
 
   {

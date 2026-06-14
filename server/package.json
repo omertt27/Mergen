@@ -63,8 +63,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:ci": "vitest run --config vitest.config.ci.ts",
+    "test:ci:coverage": "vitest run --config vitest.config.ci.ts --coverage",
     "eval": "node ../scripts/eval.mjs",
     "eval:fast": "node ../scripts/eval.mjs --model gpt-4o-mini",
+    "eval:dry": "node ../scripts/eval-dry.mjs",
     "eval:regression": "vitest run evals",
     "eval:update-baseline": "node ../scripts/update-eval-baseline.mjs",
     "eval:seed-corpus": "node ../scripts/seed-corpus.mjs"

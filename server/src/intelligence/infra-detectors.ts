@@ -337,8 +337,22 @@ export function detectServiceUnavailable(events: InfraEvent[]): Hypothesis | nul
 
 // ── Generic upstream error (catch-all) ───────────────────────────────────────
 
+// Infrastructure monitoring endpoints — not user-facing traffic, not incidents.
+// Liveness/readiness probes, health checks, and Prometheus scrapes fire constantly
+// and produce upstream_error events that are never actionable. Filter them before
+// the catch-all runs so these don't inflate alert volume or shadow real signals.
+const NOISE_ENDPOINT_PATTERNS = [
+  '/health', '/metrics', '/ready', '/liveness', '/readiness', '/ping', '/livez', '/readyz',
+];
+
+function isMonitoringNoise(e: InfraEvent): boolean {
+  const endpoint = String(e.attributes.endpoint || '');
+  const msg      = e.message || '';
+  return NOISE_ENDPOINT_PATTERNS.some((p) => endpoint.includes(p) || msg.includes(p));
+}
+
 export function detectUpstreamError(events: InfraEvent[]): Hypothesis | null {
-  const matches = events.filter((e) => e.kind === 'upstream_error');
+  const matches = events.filter((e) => e.kind === 'upstream_error' && !isMonitoringNoise(e));
   if (matches.length === 0) return null;
 
   const p     = matches[0];

@@ -39,13 +39,19 @@ jobs:
         working-directory: server
         run: npm run build:server
 
+      # Uses vitest.config.ci.ts which excludes tests that require gitignored
+      # closed-source modules. Those tests run locally via `npm test`.
       - name: Test
         working-directory: server
-        run: npm run test:coverage -- --reporter=verbose
+        run: npm run test:ci:coverage -- --reporter=verbose
 
+      # Eval regression gate runs the detector accuracy suite as a dedicated
+      # step so the report is always captured as an artifact, even if coverage
+      # fails. The evals are also included in the Test step above; this step
+      # only adds the tee for the artifact upload.
       - name: Eval Regression Gate
         working-directory: server
-        run: npm test -- --reporter=verbose evals 2>&1 | tee eval-report.txt
+        run: npm run eval:regression -- --reporter=verbose 2>&1 | tee eval-report.txt
 
       - name: Upload eval report
         if: always() && matrix.node-version == '20.x'

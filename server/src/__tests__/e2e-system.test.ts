@@ -38,9 +38,20 @@ describe('E2E System Tests', () => {
     await new Promise<void>((resolve, reject) => {
       server = app.listen(port, '127.0.0.1', () => {
         baseURL = `http://127.0.0.1:${port}`;
-        setTimeout(resolve, 50);
       });
       server.on('error', reject);
+      server.on('listening', async () => {
+        // Poll /health rather than using a fixed delay — eliminates flakiness on
+        // slow CI machines where the TCP stack isn't ready the instant listen fires.
+        for (let i = 0; i < 40; i++) {
+          try {
+            const res = await fetch(`http://127.0.0.1:${port}/health`);
+            if (res.ok) { resolve(); return; }
+          } catch {}
+          await new Promise(r => setTimeout(r, 25));
+        }
+        reject(new Error(`Server on port ${port} did not become healthy within 1s`));
+      });
     });
   });
 
