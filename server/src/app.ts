@@ -182,9 +182,17 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   // Only served in local mode (127.0.0.1); in team mode the endpoint is
   // disabled — clients must read ~/.mergen/secret directly from disk.
   // Cache-Control: no-store prevents the browser from caching the secret.
+  // Rate-limited to 10 requests/second to prevent brute-force extraction.
+  const _lsBucket = { count: 0, resetAt: 0 };
   app.get('/local-secret', (_req, res) => {
     if (bindHost !== '127.0.0.1') {
       res.status(404).json({ error: 'not available in team mode' });
+      return;
+    }
+    const now = Date.now();
+    if (now > _lsBucket.resetAt) { _lsBucket.count = 0; _lsBucket.resetAt = now + 1000; }
+    if (++_lsBucket.count > 10) {
+      res.status(429).json({ error: 'rate limit exceeded' });
       return;
     }
     res.setHeader('Cache-Control', 'no-store');
@@ -215,6 +223,24 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
     next();
   });
 
+  // ── Sensitive-data GET guard ──────────────────────────────────────────────
+  // These read endpoints expose operational details that should not be
+  // reachable by arbitrary browser scripts (DNS-rebinding or XSS).
+  // Require x-mergen-secret when the secret is configured (always in prod).
+  const SENSITIVE_GET_PATHS = ['/api/war-room', '/sessions/history', '/audit'];
+  if (localSecret) {
+    app.use((req, res, next) => {
+      if (req.method !== 'GET') { next(); return; }
+      if (!SENSITIVE_GET_PATHS.some((p) => req.path === p || req.path.startsWith(p + '/'))) { next(); return; }
+      const presented = req.headers['x-mergen-secret'];
+      const valid = typeof presented === 'string' &&
+        presented.length === localSecret.length &&
+        crypto.timingSafeEqual(Buffer.from(presented), Buffer.from(localSecret));
+      if (!valid) { res.status(401).json({ error: 'unauthorized' }); return; }
+      next();
+    });
+  }
+
   // ── Route modules ─────────────────────────────────────────────────────────
   app.use(createDashboardRouter(serverVersion)); // Read-only web dashboard
   app.use(createSetupRouter()); // Setup wizard UI
@@ -238,6 +264,9 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createValidateRouter()); // Fix validation state
   app.use(createSessionsRouter()); // Session history + audit log
   // PagerDuty webhook registered before express.json() above for raw body HMAC
+  // In cloud/team mode the generic incident webhook requires an API key — it
+  // can trigger autonomous command execution and must not be publicly accessible.
+  if (CLOUD_MODE) app.use('/incident', cloudAuthMiddleware);
   app.use(createIncidentWebhookRouter());   // Generic incident webhook (no PagerDuty required)
   app.use(createHeartbeatsRouter());        // Heartbeat / cron-job monitoring
   // GitHub webhook registered before express.json() above for raw body HMAC
