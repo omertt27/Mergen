@@ -85,6 +85,12 @@ function eventFingerprint(event: BrowserEvent): string | null {
 export const ingestRouter = Router();
 
 const SHARED_SECRET = process.env.MERGEN_SECRET;
+if (!SHARED_SECRET) {
+  logger.warn(
+    'ingest: MERGEN_SECRET is not set — /ingest endpoint accepts events from ANY caller. ' +
+    'Set MERGEN_SECRET=<random-string> to restrict ingest to authenticated sources.',
+  );
+}
 
 // ── Rate limiter: token-bucket, max 100 events / second ──────────────────────
 // P1.3: Replaced the leaky O(n) Array.shift() approach with an O(1)

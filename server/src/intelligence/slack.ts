@@ -22,6 +22,7 @@ import { memoryStore } from '../datadog/memory-store.js';
 import { recordVerdict } from './calibration.js';
 import { recordOverride, type OverrideReason } from './override-corpus.js';
 import { getRoutingForService } from './slack-routing.js';
+import { generateFeedbackToken } from '../sensor/feedback-token.js';
 import { approveExecution, denyExecution } from './execution-gate.js';
 import { executeRemediation } from './autonomy.js';
 import logger from '../sensor/logger.js';
@@ -660,17 +661,20 @@ export async function postIncidentAlert(opts: {
       },
     );
   } else if (incidentId != null && blame?.topCandidate && dashboardUrl) {
-    // Link-based fallback when no bot token
+    // Link-based fallback when no bot token.
+    // HMAC tokens prevent IDOR — each (id, correct) pair gets a distinct token.
+    const tokenCorrect = generateFeedbackToken(incidentId, 1);
+    const tokenWrong   = generateFeedbackToken(incidentId, 0);
     actions.push(
       {
         type: 'button',
         text: { type: 'plain_text', text: '✅ Attribution Correct', emoji: true },
-        url: `${dashboardUrl}/attribution-feedback?id=${incidentId}&correct=1`,
+        url: `${dashboardUrl}/attribution-feedback?id=${incidentId}&correct=1&token=${tokenCorrect}`,
       },
       {
         type: 'button',
         text: { type: 'plain_text', text: '❌ Wrong', emoji: true },
-        url: `${dashboardUrl}/attribution-feedback?id=${incidentId}&correct=0`,
+        url: `${dashboardUrl}/attribution-feedback?id=${incidentId}&correct=0&token=${tokenWrong}`,
       },
     );
   }

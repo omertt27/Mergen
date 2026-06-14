@@ -10,6 +10,7 @@
  * sidebar intent card — surfaces "why was this code written this way?"
  * at exactly the debugging moment without an LLM call.
  */
+import path from 'path';
 import { Router } from 'express';
 import { commitContextStore } from '../sensor/commit-context-store.js';
 
@@ -17,7 +18,11 @@ export function createExplainWhyRouter(): Router {
   const router = Router();
 
   router.get('/explain-why/file', (req, res) => {
-    const filePath = typeof req.query.path === 'string' ? req.query.path.trim() : '';
+    const rawPath  = typeof req.query.path === 'string' ? req.query.path.trim() : '';
+    // Normalise the path and strip any leading slash so the value is always a
+    // relative file path (e.g. "src/api/auth.ts"). This prevents callers from
+    // using path-traversal sequences ("../../etc/passwd") to probe the corpus.
+    const filePath = path.normalize(rawPath).replace(/^(\.\.[\\/])+/, '');
     const repo     = typeof req.query.repo  === 'string' && req.query.repo.trim() ? req.query.repo.trim() : undefined;
     const limit    = Math.min(10, Math.max(1, Number(req.query.limit ?? 5)));
 

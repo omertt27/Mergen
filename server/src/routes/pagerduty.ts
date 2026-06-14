@@ -22,7 +22,11 @@ const PD_WEBHOOK_SECRET = process.env.MERGEN_PAGERDUTY_SECRET;
 if (PD_WEBHOOK_SECRET) {
   logger.info('pagerduty: webhook signature verification enabled');
 } else {
-  logger.debug('pagerduty: no MERGEN_PAGERDUTY_SECRET — signature verification disabled');
+  logger.warn(
+    'pagerduty: MERGEN_PAGERDUTY_SECRET is not set — webhook signature verification is DISABLED. ' +
+    'Any caller can forge PagerDuty incident.triggered events and trigger autonomous execution. ' +
+    'Set MERGEN_PAGERDUTY_SECRET to the signing secret from your PagerDuty webhook config.',
+  );
 }
 
 function verifyPagerDutySignature(rawBody: Buffer, header: string | undefined): boolean {

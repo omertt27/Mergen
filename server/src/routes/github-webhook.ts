@@ -140,7 +140,11 @@ const WEBHOOK_SECRET = loadWebhookSecret();
 if (WEBHOOK_SECRET) {
   logger.info('github-webhook: secret loaded (verification enabled)');
 } else {
-  logger.debug('github-webhook: no secret configured — signature verification disabled');
+  logger.warn(
+    'github-webhook: GITHUB_WEBHOOK_SECRET is not set — signature verification is DISABLED. ' +
+    'Any caller can inject fake PR/push events and poison the commit context corpus. ' +
+    'Set GITHUB_WEBHOOK_SECRET to the secret configured in your GitHub webhook settings.',
+  );
 }
 
 function verifySignature(rawBody: Buffer, signature: string | undefined): boolean {

@@ -17,6 +17,7 @@
 import crypto from 'crypto';
 import express from 'express';
 import helmet from 'helmet';
+import logger from './sensor/logger.js';
 import { billingRouter } from './intelligence/billing.js';
 import { teamRouter } from './intelligence/team.js';
 import { ingestRouter } from './sensor/ingest.js';
@@ -64,7 +65,15 @@ import { serviceGraph } from './sensor/service-graph.js';
 import { routeReachability } from './sensor/route-reachability.js';
 
 /** Paths that require the x-mergen-secret header on non-GET requests. */
-const MUTATING_PATHS = ['/feedback', '/license', '/clear', '/checkpoint', '/telemetry', '/otel-config', '/postmortem'];
+const MUTATING_PATHS = [
+  '/feedback', '/license', '/clear', '/checkpoint', '/telemetry', '/otel-config', '/postmortem',
+  // Incident pipeline — triggers autonomous command execution
+  '/incident',
+  // Infrastructure mutations
+  '/ci', '/overrides', '/rbac', '/heartbeats', '/slack/routing',
+  // Process / container watchers
+  '/watchers',
+];
 
 /** Hostnames always valid for local-only mode. */
 const LOCAL_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '::1']);
@@ -78,6 +87,26 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(sentryRouter);
   app.use(createGitHubWebhookRouter());
   app.use(createPagerDutyRouter()); // raw-body HMAC — must stay before express.json()
+
+  // Slack interactive actions — raw body needed for HMAC signature verification.
+  // Slack sends application/x-www-form-urlencoded; we parse it here and attach
+  // rawBody so verifySlackSignature() can compute the correct HMAC.
+  app.post('/slack/actions', (req, res) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    req.on('end', () => {
+      const rawBody = Buffer.concat(chunks);
+      (req as unknown as { rawBody: Buffer }).rawBody = rawBody;
+      const ct = (req.headers['content-type'] ?? '').toLowerCase();
+      if (ct.includes('application/x-www-form-urlencoded')) {
+        const params = new URLSearchParams(rawBody.toString('utf8'));
+        req.body = Object.fromEntries(params);
+      } else {
+        try { req.body = JSON.parse(rawBody.toString('utf8')); } catch { req.body = {}; }
+      }
+      void handleSlackActions(req, res);
+    });
+  });
 
   app.use(express.json({ strict: true, limit: '1mb' }));
 
@@ -98,6 +127,14 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   const allowedOrigins = process.env.MERGEN_ALLOWED_ORIGINS
     ? new Set(process.env.MERGEN_ALLOWED_ORIGINS.split(',').map((s) => s.trim()))
     : null;
+
+  if (bindHost !== '127.0.0.1' && !allowedOrigins) {
+    logger.warn(
+      'MERGEN_ALLOWED_ORIGINS is not set in team/cloud mode — CORS is open to all origins. ' +
+      'Set MERGEN_ALLOWED_ORIGINS=https://your-dashboard.example.com to restrict cross-origin access.',
+    );
+  }
+
   app.use((req, res, next) => {
     const origin = req.headers.origin as string | undefined;
     if (bindHost === '127.0.0.1') {
@@ -108,8 +145,8 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
         res.setHeader('Vary', 'Origin');
       }
     } else {
-      // Team mode with no allowlist — allow all (preserves previous behaviour)
-      // but operators should set MERGEN_ALLOWED_ORIGINS for hardened deployments.
+      // Team mode with no allowlist — allow all (preserves previous behaviour).
+      // Operators should set MERGEN_ALLOWED_ORIGINS for hardened deployments.
       res.setHeader('Access-Control-Allow-Origin', '*');
     }
     res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS, DELETE');
@@ -237,8 +274,8 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
     res.send(getPrometheusMetrics());
   });
 
-  // ── Slack interactive actions & feedback link ─────────────────────────────
-  app.post('/slack/actions', (req, res) => { void handleSlackActions(req, res); });
+  // ── Slack feedback link ───────────────────────────────────────────────────
+  // /slack/actions is registered in the raw-body section above (before express.json()).
   app.get('/feedback', (req, res) => { void handleFeedbackLink(req, res); });
 
   // ── Malformed JSON handler ────────────────────────────────────────────────

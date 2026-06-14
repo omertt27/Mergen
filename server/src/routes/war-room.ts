@@ -12,6 +12,7 @@ import { Router } from 'express';
 import { memoryStore, formatMttr } from '../datadog/memory-store.js';
 import { getActiveIncident } from '../datadog/incident-state.js';
 import { store } from '../sensor/buffer.js';
+import { verifyFeedbackToken } from '../sensor/feedback-token.js';
 import logger from '../sensor/logger.js';
 
 export function createWarRoomRouter(): Router {
@@ -108,11 +109,20 @@ export function createWarRoomRouter(): Router {
 
   // ── Attribution feedback route — GET (link-based, no JS required) ─────────────
   // Slack buttons post to this URL when the team isn't using interactive mode.
+  // A short-lived HMAC token scoped to (id, correct) prevents callers from
+  // forging feedback on arbitrary incident IDs (IDOR).
   router.get('/attribution-feedback', (req, res) => {
     const id      = parseInt(String(req.query.id ?? ''), 10);
     const correct = req.query.correct === '1';
+    const token   = String(req.query.token ?? '');
 
     if (isNaN(id)) { res.status(400).send('Invalid id'); return; }
+
+    if (!verifyFeedbackToken(id, correct ? 1 : 0, token)) {
+      logger.warn({ id, correct }, 'attribution-feedback: invalid or missing token — rejected');
+      res.status(403).send('Invalid or expired feedback link');
+      return;
+    }
 
     memoryStore.recordAttributionFeedback(id, correct ? 1 : 0);
     logger.info({ id, correct }, 'attribution feedback via link');
