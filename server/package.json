@@ -56,8 +56,8 @@
   "scripts": {
     "prepack": "mkdir -p sdk && cp ../sdk/node.js sdk/ && cp ../sdk/mergen-inject.js sdk/ && cp ../sdk/vite-plugin.ts sdk/ && cp ../sdk/webpack-plugin.js sdk/",
     "postpack": "rm -rf sdk",
-    "build": "NODE_OPTIONS='--max-old-space-size=12288' tsc && node scripts/build-cli.mjs",
-    "build:server": "NODE_OPTIONS='--max-old-space-size=12288' tsc",
+    "build": "tsc && node scripts/build-cli.mjs",
+    "build:server": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
     "test": "vitest run",

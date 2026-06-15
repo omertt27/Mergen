@@ -10,4 +10,4 @@ export interface Plan {
 
 export declare const PLANS: Record<string, Plan>;
 export declare function getPlan(planId?: string): Plan;
-export declare function planAllowsTier(planId: string, tier: ToolTier): boolean;
+export declare function planAllowsTier(planId: string | undefined, tier: ToolTier): boolean;

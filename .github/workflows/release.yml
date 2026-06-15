@@ -47,6 +47,8 @@ jobs:
       - name: Build server
         working-directory: ./server
         run: npm run build
+        env:
+          NODE_OPTIONS: '--max-old-space-size=12288'
 
       - name: Install pkg
         run: npm install -g pkg
@@ -92,6 +94,8 @@ jobs:
       - name: Build
         working-directory: ./server
         run: npm run build
+        env:
+          NODE_OPTIONS: '--max-old-space-size=12288'
 
       - name: Publish to NPM
         working-directory: ./server

@@ -34,10 +34,14 @@ jobs:
       - name: TypeScript — type check
         working-directory: server
         run: npx tsc --noEmit
+        env:
+          NODE_OPTIONS: '--max-old-space-size=12288'
 
       - name: Build
         working-directory: server
         run: npm run build:server
+        env:
+          NODE_OPTIONS: '--max-old-space-size=12288'
 
       # Uses vitest.config.ci.ts which excludes tests that require gitignored
       # closed-source modules. Those tests run locally via `npm test`.

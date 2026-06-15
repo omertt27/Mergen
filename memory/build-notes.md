@@ -11,7 +11,7 @@ metadata:
 
 These cause `tsc` to exit code 2 but still emit JS. The `&&` in `npm run build` short-circuits, so run `node scripts/build-cli.mjs` manually after `tsc` if needed.
 
-**Memory-hungry tsc:** `tools.ts` is 2200+ lines of Zod schemas. Normal `npm run build` OOMs at default heap. Use `NODE_OPTIONS="--max-old-space-size=8192" npm run build`.
+**Memory-hungry tsc:** `tools.ts` is 2200+ lines of Zod schemas. Normal `npm run build` OOMs at default heap. Run locally with `NODE_OPTIONS="--max-old-space-size=8192" npm run build`. CI sets this via step-level `env:` in both `test.yml` and `release.yml`.
 
 **Corrupted node_modules (fixed 2026-06-03):** `debug@2.6.9` and `ipaddr.js@1.9.1` were missing their `src/` and `lib/` directories. Fixed with `rm -rf node_modules && npm install`.
 
