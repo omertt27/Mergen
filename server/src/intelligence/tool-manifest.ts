@@ -94,3 +94,15 @@ export const ALL_TOOLS: readonly ToolEntry[] = [
 ] as const;
 
 export const ALL_TOOL_NAMES: readonly string[] = ALL_TOOLS.map((t) => t.name);
+
+const _tierMap = new Map<string, ToolEntry['tier']>(ALL_TOOLS.map((t) => [t.name, t.tier]));
+
+/**
+ * Returns the tier required to call a tool, or 'all' if not found.
+ * Use this in tools.ts to avoid hardcoding tiers in two places:
+ *
+ *   server.registerTool(name, schema, withTierGate(getTierForTool(name), handler))
+ */
+export function getTierForTool(name: string): ToolEntry['tier'] {
+  return _tierMap.get(name) ?? 'all';
+}

@@ -81,3 +81,46 @@ export function setFirstAnalyzeAt(ts: number): void { firstAnalyzeAt = ts; }
 export function setLastTimeToFirstAnalysisMs(ms: number): void { lastTimeToFirstAnalysisMs = ms; }
 export function setLastClearAt(ts: number): void { _lastClearAt = ts; }
 export function getLastClearAt(): number { return _lastClearAt; }
+
+// ── Tier gating ──────────────────────────────────────────────────────────────
+
+type McpResult = { content: Array<{ type: 'text'; text: string }> };
+type ToolHandler<A extends unknown[]> = (...args: A) => Promise<McpResult>;
+
+/**
+ * Wraps a tool handler with a plan-tier check.
+ *
+ * Usage in tools.ts:
+ *   server.registerTool('execute_fix', schema, withTierGate('pro', async (args) => { ... }))
+ *
+ * Free-plan callers receive a structured upgrade prompt instead of an error —
+ * the AI can surface the message directly to the user.
+ */
+export function withTierGate<A extends unknown[]>(
+  tier: ToolTier,
+  handler: ToolHandler<A>,
+): ToolHandler<A> {
+  if (tier === 'free' || tier === 'all') return handler;
+
+  return async (...args: A): Promise<McpResult> => {
+    const planId = getActivePlanId();
+    if (!planAllowsTier(planId, tier)) {
+      return {
+        content: [{
+          type: 'text',
+          text: [
+            `## Tool unavailable on Free plan`,
+            '',
+            'This tool requires a paid Mergen plan.',
+            '',
+            '**Upgrade at:** https://mergen.dev/pricing',
+            '',
+            'To check your current plan: call `get_status`.',
+            'To activate a license key: `POST /license { "key": "..." }`',
+          ].join('\n'),
+        }],
+      };
+    }
+    return handler(...args);
+  };
+}
