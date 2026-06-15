@@ -18,7 +18,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { postmortemStore } from './postmortem-store.js';
 import { hybridSearch, tagToQuery } from './postmortem-retrieval.js';
-import { trackCall } from './tools-state.js';
+import { trackCall, withTierGate } from './tools-state.js';
+import { getTierForTool } from './tool-manifest.js';
 import { store } from '../sensor/buffer.js';
 import { incidentStore } from '../sensor/incident-store.js';
 import { detectAiCommit } from './ai-commit.js';
@@ -331,7 +332,7 @@ export function registerRunbookTools(server: McpServer): void {
           .describe('Max postmortems to synthesize from (default: 10).'),
       },
     },
-    async ({ tag, query, service, limit = 10 }) => {
+    withTierGate(getTierForTool('generate_runbook'), async ({ tag, query, service, limit = 10 }) => {
       trackCall('generate_runbook');
 
       // No tag or query: return corpus coverage overview
@@ -494,7 +495,7 @@ export function registerRunbookTools(server: McpServer): void {
       );
 
       return { content: [{ type: 'text', text: lines.filter((l) => l !== undefined).join('\n') }] };
-    },
+    }),
   );
 
   // ── search_postmortems ──────────────────────────────────────────────────────
@@ -520,7 +521,7 @@ export function registerRunbookTools(server: McpServer): void {
           .describe('Number of results to return (default: 5).'),
       },
     },
-    async ({ query, service, tag, limit = 5 }) => {
+    withTierGate(getTierForTool('search_postmortems'), async ({ query, service, tag, limit = 5 }) => {
       trackCall('search_postmortems');
 
       const normalizedTag = tag
@@ -578,7 +579,7 @@ export function registerRunbookTools(server: McpServer): void {
       lines.push('---', `_To generate a full runbook: \`generate_runbook(tag: "...")\`_`);
 
       return { content: [{ type: 'text', text: lines.filter((l) => l !== undefined).join('\n') }] };
-    },
+    }),
   );
 
   // ── draft_postmortem ────────────────────────────────────────────────────────
@@ -608,11 +609,11 @@ export function registerRunbookTools(server: McpServer): void {
           .describe('Slack thread URL or text content to incorporate into the timeline (optional).'),
       },
     },
-    async ({ service, summary, duration_minutes, severity = 'sev2', affected_users, slack_thread }) => {
+    withTierGate(getTierForTool('draft_postmortem'), async ({ service, summary, duration_minutes, severity = 'sev2', affected_users, slack_thread }) => {
       trackCall('draft_postmortem');
       const markdown = await draftPostmortemDoc({ service, summary, duration_minutes, severity, affected_users, slack_thread });
       return { content: [{ type: 'text', text: markdown }] };
-    },
+    }),
   );
 }
 

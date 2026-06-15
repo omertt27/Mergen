@@ -23,7 +23,7 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { store, type BlastRadiusReport } from '../sensor/buffer.js';
 import { memoryStore } from '../datadog/memory-store.js';
-import { withTierGate } from './tools-state.js';
+import { trackCall, withTierGate } from './tools-state.js';
 import { getTierForTool } from './tool-manifest.js';
 
 export function registerBlastRadiusTools(server: McpServer): void {
@@ -146,7 +146,8 @@ function _registerAttributionAccuracy(server: McpServer): void {
     'get_attribution_accuracy',
     'Show the historical accuracy of Mergen\'s causal blame attribution. Displays how often the attributed deploy SHA matched the actual fix PR SHA, broken down by confidence band. Use this to validate whether attribution scores are trustworthy for your codebase.',
     {},
-    async () => {
+    withTierGate(getTierForTool('get_attribution_accuracy'), async () => {
+      trackCall('get_attribution_accuracy');
       const all = memoryStore.findSimilar('', 200); // get recent records
       // Actually query all resolved records with attribution
       const resolved = all.filter(
@@ -197,6 +198,6 @@ function _registerAttributionAccuracy(server: McpServer): void {
       }
 
       return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
-    },
+    }),
   );
 }

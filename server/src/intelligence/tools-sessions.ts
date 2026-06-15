@@ -9,7 +9,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { listSessionMetas, loadSessionsByTimeRange } from '../sensor/session-history.js';
 import { getAuditLog } from '../sensor/audit-log.js';
-import { trackCall } from './tools-state.js';
+import { trackCall, withTierGate } from './tools-state.js';
+import { getTierForTool } from './tool-manifest.js';
 
 export function registerSessionTools(server: McpServer): void {
 
@@ -116,7 +117,7 @@ export function registerSessionTools(server: McpServer): void {
           .describe('Max entries to return, newest first (default 100)'),
       },
     },
-    async ({ limit = 100 }) => {
+    withTierGate(getTierForTool('get_audit_log'), async ({ limit = 100 }) => {
       trackCall('get_audit_log');
       const entries = getAuditLog(limit);
       if (entries.length === 0) {
@@ -129,6 +130,6 @@ export function registerSessionTools(server: McpServer): void {
         ),
       ];
       return { content: [{ type: 'text', text: lines.join('\n') }] };
-    },
+    }),
   );
 }

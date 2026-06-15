@@ -6,15 +6,16 @@ export const KNOWN_TOOLS = new Set([
   'quick_check', 'explain_warning', 'session_summary', 'analyze_runtime', 'reconstruct_context',
   'explain_why', 'get_change_timeline',
   'get_error_frequency', 'get_anomaly_baseline', 'get_regression_start', 'get_repro_steps',
+  'get_causal_graph',
   // Buffer reads
   'get_recent_logs', 'get_network_activity', 'get_dom_context',
   'get_component_tree', 'get_diagnostics', 'get_test_results',
-  'get_snapshots', 'get_websockets', 'get_sse',
+  'get_snapshots', 'get_websocket_activity', 'get_sse_activity', 'get_service_topology',
   // Backend / infra
   'get_process_logs', 'get_backend_logs', 'get_backend_spans', 'get_correlated_trace',
   'get_ci_results', 'get_deployments', 'get_unified_timeline',
   // Blast radius
-  'get_blast_radius', 'get_code_owners',
+  'get_blast_radius', 'get_code_owners', 'get_attribution_accuracy',
   // Incidents
   'triage_incident', 'execute_fix', 'validate_fix',
   'get_incident_history', 'list_open_incidents',
@@ -22,14 +23,19 @@ export const KNOWN_TOOLS = new Set([
   'get_incident_context', 'get_datadog_trace', 'get_datadog_logs',
   // Debug sessions
   'inject_logpoint', 'remove_logpoint',
+  'start_debug_session', 'checkpoint_debug_session', 'end_debug_session',
   // Runbook / postmortem
   'create_postmortem', 'list_postmortems',
+  'check_fix_history', 'explain_service', 'generate_runbook', 'search_postmortems', 'draft_postmortem',
+  // Sessions / audit
+  'get_session_replay', 'get_audit_log',
   // Memory
   'store_agent_memory', 'recall_agent_memory',
   // Intent
   'create_ticket',
   // Utility
   'clear_buffer', 'get_status', 'mark_capture_start', 'export_session', 'suggest_logging_locations',
+  'watch_for_fix', 'stop_file_watch',
 ]);
 
 export const toolCallCounts: Record<string, number> = {};

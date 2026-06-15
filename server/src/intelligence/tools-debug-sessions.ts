@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { store } from '../sensor/buffer.js';
+import { trackCall } from './tools-state.js';
 import {
   startDebugSession, checkpointSession, endDebugSession,
   getSession, listActiveSessions, captureSnapshot,
@@ -24,6 +25,7 @@ export function registerDebugSessionTools(server: McpServer): void {
       },
     },
     async ({ hypothesis, target_component }) => {
+      trackCall('start_debug_session');
       const errors   = store.getLogs(200, 'error');
       const warns    = store.getLogs(200, 'warn');
       const netFail  = store.getNetwork(200).filter(n => n.status >= 400 || n.status === 0 || n.error);
@@ -83,6 +85,7 @@ export function registerDebugSessionTools(server: McpServer): void {
       },
     },
     async ({ session_id, note }) => {
+      trackCall('checkpoint_debug_session');
       const session = getSession(session_id);
       if (!session) {
         const active = listActiveSessions()
@@ -166,6 +169,7 @@ export function registerDebugSessionTools(server: McpServer): void {
       },
     },
     async ({ session_id }) => {
+      trackCall('end_debug_session');
       const session = getSession(session_id);
       if (!session) {
         const active = listActiveSessions().map(s => `"${s.id.slice(0, 8)}…"`).join(', ');
