@@ -5,7 +5,8 @@ import { compact, type RuntimeFact } from '../datadog/compactor.js';
 import { getActiveIncident } from '../datadog/incident-state.js';
 import { fingerprintFromFact } from '../datadog/fingerprinter.js';
 import { memoryStore, formatMttr } from '../datadog/memory-store.js';
-import { trackCall } from './tools-state.js';
+import { trackCall, withTierGate } from './tools-state.js';
+import { getTierForTool } from './tool-manifest.js';
 
 function buildPatternHeader(fact: RuntimeFact): string {
   const fingerprint = fingerprintFromFact(fact);
@@ -252,7 +253,7 @@ export function registerDatadogTools(
           .describe('How far back to look for this trace (default 15 minutes)'),
       },
     },
-    async ({ trace_id, service, since_minutes = 15 }) => {
+    withTierGate(getTierForTool('get_datadog_trace'), async ({ trace_id, service, since_minutes = 15 }) => {
       trackCall('get_datadog_trace');
 
       if (!isConfigured()) {
@@ -301,6 +302,6 @@ export function registerDatadogTools(
           isError: true,
         };
       }
-    },
+    }),
   );
 }

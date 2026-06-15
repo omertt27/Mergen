@@ -84,7 +84,7 @@ export function getLastClearAt(): number { return _lastClearAt; }
 
 // ── Tier gating ──────────────────────────────────────────────────────────────
 
-type McpResult = { content: Array<{ type: 'text'; text: string }> };
+type McpResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
 type ToolHandler<A extends unknown[]> = (...args: A) => Promise<McpResult>;
 
 /**

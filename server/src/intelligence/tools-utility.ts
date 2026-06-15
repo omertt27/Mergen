@@ -4,7 +4,8 @@ import { store } from '../sensor/buffer.js';
 import { getUsageSnapshot } from './usage.js';
 import { getLicenseState } from './license.js';
 import { layer3Store } from '../sensor/layer3-store.js';
-import { trackCall, buildCreditBar, setLastClearAt } from './tools-state.js';
+import { trackCall, buildCreditBar, setLastClearAt, withTierGate } from './tools-state.js';
+import { getTierForTool } from './tool-manifest.js';
 import { saveSessionToHistory } from '../sensor/session-history.js';
 
 export function registerUtilityTools(server: McpServer): void {
@@ -263,7 +264,7 @@ export function registerUtilityTools(server: McpServer): void {
         pid: z.string().optional().describe('Hypothesis pid to use (defaults to current top hypothesis)'),
       },
     },
-    async ({ provider, pid }) => {
+    withTierGate(getTierForTool('create_ticket'), async ({ provider, pid }) => {
       trackCall('create_ticket');
       const port = process.env.PORT ?? '3000';
 
@@ -294,7 +295,7 @@ export function registerUtilityTools(server: McpServer): void {
       } catch (err) {
         return { content: [{ type: 'text', text: `Error creating ticket: ${err instanceof Error ? err.message : String(err)}\n\nMake sure the Mergen server is running and the API keys are configured.` }] };
       }
-    },
+    }),
   );
 
   // ── get_snapshots ──────────────────────────────────────────────────────────
@@ -351,11 +352,11 @@ export function registerUtilityTools(server: McpServer): void {
         expression: z.string().describe('JS expression to evaluate and log when the event fires (e.g. "document.querySelector(\'input[name=email]\').value")'),
       },
     },
-    async ({ selector, event, expression }) => {
+    withTierGate(getTierForTool('inject_logpoint'), async ({ selector, event, expression }) => {
       trackCall('inject_logpoint');
       const id = layer3Store.injectLog(selector, event, expression);
       return { content: [{ type: 'text', text: `Logpoint injected (id: ${id}).\nWaiting for "${event}" on "${selector}".\nExpression: ${expression}\nResults will appear in get_recent_logs within seconds of the event firing.` }] };
-    },
+    }),
   );
 
   // ── remove_logpoint ────────────────────────────────────────────────────────
@@ -367,11 +368,11 @@ export function registerUtilityTools(server: McpServer): void {
         id: z.string().describe('Logpoint id returned by inject_logpoint'),
       },
     },
-    async ({ id }) => {
+    withTierGate(getTierForTool('remove_logpoint'), async ({ id }) => {
       trackCall('remove_logpoint');
       const removed = layer3Store.removeInjectedLog(id);
       return { content: [{ type: 'text', text: removed ? `Logpoint ${id} removed.` : `Logpoint ${id} not found (may have already fired and auto-removed).` }] };
-    },
+    }),
   );
 
 }

@@ -5,7 +5,8 @@ import { truncateToTokenBudget } from './token-budget.js';
 import { hypothesisHistory } from './hypothesis-history.js';
 import { getActivePlanId } from './license.js';
 import { getPlan } from './plans.js';
-import { trackCall } from './tools-state.js';
+import { trackCall, withTierGate } from './tools-state.js';
+import { getTierForTool } from './tool-manifest.js';
 import logger from '../sensor/logger.js';
 
 export function registerInfraTools(server: McpServer): void {
@@ -28,7 +29,7 @@ export function registerInfraTools(server: McpServer): void {
           .describe('Max events to return (default 50)'),
       },
     },
-    async ({ seconds = 300, limit = 50 }) => {
+    withTierGate(getTierForTool('get_unified_timeline'), async ({ seconds = 300, limit = 50 }) => {
       trackCall('get_unified_timeline');
 
       const since            = Date.now() - seconds * 1000;
@@ -175,7 +176,7 @@ export function registerInfraTools(server: McpServer): void {
       }
 
       return { content: [{ type: 'text', text: lines.join('\n') }] };
-    },
+    }),
   );
 
   // ── get_ci_results ─────────────────────────────────────────────────────────
@@ -378,7 +379,7 @@ export function registerInfraTools(server: McpServer): void {
           .describe('Working directory to search for CODEOWNERS (defaults to process.cwd())'),
       },
     },
-    async ({ file_path, cwd }) => {
+    withTierGate(getTierForTool('get_code_owners'), async ({ file_path, cwd }) => {
       trackCall('get_code_owners');
       const { findCodeOwners } = await import('../sensor/git-suspect.js');
       const result = findCodeOwners(file_path, cwd ?? process.cwd());
@@ -408,7 +409,7 @@ export function registerInfraTools(server: McpServer): void {
           ].join('\n'),
         }],
       };
-    },
+    }),
   );
 
   // ── get_backend_logs ───────────────────────────────────────────────────────
@@ -428,7 +429,7 @@ export function registerInfraTools(server: McpServer): void {
         limit: z.number().int().min(1).max(200).optional().describe('Max events (default 50)'),
       },
     },
-    async ({ service, sdk, level, since, limit }) => {
+    withTierGate(getTierForTool('get_backend_logs'), async ({ service, sdk, level, since, limit }) => {
       trackCall('get_backend_logs');
       let events = store.getLogs(limit ?? 50, level as LogLevel | undefined, since);
       events = events.filter(e =>
@@ -451,7 +452,7 @@ export function registerInfraTools(server: McpServer): void {
       });
 
       return { content: [{ type: 'text', text: `${events.length} backend log event(s):\n\n${lines.join('\n')}` }] };
-    },
+    }),
   );
 
   // ── get_backend_spans ──────────────────────────────────────────────────────

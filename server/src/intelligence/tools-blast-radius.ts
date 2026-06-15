@@ -23,6 +23,8 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { store, type BlastRadiusReport } from '../sensor/buffer.js';
 import { memoryStore } from '../datadog/memory-store.js';
+import { withTierGate } from './tools-state.js';
+import { getTierForTool } from './tool-manifest.js';
 
 export function registerBlastRadiusTools(server: McpServer): void {
   _registerBlastRadius(server);
@@ -37,7 +39,7 @@ function _registerBlastRadius(server: McpServer): void {
       since: z.number().optional().describe('Unix ms — only count errors after this timestamp. Omit to use all buffered events.'),
       error_pattern: z.string().optional().describe('Regex pattern to filter errors by message text (case-insensitive). Omit for all errors.'),
     },
-    async ({ since, error_pattern }) => {
+    withTierGate(getTierForTool('get_blast_radius'), async ({ since, error_pattern }) => {
       const report = store.getBlastRadius({
         since,
         errorPattern: error_pattern,
@@ -45,7 +47,7 @@ function _registerBlastRadius(server: McpServer): void {
 
       const text = formatBlastRadius(report, { since, errorPattern: error_pattern });
       return { content: [{ type: 'text' as const, text }] };
-    },
+    }),
   );
 }
 

@@ -29,7 +29,8 @@ import { executeRemediation, extractCommand } from './autonomy.js';
 import { deriveRollback, executeRollback } from './rollback.js';
 import { getAutopilotLevel, autopilotLevelPermits, classifyCommandRisk, autopilotLevelDescription } from './action-risk.js';
 import { getStatsForTag } from './calibration.js';
-import { trackCall } from './tools-state.js';
+import { trackCall, withTierGate } from './tools-state.js';
+import { getTierForTool } from './tool-manifest.js';
 import { incidentStore } from '../sensor/incident-store.js';
 import { captureSnapshot } from './incident-replay.js';
 import { postThreadReply } from './slack.js';
@@ -42,6 +43,7 @@ const AUTO_EXECUTE_CONFIDENCE_THRESHOLD = 0.85;
 
 export function registerAutonomyTools(server: McpServer): void {
   // ── execute_fix ──────────────────────────────────────────────────────────────
+  // @ts-expect-error — withTierGate return type doesn't perfectly match MCP SDK handler signature
   server.registerTool(
     'execute_fix',
     {
@@ -67,7 +69,7 @@ export function registerAutonomyTools(server: McpServer): void {
           .describe('Identity of the engineer executing the fix (email or username). Used for RBAC and audit log.'),
       },
     },
-    async ({ pid, confirm, since, dry_run, cwd, actor }) => {
+    withTierGate(getTierForTool('execute_fix'), async ({ pid, confirm, since, dry_run, cwd, actor }) => {
       trackCall('execute_fix');
       const isDryRun = dry_run === 'true';
 
@@ -237,7 +239,7 @@ export function registerAutonomyTools(server: McpServer): void {
       }
 
       return { content: [{ type: 'text', text: lines.join('\n') }] };
-    },
+    }),
   );
 
   // ── triage_incident ──────────────────────────────────────────────────────────
