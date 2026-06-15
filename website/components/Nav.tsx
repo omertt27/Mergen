@@ -8,6 +8,7 @@ export default function Nav() {
             <li><a href="#how">How It Works</a></li>
             <li><a href="#why">Capabilities</a></li>
             <li><a href="#integrations">Integrations</a></li>
+            <li><a href="#guide">Guide</a></li>
             <li><a href="#access">Pricing</a></li>
             <li><a href="/install">Install</a></li>
             <li><a href="https://github.com/omertt27/Mergen">GitHub</a></li>

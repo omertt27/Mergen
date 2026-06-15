@@ -11,11 +11,14 @@
 
 import { execSync, spawn } from 'child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { resolve, dirname } from 'path';
+import { resolve, dirname, join } from 'path';
 import { homedir } from 'os';
 import { createInterface } from 'readline';
+import { fileURLToPath } from 'url';
 
-const VERSION = '1.0.0';
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const _pkg = JSON.parse(readFileSync(join(__dirname, '../package.json'), 'utf8')) as { version: string };
+const VERSION = _pkg.version;
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 

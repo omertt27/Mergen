@@ -1,3 +1,6 @@
+import { planAllowsTier, type ToolTier } from './plans.js';
+import { getActivePlanId } from './license.js';
+
 export const KNOWN_TOOLS = new Set([
   // Analysis
   'quick_check', 'explain_warning', 'session_summary', 'analyze_runtime', 'reconstruct_context',

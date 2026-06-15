@@ -1,6 +1,6 @@
 {
-  "/robots.txt/route": "/robots.txt",
   "/sitemap.xml/route": "/sitemap.xml",
+  "/robots.txt/route": "/robots.txt",
   "/_not-found/page": "/_not-found",
   "/page": "/",
   "/account/page": "/account",

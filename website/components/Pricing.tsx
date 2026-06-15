@@ -50,7 +50,7 @@ const plans = [
 export default function Pricing() {
   return (
     <section id="access">
-      <span className="section-label">05 // Pricing</span>
+      <span className="section-label">06 // Pricing</span>
       <h2>Start free.<br />Scale when the corpus does.</h2>
 
       <div className="price-row mt-lg" style={{ maxWidth: '1100px', margin: '8rem auto 0' }}>
