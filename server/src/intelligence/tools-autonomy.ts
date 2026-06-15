@@ -43,7 +43,6 @@ const AUTO_EXECUTE_CONFIDENCE_THRESHOLD = 0.85;
 
 export function registerAutonomyTools(server: McpServer): void {
   // ── execute_fix ──────────────────────────────────────────────────────────────
-  // @ts-expect-error — withTierGate return type doesn't perfectly match MCP SDK handler signature
   server.registerTool(
     'execute_fix',
     {

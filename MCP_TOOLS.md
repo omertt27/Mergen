@@ -1,541 +1,250 @@
 # Mergen MCP Tools Reference
 
-Complete reference for the Model Context Protocol (MCP) tools provided by Mergen.
+Complete reference for all Model Context Protocol (MCP) tools provided by Mergen.
+Tools are available in any AI IDE that supports MCP (Claude Code, Cursor, Windsurf, VS Code).
+
+**Free tools** — available on all plans, no credit cost.
+**Pro tools** — require a paid Mergen plan. Free-plan callers receive an upgrade prompt.
 
 ---
 
-## Overview
+## Quick Reference
 
-Mergen exposes 4 MCP tools that AI assistants can call to retrieve browser telemetry:
-
-| Tool | Purpose |
-|------|---------|
-| `get_recent_logs` | Retrieve console logs (console.log, .warn, .error) |
-| `get_network_activity` | Retrieve network requests (fetch, XMLHttpRequest) |
-| `get_context` | Get current page state (localStorage, activeElement, etc) |
-| `clear_buffer` | Clear all buffered events |
-
----
-
-## Tool: `get_recent_logs`
-
-Retrieve console logs from the browser.
-
-### Parameters
-
-All parameters are optional:
-
-```typescript
-{
-  limit?: number,      // Max events to return (1-200, default: 50)
-  level?: string,      // Filter by level: "log" | "info" | "warn" | "error"
-  since?: number       // Unix timestamp (ms), events after this time
-}
-```
-
-### Return Value
-
-```typescript
-{
-  events: Array<{
-    type: "console",
-    level: "log" | "info" | "warn" | "error",
-    args: Array<any>,           // The logged values
-    url: string,                // Page URL
-    timestamp: number           // Unix ms
-  }>,
-  count: number,                // Events returned
-  total: number                 // Total matching events in buffer
-}
-```
-
-### Examples
-
-**Get all recent logs:**
-```typescript
-// AI calls:
-get_recent_logs({})
-
-// Returns:
-{
-  events: [
-    { type: "console", level: "log", args: ["User logged in"], url: "...", timestamp: 1715702400000 },
-    { type: "console", level: "error", args: ["API error", {code: 500}], url: "...", timestamp: 1715702401000 }
-  ],
-  count: 2,
-  total: 42
-}
-```
-
-**Get only errors:**
-```typescript
-get_recent_logs({ level: "error" })
-```
-
-**Get last 10 logs:**
-```typescript
-get_recent_logs({ limit: 10 })
-```
-
-**Get logs since timestamp:**
-```typescript
-// User: "I just clicked Login, what happened?"
-// AI saves timestamp, then asks:
-get_recent_logs({ since: 1715702400000 })
-```
-
-### Use Cases
-
-- **Debug errors:** "Why did my app crash?"
-- **Trace flow:** "What happened when I clicked Submit?"
-- **Find warnings:** "Are there any React warnings?"
-- **Timeline analysis:** "What logged between 2pm and 3pm?"
+| Tool | Tier | Category | What it does |
+|------|------|----------|--------------|
+| `reconstruct_context` | free | Analysis | Causal analysis — root cause + fix hint from buffered telemetry |
+| `analyze_runtime` | free | Analysis | Runtime causal analysis (alias / closed-source variant) |
+| `quick_check` | free | Analysis | Fast sanity check — errors, network failures, recent changes |
+| `explain_warning` | free | Analysis | Explain a specific warning or error message |
+| `session_summary` | free | Analysis | Summary of the current debug session |
+| `explain_why` | free | Analysis | Explain why an error occurred from first principles |
+| `get_causal_graph` | free | Analysis | Directed causal graph of error propagation |
+| `get_error_frequency` | free | Analysis | Error frequency and rate over time windows |
+| `get_anomaly_baseline` | free | Analysis | Baseline anomaly detection vs historical rate |
+| `get_regression_start` | free | Analysis | Bisect when a regression first appeared |
+| `get_repro_steps` | free | Analysis | Generate reproduction steps for a bug |
+| `get_change_timeline` | free | Analysis | Timeline of code + config changes correlated to errors |
+| `get_recent_logs` | free | Buffer | Console logs from the ring buffer |
+| `get_network_activity` | free | Buffer | HTTP/fetch events with status, duration, body |
+| `get_dom_context` | free | Buffer | DOM snapshot — active element, localStorage, viewport |
+| `get_diagnostics` | free | Buffer | Aggregated diagnostics report |
+| `get_test_results` | free | Buffer | Test runner output captured in buffer |
+| `get_snapshots` | free | Buffer | Named buffer snapshots |
+| `get_service_topology` | free | Buffer | Service dependency graph from observed traffic |
+| `get_component_tree` | pro | Buffer | React/Vue component tree with props and state |
+| `get_websocket_activity` | pro | Buffer | WebSocket frames with payload inspection |
+| `get_sse_activity` | pro | Buffer | Server-Sent Events stream with message log |
+| `get_process_logs` | free | Backend | Stdout/stderr from watched processes |
+| `get_ci_results` | free | Backend | Latest CI build results posted to Mergen |
+| `get_deployments` | free | Backend | Recent deployment events |
+| `get_unified_timeline` | pro | Backend | Browser request joined to backend span — exact causal join |
+| `get_backend_logs` | pro | Backend | Structured backend logs from SDK or Docker streams |
+| `get_backend_spans` | pro | Backend | OpenTelemetry spans from the OTLP ingest endpoint |
+| `get_correlated_trace` | pro | Backend | Correlate a frontend error to its backend trace |
+| `get_code_owners` | pro | Backend | CODEOWNERS lookup for a file path |
+| `get_blast_radius` | pro | Blast radius | User impact: sessions affected, browser/OS segments, causal deploy |
+| `get_attribution_accuracy` | pro | Blast radius | Historical accuracy of causal blame attribution by confidence band |
+| `triage_incident` | free | Incidents | Full autonomous loop: diagnose + optional fix + validate |
+| `execute_fix` | pro | Incidents | Execute a specific fix command (requires `confirm: true`) |
+| `validate_fix` | free | Incidents | Compare error counts before/after a fix — records verdict |
+| `watch_for_fix` | free | Incidents | Watch a file or process for change as fix confirmation |
+| `stop_file_watch` | free | Incidents | Stop a running file watcher |
+| `get_incident_history` | free | Incidents | Past incidents from the memory store |
+| `list_open_incidents` | free | Incidents | Currently open PagerDuty incidents |
+| `get_incident_context` | free | Datadog | Fetch + compact the active Datadog incident (500KB → 1KB) |
+| `get_datadog_trace` | pro | Datadog | Fetch and compact a specific trace by ID |
+| `get_datadog_logs` | pro | Datadog | Fetch logs from Datadog with service/time filters |
+| `start_debug_session` | free | Debug sessions | Fingerprint baseline errors; track resolution across fix attempts |
+| `checkpoint_debug_session` | free | Debug sessions | Diff current state vs baseline — resolved / persisted / regressions |
+| `end_debug_session` | free | Debug sessions | Close session with final diff summary |
+| `inject_logpoint` | pro | Debug sessions | Inject a temporary log statement at a selector without redeploying |
+| `remove_logpoint` | pro | Debug sessions | Remove a previously injected logpoint |
+| `check_fix_history` | free | Runbook | Check whether a fix command has been tried before and what happened |
+| `explain_service` | free | Runbook | Explain a service from its observed traffic and incident history |
+| `generate_runbook` | pro | Runbook | Synthesize a runbook for a failure mode from the postmortem corpus |
+| `search_postmortems` | pro | Runbook | Semantic search over the postmortem corpus (BM25 + TF-IDF + RRF) |
+| `draft_postmortem` | pro | Runbook | Draft a blameless postmortem from live telemetry + corpus context |
+| `create_postmortem` | pro | Runbook | Create and store a postmortem |
+| `list_postmortems` | pro | Runbook | List stored postmortems |
+| `get_session_replay` | free | Sessions | Retrieve events from past archived debug sessions |
+| `get_audit_log` | pro | Sessions | Enterprise audit log — all API calls with actor, method, status |
+| `store_agent_memory` | free | Memory | Store a key-value pair in the agent's persistent memory |
+| `recall_agent_memory` | free | Memory | Recall a previously stored memory by key |
+| `create_ticket` | pro | Intent | Create a ticket in Linear, GitHub Issues, or Jira |
+| `clear_buffer` | free | Utility | Empty the ring buffer |
+| `get_status` | free | Utility | Server health, active plan, buffer stats, credit usage |
+| `mark_capture_start` | free | Utility | Mark the start of a capture window for later export |
+| `export_session` | free | Utility | Export the current buffer as JSONL |
+| `suggest_logging_locations` | free | Utility | Suggest where to add logging to improve observability |
 
 ---
 
-## Tool: `get_network_activity`
+## Categories
 
-Retrieve network requests made by the browser.
+### Analysis
 
-### Parameters
+`reconstruct_context` · `analyze_runtime` · `quick_check` · `explain_warning` · `session_summary` · `explain_why` · `get_causal_graph` · `get_error_frequency` · `get_anomaly_baseline` · `get_regression_start` · `get_repro_steps` · `get_change_timeline`
 
-All parameters are optional:
+Root-cause and context tools. Start here during any incident.
 
-```typescript
-{
-  limit?: number,        // Max events to return (1-200, default: 50)
-  status_filter?: number,// Filter by HTTP status (e.g., 404, 500)
-  since?: number         // Unix timestamp (ms), events after this time
-}
-```
-
-### Return Value
-
-```typescript
-{
-  events: Array<{
-    type: "network",
-    method: string,              // GET, POST, etc
-    url: string,                 // Request URL
-    status: number,              // HTTP status code
-    duration: number,            // Request duration (ms)
-    requestHeaders?: object,     // Request headers
-    responseHeaders?: object,    // Response headers
-    requestBody?: string,        // Request body (max 8KB)
-    responseBody?: string,       // Response body (max 8KB)
-    timestamp: number            // Unix ms
-  }>,
-  count: number,
-  total: number
-}
-```
-
-### Examples
-
-**Get all network activity:**
-```typescript
-get_network_activity({})
-```
-
-**Get failed requests:**
-```typescript
-get_network_activity({ status_filter: 500 })
-```
-
-**Get 404 errors:**
-```typescript
-get_network_activity({ status_filter: 404 })
-```
-
-**Get recent API calls:**
-```typescript
-get_network_activity({ limit: 20, since: 1715702400000 })
-```
-
-### Use Cases
-
-- **Debug API errors:** "Why did that request fail?"
-- **Find 401s:** "Show me all unauthorized requests"
-- **Performance:** "Which API call is slowest?"
-- **Trace requests:** "What APIs were called when I clicked X?"
+- **`reconstruct_context`** — Primary on-call tool. Runs causal analysis on buffered telemetry and returns root cause + a fix hint. Call this first.
+- **`quick_check`** — Three-line summary: error count, top error, last network failure. Use for a fast pulse check.
+- **`get_causal_graph`** — Directed graph of which event caused which. Useful when multiple errors are firing and you need to find the origin.
+- **`get_change_timeline`** — Correlates git commits, deploys, and config changes to the error spike. Shows what changed when the errors started.
 
 ---
 
-## Tool: `get_context`
+### Buffer reads
 
-Get current page state snapshot.
+`get_recent_logs` · `get_network_activity` · `get_dom_context` · `get_diagnostics` · `get_test_results` · `get_snapshots` · `get_service_topology` · `get_component_tree`★ · `get_websocket_activity`★ · `get_sse_activity`★
 
-### Parameters
+Direct reads from the 2000-event ring buffer. Available without Datadog from day one.
 
-None.
-
-### Return Value
-
-```typescript
-{
-  type: "context",
-  url: string,                           // Current page URL
-  title?: string,                        // Page title
-  activeElement?: string,                // Focused element tag name
-  localStorage?: Record<string, string>, // localStorage contents
-  sessionStorage?: Record<string, string>,// sessionStorage contents
-  timestamp: number                      // Unix ms
-}
-```
-
-Returns `null` if no context snapshot has been captured yet.
-
-### Examples
-
-**Get current page state:**
-```typescript
-// AI calls:
-get_context()
-
-// Returns:
-{
-  type: "context",
-  url: "https://example.com/dashboard",
-  title: "Dashboard - Example App",
-  activeElement: "INPUT",
-  localStorage: {
-    theme: "dark",
-    userId: "123"
-  },
-  sessionStorage: {
-    sessionId: "abc-def-ghi"
-  },
-  timestamp: 1715702400000
-}
-```
-
-### Use Cases
-
-- **Check state:** "What's in localStorage?"
-- **Debug focus:** "What element has focus?"
-- **Session info:** "What's my session ID?"
-- **Environment:** "What page am I on?"
+- **`get_recent_logs`** — Console events (log/warn/error) with level filter and time window.
+- **`get_network_activity`** — Fetch and XHR events with status, duration, and truncated body.
+- **`get_dom_context`** — Current page state: active element, scroll position, localStorage keys.
+- **`get_websocket_activity`**★ — WebSocket frames with direction and payload (requires `websocketInspection` feature flag).
+- **`get_sse_activity`**★ — Server-Sent Events messages with timestamps.
 
 ---
 
-## Tool: `clear_buffer`
+### Backend / infra
 
-Clear all events from the buffer.
+`get_process_logs` · `get_ci_results` · `get_deployments` · `get_backend_logs`★ · `get_backend_spans`★ · `get_correlated_trace`★ · `get_unified_timeline`★ · `get_code_owners`★
 
-### Parameters
+Backend telemetry from OpenTelemetry, Docker, CI, and process watchers.
 
-None.
-
-### Return Value
-
-```typescript
-{
-  cleared: number  // Number of events removed
-}
-```
-
-### Examples
-
-**Clear buffer:**
-```typescript
-// User: "Clear the logs"
-// AI calls:
-clear_buffer()
-
-// Returns:
-{ cleared: 42 }
-```
-
-### Use Cases
-
-- **Start fresh:** Before reproducing a bug
-- **Privacy:** Clear captured data
-- **Testing:** Reset state between tests
+- **`get_unified_timeline`**★ — Joins a browser request to its backend span. The fastest path to full-stack causality.
+- **`get_backend_spans`**★ — OpenTelemetry spans received at `:4318/v1/traces`. Filtered by service and time.
+- **`get_correlated_trace`**★ — Given a frontend error, finds the matching backend trace ID.
+- **`get_code_owners`**★ — Returns the team responsible for a file path, from CODEOWNERS or Datadog.
 
 ---
 
-## Common Patterns
+### Blast radius
 
-### 1. Capture Timestamp, Then Filter
+`get_blast_radius`★ · `get_attribution_accuracy`★
 
-Best for reproducing bugs:
+Impact quantification — the board-deck answer to "how many users are broken?"
 
-```typescript
-// User: "Let me reproduce the issue..."
-const before = Date.now();
-
-// User reproduces bug...
-
-// AI calls:
-get_recent_logs({ since: before })
-get_network_activity({ since: before })
-```
-
-### 2. Multi-Tool Investigation
-
-Combine tools for complete picture:
-
-```typescript
-// User: "Why did login fail?"
-
-// AI calls:
-const logs = get_recent_logs({ level: "error" });
-const network = get_network_activity({ status_filter: 401 });
-const context = get_context();
-
-// AI analyzes all three:
-// "Your login failed because the JWT in localStorage is expired.
-//  The POST /api/auth returned 401, and console shows 'Token expired'."
-```
-
-### 3. Progressive Filtering
-
-Start broad, then narrow:
-
-```typescript
-// 1. Get all logs
-const all = get_recent_logs({ limit: 200 });
-
-// 2. If too many, filter to errors
-const errors = get_recent_logs({ level: "error" });
-
-// 3. If still too many, use timestamp
-const recent = get_recent_logs({ level: "error", since: recentTimestamp });
-```
+- **`get_blast_radius`**★ — Unique sessions affected, user count, browser/OS breakdown, first-seen time, and the likely causal deploy. Confidence note included when session IDs are absent.
+- **`get_attribution_accuracy`**★ — Historical accuracy of causal blame attribution by confidence band. Use to validate whether attribution scores are trustworthy enough for autonomous action.
 
 ---
 
-## Limitations
+### Incidents
 
-### Buffer Size
+`triage_incident` · `execute_fix`★ · `validate_fix` · `watch_for_fix` · `stop_file_watch` · `get_incident_history` · `list_open_incidents`
 
-- **Capacity:** 200 events total
-- **Eviction:** Oldest events removed first (errors kept longer)
-- **Persistence:** In-memory only (cleared on server restart)
+The autonomous incident loop.
 
-**Impact:** Very old events may not be available. For long sessions, consider clearing buffer before reproducing bugs.
-
-### Body Truncation
-
-- **Request/response bodies:** Max 8KB each
-- **Logged objects:** Large objects may be truncated
-
-**Impact:** Very large payloads are abbreviated with `[truncated]`.
-
-### Event Types
-
-Only captures:
-- Console logs (console.log, .warn, .error, .info)
-- Network requests (fetch, XMLHttpRequest)
-- Context snapshots (on-demand)
-
-**Not captured:**
-- WebSocket messages
-- Server-sent events (SSE)
-- Service worker activity
-- Browser devtools-specific events
+- **`triage_incident`** — Entry point. Diagnose + optional fix + validate in one call. Set `MERGEN_AUTOPILOT=true` to enable autonomous execution at ≥85% confidence.
+- **`execute_fix`**★ — Execute a specific fix command. **Requires `confirm: true`** — always show the user what will run before calling. Returns stdout, exit code, and a RESOLVED/PARTIAL/REGRESSED verdict.
+- **`validate_fix`** — Compare error counts before/after. Records verdict to the override corpus.
 
 ---
 
-## Error Handling
+### Datadog
 
-### Empty Results
+`get_incident_context` · `get_datadog_trace`★ · `get_datadog_logs`★
 
-```typescript
-get_recent_logs({})
-// Returns: { events: [], count: 0, total: 0 }
-```
+Requires `DD_API_KEY` + `DD_APP_KEY`.
 
-**Causes:**
-- Server just started (no events captured yet)
-- Buffer was cleared
-- Extension not sending events
-
-### Invalid Parameters
-
-```typescript
-get_recent_logs({ limit: 999 })
-// Error: "limit must be between 1 and 200"
-
-get_recent_logs({ level: "invalid" })
-// Error: "level must be one of: log, info, warn, error"
-```
-
-### Server Not Running
-
-If the Mergen server is not running, MCP tool calls will fail with connection error.
-
-**Fix:** Start server with `mergen-server start`
+- **`get_incident_context`** — Fetches and compacts the active Datadog incident (500KB trace → 1KB Runtime Fact). Pre-fetched when a PagerDuty webhook fires — returns instantly. **Call this first during a P1.**
+- **`get_datadog_trace`**★ — Fetch and compact a specific trace by ID. Useful when you have a trace ID from a Sentry event or log line.
 
 ---
 
-## Performance
+### Debug sessions
 
-### Latency
+`start_debug_session` · `checkpoint_debug_session` · `end_debug_session` · `inject_logpoint`★ · `remove_logpoint`★
 
-- **get_recent_logs:** <5ms for 50 events
-- **get_network_activity:** <5ms for 50 events
-- **get_context:** <2ms
-- **clear_buffer:** <2ms
+Iterative fix-and-verify loop without manual error diffing.
 
-### Memory
+**Workflow:**
+1. `start_debug_session(hypothesis: "...")` — fingerprints all current errors as baseline
+2. Apply your fix and reproduce the scenario
+3. `checkpoint_debug_session(session_id, note: "added null check")` — get exact diff: ✅ resolved · ❌ persisted · ⚠️ new regressions
+4. Repeat until clean, then `end_debug_session`
 
-- **Buffer:** ~50-100MB for 200 events
-- **Per event:** ~200KB average
-
-### Throughput
-
-- **Ingestion:** 200-500 events/sec
-- **Queries:** 1000+ queries/sec
+- **`inject_logpoint`**★ — Inject a temporary `console.log` at a DOM selector without redeploying. Captured by the ring buffer immediately.
+- **`remove_logpoint`**★ — Remove by logpoint ID.
 
 ---
 
-## IDE-Specific Usage
+### Runbook / postmortem
 
-### Claude Code
+`check_fix_history` · `explain_service` · `generate_runbook`★ · `search_postmortems`★ · `draft_postmortem`★ · `create_postmortem`★ · `list_postmortems`★
 
-```typescript
-// User asks:
-"Get recent logs"
+Corpus-powered institutional memory.
 
-// Claude automatically calls:
-get_recent_logs({ limit: 50 })
-```
-
-### Cursor
-
-```typescript
-// User asks:
-"Why did that request fail?"
-
-// Cursor Agent calls:
-get_recent_logs({ level: "error" })
-get_network_activity({ status_filter: 500 })
-```
-
-### VS Code (Copilot)
-
-```typescript
-// User asks:
-"Show network activity"
-
-// Copilot calls:
-get_network_activity({ limit: 50 })
-```
-
-### Windsurf
-
-```typescript
-// User asks in Cascade:
-"What's in localStorage?"
-
-// Cascade calls:
-get_context()
-```
+- **`check_fix_history`** — Before running a fix, check whether it's been tried before and what happened. Prevents repeating fixes that caused regressions.
+- **`generate_runbook`**★ — Synthesizes a self-updating runbook from past incidents using hybrid retrieval (FTS5 BM25 + TF-IDF cosine similarity, fused via Reciprocal Rank Fusion). Pass a failure tag or free-text description.
+- **`search_postmortems`**★ — Semantic search over the postmortem corpus. Use before triaging to find the 3–5 most relevant past incidents.
+- **`draft_postmortem`**★ — From "incident closed" to a blameless Markdown draft in seconds. Auto-links to similar corpus incidents.
 
 ---
 
-## Integration Examples
+### Sessions / audit
 
-### Example 1: Debug Login Flow
+`get_session_replay` · `get_audit_log`★
 
-```typescript
-// User: "I clicked Login and got an error. What happened?"
+Historical and compliance access.
 
-// AI workflow:
-const logs = await get_recent_logs({ level: "error", limit: 10 });
-const network = await get_network_activity({ limit: 10 });
-const context = await get_context();
-
-// AI analysis:
-// "Your login failed:
-//  1. POST /api/auth → 401 Unauthorized (342ms)
-//  2. console.error: 'Invalid credentials'
-//  3. localStorage shows no auth token
-//  Likely cause: Wrong password or account locked."
-```
-
-### Example 2: Performance Investigation
-
-```typescript
-// User: "Why is my app slow?"
-
-// AI workflow:
-const network = await get_network_activity({ limit: 50 });
-
-// AI finds:
-// "3 slow requests found:
-//  - GET /api/products → 200 (4523ms) ⚠️
-//  - GET /api/images/hero.jpg → 200 (2891ms)
-//  - POST /api/analytics → 200 (1204ms)
-//  Recommendation: Add pagination to /api/products"
-```
-
-### Example 3: Trace User Action
-
-```typescript
-// User: "I clicked Submit 30 seconds ago. Trace what happened."
-
-// AI workflow:
-const timestamp = Date.now() - 30000;
-const logs = await get_recent_logs({ since: timestamp });
-const network = await get_network_activity({ since: timestamp });
-
-// AI builds timeline:
-// "Timeline:
-//  12:00:00 - console.log: 'Form validation passed'
-//  12:00:01 - POST /api/submit → 200 (856ms)
-//  12:00:02 - console.log: 'Success, redirecting...'
-//  12:00:02 - GET /success → 200 (123ms)"
-```
+- **`get_session_replay`** — Load events from auto-saved past sessions. Call with `list_only: true` first to see what's available.
+- **`get_audit_log`**★ — Immutable record of all API calls: timestamp, actor, method, path, status, duration. Required for SOC 2 / compliance reviews.
 
 ---
 
-## Best Practices
+### Agent memory
 
-### For AI Assistants
+`store_agent_memory` · `recall_agent_memory`
 
-1. **Start with errors:** Check `get_recent_logs({ level: "error" })` first
-2. **Use timestamps:** When user reproduces bug, filter with `since`
-3. **Combine tools:** Use multiple tools for complete picture
-4. **Explain findings:** Don't just dump data, analyze and summarize
-5. **Suggest fixes:** After diagnosing, propose solutions
-
-### For Users
-
-1. **Be specific:** "Get logs from last 5 minutes" is better than "Get logs"
-2. **Clear before repro:** Ask AI to clear buffer before reproducing bugs
-3. **Provide context:** "I clicked X and Y happened" helps AI filter
-4. **Ask follow-ups:** If AI's answer unclear, ask for more detail
+Persistent key-value storage scoped to the agent across sessions.
 
 ---
 
-## Debugging Tool Issues
+### Intent / tickets
 
-### Tools not appearing in IDE
+`create_ticket`★
 
-1. Restart IDE after setup
-2. Check MCP config file exists
-3. Verify server is running: `curl http://127.0.0.1:3000/health`
-
-### Empty results
-
-1. Check server is running
-2. Check extension is enabled (chrome://extensions)
-3. Generate test event: `console.error("Test")`
-4. Query again: "Get recent logs"
-
-### Incorrect results
-
-1. Check timestamp filters (unix ms, not seconds)
-2. Verify level filter spelling ("error" not "errors")
-3. Check limit is reasonable (1-200)
+Create a ticket from an incident analysis without leaving the AI IDE. Providers: **Linear**, **GitHub Issues**, **Jira**. Requires provider API token.
 
 ---
 
-## See Also
+### Utility
 
-- [HTTP API Reference](API.md) - Underlying HTTP endpoints
-- [Browser Extension](extension/README.md) - Event capture
-- [QUICKSTART.md](QUICKSTART.md) - Setup guide
-- [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Common issues
+`clear_buffer` · `get_status` · `mark_capture_start` · `export_session` · `suggest_logging_locations`
+
+- **`get_status`** — First call to make after connecting. Shows active plan, buffer fill rate, credit balance, and tool call counts.
+- **`clear_buffer`** — Empties the ring buffer and auto-saves the current session to disk.
+- **`export_session`** — Export buffer as JSONL for offline analysis or audit.
+- **`suggest_logging_locations`** — Given a file path, suggests where to add `console.log` / OpenTelemetry spans to improve future observability.
+
+---
+
+## Pro plan upgrade
+
+Pro tools return a structured upgrade prompt when called on a free plan:
+
+```
+## Tool unavailable on Free plan
+
+This tool requires a paid Mergen plan.
+
+Upgrade at: https://mergen.dev/pricing
+
+To check your current plan: call `get_status`.
+To activate a license key: POST /license { "key": "..." }
+```
+
+The AI surfaces this directly — no silent failures, no crashes.
+
+---
+
+## See also
+
+- [INSTALL.md](INSTALL.md) — setup and IDE configuration
+- [API.md](API.md) — REST API reference (ingest, webhooks, incidents)
+- [ARCHITECTURE.md](ARCHITECTURE.md) — how the ring buffer and MCP server work
+- `GET /status` — live server status including per-tool call counts

@@ -1,4 +1,5 @@
 export type PlanId = string;
+export type ToolTier = 'free' | 'pro' | 'all';
 
 export interface Plan {
   bufferSize:              number;
@@ -9,3 +10,4 @@ export interface Plan {
 
 export declare const PLANS: Record<string, Plan>;
 export declare function getPlan(planId?: string): Plan;
+export declare function planAllowsTier(planId: string, tier: ToolTier): boolean;
