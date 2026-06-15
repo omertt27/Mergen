@@ -5,7 +5,7 @@ class Mergen < Formula
   desc "Local-first browser observability for AI"
   homepage "https://github.com/omertt27/Mergen"
   url "https://github.com/omertt27/Mergen/archive/refs/tags/v1.4.0.tar.gz"
-  sha256 "" # Updated on each release via scripts/update-homebrew.sh
+  sha256 "f045de08aa9e204914055efa0fe35bbf74f5ce94d71eccdc0dca16cbf4e42406"
   license "MIT"
   head "https://github.com/omertt27/Mergen.git", branch: "main"
 
