@@ -13,9 +13,13 @@ import { getTierForTool, ALL_TOOLS } from '../intelligence/tool-manifest.js';
 
 // Mock license module so withTierGate tests can control the active plan.
 // vi.mock is hoisted by vitest — this runs before any imports.
-vi.mock('../intelligence/license.js', () => ({
-  getActivePlanId: vi.fn(() => 'free'),
-}));
+vi.mock('../intelligence/license.js', async (importOriginal) => {
+  const actual = await importOriginal() as Record<string, unknown>;
+  return {
+    ...actual,
+    getActivePlanId: vi.fn(() => 'free'),
+  };
+});
 
 // Import after mock is registered
 const { getActivePlanId } = await import('../intelligence/license.js');

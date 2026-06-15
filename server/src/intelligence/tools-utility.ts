@@ -7,6 +7,9 @@ import { layer3Store } from '../sensor/layer3-store.js';
 import { trackCall, buildCreditBar, setLastClearAt, withTierGate } from './tools-state.js';
 import { getTierForTool } from './tool-manifest.js';
 import { saveSessionToHistory } from '../sensor/session-history.js';
+import { adrStore } from '../sensor/adr-store.js';
+import { confidenceStore, ConfidenceReportSchema, formatConfidenceReport } from './confidence-report.js';
+import { generateRollbackPlan } from './rollback.js';
 
 export function registerUtilityTools(server: McpServer): void {
   // ── get_status ─────────────────────────────────────────────────────────────
@@ -373,6 +376,126 @@ export function registerUtilityTools(server: McpServer): void {
       const removed = layer3Store.removeInjectedLog(id);
       return { content: [{ type: 'text', text: removed ? `Logpoint ${id} removed.` : `Logpoint ${id} not found (may have already fired and auto-removed).` }] };
     }),
+  );
+
+  // ── search_adrs ────────────────────────────────────────────────────────────
+  server.registerTool(
+    'search_adrs',
+    {
+      description:
+        'Search Architectural Decision Records (ADRs) to understand why the system is built the way it is. ' +
+        'Call this before modifying any module that has an associated ADR — it will surface the constraints ' +
+        'and trade-offs that must remain intact. Returns matching ADRs with decision, rationale, and consequences.',
+      inputSchema: {
+        query: z.string().optional()
+          .describe('Keyword to filter ADRs (searches title, decision, rationale, alternatives). Omit to list all.'),
+      },
+    },
+    async ({ query }) => {
+      trackCall('search_adrs');
+      const results = adrStore.list(query);
+      if (results.length === 0) {
+        return { content: [{ type: 'text', text: query ? `No ADRs matched "${query}".` : 'No ADRs on record.' }] };
+      }
+
+      const lines: string[] = [`## Architectural Decision Records (${results.length} found)`, ''];
+      for (const adr of results) {
+        lines.push(`### ${adr.id}: ${adr.title}`);
+        lines.push(`**Status:** ${adr.status}  |  **Date:** ${adr.date}`, '');
+        lines.push(`**Decision:** ${adr.decision}`, '');
+        if (adr.alternatives.length > 0) {
+          lines.push('**Alternatives rejected:**');
+          for (const alt of adr.alternatives) lines.push(`  - ${alt}`);
+          lines.push('');
+        }
+        lines.push(`**Rationale:** ${adr.rationale}`, '');
+        if (adr.consequences) lines.push(`**Consequences:** ${adr.consequences}`, '');
+        lines.push('---', '');
+      }
+      return { content: [{ type: 'text', text: lines.join('\n') }] };
+    },
+  );
+
+  // ── report_confidence ──────────────────────────────────────────────────────
+  server.registerTool(
+    'report_confidence',
+    {
+      description:
+        'File a pre-implementation confidence report before making any changes. ' +
+        'This is the "Confidence Reporting" step of the structured agent workflow: ' +
+        'declare your confidence score (0–1), what you are assuming, what you do not know, ' +
+        'and which files you plan to modify. The report is stored and queryable via GET /confidence-reports. ' +
+        'If confidence < 0.6, halt and present an impact report to the engineer before proceeding.',
+      inputSchema: {
+        confidence:    z.number().min(0).max(1).describe('Confidence score from 0.0 (uncertain) to 1.0 (fully confident)'),
+        scope:         z.string().min(1).max(300).describe('What this implementation covers'),
+        assumptions:   z.array(z.string().max(500)).default([]).describe('Things treated as true without verification'),
+        unknowns:      z.array(z.string().max(500)).default([]).describe('Open questions that could affect correctness'),
+        filesModified: z.array(z.string().max(500)).default([]).describe('Source files that will be changed'),
+        rationale:     z.string().max(1000).optional().describe('Explanation for the confidence score'),
+      },
+    },
+    async ({ confidence, scope, assumptions, unknowns, filesModified, rationale }) => {
+      trackCall('report_confidence');
+      const report = confidenceStore.add({ confidence, scope, assumptions, unknowns, filesModified, rationale: rationale ?? '' });
+      const text   = formatConfidenceReport(report);
+      return { content: [{ type: 'text', text }] };
+    },
+  );
+
+  // ── plan_rollback ──────────────────────────────────────────────────────────
+  server.registerTool(
+    'plan_rollback',
+    {
+      description:
+        'Generate a rollback plan BEFORE implementation starts. ' +
+        'Provide the list of files you will modify and any commands you plan to execute. ' +
+        'Returns: rollback procedure, whether auto-rollback is feasible, estimated recovery time, ' +
+        'and the anticipated inverse commands. Review this plan alongside report_confidence before proceeding. ' +
+        'The plan is also stored in the confidence report if one was filed for the same scope.',
+      inputSchema: {
+        files:       z.array(z.string()).min(1).describe('Files that will be modified'),
+        commands:    z.array(z.string()).optional().describe('Execution commands that will be run (kubectl, helm, npm, etc.)'),
+        featureFlag: z.string().optional().describe('Feature flag name that can disable this change at runtime'),
+      },
+    },
+    async ({ files, commands, featureFlag }) => {
+      trackCall('plan_rollback');
+      const plan = generateRollbackPlan({ files, commands, featureFlag });
+
+      const lines: string[] = [
+        '## Rollback Plan',
+        '',
+        `**Files to modify:** ${plan.filesModified.length}`,
+      ];
+      for (const f of plan.filesModified) lines.push(`  - \`${f}\``);
+      lines.push('');
+
+      if (plan.featureFlag) {
+        lines.push(`**Feature flag:** \`${plan.featureFlag}\` (fastest rollback path)`);
+        lines.push('');
+      }
+
+      lines.push(`**Can auto-rollback:** ${plan.canAutoRollback ? 'Yes' : 'No — manual intervention required'}`);
+      lines.push(`**Estimated recovery time:** ~${Math.round(plan.estimatedRollbackMs / 1000)}s`);
+      lines.push('');
+
+      if (plan.anticipatedRollbackCommands.length > 0) {
+        lines.push('**Anticipated rollback commands:**');
+        for (const cmd of plan.anticipatedRollbackCommands) lines.push(`  \`${cmd}\``);
+        lines.push('');
+      }
+
+      lines.push('**Rollback procedure:**');
+      for (const step of plan.rollbackProcedure) lines.push(`  ${step}`);
+
+      if (!plan.canAutoRollback) {
+        lines.push('');
+        lines.push('> ⚠ This change cannot be rolled back automatically. Ensure the engineer is available to intervene if regression is detected.');
+      }
+
+      return { content: [{ type: 'text', text: lines.join('\n') }] };
+    },
   );
 
 }

@@ -56,6 +56,9 @@ import { createPostmortemRouter } from './routes/postmortem.js';
 import { createExplainWhyRouter } from './routes/explain-why.js';
 import { createAgentBlundersRouter } from './routes/agent-blunders.js';
 import { createHabituationRouter } from './routes/habituation.js';
+import { createAdrRouter } from './routes/adr.js';
+import { createConfidenceRouter } from './routes/confidence.js';
+import { createArchRouter } from './routes/arch.js';
 import { cloudAuthMiddleware, CLOUD_MODE } from './sensor/cloud-auth.js';
 import { handleSlackActions, handleFeedbackLink } from './intelligence/slack.js';
 import { getPrometheusMetrics } from './sensor/otel-exporter.js';
@@ -284,6 +287,9 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createExplainWhyRouter());    // GET /explain-why/file?path=
   app.use(createAgentBlundersRouter()); // Agent Blunder Log — safety interceptions
   app.use(createHabituationRouter());   // Organic habituation — weekly engineer engagement
+  app.use(createAdrRouter());           // Architectural Decision Records
+  app.use(createConfidenceRouter());    // Pre-implementation confidence reports
+  app.use(createArchRouter());          // Arch boundary enforcement, risk scoring, graph, critic
 
   // GET /service-graph — in cloud mode, require API key (exposes internal topology)
   app.get('/service-graph', ...(CLOUD_MODE ? [cloudAuthMiddleware] : []), (_req, res) => {

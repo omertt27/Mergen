@@ -1,11 +1,19 @@
 /**
  * rollback.ts — Derive and execute rollback strategies for autonomous fixes.
  *
- * When validate_fix / incident-autopilot detects REGRESSED, this module
- * derives the inverse command from the original fix and executes it via the
- * same executeRemediation() pipeline (blocklist, audit log, RBAC).
+ * Two distinct concerns:
  *
- * Coverage:
+ * 1. PRE-IMPLEMENTATION: generateRollbackPlan(intent)
+ *    Called BEFORE any change is made. Returns a structured plan describing
+ *    how to undo the change if it regresses — files touched, feature flag,
+ *    rollback commands, and whether auto-rollback is feasible.
+ *
+ * 2. POST-EXECUTION: deriveRollback(command) + executeRollback(strategy)
+ *    Called when validate_fix / incident-autopilot detects REGRESSED. Derives
+ *    the inverse command and executes it via executeRemediation() (blocklist,
+ *    audit log, RBAC).
+ *
+ * Command coverage for deriveRollback:
  *   kubectl rollout restart / set image  → kubectl rollout undo
  *   helm upgrade                          → helm rollback
  *   npm / pip / yarn install <pkg>@<ver> → install <pkg>@<previous>
@@ -127,4 +135,105 @@ export async function executeRollback(
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// ── Pre-implementation rollback planning ──────────────────────────────────────
+
+export interface RollbackPlan {
+  /** Files that will be modified by the proposed change. */
+  filesModified: string[];
+  /**
+   * Feature flag that can disable the change without a deploy, or null if
+   * the change cannot be toggled at runtime.
+   */
+  featureFlag: string | null;
+  /** Human-readable step-by-step rollback procedure. */
+  rollbackProcedure: string[];
+  /** Whether the rollback can be executed automatically without human input. */
+  canAutoRollback: boolean;
+  /** Rough estimate of how long the rollback procedure takes in milliseconds. */
+  estimatedRollbackMs: number;
+  /**
+   * Commands that would be derived by deriveRollback() for each proposed
+   * execution command, if known ahead of time.
+   */
+  anticipatedRollbackCommands: string[];
+}
+
+export interface RollbackPlanIntent {
+  /** Source files the change will touch. */
+  files: string[];
+  /** Commands the change will execute (e.g. kubectl, helm, npm). */
+  commands?: string[];
+  /**
+   * Optional feature flag name — if set, the rollback plan lists toggling it
+   * as the fastest recovery path.
+   */
+  featureFlag?: string;
+}
+
+/**
+ * Generate a rollback plan BEFORE implementation starts.
+ *
+ * Call this as part of the pre-implementation checklist alongside
+ * report_confidence. The returned plan should be reviewed by the engineer
+ * (or surfaced by the agent) before any file is written or command executed.
+ */
+export function generateRollbackPlan(intent: RollbackPlanIntent): RollbackPlan {
+  const { files, commands = [], featureFlag = null } = intent;
+
+  const anticipatedRollbackCommands: string[] = [];
+  for (const cmd of commands) {
+    const strategy = deriveRollback(cmd, '');
+    if (strategy.type === 'command') {
+      anticipatedRollbackCommands.push(strategy.command);
+    }
+  }
+
+  const canAutoRollback =
+    (featureFlag !== null) ||
+    (anticipatedRollbackCommands.length > 0 && anticipatedRollbackCommands.length === commands.length);
+
+  const rollbackProcedure: string[] = [];
+
+  if (featureFlag) {
+    rollbackProcedure.push(`Disable feature flag: ${featureFlag}`);
+    rollbackProcedure.push('Verify error rates return to baseline via validate_fix or GET /validate');
+  }
+
+  if (anticipatedRollbackCommands.length > 0) {
+    rollbackProcedure.push('Execute rollback commands:');
+    for (const cmd of anticipatedRollbackCommands) {
+      rollbackProcedure.push(`  ${cmd}`);
+    }
+    rollbackProcedure.push('Validate recovery: call validate_fix or check GET /validate after 60 s');
+  }
+
+  if (files.length > 0 && anticipatedRollbackCommands.length === 0 && !featureFlag) {
+    rollbackProcedure.push('Revert the following files using git:');
+    for (const f of files) rollbackProcedure.push(`  git checkout HEAD -- ${f}`);
+    rollbackProcedure.push('Or use: git revert HEAD --no-edit');
+    rollbackProcedure.push('Redeploy / restart the service after revert');
+  }
+
+  if (rollbackProcedure.length === 0) {
+    rollbackProcedure.push('No automated rollback available — manual intervention required');
+    rollbackProcedure.push('Document the issue in the override corpus before proceeding');
+  }
+
+  // Rough time estimates: feature flag ~10 s, command-based ~60 s, git revert ~120 s
+  const estimatedRollbackMs = featureFlag
+    ? 10_000
+    : anticipatedRollbackCommands.length > 0
+      ? 60_000
+      : 120_000;
+
+  return {
+    filesModified: files,
+    featureFlag,
+    rollbackProcedure,
+    canAutoRollback,
+    estimatedRollbackMs,
+    anticipatedRollbackCommands,
+  };
 }

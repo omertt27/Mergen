@@ -36,6 +36,10 @@ export const KNOWN_TOOLS = new Set([
   // Utility
   'clear_buffer', 'get_status', 'mark_capture_start', 'export_session', 'suggest_logging_locations',
   'watch_for_fix', 'stop_file_watch',
+  // ADR / discovery / agent workflow
+  'search_adrs', 'discover_repo_context', 'report_confidence', 'plan_rollback',
+  // Architectural governance
+  'check_arch_violations', 'score_change_risk', 'query_arch_graph', 'critique_implementation',
 ]);
 
 export const toolCallCounts: Record<string, number> = {};

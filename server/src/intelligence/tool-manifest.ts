@@ -108,6 +108,18 @@ export const ALL_TOOLS: readonly ToolEntry[] = [
   { name: 'mark_capture_start',       module: 'tools-utility',        tier: 'all'  },
   { name: 'export_session',           module: 'tools-utility',        tier: 'all'  },
   { name: 'suggest_logging_locations', module: 'tools-utility',       tier: 'all'  },
+
+  // ── ADR / discovery / agent workflow ─────────────────────────────────────
+  { name: 'search_adrs',              module: 'tools-utility',        tier: 'all'  },
+  { name: 'discover_repo_context',    module: 'tools-discovery',      tier: 'all'  },
+  { name: 'report_confidence',        module: 'tools-utility',        tier: 'all'  },
+  { name: 'plan_rollback',            module: 'tools-utility',        tier: 'all'  },
+
+  // ── Architectural governance ──────────────────────────────────────────────
+  { name: 'check_arch_violations',    module: 'tools-arch',           tier: 'all'  },
+  { name: 'score_change_risk',        module: 'tools-arch',           tier: 'all'  },
+  { name: 'query_arch_graph',         module: 'tools-arch',           tier: 'all'  },
+  { name: 'critique_implementation',  module: 'tools-arch',           tier: 'all'  },
 ] as const;
 
 export const ALL_TOOL_NAMES: readonly string[] = ALL_TOOLS.map((t) => t.name);

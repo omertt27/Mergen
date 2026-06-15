@@ -62,6 +62,7 @@
     "dev": "tsx watch src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "check:arch": "tsx src/scripts/check-arch.ts",
     "test:coverage": "vitest run --coverage",
     "test:ci": "vitest run --config vitest.config.ci.ts",
     "test:ci:coverage": "vitest run --config vitest.config.ci.ts --coverage",
