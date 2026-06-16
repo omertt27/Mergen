@@ -315,7 +315,7 @@ const OVERALL_REGRESSION_THRESHOLD = 5;   // percentage points
 const PER_TAG_REGRESSION_THRESHOLD  = 15;  // percentage points
 
 function loadBaseline(): Baseline | null {
-  const baselinePath = resolve(__dirname, '../../../../eval-baseline.json');
+  const baselinePath = resolve(__dirname, '../../../eval-baseline.json');
   if (!existsSync(baselinePath)) return null;
   try { return JSON.parse(readFileSync(baselinePath, 'utf8')); }
   catch { return null; }

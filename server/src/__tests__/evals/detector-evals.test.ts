@@ -27,6 +27,7 @@ import {
   detectQueueBacklog,
   detectServiceUnavailable,
   detectUpstreamError,
+  ALL_INFRA_DETECTORS,
 } from '../../intelligence/infra-detectors.js';
 import { runInfraPipeline } from './pipeline-runner.js';
 import { INFRA_FIXTURES } from './fixtures/infra.js';

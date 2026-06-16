@@ -18,13 +18,15 @@
  *   4. Latency budget → end-to-end completes within 3 seconds on mocked deps
  */
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { AutopilotOpts } from '../../intelligence/incident-autopilot.js';
 import type { Hypothesis, CausalChain } from '../../intelligence/causal.js';
 
-// ── Env + mock setup — must run before module evaluation ─────────────────────
-// MERGEN_SHADOW_MODE is read as a module-level constant in incident-autopilot.ts.
-// vi.hoisted() guarantees this env assignment runs before any import is resolved.
+// ── Mock function setup ───────────────────────────────────────────────────────
+// vi.hoisted() is still required to create mock functions that are referenced
+// inside vi.mock() factory callbacks. env vars no longer need to be hoisted
+// because incident-autopilot.ts now reads MERGEN_SHADOW_MODE lazily at call
+// time via isShadowMode(), not at module evaluation time.
 
 const {
   mockPostThreadReply,
@@ -35,19 +37,16 @@ const {
   mockRenderPipelineStages,
   mockCaptureSnapshot,
   mockRecordShadow,
-} = vi.hoisted(() => {
-  process.env.MERGEN_SHADOW_MODE = 'true';
-  return {
-    mockPostThreadReply:      vi.fn<[string, string], Promise<void>>().mockResolvedValue(undefined),
-    mockBuildCausalChain:     vi.fn<unknown[], Promise<CausalChain>>(),
-    mockGetLogs:              vi.fn().mockReturnValue([]),
-    mockGetNetwork:           vi.fn().mockReturnValue([]),
-    mockRunAgentPipeline:     vi.fn(),
-    mockRenderPipelineStages: vi.fn().mockReturnValue('*Pipeline:* allow'),
-    mockCaptureSnapshot:      vi.fn(),
-    mockRecordShadow:         vi.fn(),
-  };
-});
+} = vi.hoisted(() => ({
+  mockPostThreadReply:      vi.fn<[string, string], Promise<void>>().mockResolvedValue(undefined),
+  mockBuildCausalChain:     vi.fn<unknown[], Promise<CausalChain>>(),
+  mockGetLogs:              vi.fn().mockReturnValue([]),
+  mockGetNetwork:           vi.fn().mockReturnValue([]),
+  mockRunAgentPipeline:     vi.fn(),
+  mockRenderPipelineStages: vi.fn().mockReturnValue('*Pipeline:* allow'),
+  mockCaptureSnapshot:      vi.fn(),
+  mockRecordShadow:         vi.fn(),
+}));
 
 vi.mock('../../intelligence/slack.js', () => ({
   postThreadReply:            mockPostThreadReply,
@@ -113,6 +112,12 @@ vi.mock('../../sensor/incident-store.js', () => ({
 
 // ── Module under test (imported after mocks are registered) ───────────────────
 import { runIncidentAutopilot } from '../../intelligence/incident-autopilot.js';
+
+// ── Env setup ────────────────────────────────────────────────────────────────
+// Set MERGEN_SHADOW_MODE before each test. The flag is now read lazily by
+// isShadowMode() at call time, so beforeEach is sufficient — no vi.hoisted().
+beforeEach(() => { process.env.MERGEN_SHADOW_MODE = 'true'; });
+afterEach(() => { delete process.env.MERGEN_SHADOW_MODE; });
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -180,9 +185,7 @@ const ERROR_LOGS = [
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-afterEach(() => {
-  vi.clearAllMocks();
-});
+afterEach(() => { vi.clearAllMocks(); });
 
 describe('autopilot eval — no signal path', () => {
   it('posts "no signals found" and skips causal analysis when buffer has no errors', async () => {
@@ -209,9 +212,9 @@ describe('autopilot eval — shadow mode diagnosis', () => {
 
     await runIncidentAutopilot(BASE_OPTS);
 
-    // At least 2 Slack calls: diagnosis + shadow-mode skip notice.
-    // (A third call for pipeline stages may also appear.)
-    expect(mockPostThreadReply.mock.calls.length).toBeGreaterThanOrEqual(2);
+    // Exactly 3 Slack calls (all awaited, so count is deterministic):
+    //   1. diagnosis   2. pipeline stages   3. shadow-mode skip notice
+    expect(mockPostThreadReply).toHaveBeenCalledTimes(3);
 
     const allTexts = (mockPostThreadReply.mock.calls as [string, string][]).map(([, t]) => t);
 
@@ -283,7 +286,7 @@ describe('autopilot eval — no hypothesis path', () => {
 });
 
 describe('autopilot eval — latency budget', () => {
-  it('completes within 3 seconds when all dependencies are mocked', async () => {
+  it('completes within 3 seconds when all dependencies are mocked', { timeout: 5000 }, async () => {
     mockGetLogs.mockReturnValue(ERROR_LOGS);
     mockGetNetwork.mockReturnValue([]);
     mockBuildCausalChain.mockResolvedValue(makeChain());
@@ -296,5 +299,5 @@ describe('autopilot eval — latency budget', () => {
     // Entire flow — including waitForTelemetry polling — must complete in < 3s.
     // Real production latency is dominated by the causal analysis LLM call (mocked here).
     expect(elapsed).toBeLessThan(3000);
-  }, { timeout: 5000 });
+  });
 });

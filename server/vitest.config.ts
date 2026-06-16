@@ -26,7 +26,11 @@ function closedSourceStubs(): Plugin {
       const m = source.match(/\/intelligence\/([^/]+)\.js$/);
       if (m) {
         const tsFile = resolve(__dirname, `src/intelligence/${m[1]}.ts`);
-        if (!existsSync(tsFile)) return CLOSED_SOURCE_STUB;
+        // Append ?stub=<name> so each closed-source module gets a unique module
+        // instance in Vitest's graph. Without this, every unresolved intelligence
+        // import resolves to the same physical file and shares one module instance:
+        // vi.mock('intelligence/slack.js') would silently affect intelligence/team.js.
+        if (!existsSync(tsFile)) return `${CLOSED_SOURCE_STUB}?stub=${m[1]}`;
       }
       // Catch relative imports (e.g. './detectors.js') from within intelligence/
       if (source.startsWith('./') && source.endsWith('.js') && importer) {
@@ -34,7 +38,7 @@ function closedSourceStubs(): Plugin {
         if (importerDir.endsWith('/intelligence')) {
           const moduleName = source.slice(2, -3); // strip ./ and .js
           const tsFile = resolve(importerDir, `${moduleName}.ts`);
-          if (!existsSync(tsFile)) return CLOSED_SOURCE_STUB;
+          if (!existsSync(tsFile)) return `${CLOSED_SOURCE_STUB}?stub=${moduleName}`;
         }
       }
       return null;
