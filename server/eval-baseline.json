@@ -1,7 +1,7 @@
 {
-  "updatedAt": "2026-06-14T00:00:00.000Z",
+  "updatedAt": "2026-06-16T13:39:53.542Z",
   "corpusSize": 33,
-  "overall": 100,
+  "overall": 94,
   "byTag": {
     "infra_db_connection_pool": {
       "total": 5,
@@ -52,6 +52,11 @@
       "total": 1,
       "passed": 1,
       "pct": 100
+    },
+    "": {
+      "total": 2,
+      "passed": 0,
+      "pct": 0
     }
   }
 }

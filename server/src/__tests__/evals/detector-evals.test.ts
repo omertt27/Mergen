@@ -27,28 +27,11 @@ import {
   detectQueueBacklog,
   detectServiceUnavailable,
   detectUpstreamError,
-  ALL_INFRA_DETECTORS,
 } from '../../intelligence/infra-detectors.js';
+import { runInfraPipeline } from './pipeline-runner.js';
 import { INFRA_FIXTURES } from './fixtures/infra.js';
 import { BROWSER_FIXTURES } from './fixtures/browser.js';
 import type { InfraFixture, EvalSummary } from './types.js';
-import type { InfraEvent } from '../../sensor/infra-normalizer.js';
-import type { Hypothesis } from '../../intelligence/causal.js';
-
-// ── Runner ─────────────────────────────────────────────────────────────────────
-
-/**
- * Run all infra detectors over events and return the top hypothesis
- * (highest confidenceScore), or null if nothing fires.
- */
-function runInfraPipeline(events: InfraEvent[]): Hypothesis | null {
-  const results = ALL_INFRA_DETECTORS
-    .map((detect) => detect(events))
-    .filter((h): h is Hypothesis => h !== null);
-
-  if (results.length === 0) return null;
-  return results.reduce((best, h) => h.confidenceScore > best.confidenceScore ? h : best);
-}
 
 function summarise(fixtures: InfraFixture[], getTop: (f: InfraFixture) => Hypothesis | null): EvalSummary {
   const failures: EvalSummary['failures'] = [];
@@ -218,52 +201,60 @@ describe('infra detector pipeline — regression suite', () => {
   });
 });
 
-// ── Browser detector: harness validation ──────────────────────────────────────
+// ── Browser detector: input routing ───────────────────────────────────────────
+//
+// buildCausalChain is closed-source and cannot be meaningfully tested in CI.
+// These tests verify two things that CAN be checked in CI:
+//   1. The fixture event arrays (errors/networks/contexts) are correctly routed
+//      as the first three arguments to buildCausalChain — "the plumbing works."
+//   2. Whatever buildCausalChain returns has the required output shape (hypotheses
+//      array with typed fields) so callers can safely consume it.
+//
+// The previous version mocked buildCausalChain to return exactly what the fixture
+// expected, then asserted the result matched those expectations — circular, zero signal.
 
-describe('browser detector harness — structure (via vi.mock)', () => {
+describe('browser detector harness — input routing (via vi.mock)', () => {
   beforeEach(() => { vi.resetModules(); });
 
   for (const fixture of BROWSER_FIXTURES) {
-    it(`harness validates output shape for: ${fixture.name}`, async () => {
-      // Inject the closed-source causal module with a controlled implementation
-      // that returns exactly what the real detector would return for this fixture.
+    it(`routes fixture events to buildCausalChain: ${fixture.name}`, async () => {
+      const mockChain = vi.fn().mockResolvedValue({
+        hypotheses: [],
+        suppressedHypotheses: [],
+        chain: [],
+        contextPack: '',
+        errors: [],
+        capturedAt: Date.now(),
+        correlatedNetwork: [],
+        correlatedBackend: [],
+        stateAtError: null,
+      });
+
       vi.doMock('../../intelligence/causal.js', () => ({
-        buildCausalChain: async () => ({
-          hypotheses: [{
-            tag: fixture.expected.topTag,
-            summary: `Mocked: ${fixture.expected.topTag}`,
-            confidence: 'HIGH',
-            confidenceScore: fixture.expected.confidenceScoreMin + 0.05,
-            evidence: ['mocked evidence'],
-            causalPath: ['mocked step 1', 'mocked step 2'],
-            fixHint: 'mocked fix hint',
-            fixAction: null,
-          }],
-          suppressedHypotheses: [],
-          chain: [],
-          contextPack: '',
-          errors: [],
-          capturedAt: Date.now(),
-          correlatedNetwork: [],
-          correlatedBackend: [],
-          stateAtError: null,
-        }),
+        buildCausalChain: mockChain,
         fixActionToCommand: () => null,
       }));
 
       const { buildCausalChain } = await import('../../intelligence/causal.js');
       const chain = await buildCausalChain(fixture.errors, fixture.networks, fixture.contexts);
 
-      // Harness invariants — every implementation must satisfy these
-      expect(chain.hypotheses).toBeDefined();
-      expect(Array.isArray(chain.hypotheses)).toBe(true);
+      // 1. Plumbing: verify fixture events were passed through unchanged.
+      expect(mockChain).toHaveBeenCalledOnce();
+      const [passedErrors, passedNetworks, passedContexts] = mockChain.mock.calls[0] as unknown[];
+      expect(passedErrors).toBe(fixture.errors);
+      expect(passedNetworks).toBe(fixture.networks);
+      expect(passedContexts).toBe(fixture.contexts);
 
-      if (chain.hypotheses.length > 0) {
-        const top = chain.hypotheses[0];
-        expect(top.tag).toBe(fixture.expected.topTag);
-        expect(top.confidenceScore).toBeGreaterThanOrEqual(fixture.expected.confidenceScoreMin);
-        expect(top.fixHint).toBeTruthy();
-        expect(top.causalPath.length).toBeGreaterThan(0);
+      // 2. Shape contract: the chain type must be consumable by callers.
+      expect(chain).toBeDefined();
+      expect(Array.isArray(chain.hypotheses)).toBe(true);
+      for (const hyp of chain.hypotheses) {
+        expect(typeof hyp.tag).toBe('string');
+        expect(typeof hyp.confidenceScore).toBe('number');
+        expect(hyp.confidenceScore).toBeGreaterThanOrEqual(0);
+        expect(hyp.confidenceScore).toBeLessThanOrEqual(1);
+        expect(Array.isArray(hyp.causalPath)).toBe(true);
+        expect(Array.isArray(hyp.evidence)).toBe(true);
       }
     });
   }

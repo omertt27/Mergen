@@ -20,6 +20,7 @@ import { createRequire } from 'module';
 
 const args      = process.argv.slice(2);
 const VERBOSE   = args.includes('--verbose');
+const JUDGE     = args.includes('--judge');   // enable LLM-as-judge scoring
 const MODEL     = args[args.indexOf('--model') + 1] ?? 'gpt-4o';
 const PORT      = Number(args[args.indexOf('--port') + 1] ?? 3000);
 
@@ -159,12 +160,67 @@ const SCENARIOS = [
         localStorage: { token: 'eyJhbGci…' }, sessionStorage: {} },
     ],
   },
+
+  // ── S5: DB connection pool exhausted ─────────────────────────────────────
+  {
+    name: 'Database connection pool exhausted on postgres:5432',
+    tag:  'infra_db_connection_pool',
+    expect: {
+      root_cause: ['connection', 'pool', 'postgres'],
+      fix:        ['pool', 'connection'],
+    },
+    events: [
+      { type: 'console', level: 'error',
+        args: ['Error: ECONNREFUSED — remaining connection slots reserved for non-replication superuser connections (postgres:5432)'],
+        url: 'http://api:8080', timestamp: ago(4000) },
+      { type: 'network', method: 'GET', url: 'http://api:8080/api/orders',
+        status: 500, statusText: 'Internal Server Error', duration: 5100,
+        requestBody: null, requestHeaders: {},
+        responseBody: { error: 'Database connection timeout after 5000ms' },
+        responseHeaders: {}, timestamp: ago(3500) },
+      { type: 'console', level: 'error',
+        args: ['DB pool exhausted — Client checkout timed out after 5000ms', 'at Pool.connect (pg-pool/index.js:62)'],
+        stack: 'Error: timeout\n  at Pool.connect (pg-pool/index.js:62:14)',
+        url: 'http://api:8080', timestamp: ago(3000) },
+      { type: 'network', method: 'POST', url: 'http://api:8080/api/payments',
+        status: 500, statusText: 'Internal Server Error', duration: 5050,
+        requestBody: null, requestHeaders: {},
+        responseBody: { error: 'Connection pool full — max_connections exceeded' },
+        responseHeaders: {}, timestamp: ago(2500) },
+    ],
+  },
+
+  // ── S6: OOM kill — container exceeded memory limit ────────────────────────
+  {
+    name: 'OOM kill — Node.js process exceeded 512 MB memory limit',
+    tag:  'infra_oom_kill',
+    expect: {
+      root_cause: ['OOM', 'memory', 'limit'],
+      fix:        ['memory', 'limit'],
+    },
+    events: [
+      { type: 'console', level: 'error',
+        args: ['FATAL: Node.js process terminated with exit code 137 (SIGKILL — OOM). RSS at death: 509 MB, container limit: 512 MB.'],
+        url: 'http://worker:8080', timestamp: ago(5000) },
+      { type: 'network', method: 'POST', url: 'http://worker:8080/api/jobs',
+        status: 0, statusText: '', duration: 120, error: 'net::ERR_CONNECTION_REFUSED',
+        requestBody: null, requestHeaders: {},
+        responseBody: null, responseHeaders: {}, timestamp: ago(4000) },
+      { type: 'console', level: 'error',
+        args: ['Failed to connect to worker service — connection refused (worker restarting after OOM kill)'],
+        url: 'http://api:8080', timestamp: ago(3500) },
+      { type: 'console', level: 'error',
+        args: ['Worker pod restarted 3 times in the last 10 minutes (OOMKilled)'],
+        url: 'http://api:8080', timestamp: ago(3000) },
+    ],
+  },
 ];
 
 // ── Scoring ───────────────────────────────────────────────────────────────────
-// Each keyword list is OR-per-group, AND-across-groups for that field.
-// e.g. expect.fix = [['localStorage','setItem']] means both must appear.
-// Flat arrays mean any one keyword is sufficient per check.
+
+// Keyword scoring — AND across all keywords.
+// Fragile: "check" matches anything; "guard" may miss semantically correct fixes.
+// Use --judge for LLM-as-judge scoring instead.
 
 function scoreField(text, keywords) {
   if (!text) return { pass: false, missing: keywords };
@@ -173,16 +229,74 @@ function scoreField(text, keywords) {
   return { pass: missing.length === 0, missing };
 }
 
-function score(result, expect) {
+function scoreKeywords(result, expect) {
   const rc = scoreField(result.root_cause, expect.root_cause);
   const fx = scoreField(result.fix,        expect.fix);
   return {
     pass: rc.pass && fx.pass,
     root_cause: rc,
     fix: fx,
+    method: 'keywords',
     confidence: result.confidence,
     missing_signals: result.missing_signals,
   };
+}
+
+// LLM-as-judge scoring — rubric-based, no keyword lists.
+// Asks the same model to evaluate the diagnosis on two dimensions:
+//   specific   — root_cause names a concrete endpoint/service/error-type
+//   actionable — fix gives an immediately-runnable code/config change
+// Run with: node scripts/eval.mjs --judge
+
+async function scoreWithLLM(scenario, result) {
+  const judgeRequest = {
+    model: MODEL,
+    temperature: 0,
+    messages: [
+      {
+        role: 'system',
+        content:
+          'You are an expert SRE evaluating AI-generated incident diagnoses. ' +
+          'Reply ONLY with valid JSON matching the schema shown — no markdown, no explanation.',
+      },
+      {
+        role: 'user',
+        content: [
+          `SCENARIO: ${scenario.name}`,
+          '',
+          'AI DIAGNOSIS:',
+          `  root_cause: "${result.root_cause ?? ''}"`,
+          `  fix: "${result.fix ?? ''}"`,
+          `  confidence: ${result.confidence ?? '?'}`,
+          '',
+          'Rate on two criteria and reply with JSON:',
+          '  specific   — true if root_cause names the concrete endpoint, service, error type,',
+          '               or file/line that caused the issue (not vague like "there is an error").',
+          '  actionable — true if fix gives a specific code change, config key, or command to run',
+          '               (not vague advice like "investigate further" or "fix the bug").',
+          '',
+          'Schema: {"specific": boolean, "actionable": boolean, "specific_reason": "one line", "actionable_reason": "one line"}',
+        ].join('\n'),
+      },
+    ],
+  };
+
+  const verdict = await callOpenAI(judgeRequest);
+  const specific   = verdict.specific   === true;
+  const actionable = verdict.actionable === true;
+  return {
+    pass: specific && actionable,
+    root_cause: { pass: specific,   reason: verdict.specific_reason   ?? '' },
+    fix:        { pass: actionable, reason: verdict.actionable_reason ?? '' },
+    method: 'llm-judge',
+    confidence: result.confidence,
+    missing_signals: result.missing_signals,
+  };
+}
+
+async function score(result, expect) {
+  if (JUDGE) return scoreWithLLM({ name: expect._name }, result);
+  return scoreKeywords(result, expect);
 }
 
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
@@ -260,7 +374,7 @@ async function runScenario(scenario, index, total) {
   process.stdout.write(g('✓') + '\n');
 
   // 5. Score
-  const s = score(result, scenario.expect);
+  const s = await score(result, { ...scenario.expect, _name: scenario.name });
 
   const confColor = result.confidence === 'HIGH' ? g : result.confidence === 'MEDIUM' ? y : r;
 
@@ -271,11 +385,19 @@ async function runScenario(scenario, index, total) {
     console.log(`  missing:    ${d(result.missing_signals.slice(0, 100))}`);
   }
 
-  const rcLabel = s.root_cause.pass ? g('✓ PASS') : r(`✗ FAIL — missing: ${s.root_cause.missing.join(', ')}`);
-  const fxLabel = s.fix.pass        ? g('✓ PASS') : r(`✗ FAIL — missing: ${s.fix.missing.join(', ')}`);
+  const rcDetail = s.method === 'llm-judge'
+    ? (s.root_cause.pass ? '' : ` — ${s.root_cause.reason}`)
+    : (s.root_cause.pass ? '' : ` — missing: ${(s.root_cause.missing ?? []).join(', ')}`);
+  const fxDetail = s.method === 'llm-judge'
+    ? (s.fix.pass ? '' : ` — ${s.fix.reason}`)
+    : (s.fix.pass ? '' : ` — missing: ${(s.fix.missing ?? []).join(', ')}`);
 
-  console.log(`  specificity:    ${rcLabel}`);
-  console.log(`  actionability:  ${fxLabel}`);
+  const rcLabel = s.root_cause.pass ? g('✓ PASS') : r(`✗ FAIL${rcDetail}`);
+  const fxLabel = s.fix.pass        ? g('✓ PASS') : r(`✗ FAIL${fxDetail}`);
+  const scorer  = s.method === 'llm-judge' ? d(' [llm-judge]') : d(' [keywords]');
+
+  console.log(`  specificity:    ${rcLabel}${scorer}`);
+  console.log(`  actionability:  ${fxLabel}${scorer}`);
   console.log(`  overall:        ${s.pass ? g('✓ PASS') : r('✗ FAIL')}`);
 
   return { scenario: scenario.name, ...s, result };
@@ -283,7 +405,7 @@ async function runScenario(scenario, index, total) {
 
 async function main() {
   console.log(b('\n🧪 Mergen Diagnosis Eval'));
-  console.log(d(`   model: ${MODEL}   port: ${PORT}   scenarios: ${SCENARIOS.length}\n`));
+  console.log(d(`   model: ${MODEL}   port: ${PORT}   scenarios: ${SCENARIOS.length}   scorer: ${JUDGE ? 'llm-judge (--judge)' : 'keywords'}\n`));
 
   // Verify server is up
   try {

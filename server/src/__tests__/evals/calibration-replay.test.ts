@@ -25,25 +25,13 @@ vi.mock('../../intelligence/detectors.js', () => ({
   scoreToConfidence: (score: number) => score >= 0.8 ? 'high' : score >= 0.5 ? 'medium' : 'low',
 }));
 
-import { ALL_INFRA_DETECTORS } from '../../intelligence/infra-detectors.js';
+import { runInfraPipeline } from './pipeline-runner.js';
 import { CalibrationClassifier } from '../../intelligence/calibration-classifier.js';
 import { REPLAY_CORPUS } from './fixtures/corpus.js';
-import type { InfraEvent } from '../../sensor/infra-normalizer.js';
-import type { Hypothesis } from '../../intelligence/causal.js';
 import type { CorpusEntry, EvalSummary } from './types.js';
 
 /** Minimum corpus accuracy (%) that must not regress across PRs. */
 const ACCURACY_GATE = 85;
-
-// ── Runner ─────────────────────────────────────────────────────────────────────
-
-function runInfraPipeline(events: InfraEvent[]): Hypothesis | null {
-  const results = ALL_INFRA_DETECTORS
-    .map((detect) => detect(events))
-    .filter((h): h is Hypothesis => h !== null);
-  if (results.length === 0) return null;
-  return results.reduce((best, h) => h.confidenceScore > best.confidenceScore ? h : best);
-}
 
 function replayCorpus(corpus: CorpusEntry[]): EvalSummary & { byTag: Record<string, { total: number; passed: number; pct: number }> } {
   const failures: EvalSummary['failures'] = [];
@@ -355,8 +343,13 @@ describe('Level 2 — accuracy regression vs baseline', () => {
   it('overall accuracy has not regressed from baseline', () => {
     const baseline = loadBaseline();
     if (!baseline) {
-      console.log('No eval-baseline.json found — run: npm run eval:update-baseline');
-      return; // skip gracefully if no baseline exists yet
+      // Fail loudly — silently skipping means first-time CI runs never enforce
+      // the regression gate, allowing a broken detector to ship undetected.
+      expect.fail(
+        'eval-baseline.json not found. Generate it first:\n' +
+        '  npm run eval:update-baseline\n' +
+        'Then commit the file so the regression gate is active in CI.',
+      );
     }
 
     const result = replayCorpus(REPLAY_CORPUS);
@@ -375,7 +368,11 @@ describe('Level 2 — accuracy regression vs baseline', () => {
 
   it('no individual tag has regressed from baseline', () => {
     const baseline = loadBaseline();
-    if (!baseline) return; // skip if no baseline
+    if (!baseline) {
+      expect.fail(
+        'eval-baseline.json not found. Run: npm run eval:update-baseline',
+      );
+    }
 
     const result = replayCorpus(REPLAY_CORPUS);
     const regressions: string[] = [];
