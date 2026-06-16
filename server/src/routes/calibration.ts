@@ -350,5 +350,89 @@ export function createCalibrationRouter(): Router {
     });
   });
 
+  // GET /confidence-report ─────────────────────────────────────────────────────
+  // YC board-deck metric: "how do we know when to trust the AI agent?"
+  // Synthesises threshold calibration, autonomous accuracy, and per-detector
+  // health into a single human-readable + machine-readable report.
+  router.get('/confidence-report', (req, res) => {
+    const windowDays = Math.min(90, Math.max(1, parseInt(String(req.query.days ?? '30'), 10)));
+    const windowStart = Date.now() - windowDays * 24 * 60 * 60 * 1000;
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
+    // Threshold data
+    const currentThreshold = getExecutionThreshold();
+    const roc = computeRocCurve();
+    const bestRoc = roc.length > 0
+      ? roc.reduce((best, pt) => pt.youdensJ > best.youdensJ ? pt : best, roc[0])
+      : null;
+    const records = getRecords();
+    const thresholdSampleSize = records.filter((r) => r.verdict !== null).length;
+
+    // Autonomous incident outcomes — fetch all incidents (large limit, no status filter)
+    const allIncidents = incidentStore.list(undefined, 10_000);
+    const windowIncidents = allIncidents.filter(
+      (i) => (i.createdAt ?? 0) >= windowStart,
+    );
+    const autonomous = windowIncidents.filter((i) => i.resolvedAutonomously);
+    const successful = autonomous.filter((i) => i.causallyCorrect === true);
+    const falsePositives = autonomous.filter((i) => i.causallyCorrect === false);
+
+    const recent7d = autonomous.filter((i) => (i.resolvedAt ?? i.createdAt ?? 0) >= sevenDaysAgo);
+    const recent7dSuccess = recent7d.filter((i) => i.causallyCorrect === true);
+    const rollingRate7d = recent7d.length > 0
+      ? Math.round((recent7dSuccess.length / recent7d.length) * 1000) / 1000
+      : null;
+
+    // Detector health
+    const stats = getStats();
+    const detectorHealth = stats.map((s) => ({
+      tag: s.tag,
+      accuracy: Math.round(s.accuracy * 1000) / 1000,
+      verdicts: s.verdicts,
+      trusted: s.trusted,
+      status: s.accuracy >= 0.8 ? 'healthy' : s.accuracy >= 0.6 ? 'degraded' : 'poor',
+    })).sort((a, b) => b.verdicts - a.verdicts);
+
+    const successRate = autonomous.length > 0
+      ? Math.round((successful.length / autonomous.length) * 100)
+      : null;
+
+    const deckSummary = autonomous.length === 0
+      ? `No autonomous resolutions yet in the last ${windowDays} days. Mergen is in observation mode.`
+      : `Mergen acted autonomously ${autonomous.length} time${autonomous.length !== 1 ? 's' : ''} in ${windowDays} days. ` +
+        `Success rate: ${successRate}%. ` +
+        `Current confidence threshold: ${Math.round(currentThreshold * 100)}%` +
+        (thresholdSampleSize >= 10
+          ? ` (calibrated from ${thresholdSampleSize} verdicts).`
+          : ' (default prior — calibrates with use).');
+
+    res.json({
+      ok: true,
+      report: {
+        generatedAt: new Date().toISOString(),
+        windowDays,
+        threshold: {
+          current: Math.round(currentThreshold * 1000) / 1000,
+          recommendation: bestRoc
+            ? Math.round(bestRoc.threshold * 1000) / 1000
+            : Math.round(currentThreshold * 1000) / 1000,
+          basis: thresholdSampleSize >= 10 ? 'empirical' : 'prior',
+          sampleSize: thresholdSampleSize,
+        },
+        autonomousAccuracy: {
+          attempts: autonomous.length,
+          successful: successful.length,
+          falsePositives: falsePositives.length,
+          rollingRate7d,
+          label: successRate !== null
+            ? `${successRate}% of autonomous fixes resolved the incident`
+            : 'No autonomous actions yet — enable MERGEN_AUTOPILOT=true',
+        },
+        detectorHealth,
+        deckSummary,
+      },
+    });
+  });
+
   return router;
 }

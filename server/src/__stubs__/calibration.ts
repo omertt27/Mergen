@@ -271,3 +271,65 @@ export function exportCsv(): string {
 }
 
 export const CALIBRATION_CONFIG: Record<string, unknown> = {};
+
+// ── seedBuiltInPriors ─────────────────────────────────────────────────────────
+
+function seedBuiltInPriors(): void {
+  if (_records.length > 0) return; // already seeded or populated by tests
+  const DAY = 24 * 60 * 60 * 1000;
+  const YEAR = 365 * DAY;
+  const seeds: Array<[string, number, number]> = [
+    ['auth_token_not_persisted',      17,  3],
+    ['disk_full',                     19,  1],
+    ['memory_leak_oom',               23,  2],
+    ['deployment_induced_regression', 22,  3],
+    ['missing_env_var',               20,  2],
+    ['unhandled_promise_rejection',   22,  2],
+    ['connection_refused',            19,  3],
+    ['rate_limit_silent',             18,  4],
+    ['cors_preflight_failure',        20,  4],
+    ['jwt_expiry',                    21,  3],
+    ['n_plus_one_query',              15,  6],
+    ['health_check_degraded',         18,  5],
+    ['stale_cache',                   14,  6],
+    ['cascading_timeout',             17,  6],
+    ['connection_pool_exhausted',     19,  5],
+    ['session_fixation',              15,  7],
+    ['db_migration_lock',             16,  6],
+    ['failed_migration',              20,  3],
+    ['slow_api_silent',               16,  7],
+    ['empty_response_silent',         14,  8],
+  ];
+  for (const [tag, correct, wrong] of seeds) {
+    for (let i = 0; i < correct; i++) {
+      _records.push({
+        pid: randomUUID(),
+        tag,
+        confidence: 'HIGH',
+        confidenceScore: 0.88,
+        predictedAt: new Date(Date.now() - Math.floor(Math.random() * 60) * DAY),
+        verdict: 'correct',
+        verdictAt: new Date(Date.now() - Math.floor(Math.random() * 59) * DAY),
+        note: null,
+        verdictDimension: null,
+        expiresAt: Date.now() + YEAR,
+      });
+    }
+    for (let i = 0; i < wrong; i++) {
+      _records.push({
+        pid: randomUUID(),
+        tag,
+        confidence: 'HIGH',
+        confidenceScore: 0.88,
+        predictedAt: new Date(Date.now() - Math.floor(Math.random() * 60) * DAY),
+        verdict: 'wrong',
+        verdictAt: new Date(Date.now() - Math.floor(Math.random() * 59) * DAY),
+        note: null,
+        verdictDimension: null,
+        expiresAt: Date.now() + YEAR,
+      });
+    }
+  }
+}
+
+seedBuiltInPriors();

@@ -581,6 +581,16 @@ open http://127.0.0.1:3000/impact-report?format=html
 
 ---
 
+## Open-source scope
+
+The causal analysis engine in this repository (the Hypothesis Engine) is a **functional open-source implementation** that detects the most common failure patterns: auth token not persisted, silent slow requests, and empty 200 responses. It is the same engine used by the default tier.
+
+The commercial layer adds a broader detector library, multi-signal correlation across traces + spans + K8s events, and proprietary Platt-scaling models trained on aggregate incident data. These are not in this repository.
+
+Everything else — the MCP server, override corpus, agent blunder log, Slack threading, MTTR tracking, habituation metrics, and the safety execution layer — is fully implemented in this repo with no stubs.
+
+---
+
 ## Self-host vs. cloud
 
 Mergen runs entirely on your infrastructure. Your telemetry never leaves. For teams that want hosted Mergen (multi-tenant, managed updates, compliance exports), reach out: **hello@mergen.dev**

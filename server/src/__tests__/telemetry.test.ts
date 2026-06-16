@@ -18,12 +18,12 @@ vi.mock('fs/promises', () => ({
   },
 }));
 
-vi.mock('../paths.js', () => ({
+vi.mock('../sensor/paths.js', () => ({
   DATA_DIR: '/tmp/.mergen-test',
   TELEMETRY_FILE: '/tmp/.mergen-test/telemetry.json',
 }));
 
-vi.mock('../logger.js', () => ({
+vi.mock('../sensor/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() },
 }));
 
