@@ -3,6 +3,7 @@ dist/
 *.log
 .env
 .DS_Store
+.claude/worktrees/
 
 # ── Intelligence layer — closed source ────────────────────────────────────────
 # Sensor layer (sensor/) is open. These files are the moat: causal chain
