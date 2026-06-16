@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { Router } from 'express';
 import { z } from 'zod';
+import { CLOUD_MODE } from '../sensor/cloud-auth.js';
 import { fetchLatestErrorTrace, isConfigured } from '../datadog/client.js';
 import { compact } from '../datadog/compactor.js';
 import { setActiveIncident } from '../datadog/incident-state.js';
@@ -21,6 +22,11 @@ const DASHBOARD_URL = process.env.MERGEN_DASHBOARD_URL ?? 'http://127.0.0.1:3000
 const PD_WEBHOOK_SECRET = process.env.MERGEN_PAGERDUTY_SECRET;
 if (PD_WEBHOOK_SECRET) {
   logger.info('pagerduty: webhook signature verification enabled');
+} else if (CLOUD_MODE) {
+  logger.error(
+    'pagerduty: MERGEN_PAGERDUTY_SECRET is not set in cloud mode — all webhook requests will be rejected. ' +
+    'Set MERGEN_PAGERDUTY_SECRET to the signing secret from your PagerDuty webhook config.',
+  );
 } else {
   logger.warn(
     'pagerduty: MERGEN_PAGERDUTY_SECRET is not set — webhook signature verification is DISABLED. ' +
@@ -30,7 +36,11 @@ if (PD_WEBHOOK_SECRET) {
 }
 
 function verifyPagerDutySignature(rawBody: Buffer, header: string | undefined): boolean {
-  if (!PD_WEBHOOK_SECRET) return true;
+  if (!PD_WEBHOOK_SECRET) {
+    // In cloud mode, reject all requests when the secret is not configured —
+    // the endpoint can trigger autonomous execution and must not be left open.
+    return !CLOUD_MODE;
+  }
   if (!header) return false;
   const expected = 'v1=' + crypto
     .createHmac('sha256', PD_WEBHOOK_SECRET)

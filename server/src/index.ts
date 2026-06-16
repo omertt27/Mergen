@@ -88,7 +88,46 @@ async function findPort(start: number, end: number): Promise<number> {
   process.exit(1);
 }
 
+function validateConfig(): void {
+  const CLOUD_MODE = process.env.MERGEN_CLOUD_MODE === 'true';
+
+  if (!process.env.MERGEN_SLACK_BOT_TOKEN) {
+    logger.warn(
+      'startup: MERGEN_SLACK_BOT_TOKEN not set — incident Slack alerts and thread replies are disabled. ' +
+      'Set it to your Slack bot token (xoxb-...) to enable autonomous incident notifications.',
+    );
+  }
+  if (CLOUD_MODE && !process.env.MERGEN_PAGERDUTY_SECRET) {
+    logger.warn(
+      'startup: MERGEN_PAGERDUTY_SECRET not set in cloud mode — PagerDuty webhook requests will be rejected. ' +
+      'Set it to the signing secret from your PagerDuty webhook config.',
+    );
+  } else if (!process.env.MERGEN_PAGERDUTY_SECRET) {
+    logger.warn(
+      'startup: MERGEN_PAGERDUTY_SECRET not set — PagerDuty webhook signature verification is disabled. ' +
+      'Any caller can trigger autonomous execution via the PagerDuty webhook endpoint.',
+    );
+  }
+  if (CLOUD_MODE && !process.env.MERGEN_TLS_CERT) {
+    logger.warn(
+      'startup: MERGEN_CLOUD_MODE=true but MERGEN_TLS_CERT / MERGEN_TLS_KEY are not set — ' +
+      'server will start in plain HTTP. Set TLS certificates for secure cloud deployments.',
+    );
+  }
+
+  const enabled: string[] = [];
+  if (process.env.MERGEN_AUTOPILOT === 'true')         enabled.push('autopilot');
+  if (process.env.MERGEN_SHADOW_MODE === 'true')        enabled.push('shadow-mode');
+  if (process.env.MERGEN_DOCKER_MONITOR === 'true')     enabled.push('docker-monitor');
+  if (process.env.MERGEN_DOCKER_LOGS === 'true')        enabled.push('docker-logs');
+  if (process.env.MERGEN_K8S_NAMESPACE)                 enabled.push(`k8s(${process.env.MERGEN_K8S_NAMESPACE})`);
+  if (process.env.MERGEN_REDIS_URL)                     enabled.push('redis');
+  if (process.env.DD_API_KEY)                           enabled.push('datadog');
+  if (enabled.length > 0) logger.info({ enabled }, 'startup: optional features enabled');
+}
+
 async function main(): Promise<void> {
+  validateConfig();
   // ── LemonSqueezy SDK ───────────────────────────────────────────────────────
   const lsApiKey = process.env.LS_API_KEY;
   if (lsApiKey) lemonSqueezySetup({ apiKey: lsApiKey });

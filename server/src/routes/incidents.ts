@@ -33,12 +33,9 @@ export function createIncidentsRouter(): Router {
     res.json({ ok: true, incidents: incidentStore.list(status, limit) });
   });
 
-  // ── Get one ───────────────────────────────────────────────────────────────────
-  router.get('/incidents/:pid', (req, res) => {
-    const inc = incidentStore.get(req.params.pid);
-    if (!inc) { res.status(404).json({ error: 'not found' }); return; }
-    res.json({ ok: true, incident: inc });
-  });
+  // ── Static sub-paths — MUST be registered before GET /incidents/:pid ─────────
+  // Express matches routes in registration order; registering /:pid first would
+  // shadow every static path below (impact-report, graph, postmortems, etc.).
 
   // ── Create / upsert ───────────────────────────────────────────────────────────
   router.post('/incidents', (req, res) => {
@@ -334,6 +331,13 @@ export function createIncidentsRouter(): Router {
   router.get('/incidents/replay-snapshots', (_req, res) => {
     const pids = listSnapshotPids();
     res.json({ ok: true, count: pids.length, pids });
+  });
+
+  // ── Get one — registered LAST so static /incidents/* paths match first ─────────
+  router.get('/incidents/:pid', (req, res) => {
+    const inc = incidentStore.get(req.params.pid);
+    if (!inc) { res.status(404).json({ error: 'not found' }); return; }
+    res.json({ ok: true, incident: inc });
   });
 
   // ── Replay incident analysis ─────────────────────────────────────────────────

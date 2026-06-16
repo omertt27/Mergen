@@ -90,27 +90,76 @@ mergen-server start
 ### Environment variables
 
 ```bash
-# Core
+# ── Core ──────────────────────────────────────────────────────────────────────
 MERGEN_AUTOPILOT=true              # enable autonomous fix execution
-MERGEN_SLACK_BOT_TOKEN=xoxb-...    # Slack Web API (threads + replies)
-MERGEN_SLACK_CHANNEL=#incidents    # default incident channel
+MERGEN_SHADOW_MODE=true            # dry-run mode: diagnose but never execute fixes
+MERGEN_SECRET=mysecret             # shared secret for mutating API endpoints (x-mergen-secret header)
 
-# PagerDuty → Mergen webhook
+# ── Slack ─────────────────────────────────────────────────────────────────────
+MERGEN_SLACK_BOT_TOKEN=xoxb-...    # Slack Web API token (threads + replies)
+MERGEN_SLACK_CHANNEL=#incidents    # default incident channel
+MERGEN_SLACK_SIGNING_SECRET=...    # HMAC secret to verify inbound Slack events
+MERGEN_PR_COMMENTS=true            # post AI code review comments on PRs (enables habituation tracking)
+
+# ── PagerDuty ─────────────────────────────────────────────────────────────────
+MERGEN_PAGERDUTY_SECRET=...        # HMAC-SHA256 signing secret from PagerDuty webhook config
+                                   # Required in cloud mode; strongly recommended otherwise
 # In PagerDuty: Service → Integrations → Webhooks → https://your-server:3000/webhooks/pagerduty
 
-# OpenTelemetry ingest
-# Point your OTLP exporter at http://your-server:3000/v1/traces (HTTP)
-# or http://your-server:4317 (gRPC, if enabled)
-
-# Datadog (for blame attribution)
+# ── Datadog (blame attribution + trace fetch) ─────────────────────────────────
 DD_API_KEY=...
 DD_APP_KEY=...
 DATADOG_SITE=datadoghq.com
 
-# Cloud mode (multi-tenant SaaS deployment)
+# ── OpenTelemetry ingest ──────────────────────────────────────────────────────
+# Point your OTLP exporter at http://your-server:3000/v1/traces (HTTP)
+# or http://your-server:4317 (gRPC, if enabled)
+
+# ── Sentry ────────────────────────────────────────────────────────────────────
+MERGEN_SENTRY_SECRET=...           # HMAC secret to verify inbound Sentry webhook events
+
+# ── GitHub ────────────────────────────────────────────────────────────────────
+GITHUB_TOKEN=ghp_...               # required for `mergen-server backfill github` and PR commenting
+GITHUB_WEBHOOK_SECRET=...          # HMAC-SHA256 secret to verify inbound GitHub webhook events
+
+# ── Jira ticket creation ──────────────────────────────────────────────────────
+JIRA_EMAIL=you@company.com
+JIRA_API_TOKEN=...
+JIRA_BASE_URL=https://company.atlassian.net
+JIRA_PROJECT_KEY=ENG               # default project key (overridable per-request)
+
+# ── Linear ticket creation ────────────────────────────────────────────────────
+LINEAR_API_KEY=lin_api_...
+LINEAR_TEAM_ID=...                 # default team ID (overridable per-request)
+
+# ── Notifications ─────────────────────────────────────────────────────────────
+MERGEN_NTFY_TOPIC=mergen-alerts    # ntfy.sh topic name
+MERGEN_NTFY_URL=https://ntfy.sh   # ntfy.sh server (default: https://ntfy.sh)
+MERGEN_NTFY_TOKEN=...              # ntfy.sh access token (if server requires auth)
+MERGEN_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...  # Discord alert channel
+
+# ── Docker monitoring ─────────────────────────────────────────────────────────
+MERGEN_DOCKER_MONITOR=true         # enable Docker container health monitoring
+MERGEN_DOCKER_LOGS=true            # stream stdout/stderr from all running containers
+
+# ── Kubernetes ────────────────────────────────────────────────────────────────
+MERGEN_K8S_NAMESPACE=production    # enable K8s events poller for the given namespace
+
+# ── Process auto-watch ────────────────────────────────────────────────────────
+MERGEN_AUTO_WATCH=false            # auto-watch local processes (default: true)
+MERGEN_AUTO_ATTACH_PORTS=3001,8080 # comma-separated ports to auto-attach process watcher
+
+# ── Persistence ───────────────────────────────────────────────────────────────
+MERGEN_REDIS_URL=redis://localhost:6379  # persist ring buffer across restarts (optional)
+
+# ── Cloud mode (multi-tenant SaaS deployment) ─────────────────────────────────
 MERGEN_CLOUD_MODE=true
 MERGEN_TLS_CERT=/path/to/cert.pem
 MERGEN_TLS_KEY=/path/to/key.pem
+MERGEN_ALLOWED_ORIGINS=https://app.example.com  # CORS allow-list in team/cloud mode
+
+# ── Billing (LemonSqueezy) ────────────────────────────────────────────────────
+LS_API_KEY=...                     # LemonSqueezy API key for license/billing endpoints
 ```
 
 ---

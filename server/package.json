@@ -57,6 +57,7 @@
     "prepack": "mkdir -p sdk && cp ../sdk/node.js sdk/ && cp ../sdk/mergen-inject.js sdk/ && cp ../sdk/vite-plugin.ts sdk/ && cp ../sdk/webpack-plugin.js sdk/",
     "postpack": "rm -rf sdk",
     "build": "tsc && node scripts/build-cli.mjs",
+    "build:fast": "node scripts/build-fast.mjs && node scripts/build-cli.mjs",
     "build:server": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",

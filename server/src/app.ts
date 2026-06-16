@@ -180,6 +180,35 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
 
   app.options('*', (_req, res) => res.status(204).end());
 
+  // ── Global rate limiter (per IP) ──────────────────────────────────────────
+  // Protects all endpoints against request floods. High-volume ingest paths
+  // (/ingest, /v1/) are excluded — they receive continuous telemetry streams.
+  const _ipBuckets = new Map<string, { count: number; resetAt: number }>();
+  const RATE_WINDOW_MS = 60_000; // 1 minute
+  const RATE_MAX       = 600;   // 600 req/min per IP (~10 req/s)
+  setInterval(() => {
+    const now = Date.now();
+    for (const [ip, bucket] of _ipBuckets) {
+      if (now > bucket.resetAt) _ipBuckets.delete(ip);
+    }
+  }, 5 * 60_000).unref(); // prune stale entries every 5 min
+
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/ingest') || req.path.startsWith('/v1/')) { next(); return; }
+    const ip = (req.socket.remoteAddress ?? 'unknown').replace(/^::ffff:/, '');
+    const now = Date.now();
+    let bucket = _ipBuckets.get(ip);
+    if (!bucket || now > bucket.resetAt) {
+      bucket = { count: 0, resetAt: now + RATE_WINDOW_MS };
+      _ipBuckets.set(ip, bucket);
+    }
+    if (++bucket.count > RATE_MAX) {
+      res.status(429).json({ error: 'rate limit exceeded' });
+      return;
+    }
+    next();
+  });
+
   // ── Local-secret endpoint ─────────────────────────────────────────────────
   // Browser extension popup reads this once to obtain the shared secret.
   // Only served in local mode (127.0.0.1); in team mode the endpoint is

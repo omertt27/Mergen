@@ -52,7 +52,7 @@ import logger from '../sensor/logger.js';
 // Forward approval expiry events to the Slack thread without coupling
 // execution-gate.ts → slack.ts directly.
 approvalEvents.on('approval:expired', (pid: string, text: string) => {
-  void postThreadReply(pid, text);
+  postThreadReply(pid, text).catch((err) => logger.error({ err, pid }, 'approval:expired: slack reply failed'));
 });
 
 const ANALYSIS_TIMEOUT_MS = 30_000;
