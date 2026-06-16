@@ -25,6 +25,7 @@ import { getRoutingForService } from './slack-routing.js';
 import { generateFeedbackToken } from '../sensor/feedback-token.js';
 import { approveExecution, denyExecution } from './execution-gate.js';
 import { executeRemediation } from './autonomy.js';
+import { recordShadowVerdict } from './shadow-log.js';
 import logger from '../sensor/logger.js';
 
 const WEBHOOK        = process.env.MERGEN_SLACK_WEBHOOK ?? '';
@@ -774,13 +775,12 @@ export async function handleSlackActions(req: Request, res: Response): Promise<v
     };
 
     if (payload.type === 'view_submission' && payload.view?.callback_id === 'override_modal') {
-      const pid = payload.view.private_metadata;
+      const rawMeta = payload.view.private_metadata;
       const values = payload.view.state.values;
       const reasonBlock = values['reason_block'];
       const reasonSelect = reasonBlock ? reasonBlock['reason_select'] : null;
       const selectedReason = reasonSelect?.selected_option?.value ?? 'other';
 
-      // Map modal option values to OverrideReason enum
       const REASON_MAP: Record<string, OverrideReason> = {
         too_risky:      'on-call-discretion',
         fix_incorrect:  'wrong-fix',
@@ -789,18 +789,30 @@ export async function handleSlackActions(req: Request, res: Response): Promise<v
       };
       const corpusReason: OverrideReason = REASON_MAP[selectedReason] ?? 'other';
 
-      // Persist to override corpus — was previously just logging
-      recordOverride({
-        incidentTag:     pid,
-        proposedCommand: 'unknown',
-        overrideReason:  corpusReason,
-        service:         'unknown',
-        environment:     process.env.NODE_ENV ?? 'production',
-        actor:           'slack-user',
-      });
-      // Also record as calibration 'wrong' so detector accuracy stays honest
-      recordVerdict(pid, 'wrong', selectedReason);
-      logger.info({ pid, reason: corpusReason }, 'slack: override persisted to corpus');
+      if (rawMeta.startsWith('shadow:')) {
+        // Digest-sourced override — rawMeta is `shadow:<shadow-entry-id>`
+        const shadowId = rawMeta.slice(7);
+        const result = recordShadowVerdict(shadowId, 'would-override', {
+          overrideReason: corpusReason,
+          note: selectedReason,
+          actor: 'slack-user',
+        });
+        if (result.found) recordVerdict(result.entry.pid, 'wrong', selectedReason);
+        logger.info({ shadowId, reason: corpusReason }, 'slack: digest override modal submitted');
+      } else {
+        // Calibration-sourced override — rawMeta is a calibration pid
+        const pid = rawMeta;
+        recordOverride({
+          incidentTag:     pid,
+          proposedCommand: 'unknown',
+          overrideReason:  corpusReason,
+          service:         'unknown',
+          environment:     process.env.NODE_ENV ?? 'production',
+          actor:           'slack-user',
+        });
+        recordVerdict(pid, 'wrong', selectedReason);
+        logger.info({ pid, reason: corpusReason }, 'slack: override persisted to corpus');
+      }
 
       res.status(200).send(''); // ACK within 3s
       return;
@@ -826,6 +838,35 @@ export async function handleSlackActions(req: Request, res: Response): Promise<v
           await _openOverrideModal(payload.trigger_id, pid);
         } catch (err) {
           logger.warn({ err, action }, 'slack: failed to open override modal');
+        }
+      }
+
+      // Weekly digest — approve shadow entry
+      if (action.action_id.startsWith('digest_approve_')) {
+        try {
+          const { id } = JSON.parse(action.value) as { id: string };
+          const result = recordShadowVerdict(id, 'would-approve');
+          if (result.found) recordVerdict(result.entry.pid, 'correct');
+          logger.info({ id }, 'slack: digest approval recorded');
+        } catch (err) {
+          logger.warn({ err, action }, 'slack: failed to record digest approval');
+        }
+      }
+
+      // Weekly digest — override shadow entry (opens modal if trigger_id available, else records directly)
+      if (action.action_id.startsWith('digest_override_')) {
+        try {
+          const { id } = JSON.parse(action.value) as { id: string };
+          if (payload.trigger_id) {
+            // prefix so the view_submission handler can distinguish shadow ids from calibration pids
+            await _openOverrideModal(payload.trigger_id, `shadow:${id}`);
+          } else {
+            const result = recordShadowVerdict(id, 'would-override', { overrideReason: 'on-call-discretion' });
+            if (result.found) recordVerdict(result.entry.pid, 'wrong');
+            logger.info({ id }, 'slack: digest override recorded (no trigger_id — no modal)');
+          }
+        } catch (err) {
+          logger.warn({ err, action }, 'slack: failed to record digest override');
         }
       }
 

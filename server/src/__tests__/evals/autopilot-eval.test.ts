@@ -204,7 +204,7 @@ describe('autopilot eval — no signal path', () => {
 });
 
 describe('autopilot eval — shadow mode diagnosis', () => {
-  it('posts diagnosis + pipeline stages + shadow-mode notice (does not execute)', async () => {
+  it('posts combined diagnosis+pipeline + shadow-mode notice (does not execute)', async () => {
     mockGetLogs.mockReturnValue(ERROR_LOGS);
     mockGetNetwork.mockReturnValue([]);
     mockBuildCausalChain.mockResolvedValue(makeChain());
@@ -212,9 +212,8 @@ describe('autopilot eval — shadow mode diagnosis', () => {
 
     await runIncidentAutopilot(BASE_OPTS);
 
-    // Exactly 3 Slack calls (all awaited, so count is deterministic):
-    //   1. diagnosis   2. pipeline stages   3. shadow-mode skip notice
-    expect(mockPostThreadReply).toHaveBeenCalledTimes(3);
+    // Exactly 2 Slack calls: 1. diagnosis+pipeline combined  2. shadow-mode skip notice
+    expect(mockPostThreadReply).toHaveBeenCalledTimes(2);
 
     const allTexts = (mockPostThreadReply.mock.calls as [string, string][]).map(([, t]) => t);
 

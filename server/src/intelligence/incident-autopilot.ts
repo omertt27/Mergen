@@ -41,7 +41,7 @@ import { recordShadow } from './shadow-log.js';
 import { getAutopilotLevel, autopilotLevelPermits, classifyCommandRisk, autopilotLevelDescription } from './action-risk.js';
 import { recordBlunder } from '../sensor/agent-blunder-store.js';
 import { getStatsForTag } from './calibration.js';
-import { runAgentPipeline, renderPipelineStages } from './agent-pipeline.js';
+import { runAgentPipeline } from './agent-pipeline.js';
 import { planningGate } from './planning-gate.js';
 import { plattScale } from './platt-scaling.js';
 import { formatValidatedFactsForLLM } from './llm-spokesperson.js';
@@ -282,6 +282,21 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
   const calibrationLabel = calStats?.isEmpirical
     ? `calibrated — ${calStats.verdicts} verdicts`
     : 'estimated — self-calibrates with use';
+  // ── Multi-agent governance pipeline (Validator → Planner → Critic → Guard) ─
+  const now = new Date();
+  const pipeline = runAgentPipeline(causal, {
+    service,
+    executionThreshold: getAutoExecuteThreshold(),
+    service_time: { dayOfWeek: now.getUTCDay(), hourOfDay: now.getUTCHours() },
+  });
+
+  const pipelineLine = (isAutopilotEnabled() || isShadowMode())
+    ? `*Pipeline:* ${pipeline.stages.map((s) => {
+        const icon = s.status === 'pass' ? '✅' : s.status === 'warn' ? '⚠️' : '🚫';
+        return `${icon} ${s.name}`;
+      }).join(' · ')}`
+    : '';
+
   const diagMsg = [
     `🔍 *Mergen Autopilot — Root Cause Analysis*`,
     `*Hypothesis:* ${topHyp.summary}`,
@@ -293,23 +308,11 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
       ? `*Evidence:*\n${topHyp.evidence.map((e) => `• ${e}`).join('\n')}`
       : '',
     topHyp.fixHint ? `*Fix:* ${topHyp.fixHint}` : '',
+    pipelineLine,
   ].filter(Boolean).join('\n');
 
   await postThreadReply(pid, diagMsg);
   logger.info({ service, pid, confidence: pct, hypothesis: topHyp.tag }, 'incident-autopilot: diagnosis posted');
-
-  // ── Multi-agent governance pipeline (Validator → Planner → Critic → Guard) ─
-  const now = new Date();
-  const pipeline = runAgentPipeline(causal, {
-    service,
-    executionThreshold: getAutoExecuteThreshold(),
-    service_time: { dayOfWeek: now.getUTCDay(), hourOfDay: now.getUTCHours() },
-  });
-
-  // Post pipeline stage summary to Slack (gives on-call visibility into reasoning)
-  if (isAutopilotEnabled() || isShadowMode()) {
-    await postThreadReply(pid, renderPipelineStages(pipeline.stages));
-  }
 
   // Prefer pipeline-derived plan over direct fixAction extraction
   const command = pipeline.plan?.command
@@ -420,7 +423,6 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
     return;
   }
 
-  await postThreadReply(pid, `⚙️ *Autopilot executing fix*\n\`${command}\``);
   logger.info({ service, pid, command }, 'incident-autopilot: executing fix');
 
   const execResult = await executeRemediation(command, { cwd, actor: 'autopilot' });
@@ -439,7 +441,7 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
     return;
   }
 
-  await postThreadReply(pid, `✅ *Fix executed* (${execResult.durationMs}ms) — validating…`);
+  await postThreadReply(pid, `⚙️ \`${command}\` executed (${execResult.durationMs}ms) — validating…`);
 
   // Wait for propagation then validate
   await new Promise((r) => setTimeout(r, 5_000));

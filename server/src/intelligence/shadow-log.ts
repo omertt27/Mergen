@@ -246,11 +246,53 @@ export function getShadowReport(windowDays = 30): ShadowReport {
 
 /** Pre-formatted Slack block for a weekly digest message. */
 export function getShadowSlackDigest(windowDays = 7): object {
+  load();
   const report = getShadowReport(windowDays);
   const ratePct = report.approvalRate !== null ? `${Math.round(report.approvalRate * 100)}%` : 'n/a';
   const reviewedNote = report.humanReviewed > 0
     ? ` | ${report.humanApproved} approved / ${report.humanOverrode} overrode`
     : '';
+
+  const cutoff = Date.now() - windowDays * 24 * 60 * 60 * 1000;
+  const pending = _entries
+    .filter((e) => e.recordedAt >= cutoff && e.wouldHaveExecuted && e.humanVerdict === undefined)
+    .slice(-5)
+    .reverse();
+
+  const entryBlocks: unknown[] = pending.flatMap((e) => {
+    const diagPct = Math.round(e.diagnosisConfidence * 100);
+    const remPct  = Math.round(e.remediationConfidence * 100);
+    const cmd     = e.command ? `\`${e.command}\`` : '_no command_';
+    return [
+      { type: 'divider' },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*${e.service}* · \`${e.incidentTag}\`\nDiagnosis: ${diagPct}% · Remediation: ${remPct}%\nWould have run: ${cmd}`,
+        },
+      },
+      {
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: '👍 Would approve', emoji: true },
+            action_id: `digest_approve_${e.id}`,
+            value: JSON.stringify({ id: e.id }),
+            style: 'primary',
+          },
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: '✋ Would override', emoji: true },
+            action_id: `digest_override_${e.id}`,
+            value: JSON.stringify({ id: e.id }),
+            style: 'danger',
+          },
+        ],
+      },
+    ];
+  });
 
   return {
     blocks: [
@@ -271,12 +313,19 @@ export function getShadowSlackDigest(windowDays = 7): object {
         type: 'section',
         text: { type: 'mrkdwn', text: `*Next step:* ${report.recommendation}` },
       },
+      ...(pending.length > 0 ? [
+        {
+          type: 'section',
+          text: { type: 'mrkdwn', text: `*${pending.length} pending review${pending.length > 1 ? 's' : ''}* — click below to calibrate:` },
+        },
+        ...entryBlocks,
+      ] : []),
       {
         type: 'actions',
         elements: [
           {
             type: 'button',
-            text: { type: 'plain_text', text: 'View shadow report' },
+            text: { type: 'plain_text', text: 'View full shadow report' },
             url: 'http://127.0.0.1:3000/shadow-report',
           },
         ],
