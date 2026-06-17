@@ -1,14 +1,15 @@
 const categories = [
-  { label: 'DB Connection Pool',  total: 5, passed: 5 },
-  { label: 'OOM Kill',            total: 5, passed: 5 },
-  { label: 'Rate Limit Cascade',  total: 3, passed: 3 },
-  { label: 'Certificate Expiry',  total: 3, passed: 3 },
-  { label: 'Disk Pressure',       total: 3, passed: 3 },
-  { label: 'Service Unavailable', total: 3, passed: 3 },
-  { label: 'Slow Query',          total: 2, passed: 2 },
-  { label: 'Downstream Latency',  total: 3, passed: 3 },
-  { label: 'Queue Backlog',       total: 3, passed: 3 },
-  { label: 'Upstream Error',      total: 1, passed: 1 },
+  { label: 'DB Connection Pool',              total: 5, passed: 5 },
+  { label: 'OOM Kill',                        total: 5, passed: 5 },
+  { label: 'Rate Limit Cascade',              total: 3, passed: 3 },
+  { label: 'Certificate Expiry',              total: 3, passed: 3 },
+  { label: 'Disk Pressure',                   total: 3, passed: 3 },
+  { label: 'Service Unavailable',             total: 3, passed: 3 },
+  { label: 'Slow Query',                      total: 2, passed: 2 },
+  { label: 'Downstream Latency',              total: 3, passed: 3 },
+  { label: 'Queue Backlog',                   total: 3, passed: 3 },
+  { label: 'Upstream Error',                  total: 1, passed: 1 },
+  { label: 'False positive (probe/scrape errors)', total: 2, passed: 0, note: 'Fires on /health and /metrics — human override needed' },
 ]
 
 export default function EvalProof() {
@@ -63,10 +64,10 @@ export default function EvalProof() {
             gap: '0.75rem',
           }}>
             {[
-              { k: 'Corpus size',   v: '33 incidents' },
-              { k: 'Failure classes', v: '10 categories' },
-              { k: 'Gate threshold', v: '≥ 90% required' },
-              { k: 'Last eval run',  v: 'Jun 16, 2026' },
+              { k: 'Corpus size',      v: '33 incidents' },
+              { k: 'Correct',          v: '31 / 33' },
+              { k: 'False positives',  v: '2 (probe errors)' },
+              { k: 'Last eval run',    v: 'Jun 16, 2026' },
             ].map(({ k, v }) => (
               <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
                 <span style={{ color: 'var(--gray-600)' }}>{k}</span>
@@ -83,16 +84,33 @@ export default function EvalProof() {
             <span style={{ textAlign: 'right' }}>Fixtures</span>
             <span style={{ textAlign: 'right' }}>Accuracy</span>
           </div>
-          {categories.map((c) => (
-            <div key={c.label} className="eval-table-row">
-              <span className="eval-table-label">{c.label}</span>
-              <span className="eval-table-n">{c.passed}/{c.total}</span>
-              <div className="eval-bar-wrap">
-                <div className="eval-bar-fill" style={{ width: `${Math.round((c.passed / c.total) * 100)}%` }} />
-                <span className="eval-bar-pct">100%</span>
+          {categories.map((c) => {
+            const pct = Math.round((c.passed / c.total) * 100)
+            const isFail = pct === 0
+            return (
+              <div key={c.label} className="eval-table-row" style={isFail ? { background: 'rgba(239,68,68,0.03)' } : undefined}>
+                <div>
+                  <span className="eval-table-label" style={isFail ? { color: 'var(--gray-400)' } : undefined}>{c.label}</span>
+                  {'note' in c && c.note && (
+                    <div style={{ fontSize: '0.68rem', color: 'var(--gray-600)', fontFamily: 'var(--font-geist-mono), monospace', marginTop: '0.2rem' }}>
+                      {c.note}
+                    </div>
+                  )}
+                </div>
+                <span className="eval-table-n">{c.passed}/{c.total}</span>
+                <div className="eval-bar-wrap">
+                  <div
+                    className="eval-bar-fill"
+                    style={{
+                      width: `${pct}%`,
+                      background: isFail ? 'rgba(239,68,68,0.4)' : undefined,
+                    }}
+                  />
+                  <span className="eval-bar-pct" style={isFail ? { color: '#f87171' } : undefined}>{pct}%</span>
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </div>
 
@@ -108,7 +126,9 @@ export default function EvalProof() {
           <span style={{ color: 'var(--white)', fontWeight: 700 }}>Why this matters:</span>{' '}
           Most observability tools are evaluated by the engineers who built them, on the incidents they chose.
           Mergen ships a public eval harness — the same suite that gates every release.
-          When we claim 94% root cause accuracy, that number is reproducible and falsifiable.
+          When we say 94% root cause accuracy, that number is reproducible and falsifiable. The 2 failures
+          are documented: the detector fires on liveness probe and Prometheus scrape errors when it shouldn't.
+          We know exactly what breaks and why.
         </p>
       </div>
     </section>

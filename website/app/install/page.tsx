@@ -1,5 +1,6 @@
 import Nav from '@/components/Nav'
 import Footer from '@/components/Footer'
+import CodeBlock from '@/components/CodeBlock'
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
@@ -136,10 +137,7 @@ export default function InstallPage() {
 
               <div className="install-card-body">
                 {m.steps.map((s, i) => (
-                  <div key={i} className="code-block-wrap">
-                    <span className="code-block-label">{s.label}</span>
-                    <pre className="code-block"><code>{s.code}</code></pre>
-                  </div>
+                  <CodeBlock key={i} code={s.code} label={s.label} />
                 ))}
               </div>
             </div>
@@ -198,12 +196,11 @@ export default function InstallPage() {
         <div style={{ marginBottom: '8rem' }}>
           <span className="section-label">Verify</span>
           <h2 style={{ marginBottom: '3rem' }}>Check Your<br />Installation</h2>
-          <div className="code-block-wrap" style={{ maxWidth: 700 }}>
-            <span className="code-block-label">Run after any install method</span>
-            <pre className="code-block"><code>{`mergen-server --version
-mergen-server test
-mergen-server start`}</code></pre>
-          </div>
+          <CodeBlock
+            code={`mergen-server --version\nmergen-server test\nmergen-server start`}
+            label="Run after any install method"
+            style={{ maxWidth: 700 }}
+          />
           <div className="terminal" style={{ maxWidth: 700, marginTop: '2rem', transform: 'none' }}>
             <div className="terminal-header">
               <div className="terminal-dots">
@@ -267,9 +264,7 @@ mergen-server start`}</code></pre>
             {troubleshooting.map((t, i) => (
               <details key={i} className="trouble-item">
                 <summary className="trouble-q">{t.q}</summary>
-                <div className="code-block-wrap" style={{ margin: '1rem 0 0' }}>
-                  <pre className="code-block"><code>{t.steps.join('\n')}</code></pre>
-                </div>
+                <CodeBlock code={t.steps.join('\n')} style={{ margin: '1rem 0 0' }} />
               </details>
             ))}
           </div>

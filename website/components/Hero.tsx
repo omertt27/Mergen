@@ -1,13 +1,23 @@
 'use client'
 
+import { useState } from 'react'
+
 const heroStats = [
-  { val: '94%',   label: 'Root cause accuracy',   sub: '33-incident eval corpus' },
-  { val: '5 min', label: 'Autonomous MTTR',        sub: 'vs 45 min manual avg' },
-  { val: '10/10', label: 'Infra failure classes',  sub: 'detected at 100%' },
-  { val: '≥85%',  label: 'Confidence gate',        sub: 'before any autonomous action' },
+  { val: '94%',   label: 'Root cause accuracy',    sub: '33-incident eval corpus' },
+  { val: '31/33', label: 'Correct classifications', sub: '2 known false positives' },
+  { val: '10/10', label: 'Infra failure classes',   sub: 'detected at 100%' },
+  { val: '≥85%',  label: 'Confidence gate',         sub: 'before any autonomous action' },
 ]
 
 export default function Hero() {
+  const [copied, setCopied] = useState(false)
+
+  function handleCopy() {
+    navigator.clipboard.writeText('npx mergen-server@latest setup')
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
   return (
     <section className="hero">
       <span className="hero-eyebrow">
@@ -22,9 +32,17 @@ export default function Hero() {
         that compounds with every incident you resolve.
       </p>
       <div className="hero-actions">
-        <div className="hero-command" onClick={() => navigator.clipboard.writeText('npx mergen-server@latest setup')}>
+        <a href="/install" className="btn btn-white">Get Started →</a>
+        <div className="hero-command" onClick={handleCopy} role="button" tabIndex={0}>
           <code>npx mergen-server@latest setup</code>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+          {copied ? (
+            <span className="hero-copy-ok">Copied!</span>
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+          )}
         </div>
         <a href="mailto:hello@mergen.dev" className="btn btn-outline">Talk to us</a>
       </div>

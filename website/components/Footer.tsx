@@ -2,15 +2,20 @@ export default function Footer() {
   return (
     <footer className="wrap">
       <div className="foot-inner">
-        <div>© 2026 Mergen · Agent-Native Telemetry</div>
         <div>
-          <a href="https://github.com/omertt27/Mergen">GitHub</a>
-          <a href="https://github.com/omertt27/Mergen/blob/main/docs/ENTERPRISE_SECURITY.md">
-            Security
-          </a>
-          <a href="https://github.com/omertt27/Mergen/blob/main/ARCHITECTURE.md">
-            Architecture
-          </a>
+          <div>© 2026 Mergen</div>
+          <div style={{ marginTop: '0.5rem', fontSize: '0.65rem', color: 'var(--gray-600)' }}>
+            Operational memory for AI agents.{' '}
+            <a href="mailto:hello@mergen.dev" style={{ color: 'var(--accent-text)' }}>
+              hello@mergen.dev
+            </a>
+          </div>
+        </div>
+        <div>
+          <a href="https://github.com/omertt27/Mergen" target="_blank" rel="noopener noreferrer">GitHub</a>
+          <a href="mailto:hello@mergen.dev">Contact</a>
+          <a href="https://github.com/omertt27/Mergen/blob/main/docs/ENTERPRISE_SECURITY.md" target="_blank" rel="noopener noreferrer">Security</a>
+          <a href="https://github.com/omertt27/Mergen/blob/main/ARCHITECTURE.md" target="_blank" rel="noopener noreferrer">Architecture</a>
           <a href="/privacy">Privacy</a>
           <a href="/account">Account</a>
         </div>
