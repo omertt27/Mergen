@@ -1,36 +1,39 @@
 const features = [
   {
     num: '01',
-    title: 'Override Corpus',
-    desc: (
-      <>
-        Every time your team overrides Mergen's recommendation, that decision is encoded as policy.
-        After six months of production: your Friday settlement windows, your compliance holds,
-        your on-call's preferred fixes — <span className="highlight">structured, queryable, and impossible to replicate from a standing start.</span> The diagnosis algorithm is reproducible. The accumulated operational memory of your infrastructure is not.
-      </>
-    ),
-  },
-  {
-    num: '02',
-    title: 'Agent Blunder Log',
-    desc: (
-      <>
-        Every autonomous action Mergen's safety layer blocks is recorded with its reason:
-        allowlist block, RBAC rejection, override corpus halt, planning gate denial.
-        <span className="highlight"> The headline number is "prevented" — autonomous actions your on-call didn't have to handle.</span>{' '}
-        This is the answer to "why would you trust an AI agent with prod?" The system blocked itself, logged why, and waited.
-      </>
-    ),
-  },
-  {
-    num: '03',
     title: 'Autonomous Incident Loop',
     desc: (
       <>
         PagerDuty fires → causal analysis across all telemetry → override corpus consulted →
         fix executes at <span className="highlight">≥85% confidence</span> → validated (error count before/after) →
         RESOLVED posted to your Slack thread. Engineer wakes up to a closed incident and a full audit trail.
+        <span className="highlight"> 94% root cause accuracy on our 33-incident eval corpus.</span>{' '}
         MTTR: 5 minutes. Manual: 45.
+      </>
+    ),
+  },
+  {
+    num: '02',
+    title: 'Override Corpus',
+    desc: (
+      <>
+        Every time your team overrides Mergen's recommendation, that decision is encoded as policy.
+        After six months of production: your Friday settlement windows, your compliance holds,
+        your on-call's preferred fixes — <span className="highlight">structured, queryable, and impossible to replicate from a standing start.</span>{' '}
+        The diagnosis algorithm is reproducible. The accumulated operational memory of your infrastructure is not.
+        This is the moat.
+      </>
+    ),
+  },
+  {
+    num: '03',
+    title: 'Agent Blunder Log',
+    desc: (
+      <>
+        Every autonomous action Mergen's safety layer blocks is recorded with its reason:
+        allowlist block, RBAC rejection, override corpus halt, planning gate denial.
+        <span className="highlight"> The headline number is "prevented" — autonomous actions your on-call didn't have to handle.</span>{' '}
+        This is the board-deck answer to "why would you trust an AI agent with prod?" The system blocked itself, logged why, and waited.
       </>
     ),
   },

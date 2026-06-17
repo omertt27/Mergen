@@ -732,6 +732,127 @@ details[open] .trouble-q::before { content: '−'; }
 details[open] > .trouble-q { border-bottom: 1px solid var(--gray-800); }
 details > .code-block-wrap { padding: 1.25rem 1.75rem 1.5rem; margin: 0; }
 
+/* ─── HERO STATS ────────────────────────────────────────────────────────── */
+.hero-stats {
+  display: flex;
+  border: 1px solid var(--gray-800);
+  margin-top: 4rem;
+  max-width: 760px;
+  background: rgba(0, 0, 0, 0.02);
+}
+.hero-stat {
+  flex: 1;
+  padding: 1.75rem 1.5rem;
+  border-right: 1px solid var(--gray-800);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.hero-stat:last-child { border-right: none; }
+.hero-stat-val {
+  font-size: 1.75rem;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  color: var(--accent-text);
+  font-family: var(--font-geist-mono), monospace;
+  line-height: 1;
+}
+.hero-stat-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--white);
+  margin-top: 0.4rem;
+}
+.hero-stat-sub {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.6rem;
+  color: var(--gray-600);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ─── EVAL PROOF ────────────────────────────────────────────────────────── */
+.eval-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 3rem;
+  align-items: start;
+}
+.eval-score-card {
+  border: 1px solid var(--gray-800);
+  padding: 2.5rem;
+  background: #f5f5f5;
+  position: sticky;
+  top: 6rem;
+}
+.eval-table {
+  border: 1px solid var(--gray-800);
+  overflow: hidden;
+}
+.eval-table-header {
+  display: grid;
+  grid-template-columns: 1fr 60px 160px;
+  gap: 1rem;
+  padding: 0.75rem 1.5rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--gray-800);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--gray-600);
+}
+.eval-table-row {
+  display: grid;
+  grid-template-columns: 1fr 60px 160px;
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  transition: background 0.2s;
+}
+.eval-table-row:last-child { border-bottom: none; }
+.eval-table-row:hover { background: rgba(8, 145, 178, 0.03); }
+.eval-table-label {
+  font-size: 0.85rem;
+  color: var(--white);
+  font-weight: 500;
+}
+.eval-table-n {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.75rem;
+  color: var(--gray-600);
+  text-align: right;
+}
+.eval-bar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  position: relative;
+  height: 20px;
+  background: var(--gray-800);
+  border-radius: 1px;
+  overflow: hidden;
+}
+.eval-bar-fill {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  background: linear-gradient(90deg, rgba(8, 145, 178, 0.5), rgba(8, 145, 178, 0.8));
+  transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.eval-bar-pct {
+  position: absolute;
+  right: 8px;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--accent-text);
+  letter-spacing: 0.05em;
+  z-index: 1;
+}
+
 @media (max-width: 1000px) {
   .feature-card, .feature-card:nth-child(n) { grid-column: span 12; margin: 0; }
   .arch-content { flex-direction: column; gap: 4rem; }
@@ -750,4 +871,8 @@ details > .code-block-wrap { padding: 1.25rem 1.75rem 1.5rem; margin: 0; }
   .price-col { border-right: none; border-bottom: 1px solid var(--gray-800); }
   .guide-steps { grid-template-columns: 1fr; }
   .guide-cta { flex-direction: column; align-items: flex-start; gap: 1rem; }
+  .hero-stats { flex-wrap: wrap; }
+  .hero-stat { min-width: 45%; border-bottom: 1px solid var(--gray-800); }
+  .eval-layout { grid-template-columns: 1fr; }
+  .eval-score-card { position: static; }
 }

@@ -1,17 +1,25 @@
 'use client'
 
+const heroStats = [
+  { val: '94%',   label: 'Root cause accuracy',   sub: '33-incident eval corpus' },
+  { val: '5 min', label: 'Autonomous MTTR',        sub: 'vs 45 min manual avg' },
+  { val: '10/10', label: 'Infra failure classes',  sub: 'detected at 100%' },
+  { val: '≥85%',  label: 'Confidence gate',        sub: 'before any autonomous action' },
+]
+
 export default function Hero() {
   return (
     <section className="hero">
       <span className="hero-eyebrow">
-        PagerDuty · OpenTelemetry · Docker · Claude Code · Cursor · MCP
+        System Understanding Infrastructure · AI-Native Operations
       </span>
       <h1>Operational Memory<br />for AI Agents.</h1>
       <p className="hero-sub">
-        AI coding agents have made writing code free. The bottleneck is what happens after it ships.
-        Mergen is the <b>operational memory and safety layer</b> — compressing raw production telemetry
-        into structured machine context, encoding your team's override decisions as enforceable policy,
-        and giving autonomous agents the production facts they need to act safely.
+        AI made writing code free. The bottleneck is now what happens after it ships —
+        connection pools nobody documented, compliance windows your on-call forgot, cascading failures at 3am.
+        Mergen is the <b>operational memory and safety layer</b>: it compresses raw production telemetry
+        into structured machine context and encodes your team's override decisions as enforceable policy
+        that compounds with every incident you resolve.
       </p>
       <div className="hero-actions">
         <div className="hero-command" onClick={() => navigator.clipboard.writeText('npx mergen-server@latest setup')}>
@@ -30,6 +38,15 @@ export default function Hero() {
           '≥85% confidence gate',
         ].map((b) => (
           <span key={b} className="hero-badge">✓ {b}</span>
+        ))}
+      </div>
+      <div className="hero-stats">
+        {heroStats.map((s) => (
+          <div key={s.val} className="hero-stat">
+            <span className="hero-stat-val">{s.val}</span>
+            <span className="hero-stat-label">{s.label}</span>
+            <span className="hero-stat-sub">{s.sub}</span>
+          </div>
         ))}
       </div>
     </section>

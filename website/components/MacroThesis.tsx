@@ -98,7 +98,8 @@ export default function MacroThesis() {
       }}>
         <p style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--white)', lineHeight: 1.4, maxWidth: '600px' }}>
           Mergen is the brakes, the steering wheel, and the black-box flight recorder. It scales directly
-          in proportion to the failures of AI-generated code.
+          in proportion to the failures of AI-generated code — and the override corpus compounds with
+          every incident your team resolves. Six months in, your operational DNA is impossible to replicate from a standing start.
         </p>
         <a href="mailto:hello@mergen.dev" className="btn btn-white" style={{ flexShrink: 0 }}>
           Talk to us
