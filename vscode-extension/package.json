@@ -161,9 +161,11 @@
       "servers": {
         "mergen": {
           "type": "stdio",
-          "command": "node",
+          "command": "npx",
           "args": [
-            "${workspaceFolder}/../server/dist/index.js"
+            "-y",
+            "mergen-server",
+            "start"
           ]
         }
       }

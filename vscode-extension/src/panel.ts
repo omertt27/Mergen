@@ -212,23 +212,9 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     fileIntent: null, error: null,
   };
   private _pollTimer?: ReturnType<typeof setTimeout>;
-  private _statusBar: vscode.StatusBarItem;
   private _activeFile: string | null = null;
 
-  constructor(private readonly _context: vscode.ExtensionContext) {
-    // Always-visible status bar item — this is the engagement hook during
-    // normal dev flow, not just when things break.
-    this._statusBar = vscode.window.createStatusBarItem(
-      vscode.StatusBarAlignment.Right,
-      90,  // priority: right of language selector, left of encoding
-    );
-    this._statusBar.name = 'Mergen';
-    this._statusBar.command = 'mergen.openPanel';
-    this._statusBar.text = '$(circle-slash) Mergen';
-    this._statusBar.tooltip = 'Mergen — click to open panel';
-    this._statusBar.show();
-    this._context.subscriptions.push(this._statusBar);
-  }
+  constructor(private readonly _context: vscode.ExtensionContext) {}
 
   resolveWebviewView(
     webviewView: vscode.WebviewView,
@@ -389,7 +375,6 @@ export class MergenPanel implements vscode.WebviewViewProvider {
       );
       // Light, non-modal confirmation. We avoid a popup per click — the
       // badge update is the real confirmation.
-      this._statusBar.text = '$(check) Mergen — thanks';
       setTimeout(() => this._poll(), 250);
     } catch (err) {
       const e = err as { statusCode?: number; body?: string } & Error;
@@ -501,66 +486,6 @@ export class MergenPanel implements vscode.WebviewViewProvider {
 
   private _send(msg: unknown): void {
     this._view?.webview.postMessage(msg);
-    // Keep the status bar in sync on every state update so it's always live
-    // even when the panel is hidden — this is the always-on engagement hook.
-    if ((msg as { type?: string }).type === 'state') {
-      this._updateStatusBar((msg as { state: ServerState }).state);
-    }
-  }
-
-  private _updateStatusBar(state: ServerState): void {
-    if (!state.connected) {
-      this._statusBar.text = '$(circle-slash) Mergen';
-      this._statusBar.tooltip = 'Mergen — server not running. Click to open panel.';
-      this._statusBar.backgroundColor = undefined;
-      return;
-    }
-
-    const h = state.health;
-    if (!h) return;
-
-    const signals  = h.signals ?? [];
-    const errors   = h.errors;
-    const warns    = h.warnings;
-    const netErrs  = h.networkErrors;
-
-    // Calibration gate: a "trusted" detector with sub-60% accuracy should
-    // NOT be allowed to grab user attention. We still surface it in the
-    // panel — but the status bar stays calm. This is the difference between
-    // "we have an opinion" and "we will interrupt your flow with it".
-    const top = state.lastPack?.topHypothesis ?? null;
-    const cal = top?.calibration ?? null;
-    const hypothesisCanInterrupt = !cal || !cal.trusted || cal.shouldInterrupt;
-
-    // Choose the most prominent indicator to surface in the status bar.
-    // The goal: developer glances at the bar and knows immediately whether
-    // something needs attention — even mid-flow, before anything crashes.
-    if (errors > 0) {
-      this._statusBar.text = `$(error) Mergen ${errors} err`;
-      this._statusBar.tooltip = `Mergen — ${errors} error(s) in buffer. Click to open panel.`;
-      this._statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
-    } else if (signals.length > 0 && hypothesisCanInterrupt) {
-      // Highest-confidence signal drives the message
-      const topSig = signals[0];
-      const confPct = Math.round(topSig.confidence * 100);
-      this._statusBar.text = `$(warning) Mergen ${signals.length} signal${signals.length > 1 ? 's' : ''}`;
-      this._statusBar.tooltip = `Mergen — ${topSig.message} (${confPct}% confidence). Click to open panel.`;
-      this._statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
-    } else if (warns > 0 || netErrs > 0) {
-      this._statusBar.text = `$(bell) Mergen`;
-      this._statusBar.tooltip = `Mergen — ${warns} warning(s), ${netErrs} net error(s). Click to open panel.`;
-      this._statusBar.backgroundColor = undefined;
-    } else if (signals.length > 0) {
-      // We have signals but the top hypothesis hasn't earned interrupt-rights
-      // yet. Show a quiet indicator so the panel still feels "live".
-      this._statusBar.text = `$(eye) Mergen`;
-      this._statusBar.tooltip = `Mergen — ${signals.length} low-confidence signal(s). Click to review.`;
-      this._statusBar.backgroundColor = undefined;
-    } else {
-      this._statusBar.text = '$(check) Mergen';
-      this._statusBar.tooltip = 'Mergen — buffer clean. Click to open panel.';
-      this._statusBar.backgroundColor = undefined;
-    }
   }
 
   // ── HTML ─────────────────────────────────────────────────────────────────────
@@ -1162,9 +1087,6 @@ export class MergenPanel implements vscode.WebviewViewProvider {
 <!-- Low-credit notice -->
 <div class="notice" id="notice"></div>
 
-<!-- JS diagnostic — shows if the script block ever executes -->
-<div id="js-diag" style="font-size:10px;text-align:center;padding:4px;opacity:0.5">JS: not running</div>
-
 <!-- Loading state (hidden by default — disconnected card is the safe default) -->
 <div class="loading" id="loading" style="display:none">
   <span class="loading-spinner">⟳</span>
@@ -1200,10 +1122,8 @@ export class MergenPanel implements vscode.WebviewViewProvider {
       <span class="hyp-conf" id="hyp-conf">—</span>
     </div>
     
-    <!-- Causal Chain Breadcrumbs -->
-    <div id="causal-chain" style="display:flex; flex-direction:column; gap:6px; margin:12px 0; font-family:var(--vscode-editor-font-family); font-size:10px;">
-      <!-- JS will populate breadcrumbs here e.g. [Deploy] -> [Spike] -> [Crash] -->
-    </div>
+    <!-- Causal Chain Breadcrumbs — populated by JS from hyp.causalPath -->
+    <div id="causal-chain" style="display:none"></div>
     
     <div class="hyp-summary" id="hyp-summary"></div>
     <div class="hyp-fix" id="hyp-fix" style="display:none"></div>
@@ -1286,9 +1206,9 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     </div>
   </div>
   <div class="btn-row" style="margin-top:10px">
-    <button class="primary" onclick="send('refresh')">↺ Refresh</button>
+    <button class="primary" id="btn-refresh" onclick="onRefresh()">↺ Refresh</button>
     <button id="btn-capture" onclick="send('startCapture')" title="Mark a start point — reproduce your bug — then ask your AI what happened since capture">⏺ Capture</button>
-    <button onclick="send('clear')">✕ Clear</button>
+    <button id="btn-clear" onclick="onClear()">✕ Clear</button>
   </div>
   <div id="capture-status" style="display:none;margin-top:6px;font-size:10px;color:var(--vscode-charts-green)"></div>
 </div>

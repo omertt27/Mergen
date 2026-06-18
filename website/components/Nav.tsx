@@ -5,21 +5,15 @@ import { useState, useEffect } from 'react'
 const navLinks = [
   { href: '#how',          label: 'How It Works' },
   { href: '#why',          label: 'Capabilities' },
-  { href: '#integrations', label: 'Integrations' },
-  { href: '#guide',        label: 'Guide' },
+  { href: '#sandbox',      label: 'Sandbox' },
   { href: '#access',       label: 'Pricing' },
-  { href: '/install',      label: 'Install' },
+  { href: 'https://github.com/omertt27/Mergen/tree/main/docs', label: 'Docs', external: true },
   { href: 'https://github.com/omertt27/Mergen', label: 'GitHub', external: true },
 ]
-
-function formatStars(n: number): string {
-  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
-}
 
 export default function Nav() {
   const [active, setActive]     = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
-  const [stars, setStars]       = useState<number | null>(null)
 
   useEffect(() => {
     const sections = document.querySelectorAll<HTMLElement>('section[id]')
@@ -33,13 +27,6 @@ export default function Nav() {
     )
     sections.forEach((s) => observer.observe(s))
     return () => observer.disconnect()
-  }, [])
-
-  useEffect(() => {
-    fetch('https://api.github.com/repos/omertt27/Mergen')
-      .then((r) => r.json())
-      .then((d) => { if (typeof d.stargazers_count === 'number') setStars(d.stargazers_count) })
-      .catch(() => {})
   }, [])
 
   return (
@@ -57,9 +44,6 @@ export default function Nav() {
                   {...(l.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
                 >
                   {l.label}
-                  {l.external && stars !== null && (
-                    <span className="nav-stars">★ {formatStars(stars)}</span>
-                  )}
                 </a>
               </li>
             ))}
@@ -89,7 +73,6 @@ export default function Nav() {
                 {...(l.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
               >
                 {l.label}
-                {l.external && stars !== null && ` ★ ${formatStars(stars)}`}
               </a>
             ))}
             <a

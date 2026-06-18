@@ -123,14 +123,16 @@ export default function EvalProof() {
         maxWidth: '800px',
       }}>
         <p style={{ color: 'var(--gray-400)', fontSize: '0.95rem', lineHeight: 1.7 }}>
-          <span style={{ color: 'var(--white)', fontWeight: 700 }}>Why this matters:</span>{' '}
-          Most observability tools are evaluated by the engineers who built them, on the incidents they chose.
-          Mergen ships a public eval harness — the same suite that gates every release.
-          When we say 94% root cause accuracy, that number is reproducible and falsifiable. The 2 failures
-          are documented: the detector fires on liveness probe and Prometheus scrape errors when it shouldn't.
-          We know exactly what breaks and why.
+        <span style={{ color: 'var(--white)', fontWeight: 700 }}>Why this matters:</span>{' '}
+        Most observability tools are evaluated by the engineers who built them, on the incidents they chose.
+        Mergen ships a public eval harness — the same suite that gates every release.
+        When we say 94% root cause accuracy, that number is reproducible and falsifiable. The 2 failures
+        are documented: the detector fires on liveness probe and Prometheus scrape errors when it shouldn't.
         </p>
-      </div>
-    </section>
-  )
-}
+        <a href="https://github.com/omertt27/Mergen/blob/main/server/eval-baseline.json" target="_blank" rel="noopener noreferrer" className="btn-ghost" style={{ marginTop: '1.5rem', display: 'inline-block' }}>
+        View Full JSON Baseline →
+        </a>
+        </div>
+        </section>
+        )
+        }

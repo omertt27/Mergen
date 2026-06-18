@@ -62,8 +62,9 @@ let _annotationTimer: ReturnType<typeof setInterval> | null = null;
 
 let _statusBar: vscode.StatusBarItem | null = null;
 let _statusPollTimer: ReturnType<typeof setInterval> | null = null;
-let _prevErrorCount = 0;            // tracks transitions 0→N for proactive notification
-let _notifiedThisSession = false;   // fire the notification only once per session
+let _prevErrorCount = 0;
+let _notifiedThisSession = false;
+const _pendingSaveChecks = new Set<string>(); // debounce: one HMR check per file at a time
 
 interface HealthPayload {
   ok?: boolean;
@@ -200,11 +201,12 @@ async function refreshAnnotations(port: number): Promise<void> {
   } catch { /* server down — clear annotations */ mergenDiagnostics.clear(); }
 }
 
-async function checkMcpConfiguration(): Promise<void> {
+async function checkMcpConfiguration(ctx: vscode.ExtensionContext): Promise<void> {
   const home = os.homedir();
   const mcpConfigPaths = [
-    path.join(home, '.cursor', 'mcp.json'),
-    path.join(home, '.codeium', 'windsurf', 'mcp_config.json'),
+    path.join(home, '.cursor',   'mcp.json'),
+    path.join(home, '.codeium',  'windsurf', 'mcp_config.json'),
+    path.join(home, '.claude',   'mcp.json'),
   ];
   const workspaceMcpPaths = vscode.workspace.workspaceFolders?.flatMap((f) => [
     path.join(f.uri.fsPath, '.vscode', 'mcp.json'),
@@ -213,86 +215,63 @@ async function checkMcpConfiguration(): Promise<void> {
 
   const allPaths = [...mcpConfigPaths, ...workspaceMcpPaths];
   const anyExists = allPaths.some((p) => { try { return fs.existsSync(p); } catch { return false; } });
-
   if (anyExists) return;
 
   const MCP_DETECTED_KEY = 'mergen.mcpConfigOffered';
-  const ctx = (global as { __mergenContext?: vscode.ExtensionContext }).__mergenContext;
-  if (ctx?.globalState.get(MCP_DETECTED_KEY)) return;
+  if (ctx.globalState.get(MCP_DETECTED_KEY)) return;
 
   const action = await vscode.window.showInformationMessage(
-    'Mergen is running! To let your AI agent call Mergen tools, register it as an MCP server.',
-    'Configure for Cursor',
-    'Configure for VS Code',
+    'Mergen is running! Register it as an MCP server so your AI agent can call Mergen tools directly.',
+    'Cursor',
+    'VS Code / Copilot',
+    'Claude Code',
     'Later',
   );
 
-  if (action === 'Configure for Cursor') {
-    const cursorPath = path.join(home, '.cursor', 'mcp.json');
-    try {
-      const entry = resolveServerEntry();
-      if (!entry) {
-        vscode.window.showWarningMessage('Mergen: build the server first (cd server && npm run build).');
-        return;
-      }
-      const dir = path.dirname(cursorPath);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      let existing: Record<string, unknown> = {};
-      try { existing = JSON.parse(fs.readFileSync(cursorPath, 'utf8')) as Record<string, unknown>; } catch { /* new file */ }
-      const existingMcpServers = typeof existing.mcpServers === 'object' && existing.mcpServers !== null
-        ? existing.mcpServers as Record<string, unknown>
-        : {};
-      const merged = {
-        ...existing,
-        mcpServers: {
-          ...existingMcpServers,
-          mergen: { command: 'node', args: [entry] },
-        },
-      };
-      fs.writeFileSync(cursorPath, JSON.stringify(merged, null, 2) + '\n', 'utf8');
-      vscode.window.showInformationMessage(`Mergen: MCP config written to ${cursorPath}. Restart Cursor to apply.`);
-    } catch (err) {
-      vscode.window.showErrorMessage(`Mergen: could not write Cursor config — ${(err as Error).message}`);
-    }
-  } else if (action === 'Configure for VS Code') {
-    const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspace) {
-      vscode.window.showWarningMessage('Mergen: open a workspace folder first.');
-      return;
-    }
-    const vscodePath = path.join(workspace, '.vscode', 'mcp.json');
-    try {
-      const entry = resolveServerEntry();
-      if (!entry) {
-        vscode.window.showWarningMessage('Mergen: build the server first (cd server && npm run build).');
-        return;
-      }
-      const dir = path.dirname(vscodePath);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      let existing: Record<string, unknown> = {};
-      try { existing = JSON.parse(fs.readFileSync(vscodePath, 'utf8')) as Record<string, unknown>; } catch { /* new file */ }
-      const existingServers = typeof existing.servers === 'object' && existing.servers !== null
-        ? existing.servers as Record<string, unknown>
-        : {};
-      const merged = {
-        ...existing,
-        servers: {
-          ...existingServers,
-          mergen: { type: 'stdio', command: 'node', args: [entry] },
-        },
-      };
-      fs.writeFileSync(vscodePath, JSON.stringify(merged, null, 2) + '\n', 'utf8');
-      vscode.window.showInformationMessage(`Mergen: MCP config written to ${vscodePath}. Reload VS Code to apply.`);
-    } catch (err) {
-      vscode.window.showErrorMessage(`Mergen: could not write VS Code config — ${(err as Error).message}`);
-    }
+  const entry = resolveServerEntry();
+  if (!entry && action !== 'Later' && action !== undefined) {
+    vscode.window.showWarningMessage('Mergen: build the server first (cd server && npm run build).');
+    return;
   }
 
-  await ctx?.globalState.update(MCP_DETECTED_KEY, true);
+  if (action === 'Cursor') {
+    const configPath = path.join(home, '.cursor', 'mcp.json');
+    writeMcpConfig(configPath, 'mcpServers', { command: 'node', args: [entry!] });
+    vscode.window.showInformationMessage(`Mergen: MCP registered in ${configPath}. Restart Cursor to apply.`);
+  } else if (action === 'VS Code / Copilot') {
+    const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspace) { vscode.window.showWarningMessage('Mergen: open a workspace folder first.'); return; }
+    const configPath = path.join(workspace, '.vscode', 'mcp.json');
+    writeMcpConfig(configPath, 'servers', { type: 'stdio', command: 'node', args: [entry!] });
+    vscode.window.showInformationMessage(`Mergen: MCP registered in ${configPath}. Reload VS Code to apply.`);
+  } else if (action === 'Claude Code') {
+    const configPath = path.join(home, '.claude', 'mcp.json');
+    writeMcpConfig(configPath, 'mcpServers', { command: 'node', args: [entry!] });
+    vscode.window.showInformationMessage(`Mergen: MCP registered in ${configPath}. Restart Claude Code to apply.`);
+  }
+
+  await ctx.globalState.update(MCP_DETECTED_KEY, true);
+}
+
+function writeMcpConfig(configPath: string, serversKey: string, serverEntry: Record<string, unknown>): void {
+  try {
+    const dir = path.dirname(configPath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    let existing: Record<string, unknown> = {};
+    try { existing = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown>; } catch { /* new file */ }
+    const existingServers = typeof existing[serversKey] === 'object' && existing[serversKey] !== null
+      ? existing[serversKey] as Record<string, unknown>
+      : {};
+    fs.writeFileSync(configPath, JSON.stringify({
+      ...existing,
+      [serversKey]: { ...existingServers, mergen: serverEntry },
+    }, null, 2) + '\n', 'utf8');
+  } catch (err) {
+    vscode.window.showErrorMessage(`Mergen: could not write MCP config — ${(err as Error).message}`);
+  }
 }
 
 export function activate(context: vscode.ExtensionContext): void {
-  (global as { __mergenContext?: vscode.ExtensionContext }).__mergenContext = context;
   console.log('[Mergen] activate() called');
   context.subscriptions.push(mergenDiagnostics);
 
@@ -356,16 +335,21 @@ export function activate(context: vscode.ExtensionContext): void {
         query = `Use quick_check to see the current buffer state, then summarize what's happening in the app.`;
       }
 
-      // Try GitHub Copilot chat first, then Cursor, then fall back to panel
-      try {
-        await vscode.commands.executeCommand('workbench.action.chat.open', { query, isPartialQuery: false });
-      } catch {
+      // Try VS Code Copilot Chat, then Cursor Chat, then clipboard fallback
+      let opened = false;
+      for (const cmd of ['workbench.action.chat.open', 'aichat.newchataction']) {
         try {
-          // Cursor uses a different command
-          await vscode.commands.executeCommand('aichat.newchataction');
-        } catch {
-          await vscode.commands.executeCommand('mergen.openPanel');
-        }
+          await vscode.commands.executeCommand(cmd, { query, isPartialQuery: false });
+          opened = true;
+          break;
+        } catch { /* try next */ }
+      }
+      if (!opened) {
+        await vscode.env.clipboard.writeText(query);
+        void vscode.window.showInformationMessage(
+          'Mergen: query copied to clipboard — paste it into your AI chat.',
+          'Open Panel',
+        ).then((a) => { if (a === 'Open Panel') vscode.commands.executeCommand('mergen.openPanel'); });
       }
     }),
 
@@ -511,7 +495,7 @@ export function activate(context: vscode.ExtensionContext): void {
   setTimeout(() => {
     const port = vscode.workspace.getConfiguration('mergen').get<number>('serverPort', 3000);
     void isServerRunning(port).then((running) => {
-      if (running) void checkMcpConfiguration();
+      if (running) void checkMcpConfiguration(context);
     });
   }, 5000);
 
@@ -598,18 +582,22 @@ export function activate(context: vscode.ExtensionContext): void {
       }
 
       // ── Regression detection: snapshot errors before → wait for HMR → compare ──
-      // Fires on every source file save. Gives developers instant feedback:
-      // "saving auth.ts introduced 2 new errors" before they even switch windows.
+      // Debounced per-file: if the same file is saved again within 3.5s, skip
+      // the pending check so concurrent saves don't stack up async waits.
       const cfg2  = vscode.workspace.getConfiguration('mergen');
       const port2 = cfg2.get<number>('serverPort', 3000);
 
+      if (_pendingSaveChecks.has(fp)) return;
+      _pendingSaveChecks.add(fp);
+
       // Capture baseline — what was broken BEFORE this save
       const before = await fetchHealth(port2);
-      if (!before?.ok) return;
+      if (!before?.ok) { _pendingSaveChecks.delete(fp); return; }
       const errsBefore = (before.errors ?? 0) + (before.networkErrors ?? 0);
 
       // Wait for HMR / hot-reload (typically 1-3 s)
       await new Promise<void>((r) => setTimeout(r, 3500));
+      _pendingSaveChecks.delete(fp);
 
       const after = await fetchHealth(port2);
       if (!after?.ok) return;

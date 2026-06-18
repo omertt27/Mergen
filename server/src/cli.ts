@@ -1828,6 +1828,177 @@ async function connectGitHubCommand(args: string[]): Promise<void> {
   process.env.GITHUB_WEBHOOK_SECRET = webhookSecret;
 }
 
+// ── Replay command ─────────────────────────────────────────────────────────────
+// mergen-server replay <directory>
+//
+// Runs each .json incident file in <directory> through the causal pipeline and
+// prints a scored accuracy report. No server process required.
+//
+// Incident file format:
+//   {
+//     "name":         "optional human-readable name",
+//     "description":  "optional context string",
+//     "expected_tag": "optional — e.g. infra_db_connection_pool",
+//     "logs":         [...ConsoleEvent[]],
+//     "network":      [...NetworkEvent[]],
+//     "infra_events": [...InfraEvent[]],
+//     "log_lines":    ["ERROR: Too many connections"],  // auto-converted
+//     "firedAt":      1234567890000
+//   }
+
+async function replayCommand(args: string[]): Promise<void> {
+  const dir = args[0];
+  if (!dir) {
+    error('Usage: mergen-server replay <directory>');
+    console.log('\nRun historical incidents through the causal pipeline and score accuracy.');
+    console.log('\nIncident file format (any .json file in the directory):');
+    console.log('  {');
+    console.log('    "name":         "db-pool-exhaustion-2024-01-15",');
+    console.log('    "expected_tag": "infra_db_connection_pool",');
+    console.log('    "log_lines":    ["ERROR: Too many connections to postgres:5432"]');
+    console.log('  }');
+    process.exit(1);
+  }
+
+  const { readdirSync, readFileSync, existsSync, statSync } = await import('fs');
+  const { basename } = await import('path');
+
+  const dirPath = resolve(dir);
+  if (!existsSync(dirPath) || !statSync(dirPath).isDirectory()) {
+    error(`Not a directory: ${dirPath}`);
+    process.exit(1);
+  }
+
+  const files = readdirSync(dirPath)
+    .filter((f) => f.endsWith('.json'))
+    .sort();
+
+  if (files.length === 0) {
+    error(`No .json incident files found in ${dirPath}`);
+    console.log('\nCreate an incident file like this:');
+    console.log('  { "name": "my-incident", "expected_tag": "infra_db_connection_pool",');
+    console.log('    "log_lines": ["ERROR: Too many connections"] }');
+    process.exit(1);
+  }
+
+  const { buildCausalChain } = await import('./intelligence/causal.js') as {
+    buildCausalChain: (...args: unknown[]) => Promise<{
+      hypotheses: Array<{ tag: string; confidenceScore: number; fixHint: string | null }>;
+    }>;
+  };
+
+  console.log(`\nMergen Production Replay — ${files.length} incident${files.length !== 1 ? 's' : ''}\n`);
+
+  type ReplayRow = {
+    name:         string;
+    status:       'PASS' | 'FAIL' | 'INFO' | 'ERR';
+    actual_tag:   string | null;
+    expected_tag: string | null;
+    confidence:   number | null;
+    fix_hint:     string | null;
+    err_msg?:     string;
+  };
+
+  const rows: ReplayRow[] = [];
+  let passed = 0, failed = 0, unscored = 0;
+
+  for (const file of files) {
+    const filePath = join(dirPath, file);
+    let incident: Record<string, unknown>;
+
+    try {
+      incident = JSON.parse(readFileSync(filePath, 'utf8')) as Record<string, unknown>;
+    } catch {
+      rows.push({ name: file, status: 'ERR', actual_tag: null, expected_tag: null, confidence: null, fix_hint: null, err_msg: 'invalid JSON' });
+      continue;
+    }
+
+    const name        = typeof incident.name === 'string' ? incident.name : basename(file, '.json');
+    const expectedTag = typeof incident.expected_tag === 'string' ? incident.expected_tag : null;
+    const firedAt     = typeof incident.firedAt === 'number' ? incident.firedAt : Date.now();
+
+    // Build log array — accept structured ConsoleEvents or plain log_lines strings.
+    let logs = Array.isArray(incident.logs) ? incident.logs : [];
+    if (Array.isArray(incident.log_lines)) {
+      const lineEvents = (incident.log_lines as string[]).map((line, i) => ({
+        level:     /error|fatal|critical/i.test(line) ? 'error' : /warn/i.test(line) ? 'warn' : 'log',
+        args:      [line],
+        timestamp: firedAt - ((incident.log_lines as string[]).length - i) * 1000,
+        url:       'replay',
+      }));
+      logs = [...logs, ...lineEvents];
+    }
+
+    const network     = Array.isArray(incident.network)      ? incident.network      : [];
+    const infraEvents = Array.isArray(incident.infra_events) ? incident.infra_events : [];
+
+    try {
+      const causal = await buildCausalChain(logs, network, [], firedAt, [], [], [], [], infraEvents);
+      const top    = causal.hypotheses[0] ?? null;
+      const actual = top?.tag ?? null;
+      const conf   = top?.confidenceScore ?? null;
+      const hint   = top?.fixHint ?? null;
+
+      if (!expectedTag) {
+        unscored++;
+        rows.push({ name, status: 'INFO', actual_tag: actual, expected_tag: null, confidence: conf, fix_hint: hint });
+      } else if (actual === expectedTag) {
+        passed++;
+        rows.push({ name, status: 'PASS', actual_tag: actual, expected_tag: expectedTag, confidence: conf, fix_hint: hint });
+      } else {
+        failed++;
+        rows.push({ name, status: 'FAIL', actual_tag: actual, expected_tag: expectedTag, confidence: conf, fix_hint: hint });
+      }
+    } catch (e) {
+      rows.push({ name, status: 'ERR', actual_tag: null, expected_tag: expectedTag, confidence: null, fix_hint: null, err_msg: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  // ── Print results ─────────────────────────────────────────────────────────────
+  const nameW = Math.min(Math.max(...rows.map((r) => r.name.length), 20), 40);
+
+  for (const r of rows) {
+    const icon  = r.status === 'PASS' ? '✓' : r.status === 'FAIL' ? '✗' : r.status === 'ERR' ? '!' : '○';
+    const label = r.name.slice(0, nameW).padEnd(nameW);
+    const pct   = r.confidence !== null ? `  ${Math.round(r.confidence * 100)}%` : '';
+    const pad   = ' '.repeat(nameW + 10);
+
+    if (r.status === 'PASS') {
+      console.log(`  ${icon} PASS  ${label}  ${r.actual_tag}${pct}`);
+    } else if (r.status === 'FAIL') {
+      console.log(`  ${icon} FAIL  ${label}  expected: ${r.expected_tag}`);
+      console.log(`  ${pad}  got:      ${r.actual_tag ?? '(no diagnosis)'}${pct}`);
+      if (r.fix_hint) console.log(`  ${pad}  hint:     ${r.fix_hint.slice(0, 80)}`);
+    } else if (r.status === 'INFO') {
+      console.log(`  ${icon} INFO  ${label}  ${r.actual_tag ?? '(no diagnosis)'}${pct}`);
+    } else {
+      console.log(`  ${icon} ERR   ${label}  ${r.err_msg}`);
+    }
+  }
+
+  // ── Summary ───────────────────────────────────────────────────────────────────
+  const scored       = passed + failed;
+  const accuracyPct  = scored > 0 ? Math.round((passed / scored) * 100) : null;
+  const hr           = '─'.repeat(60);
+
+  console.log(`\n${hr}`);
+
+  if (scored > 0) {
+    const marker = accuracyPct !== null && accuracyPct >= 90 ? '✓' : accuracyPct !== null && accuracyPct >= 70 ? '~' : '✗';
+    const unscoredNote = unscored > 0 ? `  |  ${unscored} unscored` : '';
+    console.log(`${marker} Accuracy: ${passed}/${scored} scored (${accuracyPct}%)${unscoredNote}`);
+  } else {
+    console.log(`○ ${unscored} incident${unscored !== 1 ? 's' : ''} — add "expected_tag" fields to score accuracy`);
+  }
+
+  if (accuracyPct !== null && accuracyPct < 90 && failed > 0) {
+    console.log('\n  To improve: share failing incidents via mergen-server feedback <id>');
+  }
+
+  console.log('');
+  process.exit(failed > 0 ? 1 : 0);
+}
+
 // ── Backfill command ───────────────────────────────────────────────────────────
 // mergen backfill github --repo <owner/repo> [--since <Nd>] [--token <pat>]
 //
@@ -2280,6 +2451,10 @@ async function main(): Promise<void> {
       await guardCommand(args);
       break;
 
+    case 'replay':
+      await replayCommand(args.slice(1));
+      break;
+
     case 'version':
     case '--version':
     case '-v':
@@ -2312,6 +2487,7 @@ Usage:
   mergen-server postmortem [h]     Generate a postmortem document (default: last 1 hour)
   mergen-server timeline [seconds] Unified causal timeline (browser + CI + deploy + backend)
   mergen-server export [label]     Export session as JSON + HTML report
+  mergen-server replay <dir>        Score historical incidents — run your past outages through the detector pipeline
   mergen-server guard              Pre-commit runtime check
   mergen-server guard --install    Install as git pre-commit hook
   mergen-server guard --strict     Block commit on errors (use in hook)
@@ -2328,6 +2504,7 @@ Examples:
   mergen-server doctor
   mergen-server export my-login-bug
   mergen-server guard --install
+  mergen-server replay ./my-incidents     Score your own historical outages against the detector pipeline
 
 Documentation: https://github.com/omertt27/Mergen
       `);
