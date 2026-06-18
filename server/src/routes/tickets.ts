@@ -33,8 +33,8 @@ export function createTicketsRouter(): Router {
     const apiKey  = process.env.LINEAR_API_KEY ?? '';
     const teamId  = team_id ?? process.env.LINEAR_TEAM_ID ?? '';
 
-    if (!apiKey)  { res.status(400).json({ error: 'LINEAR_API_KEY not configured' }); return; }
-    if (!teamId)  { res.status(400).json({ error: 'LINEAR_TEAM_ID not configured (or pass team_id in body)' }); return; }
+    if (!apiKey)  { res.status(400).json({ error: 'LINEAR_API_KEY not configured', fix: 'export LINEAR_API_KEY=lin_api_...', docs: 'https://linear.app/settings/api' }); return; }
+    if (!teamId)  { res.status(400).json({ error: 'LINEAR_TEAM_ID not configured', fix: 'export LINEAR_TEAM_ID=<team-id>  # or pass team_id in the request body', docs: 'https://linear.app/settings/api' }); return; }
 
     const { title, description } = await buildTicketContent(pid);
 
@@ -76,10 +76,10 @@ export function createTicketsRouter(): Router {
     const apiToken   = process.env.JIRA_API_TOKEN ?? '';
     const projectKey = project_key ?? process.env.JIRA_PROJECT_KEY ?? '';
 
-    if (!baseUrl)    { res.status(400).json({ error: 'JIRA_BASE_URL not configured' }); return; }
-    if (!email)      { res.status(400).json({ error: 'JIRA_EMAIL not configured' }); return; }
-    if (!apiToken)   { res.status(400).json({ error: 'JIRA_API_TOKEN not configured' }); return; }
-    if (!projectKey) { res.status(400).json({ error: 'JIRA_PROJECT_KEY not configured (or pass project_key in body)' }); return; }
+    if (!baseUrl)    { res.status(400).json({ error: 'JIRA_BASE_URL not configured',    fix: 'export JIRA_BASE_URL=https://yourco.atlassian.net', docs: 'https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/' }); return; }
+    if (!email)      { res.status(400).json({ error: 'JIRA_EMAIL not configured',       fix: 'export JIRA_EMAIL=you@company.com', docs: 'https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/' }); return; }
+    if (!apiToken)   { res.status(400).json({ error: 'JIRA_API_TOKEN not configured',   fix: 'export JIRA_API_TOKEN=<token>  # create at https://id.atlassian.com/manage-profile/security/api-tokens', docs: 'https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/' }); return; }
+    if (!projectKey) { res.status(400).json({ error: 'JIRA_PROJECT_KEY not configured', fix: 'export JIRA_PROJECT_KEY=ENG  # or pass project_key in the request body', docs: 'https://support.atlassian.com/jira-software-cloud/docs/what-is-a-jira-project/' }); return; }
 
     const { title, description } = await buildTicketContent(pid);
 

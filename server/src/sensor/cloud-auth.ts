@@ -39,6 +39,12 @@ export interface ApiKey {
   /** Max events per minute this key is allowed to ingest. */
   rateLimit: number;
   lastUsedAt?: number;
+  /** Optional scopes, e.g. ["ingest", "read"]. Empty = full access. */
+  scope?: string[];
+  /** ISO 8601 expiry date. Null = never expires. */
+  expiresAt?: string;
+  /** Who created this key (member id or 'api-admin'). */
+  createdBy?: string;
 }
 
 interface ApiKeysFile {
@@ -102,12 +108,18 @@ export interface CreatedApiKey {
   key: string;
   rateLimit: number;
   createdAt: number;
+  scope?: string[];
+  expiresAt?: string;
+  createdBy?: string;
 }
 
 export function createApiKey(opts: {
   tenantId: string;
   label: string;
   rateLimit?: number;
+  scope?: string[];
+  expiresAt?: string;
+  createdBy?: string;
 }): CreatedApiKey {
   load();
   const plain = crypto.randomBytes(32).toString('hex');
@@ -118,11 +130,24 @@ export function createApiKey(opts: {
     keyHash: hashKey(plain),
     createdAt: Date.now(),
     rateLimit: opts.rateLimit ?? 1000,
+    ...(opts.scope     ? { scope:     opts.scope }     : {}),
+    ...(opts.expiresAt ? { expiresAt: opts.expiresAt } : {}),
+    ...(opts.createdBy ? { createdBy: opts.createdBy } : {}),
   };
   _keys.push(entry);
   persist();
-  logger.info({ id: entry.id, tenantId: entry.tenantId, label: entry.label }, 'cloud-auth: api key created');
-  return { id: entry.id, tenantId: entry.tenantId, label: entry.label, key: plain, rateLimit: entry.rateLimit, createdAt: entry.createdAt };
+  logger.info({ id: entry.id, tenantId: entry.tenantId, label: entry.label, createdBy: entry.createdBy }, 'cloud-auth: api key created');
+  return {
+    id: entry.id,
+    tenantId: entry.tenantId,
+    label: entry.label,
+    key: plain,
+    rateLimit: entry.rateLimit,
+    createdAt: entry.createdAt,
+    ...(entry.scope     ? { scope:     entry.scope }     : {}),
+    ...(entry.expiresAt ? { expiresAt: entry.expiresAt } : {}),
+    ...(entry.createdBy ? { createdBy: entry.createdBy } : {}),
+  };
 }
 
 export function listApiKeys(): Array<Omit<ApiKey, 'keyHash'>> {
@@ -172,6 +197,12 @@ export function cloudAuthMiddleware(req: Request, res: Response, next: NextFunct
   const key = _keys.find((k) => k.keyHash === hash);
   if (!key) {
     res.status(401).json({ error: 'invalid api key' });
+    return;
+  }
+
+  // Check expiry
+  if (key.expiresAt && new Date(key.expiresAt) < new Date()) {
+    res.status(401).json({ error: 'api key expired', expiredAt: key.expiresAt });
     return;
   }
 

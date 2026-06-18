@@ -150,23 +150,27 @@ Your infrastructure
 
 ## Quick start
 
+→ **[QUICKSTART.md](QUICKSTART.md)** — get running in 2 minutes
+
 ```bash
-# Install
-npm install -g mergen-server
+# One command does everything: checks Node, detects IDE, writes MCP config
+npx mergen-server@latest setup
 
-# Configure (interactive — IDE + integrations)
-mergen-server setup
+# Non-interactive (CI / scripts):
+npx mergen-server@latest setup --yes --ide cursor
 
-# Start in shadow mode first (recommended)
-MERGEN_SHADOW_MODE=true \
-MERGEN_SLACK_BOT_TOKEN=xoxb-... \
-MERGEN_SLACK_CHANNEL=#incidents \
+# Then start:
 mergen-server start
 ```
 
-**Then in PagerDuty:** Services → Integrations → Webhooks → `https://your-server:3000/webhooks/pagerduty`
+After setup, check integration status anytime:
+```bash
+mergen-server doctor
+```
 
-**Then in your AI IDE:** *"Triage the latest incident"* — Mergen calls `triage_incident` automatically.
+**In PagerDuty:** Services → Integrations → Webhooks → `https://your-server:3000/webhooks/pagerduty`
+
+**In your AI IDE:** *"Triage the latest incident"* — Mergen calls `triage_incident` automatically.
 
 ---
 

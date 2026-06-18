@@ -51,6 +51,10 @@ import { createShadowReportRouter } from './routes/shadow-report.js';
 import { createPRShadowRouter } from './routes/pr-shadow.js';
 import { createImpactReportRouter } from './routes/impact-report.js';
 import { createBillingOutcomeRouter } from './routes/billing-outcome.js';
+import { createBillingDashboardRouter } from './routes/billing-dashboard.js';
+import { createOnboardingRouter } from './routes/onboarding.js';
+import { createHealthIntegrationsRouter } from './routes/health-integrations.js';
+import { createTeamUsageRouter } from './routes/team-usage.js';
 import { createActiveAuthorsRouter } from './routes/active-authors.js';
 import { createPostmortemRouter } from './routes/postmortem.js';
 import { createExplainWhyRouter } from './routes/explain-why.js';
@@ -73,9 +77,11 @@ const MUTATING_PATHS = [
   // Incident pipeline — triggers autonomous command execution
   '/incident',
   // Infrastructure mutations
-  '/ci', '/overrides', '/rbac', '/heartbeats', '/slack/routing',
+  '/ci', '/overrides', '/rbac', '/heartbeats', '/slack/routing', '/slack/test',
   // Process / container watchers
   '/watchers',
+  // Billing & account mutations
+  '/api-keys', '/onboarding/dismiss',
 ];
 
 /** Hostnames always valid for local-only mode. */
@@ -311,6 +317,10 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createPRShadowRouter());      // PR shadow mode (comment readiness signal)
   app.use(createImpactReportRouter());  // Deck-quality impact artifact
   app.use(createBillingOutcomeRouter()); // Y5: outcome-based billing evidence
+  app.use(createBillingDashboardRouter()); // Unified billing dashboard (plan + usage + upgrade)
+  app.use(createOnboardingRouter());      // Progressive onboarding checklist
+  app.use(createHealthIntegrationsRouter()); // Machine-readable integration health
+  app.use(createTeamUsageRouter());       // Team dashboard roll-up
   app.use(createActiveAuthorsRouter());  // Billing unit: unique PR authors per month
   app.use(createPostmortemRouter());    // POST /postmortem/from-slack
   app.use(createExplainWhyRouter());    // GET /explain-why/file?path=

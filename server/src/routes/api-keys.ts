@@ -1,26 +1,36 @@
 /**
  * routes/api-keys.ts — CRUD for cloud-mode API keys.
  *
- * All endpoints require the x-mergen-secret header (same as other admin routes).
+ * All mutating endpoints require the x-mergen-secret header.
  * Only active when MERGEN_CLOUD_MODE=true — returns 404 otherwise.
  *
- * POST   /api-keys              { tenantId, label, rateLimit? } → { key, id, ... }
+ * POST   /api-keys              { tenantId, label, rateLimit?, scope?, expiresAt?, createdBy? } → { key, id, ... }
  * GET    /api-keys              → { keys: [...] }  (no plain-text keys returned)
  * DELETE /api-keys/:id          → { ok: true }
  */
 
 import { Router } from 'express';
+import type { Request } from 'express';
 import { createApiKey, listApiKeys, revokeApiKey, CLOUD_MODE } from '../sensor/cloud-auth.js';
+
+/** Resolve the caller identity from request headers for audit purposes. */
+function resolveCaller(req: Request): string {
+  return (req.headers['x-mergen-member'] as string | undefined)
+    ?? (req.tenantId ?? 'api-admin');
+}
 
 export function createApiKeysRouter(): Router {
   const router = Router();
 
   router.post('/api-keys', (req, res) => {
-    if (!CLOUD_MODE) { res.status(404).json({ error: 'cloud mode not enabled' }); return; }
-    const { tenantId, label, rateLimit } = (req.body ?? {}) as {
-      tenantId?: string;
-      label?: string;
+    if (!CLOUD_MODE) { res.status(404).json({ error: 'cloud mode not enabled', fix: 'set MERGEN_CLOUD_MODE=true' }); return; }
+    const { tenantId, label, rateLimit, scope, expiresAt, createdBy } = (req.body ?? {}) as {
+      tenantId?:  string;
+      label?:     string;
       rateLimit?: number;
+      scope?:     string[];
+      expiresAt?: string;
+      createdBy?: string;
     };
     if (!tenantId || typeof tenantId !== 'string') {
       res.status(400).json({ ok: false, error: 'tenantId (string) is required' });
@@ -34,8 +44,22 @@ export function createApiKeysRouter(): Router {
       res.status(400).json({ ok: false, error: 'rateLimit must be a positive number' });
       return;
     }
-    const created = createApiKey({ tenantId, label, rateLimit });
-    res.status(201).json({ ok: true, ...created });
+    if (scope !== undefined && (!Array.isArray(scope) || scope.some((s) => typeof s !== 'string'))) {
+      res.status(400).json({ ok: false, error: 'scope must be an array of strings (e.g. ["ingest", "read"])' });
+      return;
+    }
+    if (expiresAt !== undefined && isNaN(Date.parse(expiresAt))) {
+      res.status(400).json({ ok: false, error: 'expiresAt must be a valid ISO 8601 date string' });
+      return;
+    }
+
+    const caller  = createdBy ?? resolveCaller(req);
+    const created = createApiKey({ tenantId, label, rateLimit, scope, expiresAt, createdBy: caller });
+    res.status(201).json({
+      ok: true,
+      ...created,
+      note: 'Store this key securely — it will not be shown again.',
+    });
   });
 
   router.get('/api-keys', (_req, res) => {

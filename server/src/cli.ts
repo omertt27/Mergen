@@ -55,7 +55,16 @@ async function sleep(ms: number): Promise<void> {
 // ── Commands ───────────────────────────────────────────────────────────────────
 
 async function setupCommand(): Promise<void> {
+  // ── Parse flags ─────────────────────────────────────────────────────────────
+  const rawArgs = process.argv.slice(3); // skip 'node', 'cli.js', 'setup'
+  const yes            = rawArgs.includes('--yes') || rawArgs.includes('-y');
+  const skipExtension  = yes || rawArgs.includes('--skip-extension');
+  const skipGitHub     = yes || rawArgs.includes('--skip-github');
+  const ideFlag        = (rawArgs.find(a => a.startsWith('--ide='))?.slice(6)) ??
+                         (rawArgs.includes('--ide') ? rawArgs[rawArgs.indexOf('--ide') + 1] : null);
+
   console.log('🚀 Mergen Setup Wizard\n');
+  if (yes) log('Non-interactive mode (--yes)\n', 'ℹ');
   hr();
 
   // 1. Check prerequisites
@@ -71,7 +80,7 @@ async function setupCommand(): Promise<void> {
 
   // 2. Detect IDE
   log('\nDetecting IDE...');
-  const ide = await detectIDE();
+  const ide = ideFlag ?? await detectIDE();
   success(`Found: ${ide}`);
 
   // 3. Configure IDE
@@ -86,9 +95,13 @@ async function setupCommand(): Promise<void> {
   console.log('  3. Click "Load unpacked"');
   console.log(`  4. Select: ${resolve(__dirname, '../../extension')}`);
 
-  const installed = await ask('\nHave you installed the extension? (y/n): ');
-  if (installed.toLowerCase() !== 'y') {
-    log('⚠ Extension not installed. You can install it later.', '⚠');
+  if (!skipExtension) {
+    const installed = await ask('\nHave you installed the extension? (y/n): ');
+    if (installed.toLowerCase() !== 'y') {
+      log('⚠ Extension not installed. You can install it later.', '⚠');
+    }
+  } else {
+    log('Extension step skipped (--skip-extension / --yes)', 'ℹ');
   }
 
   // 5. GitHub intent archive
@@ -96,24 +109,38 @@ async function setupCommand(): Promise<void> {
   log('\nGitHub intent archive (required for explain_why):');
   console.log('  Connecting GitHub populates the PR history that powers');
   console.log('  "why was this changed?" answers and PR context comments.');
-  const connectGh = await ask('Connect GitHub now? (y/n): ');
-  if (connectGh.toLowerCase() === 'y') {
-    await connectCommand(['github']);
-    const doBackfill = await ask('\nBackfill historical PRs? Recommended — gives explain_why data on day 1. (y/n): ');
-    if (doBackfill.toLowerCase() === 'y') {
-      await backfillCommand(['github']);
+
+  if (!skipGitHub) {
+    const connectGh = await ask('Connect GitHub now? (y/n): ');
+    if (connectGh.toLowerCase() === 'y') {
+      await connectCommand(['github']);
+      const doBackfill = await ask('\nBackfill historical PRs? Recommended — gives explain_why data on day 1. (y/n): ');
+      if (doBackfill.toLowerCase() === 'y') {
+        await backfillCommand(['github']);
+      }
+    } else {
+      log('Skipped. Run later: mergen-server connect github --repo <owner/repo>', 'ℹ');
     }
   } else {
-    log('Skipped. Run later: mergen-server connect github --repo <owner/repo>', 'ℹ');
+    log('GitHub step skipped (--skip-github / --yes)', 'ℹ');
+    log('Run later: mergen-server connect github --repo <owner/repo>', 'ℹ');
   }
 
-  // 6. Start server
+  // 6. Summary + start server
   hr();
   log('\n✨ Setup complete!\n');
   console.log('Next steps:');
   console.log('  1. Start server: mergen-server start');
   console.log('  2. Or run in background: mergen-server start &');
   console.log('  3. Verify setup: mergen-server test\n');
+  console.log('Tips:');
+  console.log('  mergen-server doctor     → check all integrations');
+  console.log('  cp server/.env.example .env  → configure optional integrations\n');
+
+  if (yes) {
+    log('Skipping "start now?" prompt in --yes mode. Run: mergen-server start', 'ℹ');
+    return;
+  }
 
   const startNow = await ask('Start server now? (y/n): ');
   if (startNow.toLowerCase() === 'y') {
@@ -1041,6 +1068,83 @@ async function doctorCommand(): Promise<void> {
     return enabled
       ? { ok: true,  detail: 'MERGEN_AUTOPILOT=true — autonomous execution enabled at ≥85% confidence' }
       : { ok: false, warn: true, detail: 'MERGEN_AUTOPILOT not set — diagnosis-only mode', fix: 'set MERGEN_AUTOPILOT=true to enable autonomous fix execution' };
+  });
+
+  console.log('\n── Optional integrations ──────────────────────────────────────────────────');
+
+  await runCheck('GitHub token', async () => {
+    const token = process.env.GITHUB_TOKEN;
+    if (!token) return { ok: false, warn: true, detail: 'GITHUB_TOKEN not set', fix: 'export GITHUB_TOKEN=ghp_...  # required for PR commenting and backfill' };
+    try {
+      const r = await fetch('https://api.github.com/user', {
+        headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'mergen-doctor' },
+        signal: AbortSignal.timeout(3000),
+      });
+      const d = await r.json() as { login?: string; message?: string };
+      return r.ok
+        ? { ok: true, detail: `connected — user: ${d.login ?? 'unknown'}` }
+        : { ok: false, warn: true, detail: `GitHub auth failed: ${d.message ?? r.status}`, fix: 'check GITHUB_TOKEN at https://github.com/settings/tokens' };
+    } catch {
+      return { ok: false, warn: true, detail: 'could not reach GitHub API', fix: 'check network connectivity' };
+    }
+  });
+
+  await runCheck('GitHub webhook secret', async () => {
+    const secret = process.env.GITHUB_WEBHOOK_SECRET;
+    if (!secret) return { ok: false, warn: true, detail: 'GITHUB_WEBHOOK_SECRET not set — PR/push events unauthenticated', fix: 'run: mergen-server connect github --repo <owner/repo>' };
+    return { ok: true, detail: 'GITHUB_WEBHOOK_SECRET set — signature verification enabled' };
+  });
+
+  await runCheck('Datadog', async () => {
+    const apiKey = process.env.DD_API_KEY;
+    const appKey = process.env.DD_APP_KEY;
+    if (!apiKey) return { ok: false, warn: true, detail: 'DD_API_KEY not set', fix: 'export DD_API_KEY=...  # from https://app.datadoghq.com/organization-settings/api-keys' };
+    if (!appKey) return { ok: false, warn: true, detail: 'DD_APP_KEY not set', fix: 'export DD_APP_KEY=...  # from https://app.datadoghq.com/organization-settings/application-keys' };
+    const site = process.env.DATADOG_SITE ?? 'datadoghq.com';
+    try {
+      const r = await fetch(`https://api.${site}/api/v1/validate`, {
+        headers: { 'DD-API-KEY': apiKey, 'DD-APPLICATION-KEY': appKey },
+        signal: AbortSignal.timeout(4000),
+      });
+      return r.ok
+        ? { ok: true, detail: `connected — site: ${site}` }
+        : { ok: false, warn: true, detail: `Datadog auth failed (${r.status})`, fix: 'check DD_API_KEY and DD_APP_KEY — run: mergen-server init' };
+    } catch {
+      return { ok: false, warn: true, detail: `could not reach api.${site}`, fix: 'check network connectivity' };
+    }
+  });
+
+  await runCheck('Linear', async () => {
+    const apiKey  = process.env.LINEAR_API_KEY;
+    const teamId  = process.env.LINEAR_TEAM_ID;
+    if (!apiKey) return { ok: false, warn: true, detail: 'LINEAR_API_KEY not set', fix: 'export LINEAR_API_KEY=lin_api_...  # from https://linear.app/settings/api' };
+    if (!teamId) return { ok: false, warn: true, detail: 'LINEAR_TEAM_ID not set', fix: 'export LINEAR_TEAM_ID=<team-id>  # from https://linear.app/settings/api' };
+    return { ok: true, detail: `LINEAR_API_KEY set, team: ${teamId}` };
+  });
+
+  await runCheck('Jira', async () => {
+    const baseUrl  = process.env.JIRA_BASE_URL;
+    const email    = process.env.JIRA_EMAIL;
+    const token    = process.env.JIRA_API_TOKEN;
+    const projKey  = process.env.JIRA_PROJECT_KEY;
+    if (!baseUrl) return { ok: false, warn: true, detail: 'JIRA_BASE_URL not set', fix: 'export JIRA_BASE_URL=https://yourco.atlassian.net' };
+    if (!email)   return { ok: false, warn: true, detail: 'JIRA_EMAIL not set',    fix: 'export JIRA_EMAIL=you@company.com' };
+    if (!token)   return { ok: false, warn: true, detail: 'JIRA_API_TOKEN not set', fix: 'create a token at https://id.atlassian.com/manage-profile/security/api-tokens' };
+    return projKey
+      ? { ok: true, detail: `${baseUrl} · project: ${projKey}` }
+      : { ok: false, warn: true, detail: 'JIRA_PROJECT_KEY not set', fix: 'export JIRA_PROJECT_KEY=ENG  # default project; can be overridden per request' };
+  });
+
+  await runCheck('Sentry webhook', async () => {
+    const secret = process.env.MERGEN_SENTRY_SECRET;
+    if (!secret) return { ok: false, warn: true, detail: 'MERGEN_SENTRY_SECRET not set — Sentry webhooks unauthenticated', fix: 'export MERGEN_SENTRY_SECRET=...  # from your Sentry webhook config' };
+    return { ok: true, detail: 'MERGEN_SENTRY_SECRET set — signature verification enabled' };
+  });
+
+  await runCheck('Redis persistence', async () => {
+    const url = process.env.MERGEN_REDIS_URL;
+    if (!url) return { ok: false, warn: true, detail: 'MERGEN_REDIS_URL not set — ring buffer lost on restart', fix: 'export MERGEN_REDIS_URL=redis://localhost:6379  # optional but recommended for production' };
+    return { ok: true, detail: `MERGEN_REDIS_URL set — buffer persisted at ${url}` };
   });
 
   hr();
@@ -2490,15 +2594,19 @@ Usage:
   mergen-server                    Zero-config demo — loads 50 sample incidents instantly
   mergen-server start              Start server (production mode)
   mergen-server setup              Interactive setup wizard (connect PagerDuty, OTLP, IDE)
+  mergen-server setup --yes        Non-interactive setup (skip all prompts, use defaults)
+  mergen-server setup --ide cursor Configure a specific IDE (cursor|vscode|claude-code|windsurf)
+  mergen-server setup --skip-extension  Skip browser extension step
+  mergen-server setup --skip-github     Skip GitHub connect step
   mergen-server demo               Same as no args — demo with sample incidents
   mergen-server status             Live snapshot: server health, buffer, errors, MCP activity
+  mergen-server doctor             Full health-check: env vars, IDE config, integrations
   mergen-server connect github     Auto-register GitHub webhook → populates intent archive
   mergen-server backfill github    Import historical PRs → enables explain_why on day 1
   mergen-server init               Connect Datadog (guided setup)
   mergen-server pr                 Generate a PR description from your debug session
   mergen-server pr --copy          Same, but copies to clipboard
   mergen-server watch <cmd>        Stream any process into Mergen (e.g. watch npm start)
-  mergen-server doctor             Full health-check wizard
   mergen-server invite             Generate a team invite URL
   mergen-server join <url>         Join a team Mergen instance
   mergen-server postmortem [h]     Generate a postmortem document (default: last 1 hour)
@@ -2513,6 +2621,8 @@ Usage:
 
 Examples:
   npx mergen-server                # instant demo — no config needed
+  mergen-server setup --yes        # non-interactive setup in CI
+  mergen-server setup --ide cursor --skip-github
   mergen-server start &            # production server in background
   mergen-server connect github --repo acme/api
   mergen-server watch npm start

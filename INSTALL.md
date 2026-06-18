@@ -1,5 +1,7 @@
 # Install Mergen — Choose Your Method
 
+> **Fastest path:** → **[QUICKSTART.md](QUICKSTART.md)** — one command, 2 minutes.
+
 Multiple ways to install Mergen depending on your preferences and environment.
 
 ---
