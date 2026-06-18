@@ -33,6 +33,7 @@ import { runInfraPipeline } from './pipeline-runner.js';
 import { INFRA_FIXTURES } from './fixtures/infra.js';
 import { BROWSER_FIXTURES } from './fixtures/browser.js';
 import type { InfraFixture, EvalSummary } from './types.js';
+import type { Hypothesis } from '../../intelligence/causal.js';
 
 function summarise(fixtures: InfraFixture[], getTop: (f: InfraFixture) => Hypothesis | null): EvalSummary {
   const failures: EvalSummary['failures'] = [];

@@ -38,8 +38,8 @@ const {
   mockCaptureSnapshot,
   mockRecordShadow,
 } = vi.hoisted(() => ({
-  mockPostThreadReply:      vi.fn<[string, string], Promise<void>>().mockResolvedValue(undefined),
-  mockBuildCausalChain:     vi.fn<unknown[], Promise<CausalChain>>(),
+  mockPostThreadReply:      vi.fn<(pid: string, text: string) => Promise<void>>().mockResolvedValue(undefined),
+  mockBuildCausalChain:     vi.fn<(...args: unknown[]) => Promise<CausalChain>>(),
   mockGetLogs:              vi.fn().mockReturnValue([]),
   mockGetNetwork:           vi.fn().mockReturnValue([]),
   mockRunAgentPipeline:     vi.fn(),
