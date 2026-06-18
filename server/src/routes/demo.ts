@@ -94,6 +94,136 @@ export function createDemoRouter(): Router {
     });
   });
 
+  // ── POST /chat — natural language interface ───────────────────────────────────
+  router.post('/chat', async (req, res) => {
+    const { question = '' } = req.body as { question?: string };
+    const q = question.toLowerCase().trim();
+
+    if (!q) {
+      res.json({ answer: 'Ask me something — try: "Why did production break?" or "Have we seen this before?"' });
+      return;
+    }
+
+    if (/why|broke|incident|cause|root|triage|error|fail|crash|down|outage|alert/i.test(q)) {
+      const pids = listSnapshotPids().filter((p) => p.startsWith('seed-'));
+      if (pids.length > 0) {
+        const pid = pids[Math.floor(Math.random() * pids.length)];
+        try {
+          const result = await replayIncident(pid);
+          if (result) {
+            const conf = Math.round((result.replayedHypothesis.confidenceScore ?? 0) * 100);
+            const tag  = (result.replayedHypothesis.tag ?? 'unknown').replace(/infra_/g, '').replace(/_/g, ' ');
+            const fix  = result.replayedHypothesis.fixHint ?? 'No fix hint available';
+            res.json({
+              answer: [
+                `Root cause: ${tag}  [${conf}% confidence]`,
+                '',
+                `Fix: ${fix.split('.')[0]}.`,
+                '',
+                `Source: incident ${pid} — public postmortem corpus`,
+                result.drift.topTagChanged ? `Note: tag drift detected vs original (${result.originalHypothesis.tag} → ${result.replayedHypothesis.tag})` : '✓ Consistent with historical diagnosis',
+              ].join('\n'),
+            });
+            return;
+          }
+        } catch { /* fall through to default */ }
+      }
+      res.json({ answer: 'Seed corpus not loaded. Run: npx mergen-server' });
+      return;
+    }
+
+    if (/seen before|history|corpus|past|remember|similar|pattern/i.test(q)) {
+      const pids = listSnapshotPids();
+      const seedPids = pids.filter((p) => p.startsWith('seed-'));
+      const realPids = pids.filter((p) => !p.startsWith('seed-'));
+      res.json({
+        answer: [
+          `Corpus: ${pids.length} incidents total`,
+          `  ${seedPids.length} from public postmortems (GitHub, Stripe, Cloudflare, AWS 2022–2024)`,
+          `  ${realPids.length} from your production`,
+          '',
+          'Failure modes covered:',
+          '  DB connection pool exhaustion · OOM kills · rate limit cascades',
+          '  Slow queries · cert expiry · disk pressure · queue backlogs',
+          '  Downstream latency · service unavailable',
+          '',
+          'After 6 months on your production: your Friday settlement windows,',
+          'compliance holds, and on-call preferred fixes — encoded as policy.',
+        ].join('\n'),
+      });
+      return;
+    }
+
+    if (/fix|remediation|what would|suggest|how to|repair|resolve/i.test(q)) {
+      res.json({
+        answer: [
+          'At ≥85% confidence, Mergen executes autonomously (MERGEN_AUTOPILOT=true).',
+          '',
+          'Common fixes from the corpus:',
+          '  DB pool exhausted  → increase pool max, check for connection leaks',
+          '  OOM kill           → increase memory limit, heap-profile with node --inspect',
+          '  Rate limit cascade → exponential backoff + honour Retry-After header',
+          '  Cert expiry        → certbot renew, verify SAN list',
+          '  Disk pressure      → df -h, journalctl --vacuum-size=500M',
+          '  Queue backlog      → scale consumers, check slow message processing',
+          '',
+          'In your AI IDE: ask "execute_fix" with confirm: true',
+        ].join('\n'),
+      });
+      return;
+    }
+
+    if (/safe|trust|autonomous|confidence|risk|block|blunder/i.test(q)) {
+      res.json({
+        answer: [
+          'Safety model:',
+          '',
+          '  ≥85% confidence gate before any autonomous action',
+          '  Override corpus consulted before every execution',
+          '  Every blocked action logged in Agent Blunder Log (GET /agent-blunders)',
+          '  Shadow mode: diagnose but never execute (MERGEN_SHADOW_MODE=true)',
+          '  All data stays on your infrastructure — no cloud copy',
+          '',
+          '"Why trust an AI agent with prod?" → the Blunder Log is the answer.',
+          '  prevented = total intercepted actions by type.',
+        ].join('\n'),
+      });
+      return;
+    }
+
+    if (/connect|setup|install|integrate|pagerduty|slack|datadog|otlp|docker/i.test(q)) {
+      res.json({
+        answer: [
+          'Connect production (all optional — start with one):',
+          '',
+          '  PagerDuty  →  Service → Webhooks → http://your-server:3000/webhooks/pagerduty',
+          '  OTLP       →  OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:3000 node app.js',
+          '  Docker     →  curl -X POST http://127.0.0.1:3000/watchers/docker',
+          '  Slack      →  MERGEN_SLACK_BOT_TOKEN=xoxb-... MERGEN_SLACK_CHANNEL=#incidents',
+          '  Datadog    →  mergen-server init',
+          '  IDE (MCP)  →  mergen-server setup',
+          '',
+          'Start with Docker logs — it works on day one, no PagerDuty required.',
+        ].join('\n'),
+      });
+      return;
+    }
+
+    // Default: guide to useful questions
+    res.json({
+      answer: [
+        'You can ask:',
+        '  "Why did production break?"      → root cause analysis',
+        '  "Have we seen this before?"       → corpus lookup',
+        '  "What would you fix first?"       → fix recommendations',
+        '  "Is it safe to run autonomously?" → safety model',
+        '  "How do I connect my stack?"      → integration guide',
+        '',
+        'Or open your AI IDE and ask: triage_incident',
+      ].join('\n'),
+    });
+  });
+
   // ── GET /demo/api/user — simulated 401 endpoint for frontend trace join ───────
   router.get('/demo/api/user', (req, res) => {
     const traceparent = req.headers['traceparent'] as string | undefined;
@@ -165,6 +295,7 @@ const DEMO_HTML = `<!DOCTYPE html>
     <div class="tab active" onclick="showTab('backend')">Backend P1 Incident</div>
     <div class="tab" onclick="showTab('frontend')">Frontend Trace Join</div>
     <div class="tab" onclick="showTab('corpus')">Incident Corpus</div>
+    <div class="tab" onclick="showTab('chat')">Ask Mergen</div>
   </div>
 
   <!-- ── Backend P1 tab ── -->
@@ -239,6 +370,27 @@ const DEMO_HTML = `<!DOCTYPE html>
     </div>
   </div>
 
+  <!-- ── Ask Mergen chat tab ── -->
+  <div class="panel" id="tab-chat">
+    <div class="card">
+      <h2>Ask Mergen</h2>
+      <p>Plain-English interface to the incident corpus. Ask about root causes, patterns, fixes, or safety. In your AI IDE this is the <code>triage_incident</code> tool — here it's a browser preview.</p>
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <input id="chat-input" type="text" placeholder="Why did production break?" style="flex:1;background:#010409;border:1px solid #30363d;border-radius:7px;padding:9px 14px;font-family:'SF Mono','JetBrains Mono',monospace;font-size:0.82rem;color:#e6edf3;outline:none" onkeydown="if(event.key==='Enter')sendChat()">
+        <button class="btn" id="chat-btn" onclick="sendChat()">Ask</button>
+      </div>
+      <div class="hint" style="margin-top:12px">
+        Try: <code>Why did production break?</code> &nbsp;·&nbsp; <code>Have we seen this before?</code> &nbsp;·&nbsp; <code>What would you fix first?</code> &nbsp;·&nbsp; <code>Is it safe to run autonomously?</code>
+      </div>
+    </div>
+    <div id="chat-output" style="display:none">
+      <div class="card">
+        <h2>Answer <span class="badge badge-info" id="chat-tool">—</span></h2>
+        <div class="terminal" id="chat-terminal" style="min-height:120px"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Frontend trace join tab ── -->
   <div class="panel" id="tab-frontend">
     <div class="card">
@@ -268,8 +420,8 @@ const DEMO_HTML = `<!DOCTYPE html>
 <script>
 // ── Tab switching ──────────────────────────────────────────────────────────────
 function showTab(name) {
-  document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', ['backend','frontend','corpus'][i] === name));
-  document.querySelectorAll('.panel').forEach((p, i) => p.classList.toggle('active', ['tab-backend','tab-frontend','tab-corpus'][i] === 'tab-' + name));
+  document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', ['backend','frontend','corpus','chat'][i] === name));
+  document.querySelectorAll('.panel').forEach((p, i) => p.classList.toggle('active', ['tab-backend','tab-frontend','tab-corpus','tab-chat'][i] === 'tab-' + name));
 }
 
 // ── Corpus tab ─────────────────────────────────────────────────────────────────
@@ -506,6 +658,41 @@ async function runFrontendDemo() {
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ── Ask Mergen chat ────────────────────────────────────────────────────────────
+async function sendChat() {
+  const input = document.getElementById('chat-input');
+  const question = input.value.trim();
+  if (!question) return;
+
+  document.getElementById('chat-btn').disabled = true;
+  document.getElementById('chat-output').style.display = 'block';
+  document.getElementById('chat-tool').textContent = '...';
+  const term = document.getElementById('chat-terminal');
+  term.innerHTML = '<span class="t-info">Thinking...</span>';
+
+  try {
+    const r = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question }),
+    });
+    const d = await r.json();
+    const lines = (d.answer || '').split('\\n');
+    term.innerHTML = lines.map(line => {
+      if (!line.trim()) return '<span>&nbsp;</span>';
+      if (line.startsWith('  ')) return '<span class="t-info">' + line + '</span>';
+      if (line.endsWith(':') || line.match(/^[A-Z]/)) return '<span class="t-hi">' + line + '</span>';
+      if (line.startsWith('✓') || line.startsWith('→')) return '<span class="t-ok">' + line + '</span>';
+      return '<span class="t-ok">' + line + '</span>';
+    }).join('\\n');
+    document.getElementById('chat-tool').textContent = question.length > 30 ? question.slice(0, 30) + '…' : question;
+  } catch(e) {
+    term.innerHTML = '<span class="t-err">Error: ' + e.message + '</span>';
+  } finally {
+    document.getElementById('chat-btn').disabled = false;
+  }
+}
 </script>
 </body>
 </html>`;

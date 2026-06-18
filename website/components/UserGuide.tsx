@@ -5,54 +5,40 @@ import { useState } from 'react'
 const steps = [
   {
     num: '01',
-    title: 'Install',
-    tag: 'npm / binary',
-    body: 'One command sets up Mergen, walks you through integrations, and creates the config file.',
-    code: 'npx mergen-server@latest setup',
-    note: 'Requires Node.js 18+. Binaries available for macOS / Linux / Windows.',
+    title: 'See it in 60 seconds',
+    tag: 'zero config · Node.js 18+',
+    body: 'Run one command. Mergen starts a local server, loads 50 sample incidents from public postmortems, and immediately shows you a root cause analysis. No PagerDuty, no OTLP, no IDE setup required.',
+    code: 'npx mergen-server',
+    note: 'Opens http://localhost:3000/demo — click "Trigger P1 Incident" or ask a question in the chat tab.',
   },
   {
     num: '02',
-    title: 'Replay Your Last Incident',
-    tag: '< 30 min · no real alert required',
-    body: 'Before a real incident fires, replay one that already happened. POST your last alert to the demo endpoint — Mergen runs full causal analysis and posts what it would have done.',
-    code: `# Inject a past incident and see Mergen's diagnosis
-curl -X POST http://127.0.0.1:3000/demo \\
-  -H 'Content-Type: application/json' \\
-  -d '{"scenario":"db-pool-exhaustion"}'
+    title: 'Connect Your Stack (optional)',
+    tag: 'PagerDuty · OTLP · Docker',
+    body: 'When you\'re ready to switch from sample incidents to real production data, connect one source. Start with Docker logs — it requires zero configuration and works immediately.',
+    code: `# Docker logs (easiest — works immediately)
+curl -X POST http://127.0.0.1:3000/watchers/docker
 
-# Or replay a real PagerDuty incident payload:
-curl -X POST http://127.0.0.1:3000/webhooks/pagerduty \\
-  -H 'Content-Type: application/json' \\
-  -d @your-last-alert.json`,
+# PagerDuty → Service → Webhooks → https://your-host:3000/webhooks/pagerduty
+
+# OTLP (any language — one env var)
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:3000 node app.js`,
     note: 'Pilot success condition: Mergen correctly analyzes 1 real incident in your environment.',
   },
   {
     num: '03',
-    title: 'Connect Your Stack',
-    tag: 'PagerDuty · OTLP · Docker',
-    body: 'Point your PagerDuty webhook at Mergen, set your OTLP exporter endpoint, or stream Docker logs in one curl.',
-    code: `# PagerDuty → Service → Webhooks → https://your-host:3000/webhooks/pagerduty
-# OTLP (any language)
-OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:3000 node app.js
-# Docker logs
-curl -X POST http://127.0.0.1:3000/watchers/docker`,
-    note: 'No Datadog required. Start with Docker logs — it works from day one.',
-  },
-  {
-    num: '04',
     title: 'Add to Your AI IDE',
     tag: 'Claude Code · Cursor · VS Code',
     body: 'Register Mergen as an MCP server. The tools — triage_incident, analyze_runtime, validate_fix — appear automatically in your IDE.',
-    code: `# Claude Code
-claude mcp add mergen --transport stdio -- node "$(pwd)/server/dist/index.js"
+    code: `# Guided setup (detects your IDE automatically)
+mergen-server setup
 
-# Cursor / Windsurf / VS Code
-# .cursor/mcp.json and .vscode/mcp.json are already committed in this repo`,
+# Or manually — Claude Code
+claude mcp add mergen --transport stdio -- node "$(pwd)/server/dist/index.js"`,
     note: 'Ask: "What caused the last incident?" — Mergen answers with root cause + fix hint.',
   },
   {
-    num: '05',
+    num: '04',
     title: 'Enable Autopilot',
     tag: 'optional · ≥85% confidence gate',
     body: 'Set MERGEN_AUTOPILOT=true to let Mergen execute fixes autonomously. Starts in shadow mode for 30 days — builds a track record before it acts.',
@@ -94,7 +80,7 @@ export default function UserGuide() {
     <section id="guide">
       <span className="section-label">06 // Getting Started</span>
       <h2>
-        First value in 30 minutes.
+        First insight in 60 seconds.
         <br />
         Pilot success: 1 real incident analyzed.
       </h2>

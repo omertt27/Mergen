@@ -1567,16 +1567,33 @@ async function demoCommand(): Promise<void> {
   const { createApp } = await import('./app.js');
   const { loadSeedCorpus, SEED_COUNT } = await import('./seeds/corpus.js');
 
-  console.log('\n🔭 Mergen Demo\n');
-  console.log('Starting server...');
+  console.log('\n⬡ Mergen\n');
 
   // Seed the replay corpus so replay demos work immediately on first run.
-  const { loaded, skipped } = loadSeedCorpus();
-  if (loaded > 0) {
-    console.log(`✓ Seed corpus: ${loaded} incidents loaded (${skipped} already present)`);
-  } else {
-    console.log(`✓ Seed corpus: ${SEED_COUNT} incidents ready`);
-  }
+  process.stdout.write('Loading 50 sample incidents...');
+  const { loaded } = loadSeedCorpus();
+  console.log(` ✓  (${loaded > 0 ? `${loaded} loaded` : `${SEED_COUNT} ready`})`);
+
+  // Show instant causal analysis on a sample incident before the browser opens
+  try {
+    const { listSnapshotPids, replayIncident } = await import('./intelligence/incident-replay.js');
+    const pids = listSnapshotPids().filter((p) => p.startsWith('seed-'));
+    if (pids.length > 0) {
+      const pid = pids[0]; // seed-001: DB pool exhaustion — most common failure mode
+      process.stdout.write('Running causal analysis...');
+      const result = await replayIncident(pid);
+      if (result) {
+        const conf = Math.round((result.replayedHypothesis.confidenceScore ?? 0) * 100);
+        const tag  = (result.replayedHypothesis.tag ?? 'unknown').replace(/infra_/g, '').replace(/_/g, ' ');
+        const fix  = result.replayedHypothesis.fixHint ?? '';
+        console.log(` ✓`);
+        console.log('');
+        console.log(`  Detected: ${tag}  [${conf}% confidence]`);
+        console.log(`  Fix:      ${fix.split('.')[0]}.`);
+        console.log('');
+      }
+    }
+  } catch { /* non-fatal — skip instant analysis if replay not available */ }
 
   const port = 3000;
   const app = createApp({
@@ -1595,17 +1612,14 @@ async function demoCommand(): Promise<void> {
 
   const url = `http://localhost:${port}/demo`;
 
-  console.log(`\n✓ Server running at http://localhost:${port}`);
-  console.log(`\n→ Opening demo: ${url}\n`);
+  console.log(`✓ Server running at http://localhost:${port}`);
+  console.log(`→ Opening ${url}\n`);
   console.log('────────────────────────────────────────');
-  console.log('Backend P1 incident demo (primary):');
-  console.log('  Click "Trigger P1 Incident" — injects a PostgreSQL pool');
-  console.log('  exhaustion cascade and runs the autonomous triage loop.');
-  console.log('  In your AI IDE ask: triage_incident');
-  console.log('');
-  console.log('Frontend trace join demo (tab 2):');
-  console.log('  JWT expiry — browser↔backend EXACT traceId join.');
-  console.log('  In your AI IDE ask: get_unified_timeline');
+  console.log('Connect production when ready (all optional):');
+  console.log('  PagerDuty  →  1 webhook → /webhooks/pagerduty');
+  console.log('  OTLP       →  OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:3000 node app.js');
+  console.log('  Docker     →  curl -X POST http://127.0.0.1:3000/watchers/docker');
+  console.log('  IDE        →  mergen-server setup');
   console.log('────────────────────────────────────────\n');
 
   // Open browser — try platform-specific commands.
@@ -2461,50 +2475,47 @@ async function main(): Promise<void> {
       console.log(`mergen-server v${VERSION}`);
       break;
 
+    case undefined:
+      // No args — start demo mode immediately. 50 sample incidents, zero config.
+      await demoCommand();
+      break;
+
     case 'help':
     case '--help':
     case '-h':
-    case undefined:
       console.log(`
-Mergen — AI-native infrastructure observability
+Mergen — production incident intelligence
 
 Usage:
-  mergen-server connect github     Auto-register GitHub webhook → populates intent archive
-  mergen-server backfill github    Import historical PRs → solves cold-start, enables explain_why on day 1
-  mergen-server feedback <id> --yes|--no  Rate an explain_why response (improves retrieval quality)
-  mergen-server pr-shadow                 PR shadow mode stats — useful rate + readiness signal
-  mergen-server init               Connect Datadog (guided setup — saves DD_API_KEY + DD_APP_KEY)
-  mergen-server pr                 Generate a PR description from your debug session (paste into GitHub/Jira)
-  mergen-server pr --copy          Same, but copies to clipboard
-  mergen-server demo               3-minute demo: no extension needed, open in any browser
+  mergen-server                    Zero-config demo — loads 50 sample incidents instantly
+  mergen-server start              Start server (production mode)
+  mergen-server setup              Interactive setup wizard (connect PagerDuty, OTLP, IDE)
+  mergen-server demo               Same as no args — demo with sample incidents
   mergen-server status             Live snapshot: server health, buffer, errors, MCP activity
-  mergen-server setup              Interactive setup wizard
-  mergen-server start              Start the server
+  mergen-server connect github     Auto-register GitHub webhook → populates intent archive
+  mergen-server backfill github    Import historical PRs → enables explain_why on day 1
+  mergen-server init               Connect Datadog (guided setup)
+  mergen-server pr                 Generate a PR description from your debug session
+  mergen-server pr --copy          Same, but copies to clipboard
   mergen-server watch <cmd>        Stream any process into Mergen (e.g. watch npm start)
-  mergen-server doctor             Full health-check wizard (diagnose config issues)
-  mergen-server invite             Generate a team invite URL (pre-configured setup link)
-  mergen-server join <url>         Join a team Mergen instance from an invite URL
+  mergen-server doctor             Full health-check wizard
+  mergen-server invite             Generate a team invite URL
+  mergen-server join <url>         Join a team Mergen instance
   mergen-server postmortem [h]     Generate a postmortem document (default: last 1 hour)
-  mergen-server timeline [seconds] Unified causal timeline (browser + CI + deploy + backend)
+  mergen-server timeline [seconds] Unified causal timeline
   mergen-server export [label]     Export session as JSON + HTML report
-  mergen-server replay <dir>        Score historical incidents — run your past outages through the detector pipeline
+  mergen-server replay <dir>       Score historical incidents against the detector pipeline
   mergen-server guard              Pre-commit runtime check
   mergen-server guard --install    Install as git pre-commit hook
-  mergen-server guard --strict     Block commit on errors (use in hook)
   mergen-server test               Validate installation
   mergen-server ci                 CI smoke test (exit 0 = healthy)
   mergen-server --version          Show version
-  mergen-server --help             Show this help
 
 Examples:
-  npx mergen-server setup
+  npx mergen-server                # instant demo — no config needed
+  mergen-server start &            # production server in background
   mergen-server connect github --repo acme/api
-  mergen-server backfill github --repo acme/api --since 180d
-  mergen-server start &
-  mergen-server doctor
-  mergen-server export my-login-bug
-  mergen-server guard --install
-  mergen-server replay ./my-incidents     Score your own historical outages against the detector pipeline
+  mergen-server watch npm start
 
 Documentation: https://github.com/omertt27/Mergen
       `);
