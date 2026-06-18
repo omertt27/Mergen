@@ -7,9 +7,10 @@ import * as http from 'http';
 import { spawn } from 'child_process';
 import { MergenPanel } from './panel.js';
 
-const FEEDBACK_URL = 'https://github.com/omertt27/Mergen/discussions/new?category=feedback';
+const FEEDBACK_URL    = 'https://github.com/omertt27/Mergen/discussions/new?category=feedback';
 const INSTALL_GUIDE_URL = 'https://github.com/omertt27/Mergen#install-in-60-seconds';
-const SECRET_FILE = path.join(os.homedir(), '.mergen', 'secret');
+const CONNECT_URL     = 'https://mergen.dev/signup?source=vscode';
+const SECRET_FILE     = path.join(os.homedir(), '.mergen', 'secret');
 
 let cachedSecret: string | null = null;
 
@@ -451,6 +452,47 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.window.showInformationMessage('Mergen: PR intent copied — paste into your AI chat.');
       }
     }),
+
+    // ── mergen.connectAccount — opens mergen.dev signup in browser ─────────
+    vscode.commands.registerCommand('mergen.connectAccount', () => {
+      void vscode.env.openExternal(vscode.Uri.parse(CONNECT_URL));
+    }),
+
+    // ── mergen.enterLicenseKey — manual key entry fallback ─────────────────
+    vscode.commands.registerCommand('mergen.enterLicenseKey', async () => {
+      const key = await vscode.window.showInputBox({
+        title:       'Mergen: Enter License Key',
+        prompt:      'Paste your license key from mergen.dev/dashboard',
+        placeHolder: 'mrgn_live_...',
+        ignoreFocusOut: true,
+        validateInput: (v) => v.trim().length < 8 ? 'Key looks too short' : null,
+      });
+      if (!key) return;
+      await activateLicenseKey(key.trim(), provider);
+    }),
+
+    // ── mergen.signOut — deactivate license on local server ────────────────
+    vscode.commands.registerCommand('mergen.signOut', async () => {
+      const confirm = await vscode.window.showWarningMessage(
+        'Sign out of Mergen? Your local server will revert to the free plan.',
+        { modal: true },
+        'Sign Out',
+      );
+      if (confirm !== 'Sign Out') return;
+      const cfg  = vscode.workspace.getConfiguration('mergen');
+      const port = cfg.get<number>('serverPort', 3000);
+      await new Promise<void>((resolve) => {
+        const req = http.request(
+          { hostname: '127.0.0.1', port, path: '/license', method: 'DELETE', timeout: 3000 },
+          (res) => { res.resume(); resolve(); },
+        );
+        req.on('error', () => resolve());
+        req.on('timeout', () => { req.destroy(); resolve(); });
+        req.end();
+      });
+      void provider.refresh();
+      vscode.window.showInformationMessage('Mergen: signed out — now on the Free plan.');
+    }),
   );
 
   // ── Intent card: notify panel when active file changes ─────────────────────
@@ -472,6 +514,24 @@ export function activate(context: vscode.ExtensionContext): void {
     const relPath = workspaceRoot ? path.relative(workspaceRoot, absPath) : path.basename(absPath);
     provider.onActiveFileChanged(relPath);
   }
+
+  // ── URI handler: vscode://mergen.mergen/auth?token=mrgn_live_... ──────────
+  // mergen.dev redirects here after Clerk auth + LemonSqueezy checkout.
+  // VS Code prompts the user to confirm before we receive the URI.
+  context.subscriptions.push(
+    vscode.window.registerUriHandler({
+      handleUri(uri: vscode.Uri): void {
+        if (uri.path !== '/auth') return;
+        const params = new URLSearchParams(uri.query);
+        const token = params.get('token');
+        if (!token) {
+          vscode.window.showErrorMessage('Mergen: no token in auth URI');
+          return;
+        }
+        void activateLicenseKey(token, provider);
+      },
+    }),
+  );
 
   // ── First-run: open the walkthrough automatically ──────────────────────────
   // The first 20–50 installs are our most valuable feedback signal. Surfacing
@@ -640,6 +700,55 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export function deactivate(): void {
   // nothing — webview lifecycle is managed by VS Code
+}
+
+// ── License activation helper ────────────────────────────────────────────────
+// Shared by the URI handler (deep link) and the manual-entry command.
+// POSTs to the local server, then refreshes the panel.
+async function activateLicenseKey(key: string, provider: MergenPanel): Promise<void> {
+  const cfg  = vscode.workspace.getConfiguration('mergen');
+  const port = cfg.get<number>('serverPort', 3000);
+
+  try {
+    const result = await new Promise<{ ok?: boolean; plan?: string; email?: string; error?: string }>(
+      (resolve, reject) => {
+        const body = JSON.stringify({ key });
+        const req  = http.request(
+          {
+            hostname: '127.0.0.1', port, path: '/license', method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+            timeout: 8000,
+          },
+          (res) => {
+            let d = '';
+            res.on('data', (c: string) => { d += c; });
+            res.on('end', () => { try { resolve(JSON.parse(d)); } catch { reject(new Error('parse')); } });
+          },
+        );
+        req.on('error', reject);
+        req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+        req.write(body);
+        req.end();
+      },
+    );
+
+    if (result.error) {
+      vscode.window.showErrorMessage(`Mergen: activation failed — ${result.error}`);
+      return;
+    }
+
+    void provider.refresh();
+    const planLabel = result.plan ? ` (${result.plan})` : '';
+    const emailLabel = result.email ? ` as ${result.email}` : '';
+    vscode.window.showInformationMessage(`Mergen: connected${emailLabel}${planLabel} ✓`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg === 'timeout' || msg.includes('ECONNREFUSED')) {
+      vscode.window.showErrorMessage('Mergen: server not running — start it first, then try again.');
+    } else {
+      vscode.window.showErrorMessage(`Mergen: activation error — ${msg}`);
+    }
+  }
 }
 
 // ── Detector Health quick-pick ───────────────────────────────────────────────

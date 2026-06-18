@@ -4,6 +4,7 @@ const plans = [
     price: '$0',
     period: '/forever',
     pitch: 'Full autonomous loop on a single machine. No Datadog, no cloud, no card.',
+    pilotCondition: null,
     cta: 'Get Started',
     ctaClass: 'btn btn-outline',
     href: 'https://github.com/omertt27/Mergen/blob/main/INSTALL.md',
@@ -13,8 +14,9 @@ const plans = [
     name: 'Team',
     price: '$299',
     period: '/mo',
-    pitch: 'Stop getting paged at 3am. Shared operational memory, incident replay, and Slack ownership routing across up to 10 services.',
-    cta: 'Start Free Trial',
+    pitch: 'Shared operational memory, incident replay, and Slack ownership routing across up to 10 services.',
+    pilotCondition: 'Pilot succeeds when Mergen correctly analyzes 1 real incident in your environment.',
+    cta: 'Replay Your Last Incident',
     ctaClass: 'btn btn-outline',
     href: 'mailto:hello@mergen.dev',
     featured: false,
@@ -24,6 +26,7 @@ const plans = [
     price: 'Custom',
     period: '',
     pitch: 'Policy-enforced autonomous remediation, compliance controls, VPC deployment, and audit exports — with a dedicated SLA.',
+    pilotCondition: null,
     cta: 'Contact Sales',
     ctaClass: 'btn btn-white',
     href: 'mailto:hello@mergen.dev',
@@ -57,8 +60,8 @@ function Cell({ val }: { val: Cell }) {
 export default function Pricing() {
   return (
     <section id="access">
-      <span className="section-label">06 // Pricing</span>
-      <h2>Start free.<br />Scale when the corpus does.</h2>
+      <span className="section-label">07 // Pricing</span>
+      <h2>Start free.<br />Prove value before you pay.</h2>
 
       {/* ── Price cards ── */}
       <div className="price-row mt-lg" style={{ maxWidth: '1100px', margin: '8rem auto 0' }}>
@@ -75,6 +78,11 @@ export default function Pricing() {
               {plan.period && <span style={{ fontSize: '0.8rem' }}>{plan.period}</span>}
             </div>
             <p className="price-pitch">{plan.pitch}</p>
+            {plan.pilotCondition && (
+              <p style={{ fontSize: '0.72rem', color: 'var(--gray-400)', marginBottom: '1.25rem', fontStyle: 'italic', lineHeight: 1.5 }}>
+                ✓ {plan.pilotCondition}
+              </p>
+            )}
             <a href={plan.href} className={plan.ctaClass} style={{ display: 'block', textAlign: 'center' }}>
               {plan.cta}
             </a>

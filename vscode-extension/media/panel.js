@@ -215,8 +215,29 @@
     showEl('card-server',     connected);
     showEl('card-milestone',  false);   // static placeholder — never shown
 
+    // ── Account card — always shown when server is connected ─────────────────
+    const acct = state.account;
+    showEl('card-account', connected);
+    if (connected && acct) {
+      const signedIn = !!(acct.email || acct.status === 'active');
+      showEl('account-signed-in',  signedIn);
+      showEl('account-signed-out', !signedIn);
+      const planBadge = document.getElementById('account-plan-badge');
+      if (planBadge) {
+        if (acct.planId && acct.planId !== 'free') {
+          planBadge.textContent  = acct.planName || acct.planId;
+          planBadge.style.display = 'inline';
+        } else {
+          planBadge.style.display = 'none';
+        }
+      }
+      if (signedIn) {
+        setEl('account-email', acct.email || acct.name || 'Connected');
+      }
+    }
+
     if (!connected) {
-      ['card-pack','card-activity','card-signals','card-history','card-detectors','card-usage'].forEach(id => showEl(id, false));
+      ['card-pack','card-activity','card-signals','card-history','card-detectors','card-usage','card-account'].forEach(id => showEl(id, false));
       return;
     }
 

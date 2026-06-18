@@ -116,6 +116,18 @@
         "command": "mergen.whyThisFile",
         "title": "Mergen: Why This File? (PR Intent)",
         "icon": "$(history)"
+      },
+      {
+        "command": "mergen.connectAccount",
+        "title": "Mergen: Connect Account"
+      },
+      {
+        "command": "mergen.enterLicenseKey",
+        "title": "Mergen: Enter License Key"
+      },
+      {
+        "command": "mergen.signOut",
+        "title": "Mergen: Sign Out"
       }
     ],
     "menus": {

@@ -13,6 +13,22 @@ const steps = [
   },
   {
     num: '02',
+    title: 'Replay Your Last Incident',
+    tag: '< 30 min · no real alert required',
+    body: 'Before a real incident fires, replay one that already happened. POST your last alert to the demo endpoint — Mergen runs full causal analysis and posts what it would have done.',
+    code: `# Inject a past incident and see Mergen's diagnosis
+curl -X POST http://127.0.0.1:3000/demo \\
+  -H 'Content-Type: application/json' \\
+  -d '{"scenario":"db-pool-exhaustion"}'
+
+# Or replay a real PagerDuty incident payload:
+curl -X POST http://127.0.0.1:3000/webhooks/pagerduty \\
+  -H 'Content-Type: application/json' \\
+  -d @your-last-alert.json`,
+    note: 'Pilot success condition: Mergen correctly analyzes 1 real incident in your environment.',
+  },
+  {
+    num: '03',
     title: 'Connect Your Stack',
     tag: 'PagerDuty · OTLP · Docker',
     body: 'Point your PagerDuty webhook at Mergen, set your OTLP exporter endpoint, or stream Docker logs in one curl.',
@@ -24,7 +40,7 @@ curl -X POST http://127.0.0.1:3000/watchers/docker`,
     note: 'No Datadog required. Start with Docker logs — it works from day one.',
   },
   {
-    num: '03',
+    num: '04',
     title: 'Add to Your AI IDE',
     tag: 'Claude Code · Cursor · VS Code',
     body: 'Register Mergen as an MCP server. The tools — triage_incident, analyze_runtime, validate_fix — appear automatically in your IDE.',
@@ -36,7 +52,7 @@ claude mcp add mergen --transport stdio -- node "$(pwd)/server/dist/index.js"
     note: 'Ask: "What caused the last incident?" — Mergen answers with root cause + fix hint.',
   },
   {
-    num: '04',
+    num: '05',
     title: 'Enable Autopilot',
     tag: 'optional · ≥85% confidence gate',
     body: 'Set MERGEN_AUTOPILOT=true to let Mergen execute fixes autonomously. Starts in shadow mode for 30 days — builds a track record before it acts.',
@@ -76,11 +92,11 @@ function StepCode({ code }: { code: string }) {
 export default function UserGuide() {
   return (
     <section id="guide">
-      <span className="section-label">05 // Getting Started</span>
+      <span className="section-label">06 // Getting Started</span>
       <h2>
-        Up in five minutes.
+        First value in 30 minutes.
         <br />
-        Production-ready in a week.
+        Pilot success: 1 real incident analyzed.
       </h2>
 
       <div className="guide-steps mt-lg">
@@ -105,7 +121,7 @@ export default function UserGuide() {
           Full Install Guide →
         </a>
         <a href="mailto:hello@mergen.dev" className="btn-ghost">
-          Talk to us about your stack
+          Define your pilot success criteria →
         </a>
       </div>
     </section>

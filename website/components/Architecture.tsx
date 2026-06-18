@@ -1,27 +1,68 @@
 const sources = [
-  { tag: 'DOCKER',      label: 'Container Logs',    sub: 'stdout/stderr · any stack' },
-  { tag: 'PAGERDUTY',   label: 'Incident Alerts',   sub: 'Webhooks · Severity V3' },
-  { tag: 'OPENTELEMETRY', label: 'Traces + Metrics', sub: 'OTLP HTTP · any language' },
-  { tag: 'DATADOG',     label: 'APM Spans',         sub: 'Optional · blame attribution' },
+  { tag: 'PAGERDUTY',     label: 'Incident Alerts',   sub: 'Webhooks · Severity V3' },
+  { tag: 'OPENTELEMETRY', label: 'Traces + Metrics',  sub: 'OTLP HTTP · any language' },
+  { tag: 'DOCKER',        label: 'Container Logs',    sub: 'stdout/stderr · any stack' },
+  { tag: 'DATADOG',       label: 'APM Spans',         sub: 'Optional · blame attribution' },
 ]
 
 const outputs = [
   { label: 'Claude Code',  sub: 'triage_incident' },
   { label: 'Cursor',       sub: 'analyze_runtime' },
   { label: 'Slack',        sub: 'Owns the thread' },
-  { label: 'Audit Log',    sub: 'CISO-ready JSONL' },
+  { label: 'Audit Log',    sub: 'Reversible JSONL' },
+]
+
+const howSteps = [
+  {
+    num: '1',
+    title: 'Connect your production stack',
+    desc: 'Ingest signals from PagerDuty, OpenTelemetry, Docker, Kubernetes, and optionally Datadog. No agent required.',
+  },
+  {
+    num: '2',
+    title: 'Detect and understand incidents',
+    desc: 'When an alert fires, Mergen correlates telemetry across services, identifies the likely root cause, and matches it against past incidents and overrides.',
+  },
+  {
+    num: '3',
+    title: 'Apply operational memory',
+    desc: 'Mergen checks what your team did last time — past fixes, human overrides, known failure patterns — before generating a validated remediation plan.',
+  },
+  {
+    num: '4',
+    title: 'Resolve or recommend',
+    desc: 'Shadow mode: suggestion only. Assisted: recommended fix + approval. Autopilot: safe execution within constraints. Every action is logged and reversible.',
+  },
 ]
 
 export default function Architecture() {
   return (
     <section id="how">
-      <span className="section-label">01 // How It Works</span>
+      <span className="section-label">03 // How It Works</span>
       <h2>
-        Production context.
+        Four steps from alert
         <br />
-        Machine-readable.
+        to resolution.
       </h2>
 
+      {/* ── Step list ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1px', background: 'var(--gray-800)', border: '1px solid var(--gray-800)', marginBottom: '5rem' }}>
+        {howSteps.map((s) => (
+          <div key={s.num} style={{ background: 'var(--bg)', padding: '2.5rem' }}>
+            <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.65rem', color: 'var(--accent-text)', letterSpacing: '0.1em', display: 'block', marginBottom: '1rem' }}>
+              STEP {s.num}
+            </span>
+            <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--white)', marginBottom: '0.75rem', lineHeight: 1.3 }}>
+              {s.title}
+            </h3>
+            <p style={{ color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 1.7 }}>
+              {s.desc}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Data flow diagram ── */}
       <div className="arch-view mt-lg">
         <div className="arch-grid" />
         <div className="arch-flow">
@@ -67,10 +108,10 @@ export default function Architecture() {
             </code>
             <div style={{ marginTop: '1rem', borderTop: '1px solid var(--gray-800)', paddingTop: '0.75rem' }}>
               {[
-                'Override Corpus',
+                'Incident history',
+                'Override corpus',
+                'Root cause engine',
                 'Agent Blunder Log',
-                'Causal Engine',
-                'Postmortem Store',
                 'PII Shield',
               ].map((f) => (
                 <div key={f} style={{ fontSize: '0.6rem', color: 'var(--gray-400)', marginBottom: '0.3rem', display: 'flex', alignItems: 'center', gap: '6px' }}>

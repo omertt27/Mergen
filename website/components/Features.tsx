@@ -106,12 +106,12 @@ const features = [
   {
     num: '01',
     icon: <IconLoop />,
-    title: 'Autonomous Incident Loop',
+    title: 'Operational Memory',
     desc: (
       <>
-        PagerDuty fires → causal analysis across all telemetry → override corpus consulted →
-        fix executes at <span className="highlight">≥85% confidence</span> → validated (error count before/after) →
-        RESOLVED posted to your Slack thread.
+        Every resolved incident generates a structured record: root cause, fix applied, who overrode what and why.
+        Mergen indexes this history and consults it before every autonomous action —
+        so <span className="highlight">the same incident never gets diagnosed from scratch twice.</span>
         <SlackAuditTrail />
       </>
     ),
@@ -119,12 +119,12 @@ const features = [
   {
     num: '02',
     icon: <IconDatabase />,
-    title: 'Override Corpus',
+    title: 'Override-Based Learning',
     desc: (
       <>
-        Every time your team overrides Mergen's recommendation, that decision is encoded as policy.
-        After six months of production: your Friday settlement windows, your compliance holds,
-        your on-call's preferred fixes — <span className="highlight">structured, queryable, and impossible to replicate from a standing start.</span>
+        Every time your team overrides Mergen's recommendation, that decision becomes policy.
+        After six months: your Friday settlement windows, your compliance holds, your on-call's preferred fixes —
+        <span className="highlight"> structured, queryable, and impossible to replicate from a standing start.</span>
       </>
     ),
   },
@@ -134,21 +134,22 @@ const features = [
     title: 'Agent Blunder Log',
     desc: (
       <>
-        Every autonomous action Mergen's safety layer blocks is recorded with its reason:
-        allowlist block, RBAC rejection, override corpus halt, planning gate denial.
-        <span className="highlight"> The headline number is "prevented" — autonomous actions your on-call didn't have to handle.</span>
+        Every autonomous action Mergen's safety layer blocks is recorded: allowlist block, RBAC rejection,
+        override corpus halt, planning gate denial.
+        <span className="highlight"> This is your audit trail for AI-driven operations — and your answer to "how do you trust an AI agent with prod?"</span>
       </>
     ),
   },
   {
     num: '04',
     icon: <IconArchive />,
-    title: 'Institutional Memory',
+    title: 'Incident Replay',
     desc: (
       <>
-        Every resolved incident generates a structured postmortem, indexed by{' '}
-        <span className="highlight">BM25 + TF-IDF hybrid retrieval</span>. When an agent opens a file,
-        the IDE receives relevant past incidents automatically.
+        Before a real incident fires, replay one that already happened. Mergen runs full root cause analysis
+        on your past alert payloads and shows{' '}
+        <span className="highlight">exactly what it would have done.</span> This is how teams prove value before
+        committing.
         <IDEHint />
       </>
     ),
@@ -159,21 +160,21 @@ const features = [
     title: 'Measurable MTTR',
     desc: (
       <>
-        Designed for the <span className="highlight">sleep-deprived on-call engineer</span>. Mergen closes
-        the loop without manual dashboard jumping or log grepping. The impact report tracks{' '}
-        <span className="highlight">autonomous MTTR vs. manual MTTR per failure mode</span>.
+        Designed for the <span className="highlight">sleep-deprived on-call engineer.</span> The impact report
+        tracks autonomous MTTR vs. manual MTTR per failure mode — so you can show the before/after in a
+        board deck, not just feel it.
       </>
     ),
   },
   {
     num: '06',
     icon: <IconServer />,
-    title: 'Local-First. VPC-Ready.',
+    title: 'Shadow Mode Safe by Default',
     desc: (
       <>
-        Mergen runs <span className="highlight">entirely on your infrastructure</span>. Point it at Docker containers
-        or drop one import into your Node.js entry point. PII shield is always on.
-        Execution audit trail written to <code>~/.mergen/audit.log</code> as immutable JSONL.
+        Mergen can run without acting: observe production, simulate decisions, build a 30-day confidence track record.
+        <span className="highlight"> No risk required to start.</span> Flip to autopilot when the track record
+        earns it. Every action is logged and reversible.
       </>
     ),
   },
@@ -182,11 +183,11 @@ const features = [
 export default function Features() {
   return (
     <section id="why">
-      <span className="section-label">03 // Capabilities</span>
+      <span className="section-label">04 // Core Systems</span>
       <h2>
-        The moat is what
+        Memory that compounds
         <br />
-        accumulates.
+        with every incident.
       </h2>
       <div className="feature-grid">
         {features.map((f, i) => (

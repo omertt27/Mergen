@@ -1,48 +1,48 @@
 'use client'
 
-const flaws = [
+const problems = [
   {
     num: '01',
-    title: 'Velocity Trap',
-    sub: 'Spaghetti automation at scale',
-    desc: 'AI agents produce syntactically perfect code that ignores systemic architecture constraints. The result is high-velocity technical debt shipped at machine speed. When code generation is free, production safety becomes the scarcest resource in the org.',
+    title: 'Context is lost at deploy time',
+    sub: 'Engineers reconstruct from scratch under pressure',
+    desc: 'When a human spent three days on a complex fix, the context lived in their head. When incidents happen now, engineers grep logs, jump dashboards, and ask Slack — rebuilding understanding under pressure, at 3am.',
   },
   {
     num: '02',
-    title: 'Destroyed Memory',
-    sub: 'No one knows why it was built that way',
-    desc: 'When a human spent three days on a complex routing loop, context lived in their head. When an AI generates the same block in four seconds, nobody remembers why it exists. The moment it hits production, it becomes instant, unmaintainable legacy.',
+    title: 'Knowledge is trapped in people',
+    sub: 'Slack threads and individual memory don\'t scale',
+    desc: 'Past incidents live in individual engineers, old Slack threads, and runbooks nobody updates. When the person who fixed it last time is on holiday, the team starts from zero. Every repeat incident is a failure of memory, not a failure of engineering.',
   },
   {
     num: '03',
-    title: 'Incident Surge',
-    sub: 'Failures that only appear under load',
-    desc: 'Autonomous agents shipping code at machine speed introduce distributed failures that escape all static tests — connection pool exhaustion, timeout cascades, silent microservice regressions. These only manifest in production, at 3am.',
+    title: 'AI-generated code ships silent risk',
+    sub: 'Fast code, slow understanding',
+    desc: 'AI coding tools generate production logic in seconds. Nobody documented it. Nobody knows the failure modes. Connection pool exhaustion, timeout cascades, silent regressions — these only manifest in production, and only the system that watched them happen can explain them.',
   },
 ]
 
 export default function MacroThesis() {
   return (
     <section id="thesis">
-      <span className="section-label">02 // Why Now</span>
+      <span className="section-label">02 // The Problem</span>
       <h2>
-        Everyone is building
+        AI increased deployment speed.
         <br />
-        the accelerator pedal.
+        Production systems didn't get safer.
       </h2>
 
       <p style={{ maxWidth: '680px', color: 'var(--gray-400)', fontSize: '1.1rem', lineHeight: 1.7, marginBottom: '6rem' }}>
-        Every other startup is making AI write code faster. Three structural flaws of AI code generation
-        are compounding in parallel — each one making the layer below the IDE more necessary.
+        Modern teams ship code faster than ever. But operational understanding is still human —
+        reconstructed from scratch every time something breaks.
       </p>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0', border: '1px solid var(--gray-800)' }}>
-        {flaws.map((f, i) => (
+        {problems.map((f, i) => (
           <div
             key={f.num}
             style={{
               padding: '3rem',
-              borderRight: i < flaws.length - 1 ? '1px solid var(--gray-800)' : 'none',
+              borderRight: i < problems.length - 1 ? '1px solid var(--gray-800)' : 'none',
               transition: 'background 0.3s',
             }}
             onMouseEnter={e => (e.currentTarget.style.background = 'rgba(8,145,178,0.03)')}
@@ -59,12 +59,12 @@ export default function MacroThesis() {
               {f.num}
             </span>
             <h3 style={{
-              fontSize: '1.25rem',
+              fontSize: '1.1rem',
               fontWeight: 700,
-              textTransform: 'uppercase',
               letterSpacing: '-0.02em',
               color: 'var(--white)',
               marginBottom: '0.5rem',
+              lineHeight: 1.3,
             }}>
               {f.title}
             </h3>
@@ -73,8 +73,7 @@ export default function MacroThesis() {
               fontFamily: 'var(--font-geist-mono), monospace',
               color: 'var(--accent-text)',
               marginBottom: '1.5rem',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
+              letterSpacing: '0.03em',
             }}>
               {f.sub}
             </p>
@@ -97,9 +96,8 @@ export default function MacroThesis() {
         gap: '4rem',
       }}>
         <p style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--white)', lineHeight: 1.4, maxWidth: '600px' }}>
-          Mergen is the brakes, the steering wheel, and the black-box flight recorder. It scales directly
-          in proportion to the failures of AI-generated code — and the override corpus compounds with
-          every incident your team resolves. Six months in, your operational DNA is impossible to replicate from a standing start.
+          The missing layer is not code generation.
+          It is operational memory — for systems that now evolve faster than humans can track.
         </p>
         <a href="mailto:hello@mergen.dev" className="btn btn-white" style={{ flexShrink: 0 }}>
           Talk to us

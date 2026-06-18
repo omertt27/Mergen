@@ -49,7 +49,7 @@ export default function Nav() {
             ))}
           </ul>
 
-          <a href="/install" className="btn btn-white nav-cta">Get Started</a>
+          <a href="/install" className="btn btn-white nav-cta">Replay an Incident</a>
 
           <button
             className={`nav-hamburger${menuOpen ? ' open' : ''}`}
@@ -81,7 +81,7 @@ export default function Nav() {
               style={{ marginTop: '1rem', display: 'block', textAlign: 'center' }}
               onClick={() => setMenuOpen(false)}
             >
-              Get Started
+              Replay an Incident
             </a>
           </div>
         </div>

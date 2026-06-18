@@ -15,7 +15,7 @@ const categories = [
 export default function EvalProof() {
   return (
     <section id="eval">
-      <span className="section-label">02 // Accuracy</span>
+      <span className="section-label">05 // Evaluation</span>
       <h2>
         Evaluated before
         <br />
@@ -23,9 +23,9 @@ export default function EvalProof() {
       </h2>
 
       <p style={{ maxWidth: '640px', color: 'var(--gray-400)', fontSize: '1.1rem', lineHeight: 1.7, marginBottom: '5rem' }}>
-        We built a regression eval harness before shipping v1. Every PR that touches detector logic
+        We built a regression eval harness before shipping v1. Every PR that touches detection logic
         must pass this suite — 33 real incident scenarios, 10 infrastructure failure classes.
-        The suite fails CI if a previously-detected scenario stops being classified correctly.
+        When we say 94% accuracy, that number is reproducible and falsifiable.
       </p>
 
       <div className="eval-layout">
@@ -126,8 +126,8 @@ export default function EvalProof() {
         <span style={{ color: 'var(--white)', fontWeight: 700 }}>Why this matters:</span>{' '}
         Most observability tools are evaluated by the engineers who built them, on the incidents they chose.
         Mergen ships a public eval harness — the same suite that gates every release.
-        When we say 94% root cause accuracy, that number is reproducible and falsifiable. The 2 failures
-        are documented: the detector fires on liveness probe and Prometheus scrape errors when it shouldn't.
+        The 2 failures are documented: the detector fires on liveness probe and Prometheus scrape errors when it shouldn't.
+        Fix is in the roadmap; hiding it is not.
         </p>
         <a href="https://github.com/omertt27/Mergen/blob/main/server/eval-baseline.json" target="_blank" rel="noopener noreferrer" className="btn-ghost" style={{ marginTop: '1.5rem', display: 'inline-block' }}>
         View Full JSON Baseline →

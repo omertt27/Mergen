@@ -1,31 +1,31 @@
 'use client'
 
 const manualSteps = [
-  { time: '0m', action: 'PagerDuty fires', detail: 'Engineer wakes up, opens laptop.' },
-  { time: '5m', action: 'Log Grepping', detail: 'Searching through millions of lines in ELK/Datadog.' },
-  { time: '15m', action: 'Dashboard Jumping', detail: 'Correlating metrics across 5 different tabs.' },
-  { time: '30m', action: 'Slack War Room', detail: 'Asking "who deployed last?" and "is the DB down?"' },
-  { time: '45m', action: 'Manual Fix', detail: 'SSHing into boxes, manual rollbacks, praying it works.' },
-  { time: '60m+', action: 'Validation', detail: 'Watching dashboards for another 15m to be sure.' },
+  { time: '0m',   action: 'PagerDuty fires',      detail: 'Engineer wakes up. Opens laptop.' },
+  { time: '5m',   action: 'Check logs',            detail: 'Grep through millions of lines across services.' },
+  { time: '15m',  action: 'Check dashboards',      detail: 'Correlate metrics across 5 different tabs.' },
+  { time: '30m',  action: 'Ask Slack',             detail: '"Who deployed last?" "Is the DB down?"' },
+  { time: '45m',  action: 'Guess root cause',      detail: 'Apply a fix based on intuition. Hope it works.' },
+  { time: '60m+', action: 'Watch and wait',        detail: 'Monitor dashboards for another 15 min to confirm.' },
 ]
 
 const mergenSteps = [
-  { time: '0m', action: 'PagerDuty → Mergen', detail: 'Autonomous loop triggered immediately.' },
-  { time: '2s', action: 'Causal Analysis', detail: '800+ events analyzed across all telemetry.' },
-  { time: '5s', action: 'Corpus Check', detail: 'Past overrides and policies consulted.' },
-  { time: '10s', action: 'Autonomous Fix', detail: 'Fix executed with ≥85% confidence.' },
-  { time: '1m', action: 'Validated', detail: 'Error rate confirmed at 0. Incident resolved.' },
-  { time: '2m', action: 'Audit Trail', detail: 'Full postmortem posted to Slack for review.' },
+  { time: '0m',  action: 'PagerDuty fires',        detail: 'Mergen receives the webhook.' },
+  { time: '2s',  action: 'Analyze telemetry',      detail: 'Correlates logs, traces, and infra signals.' },
+  { time: '5s',  action: 'Check operational memory', detail: 'Matches against past incidents and human overrides.' },
+  { time: '10s', action: 'Generate validated fix',  detail: 'Produces a remediation plan at ≥85% confidence.' },
+  { time: '1m',  action: 'Resolve or recommend',   detail: 'Executes (autopilot) or posts fix for approval.' },
+  { time: '2m',  action: 'Audit trail posted',     detail: 'Full root cause + actions logged to Slack.' },
 ]
 
 export default function LegacyVsMergen() {
   return (
     <section id="how">
-      <span className="section-label">01 // The Paradigm Shift</span>
+      <span className="section-label">01 // The Difference</span>
       <h2>
-        Stop jumping
+        Before Mergen.
         <br />
-        between dashboards.
+        After Mergen.
       </h2>
 
       <div className="compare-grid mt-lg" style={{
@@ -37,7 +37,7 @@ export default function LegacyVsMergen() {
       }}>
         <div style={{ background: 'var(--bg)', padding: '3rem' }}>
           <h3 style={{ marginBottom: '2rem', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '1rem', color: 'var(--gray-600)' }}>
-            The Manual Loop
+            Without Mergen
           </h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             {manualSteps.map((s, i) => (
@@ -54,7 +54,7 @@ export default function LegacyVsMergen() {
 
         <div style={{ background: '#0891b208', padding: '3rem', borderLeft: '1px solid var(--gray-800)' }}>
           <h3 style={{ marginBottom: '2rem', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '1rem', color: 'var(--accent)' }}>
-            The Mergen Loop
+            With Mergen
           </h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             {mergenSteps.map((s, i) => (
@@ -76,7 +76,8 @@ export default function LegacyVsMergen() {
             borderRadius: '2px',
           }}>
             <p style={{ fontSize: '0.8rem', color: 'var(--accent-text)', lineHeight: 1.6 }}>
-              <strong>Result:</strong> 96% reduction in MTTR. The engineer wakes up to a resolved incident and a full audit trail, rather than a 3am fire drill.
+              <strong>Result:</strong> The engineer wakes up to a resolved incident and a full audit trail — not a 3am fire drill.
+              Every action is logged and reversible.
             </p>
           </div>
         </div>

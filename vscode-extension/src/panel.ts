@@ -180,6 +180,14 @@ interface FilePRContext {
   capturedAt: number;
 }
 
+interface AccountState {
+  email:   string | null;
+  name:    string | null;
+  planId:  string;
+  planName: string;
+  status:  'active' | 'inactive' | null;
+}
+
 interface ServerState {
   connected: boolean;
   port: number;
@@ -190,6 +198,7 @@ interface ServerState {
   calibration: CalibrationOverview | null;
   timeline: TimelineRow[];
   rootCause: RootCause | null;
+  account: AccountState | null;
   /** PR intent for the currently active file — null until fetched. */
   fileIntent: { file: string; contexts: FilePRContext[] } | null;
   error: string | null;
@@ -209,7 +218,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   private _state: ServerState = {
     connected: false, port: 3000, health: null, usage: null,
     lastPack: null, history: [], calibration: null, timeline: [], rootCause: null,
-    fileIntent: null, error: null,
+    account: null, fileIntent: null, error: null,
   };
   private _pollTimer?: ReturnType<typeof setTimeout>;
   private _activeFile: string | null = null;
@@ -236,6 +245,15 @@ export class MergenPanel implements vscode.WebviewViewProvider {
       if (msg.type === 'clear') await this.clearBuffer();
       if (msg.type === 'refresh') await this.refresh();
       if (msg.type === 'startCapture') await this.startCapture();
+      if (msg.type === 'connectAccount') {
+        await vscode.commands.executeCommand('mergen.connectAccount');
+      }
+      if (msg.type === 'enterKey') {
+        await vscode.commands.executeCommand('mergen.enterLicenseKey');
+      }
+      if (msg.type === 'signOut') {
+        await vscode.commands.executeCommand('mergen.signOut');
+      }
       if (msg.type === 'ready') {
                 this._send({ type: 'state', state: this._state });
                 void this._poll();
@@ -417,10 +435,11 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     calibration: CalibrationOverview | null;
     timeline: TimelineRow[];
     rootCause: RootCause | null;
+    account: AccountState | null;
   } | null> {
     try {
       const base = `http://127.0.0.1:${port}`;
-      const [health, usage, lastPack, history, calibration, unifiedData] = await Promise.all([
+      const [health, usage, lastPack, history, calibration, unifiedData, licenseData] = await Promise.all([
         httpGet(`${base}/health`,    timeoutMs) as Promise<HealthResponse>,
         httpGet(`${base}/usage`,     timeoutMs) as Promise<UsageSnapshot>,
         httpGet(`${base}/last-pack`, timeoutMs).catch(() => ({ hasPack: false } as LastPack)) as Promise<LastPack>,
@@ -430,8 +449,19 @@ export class MergenPanel implements vscode.WebviewViewProvider {
           .catch(() => null),
         (httpGet(`${base}/timeline/unified?seconds=300&limit=12`, timeoutMs) as Promise<{ rows: TimelineRow[]; rootCause: RootCause | null }>)
           .catch(() => ({ rows: [] as TimelineRow[], rootCause: null })),
+        (httpGet(`${base}/license`, timeoutMs) as Promise<{
+          plan: { id: string; name: string };
+          license: { status: string; email: string | null; name: string | null } | null;
+        }>).catch(() => null),
       ]);
-      return { health, usage, lastPack, history, calibration, timeline: unifiedData.rows ?? [], rootCause: unifiedData.rootCause ?? null };
+      const account: AccountState | null = licenseData ? {
+        email:    licenseData.license?.email ?? null,
+        name:     licenseData.license?.name  ?? null,
+        planId:   licenseData.plan?.id   ?? 'free',
+        planName: licenseData.plan?.name ?? 'Free',
+        status:   (licenseData.license?.status as AccountState['status']) ?? null,
+      } : null;
+      return { health, usage, lastPack, history, calibration, timeline: unifiedData.rows ?? [], rootCause: unifiedData.rootCause ?? null, account };
     } catch {
       return null;
     }
@@ -446,6 +476,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
         health: result.health, usage: result.usage,
         lastPack: result.lastPack, history: result.history,
         calibration: result.calibration, timeline: result.timeline, rootCause: result.rootCause,
+        account: result.account,
         fileIntent: this._state.fileIntent,
         error: null,
       };
@@ -1108,6 +1139,40 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   </div>
   <div style="margin-top:10px; font-size:11px; opacity:0.65">
     Or in a terminal: <code>mergen-server start</code>
+  </div>
+  <div style="margin-top:14px; border-top:1px solid var(--vscode-widget-border,rgba(127,127,127,.2)); padding-top:12px">
+    <div style="font-size:11px; opacity:0.75; margin-bottom:8px">Have a Mergen account?</div>
+    <div style="display:flex; gap:6px; flex-wrap:wrap; justify-content:center">
+      <button class="primary" onclick="send('connectAccount')" style="flex:none">→ Connect Account</button>
+      <button onclick="send('enterKey')" style="flex:none">Enter license key…</button>
+    </div>
+  </div>
+</div>
+
+<!-- Account card -->
+<div class="card" id="card-account" style="display:none">
+  <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
+    <span>Account</span>
+    <span id="account-plan-badge" class="badge" style="display:none"></span>
+  </div>
+  <div id="account-signed-in" style="display:none">
+    <div class="row">
+      <span class="row-label">Signed in as</span>
+      <span class="row-value" id="account-email" style="font-size:11px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+    </div>
+    <div class="btn-row" style="margin-top:8px">
+      <button onclick="send('signOut')">Sign out</button>
+      <a class="signal-run" href="https://mergen.dev/dashboard" title="Open dashboard" style="text-align:center">↗ Dashboard</a>
+    </div>
+  </div>
+  <div id="account-signed-out">
+    <div style="font-size:11px;color:var(--vscode-descriptionForeground);margin-bottom:8px">
+      Connect your Mergen account to unlock your plan and sync credits.
+    </div>
+    <div class="btn-row">
+      <button class="primary" onclick="send('connectAccount')">→ Connect Account</button>
+      <button onclick="send('enterKey')">Enter key…</button>
+    </div>
   </div>
 </div>
 

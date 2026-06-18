@@ -14,20 +14,23 @@ export function createLicenseRouter(): Router {
   const router = Router();
 
   router.get('/license', (_req, res) => {
-    const state = getLicenseState();
+    const state  = getLicenseState();
     const planId = getActivePlanId();
-    const plan = getPlan(planId);
+    const plan   = getPlan(planId);
     res.json({
       plan: {
-        id: plan.id,
+        id:   plan.id,
         name: plan.name,
         bufferSize: plan.bufferSize,
-        analyzeCreditsPerMonth: plan.analyzeCreditsPerMonth === Infinity ? null : plan.analyzeCreditsPerMonth,
-        teamSync: plan.teamSync,
+        analyzeCreditsPerMonth: (plan.analyzeCreditsPerMonth as number) === Infinity
+          ? null : plan.analyzeCreditsPerMonth,
       },
-      license: state
-        ? { status: state.status, email: state.customerEmail, name: state.customerName, activatedAt: state.activatedAt }
-        : null,
+      license: state ? {
+        status:      (state as Record<string, unknown>).status ?? 'active',
+        email:       state.customerEmail ?? null,
+        name:        (state as Record<string, unknown>).customerName as string ?? null,
+        activatedAt: (state as Record<string, unknown>).validatedAt ?? null,
+      } : null,
     });
   });
 
@@ -38,8 +41,8 @@ export function createLicenseRouter(): Router {
       return;
     }
     try {
-      const state = await activateKey(key.trim());
-      res.json({ ok: true, plan: state.planId, email: state.customerEmail });
+      const result = await activateKey(key.trim());
+      res.json({ ok: true, plan: result['planId'], email: result['email'] });
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'activation failed';
       logger.warn({ err }, 'license activation failed');
