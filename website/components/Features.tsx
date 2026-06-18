@@ -55,7 +55,7 @@ const SlackAuditTrail = () => (
     boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
   }}>
     <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-      <div style={{ width: '36px', height: '36px', background: 'var(--accent)', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyCenter: 'center', color: 'white', fontWeight: 800, fontSize: '0.6rem' }}>MRG</div>
+      <div style={{ width: '36px', height: '36px', background: 'var(--accent)', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 800, fontSize: '0.6rem' }}>MRG</div>
       <div>
         <div style={{ fontWeight: 900, marginBottom: '4px', color: 'white' }}>Mergen <span style={{ fontWeight: 400, fontSize: '0.7rem', color: '#ababad', marginLeft: '6px' }}>APP 3:17 PM</span></div>
         <div style={{ marginBottom: '8px' }}>✅ <b>Incident #402 resolved autonomously</b></div>
@@ -92,7 +92,7 @@ const IDEHint = () => (
       <div style={{ color: '#4ade80', background: 'rgba(74, 222, 128, 0.05)', padding: '4px', margin: '8px 0', borderLeft: '2px solid #4ade80' }}>
         ⚠️ This file was modified in <b>Incident #388</b> (OOM Kill).
         <br/>Reason: Recursive token validation on nested JWTs.
-        <br/>Constraint: Do not increase stack depth > 4.
+        <br/>Constraint: Do not increase stack depth &gt; 4.
       </div>
       <div style={{ opacity: 0.5 }}>
         <span style={{ color: '#c084fc' }}>export const</span> <span style={{ color: '#60a5fa' }}>validateToken</span> = (token: <span style={{ color: '#fbbf24' }}>string</span>) =&gt; &#123;
