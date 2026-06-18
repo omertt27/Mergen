@@ -19,7 +19,7 @@ import { buildCausalChain } from '../intelligence/causal.js';
 import { buildCausalGraph } from '../intelligence/causal-graph.js';
 import { serviceTopology } from '../sensor/service-topology.js';
 import { hypothesisHistory } from '../intelligence/hypothesis-history.js';
-import { getStats } from '../intelligence/calibration.js';
+import { getCostGuardStats } from '../intelligence/incident-autopilot.js';
 import { getUsageSnapshot, recordExplainWhyFeedback } from '../intelligence/usage.js';
 import { toolCallCounts, lastMcpCallAt, firstAnalyzeAt, lastTimeToFirstAnalysisMs } from '../intelligence/tools.js';
 import { listActiveSessions } from '../intelligence/debug-sessions.js';
@@ -61,6 +61,7 @@ export function createSensorRouter(serverVersion: string): Router {
       teamSync: isTeamEnabled()
         ? { enabled: true, memberName: teamState?.memberName, connectedPeers: 0 }
         : { enabled: false },
+      costGuard: getCostGuardStats(),
     });
   });
 

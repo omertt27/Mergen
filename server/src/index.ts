@@ -43,6 +43,7 @@ import { saveSessionToHistory } from './sensor/session-history.js';
 
 import { initLicense, getActivePlanId } from './intelligence/license.js';
 import { initUsage, flushOverageOnShutdown } from './intelligence/usage.js';
+import { flushPendingRebuild } from './intelligence/hypothesis-history.js';
 import { initTeam, broadcastToTeam } from './intelligence/team.js';
 import { initTelemetry, maybeSendTelemetry, uploadCalibrationBatch } from './intelligence/telemetry.js';
 import { getPlan } from './intelligence/plans.js';
@@ -363,7 +364,7 @@ async function main(): Promise<void> {
     const events = store.serialize();
     saveSessionToHistory(events, `shutdown-${signal.toLowerCase()}`);
     saveSession(events);
-    flushOverageOnShutdown().finally(() => {
+    Promise.all([flushOverageOnShutdown(), flushPendingRebuild()]).finally(() => {
       stopDockerMonitor();
       stopDockerLogStream();
       stopAllProcessWatchers();

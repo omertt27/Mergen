@@ -111,12 +111,12 @@ vi.mock('../../sensor/incident-store.js', () => ({
 }));
 
 // ── Module under test (imported after mocks are registered) ───────────────────
-import { runIncidentAutopilot } from '../../intelligence/incident-autopilot.js';
+import { runIncidentAutopilot, _resetTriagedForTesting } from '../../intelligence/incident-autopilot.js';
 
 // ── Env setup ────────────────────────────────────────────────────────────────
 // Set MERGEN_SHADOW_MODE before each test. The flag is now read lazily by
 // isShadowMode() at call time, so beforeEach is sufficient — no vi.hoisted().
-beforeEach(() => { process.env.MERGEN_SHADOW_MODE = 'true'; });
+beforeEach(() => { process.env.MERGEN_SHADOW_MODE = 'true'; _resetTriagedForTesting(); });
 afterEach(() => { delete process.env.MERGEN_SHADOW_MODE; });
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────

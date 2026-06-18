@@ -89,6 +89,27 @@ const MAX_EVENTS = 2_000;
 let _events: OverrideEvent[] = [];
 let _loaded = false;
 
+// ── Compaction cache (dirty flag) ─────────────────────────────────────────────
+// compactCorpus() is O(n) over _events. We memoize the result and only
+// recompute when _events has changed. This makes getRulesForTag() O(1) for
+// repeated calls within the same autopilot run.
+let _compactedRules: CompactedRule[] | null = null;
+let _corpusDirty = true; // starts dirty so the first call always computes
+
+// ── Debounced persist ─────────────────────────────────────────────────────────
+// Writing the full JSON on every recordOverride() blocks the event loop under
+// noisy incident conditions. We coalesce writes: the file is flushed 500ms after
+// the last mutation, not on every mutation.
+let _persistTimer: ReturnType<typeof setTimeout> | null = null;
+
+function schedulePersist(): void {
+  if (_persistTimer) clearTimeout(_persistTimer);
+  _persistTimer = setTimeout(() => {
+    _persistTimer = null;
+    persist();
+  }, 500);
+}
+
 function load(): void {
   if (_loaded) return;
   if (!fs.existsSync(OVERRIDE_CORPUS_FILE)) { _loaded = true; return; }
@@ -139,7 +160,8 @@ export function recordOverride(input: Omit<OverrideEvent, 'id' | 'dayOfWeek' | '
   };
   _events.push(event);
   if (_events.length > MAX_EVENTS) _events = _events.slice(-MAX_EVENTS);
-  persist();
+  _corpusDirty = true;
+  schedulePersist();
   logger.info({ id: event.id, tag: event.incidentTag, reason: event.overrideReason, service: event.service }, 'override-corpus: override recorded');
   return event;
 }
@@ -150,7 +172,7 @@ export function updateOutcome(id: string, outcome: OverrideOutcome): boolean {
   const ev = _events.find((e) => e.id === id);
   if (!ev) return false;
   ev.outcome = outcome;
-  persist();
+  schedulePersist();
   return true;
 }
 
@@ -215,6 +237,138 @@ export function getOverrideById(id: string): OverrideEvent | null {
 export function getAllOverrides(): readonly OverrideEvent[] {
   load();
   return _events;
+}
+
+// ── Corpus compaction ─────────────────────────────────────────────────────────
+
+/**
+ * A generalized rule distilled from multiple override events.
+ *
+ * Rules are the compressed form of the override corpus. Instead of scanning
+ * 2,000 raw events for every autopilot decision, callers query compacted rules
+ * which are grouped, time-windowed, and bounded in count regardless of incident
+ * volume. This is what keeps storage flat and lookup cost O(1) rather than O(n).
+ */
+export interface CompactedRule {
+  /** Detector tag this rule applies to (e.g. 'db_pool_exhaustion'). */
+  incidentTag: string;
+  /** Service this rule applies to. */
+  service: string;
+  /** Most common override reason driving this rule. */
+  overrideReason: OverrideReason;
+  /** Day-of-week (0=Sun … 6=Sat) this rule clusters on, or null if no day pattern. */
+  dayOfWeek: number | null;
+  /**
+   * UTC hour window [start, end) where overrides cluster, or null.
+   * e.g. [20, 23] means Friday 20–22 UTC.
+   */
+  hourWindow: [number, number] | null;
+  /** Number of override events this rule was distilled from. */
+  occurrences: number;
+  compactedAt: number;
+}
+
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/**
+ * Distills the override event ring into a compact set of actionable rules.
+ *
+ * Each rule represents a recurring (incidentTag, service, overrideReason) pattern.
+ * The corpus compresses naturally over time: 1,000 Friday-DB-pool overrides collapse
+ * into one rule instead of occupying 1,000 ring-buffer slots.
+ *
+ * Intended use: call at startup and after bulk imports. For per-incident lookups
+ * use getRulesForTag() which calls this internally.
+ */
+export function compactCorpus(): CompactedRule[] {
+  load();
+
+  // Return memoized result when _events hasn't changed since last compaction.
+  if (!_corpusDirty && _compactedRules !== null) return _compactedRules;
+
+  // Group by (incidentTag, service, overrideReason) — the three dimensions that
+  // determine whether an override pattern is actionable.
+  const buckets = new Map<string, OverrideEvent[]>();
+  for (const e of _events) {
+    const key = `${e.incidentTag}\x00${e.service}\x00${e.overrideReason}`;
+    const list = buckets.get(key) ?? [];
+    list.push(e);
+    buckets.set(key, list);
+  }
+
+  const rules: CompactedRule[] = [];
+
+  for (const events of buckets.values()) {
+    if (events.length === 0) continue;
+    const first = events[0];
+
+    // Day clustering: surface dominant day only when ≥40% of overrides fall on it.
+    const dayCounts = new Map<number, number>();
+    for (const e of events) dayCounts.set(e.dayOfWeek, (dayCounts.get(e.dayOfWeek) ?? 0) + 1);
+
+    let dominantDay: number | null = null;
+    let dominantDayCount = 0;
+    for (const [day, count] of dayCounts) {
+      if (count > dominantDayCount) { dominantDay = day; dominantDayCount = count; }
+    }
+    if (dominantDay !== null && dominantDayCount / events.length < 0.4) dominantDay = null;
+
+    // Hour window for the dominant day (or all events if no day pattern).
+    let hourWindow: [number, number] | null = null;
+    const hoursToWindow = dominantDay !== null
+      ? events.filter((e) => e.dayOfWeek === dominantDay).map((e) => e.hourOfDay)
+      : events.map((e) => e.hourOfDay);
+    if (hoursToWindow.length > 0) {
+      const minH = Math.min(...hoursToWindow);
+      const maxH = Math.max(...hoursToWindow);
+      // Only surface a window when it's narrower than the full day.
+      if (maxH - minH < 20) hourWindow = [minH, maxH + 1];
+    }
+
+    rules.push({
+      incidentTag:    first.incidentTag,
+      service:        first.service,
+      overrideReason: first.overrideReason,
+      dayOfWeek:      dominantDay,
+      hourWindow,
+      occurrences:    events.length,
+      compactedAt:    Date.now(),
+    });
+  }
+
+  rules.sort((a, b) => b.occurrences - a.occurrences);
+  _compactedRules = rules;
+  _corpusDirty = false;
+  return rules;
+}
+
+/**
+ * Returns all compacted rules that match a given (incidentTag, service) pair,
+ * sorted by occurrence count descending.
+ *
+ * This is the primary entry point for planning-gate and corpus-first routing:
+ * a rule hit here means the override pattern is documented and recurring.
+ */
+export function getRulesForTag(incidentTag: string, service: string): CompactedRule[] {
+  return compactCorpus().filter(
+    (r) => r.incidentTag === incidentTag && r.service === service,
+  );
+}
+
+/**
+ * Human-readable description of the strongest rule for a (tag, service) pair.
+ * Returns null when no rules exist.
+ *
+ * Example: "db_pool_exhaustion for api — batch-window (Friday 20–22 UTC, 14 overrides)"
+ */
+export function describeTopRule(incidentTag: string, service: string): string | null {
+  const rules = getRulesForTag(incidentTag, service);
+  if (rules.length === 0) return null;
+  const r = rules[0];
+  const timePart = r.dayOfWeek !== null
+    ? ` (${DAY_NAMES[r.dayOfWeek]}${r.hourWindow ? ` ${r.hourWindow[0]}–${r.hourWindow[1] - 1} UTC` : ''}, ${r.occurrences} overrides)`
+    : ` (${r.occurrences} overrides)`;
+  return `${r.incidentTag} for ${r.service} — ${r.overrideReason}${timePart}`;
 }
 
 /**

@@ -10,6 +10,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import path from 'path';
+import { existsSync } from 'node:fs';
 import { checkBoundaries } from '../intelligence/arch-boundaries.js';
 import { scoreChangeRisk } from '../intelligence/change-risk.js';
 import { buildGraph, getZone } from '../intelligence/arch-graph.js';
@@ -18,7 +19,6 @@ import { critiqueImplementation } from '../intelligence/impl-critic.js';
 function defaultSrcDir(): string {
   const cwd = process.cwd();
   const candidates = [path.resolve(cwd, 'src'), path.resolve(cwd, 'server/src')];
-  const { existsSync } = require('fs');
   for (const c of candidates) if (existsSync(c)) return c;
   return path.resolve(cwd, 'src');
 }

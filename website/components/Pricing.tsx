@@ -11,9 +11,9 @@ const plans = [
   },
   {
     name: 'Team',
-    price: '$49',
+    price: '$299',
     period: '/mo',
-    pitch: 'Shared override corpus, MTTR dashboard, and per-service Slack routing for your whole team.',
+    pitch: 'Stop getting paged at 3am. Shared operational memory, incident replay, and Slack ownership routing across up to 10 services.',
     cta: 'Start Free Trial',
     ctaClass: 'btn btn-outline',
     href: 'mailto:hello@mergen.dev',
@@ -21,9 +21,9 @@ const plans = [
   },
   {
     name: 'Enterprise',
-    price: 'Contact',
+    price: 'Custom',
     period: '',
-    pitch: 'Self-hosted VPC, SSO + RBAC, SOC 2 exports, and a dedicated SLA.',
+    pitch: 'Policy-enforced autonomous remediation, compliance controls, VPC deployment, and audit exports — with a dedicated SLA.',
     cta: 'Contact Sales',
     ctaClass: 'btn btn-white',
     href: 'mailto:hello@mergen.dev',
@@ -34,16 +34,17 @@ const plans = [
 type Cell = boolean | string
 
 const matrix: { name: string; solo: Cell; team: Cell; enterprise: Cell }[] = [
-  { name: 'All MCP tools (triage, analyze, validate)',  solo: true,     team: true,     enterprise: true },
-  { name: 'Override corpus',                            solo: 'Local',  team: 'Shared', enterprise: 'Shared' },
+  { name: 'Autonomous incident triage + fix',           solo: true,     team: true,     enterprise: true },
+  { name: 'Operational memory (override corpus)',       solo: 'Local',  team: 'Shared', enterprise: 'Shared' },
   { name: 'Agent Blunder Log + audit trail',            solo: true,     team: true,     enterprise: true },
-  { name: 'Shadow mode (30-day track record)',          solo: true,     team: true,     enterprise: true },
+  { name: 'Shadow mode (30-day safety track record)',   solo: true,     team: true,     enterprise: true },
+  { name: 'Incident replay + MTTR analytics',          solo: false,    team: true,     enterprise: true },
+  { name: 'Slack ownership routing (up to 10 services)', solo: false,  team: true,     enterprise: true },
   { name: 'Shadow mode analytics PDF',                  solo: false,    team: true,     enterprise: true },
-  { name: 'Per-service Slack routing',                  solo: false,    team: true,     enterprise: true },
-  { name: 'Context-assisted MTTR dashboard',            solo: false,    team: true,     enterprise: true },
-  { name: 'Self-hosted VPC deployment (TLS)',           solo: false,    team: false,    enterprise: true },
-  { name: 'SSO + RBAC',                                solo: false,    team: false,    enterprise: true },
-  { name: 'SOC 2 compliance exports',                   solo: false,    team: false,    enterprise: true },
+  { name: 'Policy-enforced autonomous remediation',     solo: false,    team: false,    enterprise: true },
+  { name: 'VPC deployment + TLS',                      solo: false,    team: false,    enterprise: true },
+  { name: 'SSO + RBAC + compliance controls',          solo: false,    team: false,    enterprise: true },
+  { name: 'Audit exports (SOC 2)',                      solo: false,    team: false,    enterprise: true },
   { name: 'Dedicated onboarding + SLA',                 solo: false,    team: false,    enterprise: true },
 ]
 

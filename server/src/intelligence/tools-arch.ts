@@ -10,10 +10,11 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import path from 'path';
+import { existsSync } from 'node:fs';
 import { trackCall } from './tools-state.js';
 import { checkBoundaries, formatBoundaryReport } from './arch-boundaries.js';
 import { scoreChangeRisk, formatRiskReport } from './change-risk.js';
-import { buildGraph, queryGraph, invalidateGraph, ZONE_DISPLAY } from './arch-graph.js';
+import { buildGraph, queryGraph, invalidateGraph } from './arch-graph.js';
 import { critiqueImplementation, formatCritiqueReport } from './impl-critic.js';
 
 /**
@@ -28,7 +29,6 @@ function defaultSrcDir(): string {
     path.resolve(cwd, 'server/src'),
     path.resolve(cwd, '../src'),
   ];
-  const { existsSync } = require('fs');
   for (const c of candidates) {
     if (existsSync(c)) return c;
   }

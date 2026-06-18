@@ -37,6 +37,7 @@ import { fetchErrorCountSince, isConfigured as isDatadogConfigured } from '../da
 import { normalizeRuntimeFactMarkdown, normalizeProcessExits, normalizeSlackContext } from '../sensor/infra-normalizer.js';
 import { getK8sEvents } from '../sensor/k8s-events.js';
 import { hasRecentOverride, dominantOverrideReason } from './override-corpus.js';
+import { cacheIncidentResult, getCachedIncidentResult } from './incident-result-cache.js';
 import { recordShadow } from './shadow-log.js';
 import { getAutopilotLevel, autopilotLevelPermits, classifyCommandRisk, autopilotLevelDescription } from './action-risk.js';
 import { recordBlunder } from '../sensor/agent-blunder-store.js';
@@ -56,6 +57,32 @@ approvalEvents.on('approval:expired', (pid: string, text: string) => {
 });
 
 const ANALYSIS_TIMEOUT_MS = 30_000;
+
+// Dedup: prevent re-triaging the same incident fingerprint within this window.
+// PagerDuty may re-fire (reassigned, re-triggered) for the same root cause.
+const DEDUP_TTL_MS = 30 * 60 * 1_000; // 30 min
+const _recentlyTriaged = new Map<string, number>();
+
+// Concurrency cap: at most N simultaneous LLM inference calls.
+// Prevents cost spikes when many services page at the same time.
+const MAX_CONCURRENT_AUTOPILOT = 3;
+let _activeCalls = 0;
+
+// Observability counters — exposed via getCostGuardStats().
+const _stats = {
+  dedupHits:           0,
+  corpusFastPathHits:  0,
+  executedFastPathHits: 0,
+  concurrencyBlocked:  0,
+  tokenBudgetTruncations: 0,
+  concurrentPeak:      0,
+};
+
+/** Returns live cost-guard metrics for the health endpoint and dashboards. */
+export function getCostGuardStats() {
+  return { ..._stats, concurrentActive: _activeCalls };
+}
+export function _resetTriagedForTesting(): void { _recentlyTriaged.clear(); }
 
 // Threshold is derived from the calibration corpus at runtime (ROC analysis).
 // Falls back to 0.85 if fewer than 20 verdicts exist. Recomputed every 10 min.
@@ -102,6 +129,78 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
   const { service, pid, firedAt, cwd } = opts;
   logger.info({ service, pid }, 'incident-autopilot: starting');
 
+  // ── Dedup guard (autopilot only — shadow mode re-analyzes freely) ────────
+  // PagerDuty re-fires for reassigned/re-triggered incidents. Prevent paying
+  // for a second LLM call when the root cause hasn't changed.
+  // Shadow mode is diagnostic: skipping dedup preserves the calibration track record.
+  if (!isShadowMode()) {
+    const lastTriaged = _recentlyTriaged.get(pid);
+    if (lastTriaged && Date.now() - lastTriaged < DEDUP_TTL_MS) {
+      _stats.dedupHits++;
+      logger.info({ service, pid }, 'incident-autopilot: duplicate fingerprint within 30min — skipping re-analysis');
+      await postThreadReply(pid, '_Mergen: same incident fingerprint already triaged within 30 min — skipping re-analysis._');
+      return;
+    }
+    _recentlyTriaged.set(pid, Date.now());
+    if (_recentlyTriaged.size > 200) {
+      const cutoff = Date.now() - DEDUP_TTL_MS;
+      for (const [k, v] of _recentlyTriaged) if (v < cutoff) _recentlyTriaged.delete(k);
+    }
+  }
+
+  // ── Result cache fast-paths (autopilot only) ─────────────────────────────
+  // Shadow mode always runs full analysis for calibration accuracy.
+  if (!isShadowMode()) {
+    const cached = getCachedIncidentResult(pid);
+    if (cached?.corpusBlocked) {
+      _stats.corpusFastPathHits++;
+      logger.info({ service, pid, tag: cached.incidentTag }, 'incident-autopilot: corpus fast-path — skipping LLM inference');
+      await postThreadReply(
+        pid,
+        `⚠️ _Autopilot: corpus fast-path — incident pattern \`${cached.incidentTag}\` was previously blocked by the override corpus for \`${service}\`. Awaiting manual action._`,
+      );
+      return;
+    }
+    if (cached?.executedCommand) {
+      _stats.executedFastPathHits++;
+      const agoMin = Math.round((Date.now() - cached.cachedAt) / 60_000);
+      logger.info({ service, pid, cmd: cached.executedCommand }, 'incident-autopilot: executed fast-path — fix already applied');
+      await postThreadReply(
+        pid,
+        `_Mergen: fix \`${cached.executedCommand}\` was applied for this incident ${agoMin} min ago — skipping re-analysis. If the issue persists, override the cache via POST /overrides._`,
+      );
+      return;
+    }
+  }
+
+  // ── Concurrency gate ──────────────────────────────────────────────────────
+  // Cap simultaneous LLM calls to avoid cost spikes when many services page at once.
+  if (_activeCalls >= MAX_CONCURRENT_AUTOPILOT) {
+    const deadline = Date.now() + 2 * 60_000;
+    while (_activeCalls >= MAX_CONCURRENT_AUTOPILOT && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 1_000));
+    }
+    if (_activeCalls >= MAX_CONCURRENT_AUTOPILOT) {
+      _stats.concurrencyBlocked++;
+      logger.warn({ service, pid, active: _activeCalls }, 'incident-autopilot: concurrency cap reached — aborting');
+      await postThreadReply(pid, '_Mergen: too many concurrent analyses in progress — retry in a few minutes or investigate manually._');
+      return;
+    }
+  }
+
+  _activeCalls++;
+  if (_activeCalls > _stats.concurrentPeak) _stats.concurrentPeak = _activeCalls;
+
+  return _runAutopilotCore(service, pid, firedAt, cwd).finally(() => {
+    _activeCalls--;
+  });
+}
+
+// ── Core analysis (runs with concurrency slot held) ───────────────────────────
+// Extracted so runIncidentAutopilot can manage the concurrency counter with
+// try/finally semantics without restructuring every return path.
+async function _runAutopilotCore(service: string, pid: string, firedAt: number, cwd: string | undefined): Promise<void> {
+
   // Wait for telemetry to accumulate (event-driven, capped at 10s)
   await waitForTelemetry(firedAt);
 
@@ -112,6 +211,26 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
   const processExits = store.getProcessExits(20, undefined, firedAt);
   const ciEvents     = store.getCIEvents(20, undefined, firedAt);
   const deployments  = store.getDeployments(10, undefined, firedAt);
+
+  // ── Token budget ────────────────────────────────────────────────────────
+  // Cap telemetry arrays sent to buildCausalChain. A noisy buffer (200 logs +
+  // 200 network events) inflates LLM costs with low-signal data. Strategy:
+  // prioritise errors and network failures, keep the most recent of each tier.
+  const MAX_BUDGET_LOGS    = 60;
+  const MAX_BUDGET_NETWORK = 60;
+  const errorLogs   = logs.filter((e) => e.level === 'error').slice(-MAX_BUDGET_LOGS);
+  const fillerLogs  = logs.filter((e) => e.level !== 'error').slice(-(MAX_BUDGET_LOGS - errorLogs.length));
+  const netFails    = network.filter((n) => n.status >= 400 || !!n.error).slice(-MAX_BUDGET_NETWORK);
+  const netOk       = network.filter((n) => n.status < 400 && !n.error).slice(-(MAX_BUDGET_NETWORK - netFails.length));
+  const budgetedLogs    = [...fillerLogs, ...errorLogs];  // errors last = most prominent
+  const budgetedNetwork = [...netOk, ...netFails];
+  if (logs.length > MAX_BUDGET_LOGS || network.length > MAX_BUDGET_NETWORK) {
+    _stats.tokenBudgetTruncations++;
+    logger.info(
+      { service, pid, originalLogs: logs.length, budgetedLogs: budgetedLogs.length, originalNetwork: network.length, budgetedNetwork: budgetedNetwork.length },
+      'incident-autopilot: token budget truncated telemetry',
+    );
+  }
 
   const errorCount = logs.filter((e) => e.level === 'error').length;
   const netErrors  = network.filter((n) => n.status >= 400 || !!n.error).length;
@@ -166,7 +285,7 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
   let causal: CausalChain | null = null;
   try {
     causal = await Promise.race([
-      buildCausalChain(logs, network, contexts, firedAt, terminal, processExits, ciEvents, deployments, infraEvents),
+      buildCausalChain(budgetedLogs, budgetedNetwork, contexts, firedAt, terminal, processExits, ciEvents, deployments, infraEvents),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('analysis timeout')), ANALYSIS_TIMEOUT_MS),
       ),
@@ -402,6 +521,8 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
     // Record blunders only for active blocks (not low-confidence or shadow-mode skips)
     if (skipReason === 'override-corpus') {
       recordBlunder({ blunderType: 'override_corpus_block', command, blockReason: slackReason, service, tag: topHyp.tag, actor: 'autopilot', pid: topHyp.pid ?? pid, confidenceScore: execConfidence });
+      // Cache the block so the next trigger for the same fingerprint skips LLM inference.
+      cacheIncidentResult({ fingerprint: pid, service, incidentTag: topHyp.tag, corpusBlocked: true, blockReason: slackReason, executedCommand: null });
     } else if (skipReason === 'pipeline-block' || skipReason === 'level-restricted') {
       recordBlunder({ blunderType: 'pipeline_block', command, blockReason: slackReason, service, tag: topHyp.tag, actor: 'autopilot', pid: topHyp.pid ?? pid, confidenceScore: execConfidence });
     } else if (skipReason === 'planning-gate') {
@@ -442,6 +563,9 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
   }
 
   await postThreadReply(pid, `⚙️ \`${command}\` executed (${execResult.durationMs}ms) — validating…`);
+
+  // Cache successful execution so re-triggers within 1hr fast-path without LLM.
+  cacheIncidentResult({ fingerprint: pid, service, incidentTag: topHyp.tag, corpusBlocked: false, blockReason: null, executedCommand: command });
 
   // Wait for propagation then validate
   await new Promise((r) => setTimeout(r, 5_000));
