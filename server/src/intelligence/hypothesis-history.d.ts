@@ -10,6 +10,8 @@ export interface HypothesisHistoryEntry {
   [key: string]:  unknown;
 }
 
+export declare function flushPendingRebuild(): Promise<void>;
+
 export declare const hypothesisHistory: {
   list(limit?: number): HypothesisHistoryEntry[];
   latest(): HypothesisHistoryEntry | null;

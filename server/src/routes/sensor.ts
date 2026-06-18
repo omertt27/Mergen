@@ -24,6 +24,7 @@ import { getUsageSnapshot, recordExplainWhyFeedback } from '../intelligence/usag
 import { toolCallCounts, lastMcpCallAt, firstAnalyzeAt, lastTimeToFirstAnalysisMs } from '../intelligence/tools.js';
 import { listActiveSessions } from '../intelligence/debug-sessions.js';
 import { getTeamState, isTeamEnabled } from '../intelligence/team.js';
+import { getStats } from '../intelligence/calibration.js';
 
 export function createSensorRouter(serverVersion: string): Router {
   const router = Router();
