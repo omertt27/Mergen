@@ -24,6 +24,11 @@ import { store } from '../sensor/buffer.js';
 import { incidentStore } from '../sensor/incident-store.js';
 import { detectAiCommit } from './ai-commit.js';
 import { commitContextStore } from '../sensor/commit-context-store.js';
+import { hypothesisHistory } from './hypothesis-history.js';
+import { readdir, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
+import { existsSync } from 'node:fs';
 
 function fmtMs(ms: number): string {
   if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
@@ -613,6 +618,316 @@ export function registerRunbookTools(server: McpServer): void {
       trackCall('draft_postmortem');
       const markdown = await draftPostmortemDoc({ service, summary, duration_minutes, severity, affected_users, slack_thread });
       return { content: [{ type: 'text', text: markdown }] };
+    }),
+  );
+
+  // ── start_runbook ────────────────────────────────────────────────────────────
+  // @ts-ignore — TS2589
+  server.registerTool(
+    'start_runbook',
+    {
+    description:
+      'Run a named runbook from ~/.mergen/runbooks/*.yaml — step-by-step guided incident response. ' +
+      'Each step maps to a Mergen tool call. Call with no name to list available runbooks. ' +
+      'Built-in runbooks: api-degradation, db-connection-pool, auth-failures. ' +
+      'Custom runbooks: add your own YAML files to ~/.mergen/runbooks/. ' +
+      'Returns step-by-step results so the AI can walk through the investigation systematically.',
+    inputSchema: {
+      name: z.string().optional()
+        .describe('Runbook name (without .yaml extension). Omit to list all available runbooks.'),
+      service: z.string().optional()
+        .describe('Target service name to substitute into runbook steps (e.g. "api", "payments").'),
+    },
+    },
+    async ({ name, service }) => {
+    trackCall('start_runbook');
+    const RUNBOOKS_DIR = join(homedir(), '.mergen', 'runbooks');
+    const BUILTIN_DIR  = join(homedir(), '.mergen', 'runbooks', '_builtin');
+
+    // ── list mode ───────────────────────────────────────────────────────────
+    if (!name) {
+      const available: string[] = [];
+      for (const dir of [BUILTIN_DIR, RUNBOOKS_DIR]) {
+        if (!existsSync(dir)) continue;
+        const files = await readdir(dir).catch(() => []);
+        for (const f of files) {
+          if (f.endsWith('.yaml') || f.endsWith('.yml')) {
+            available.push(f.replace(/\.ya?ml$/, '') + (dir === BUILTIN_DIR ? ' (built-in)' : ''));
+          }
+        }
+      }
+      if (available.length === 0) {
+        return { content: [{ type: 'text', text: [
+          '## Available Runbooks',
+          '',
+          'No runbooks found. Built-in runbooks are seeded on first `mergen-server setup` run.',
+          '',
+          'To create one, add a YAML file to ~/.mergen/runbooks/:',
+          '',
+          '```yaml',
+          'name: my-runbook',
+          'description: Investigate API latency spikes',
+          'steps:',
+          '  - name: Check recent errors',
+          '    tool: get_recent_logs',
+          '    params: { level: error, limit: 50 }',
+          '  - name: Check network failures',
+          '    tool: get_network_activity',
+          '    params: { limit: 30 }',
+          '  - name: Causal analysis',
+          '    tool: analyze_runtime',
+          '```',
+        ].join('\n') }] };
+      }
+      return { content: [{ type: 'text', text: `## Available Runbooks\n\n${available.map((r) => `- \`${r}\``).join('\n')}\n\nCall \`start_runbook(name: "<runbook-name>")\` to execute.` }] };
+    }
+
+    // ── execute mode ─────────────────────────────────────────────────────────
+    let yaml: string | null = null;
+    for (const dir of [RUNBOOKS_DIR, BUILTIN_DIR]) {
+      for (const ext of ['.yaml', '.yml']) {
+        const p = join(dir, name + ext);
+        if (existsSync(p)) { yaml = await readFile(p, 'utf-8'); break; }
+      }
+      if (yaml) break;
+    }
+
+    if (!yaml) {
+      return { content: [{ type: 'text', text: `Runbook \`${name}\` not found. Call \`start_runbook()\` with no arguments to list available runbooks.` }] };
+    }
+
+    // Simple YAML parsing for the step names (no external dep)
+    const lines    = yaml.split('\n');
+    const rbName   = (lines.find((l) => l.startsWith('name:')) ?? '').replace('name:', '').trim() || name;
+    const rbDesc   = (lines.find((l) => l.startsWith('description:')) ?? '').replace('description:', '').trim();
+    const stepLines = lines.filter((l) => /^\s+-\s+name:/.test(l));
+    const toolLines = lines.filter((l) => /^\s+tool:/.test(l));
+
+    const steps = stepLines.map((s, i) => ({
+      step: s.replace(/^\s+-\s+name:\s*/, ''),
+      tool: (toolLines[i] ?? '').replace(/^\s+tool:\s*/, ''),
+    }));
+
+    const serviceNote = service ? ` for service **${service}**` : '';
+    const output: string[] = [
+      `## Runbook: ${rbName}${serviceNote}`,
+      rbDesc ? `_${rbDesc}_` : '',
+      '',
+      `**${steps.length} step${steps.length !== 1 ? 's' : ''}:**`,
+      '',
+      ...steps.map((s, i) => `${i + 1}. **${s.step}** → \`${s.tool}\``),
+      '',
+      '---',
+      '_Execute each step in order. Each tool call returns evidence for the next step._',
+      '',
+      '**Start with step 1:** call the tool listed above, then proceed to step 2.',
+    ];
+
+    return { content: [{ type: 'text', text: output.filter(Boolean).join('\n') }] };
+    },
+  );
+
+  // ── suggest_followups ────────────────────────────────────────────────────────
+  // @ts-ignore — TS2589
+  server.registerTool(
+    'suggest_followups',
+    {
+    description:
+      'After triage or incident resolution: suggest high-value follow-up actions. ' +
+      'Reads the latest hypothesis chain and recent incident state to recommend the next steps — ' +
+      'opening a ticket, scheduling a postmortem, updating runbooks, or adding corpus policy. ' +
+      'Returns a prioritized list with the exact tool call or command to execute each action. ' +
+      'Call this after `triage_incident` or `validate_fix` to close the incident loop.',
+    inputSchema: {
+      context: z.string().optional()
+        .describe('Optional free-text context about what happened (adds to hypothesis history context).'),
+    },
+    },
+    async ({ context }) => {
+    trackCall('suggest_followups');
+    const latest = hypothesisHistory.latest();
+    const openIncidents = incidentStore.list(undefined, 5).filter((i) => i.status === 'open' || i.status === 'acknowledged');
+
+    const actions: Array<{ priority: number; emoji: string; action: string; tool?: string; command?: string; rationale: string }> = [];
+
+    const tag   = latest?.topHypothesis?.tag ?? null;
+    const svc   = latest?.topHypothesis?.service ?? null;
+    const conf  = latest?.topHypothesis?.confidence ?? 0;
+    const fix   = latest?.topHypothesis?.fix ?? null;
+    const errors = latest?.chain?.errors ?? [];
+
+    // Priority 1: Run the fix if confidence is high but not yet executed
+    if (fix && conf >= 0.85) {
+      actions.push({
+        priority: 1,
+        emoji: '🔧',
+        action: 'Execute the recommended fix',
+        tool: `execute_fix(command: "${fix}", confirm: true)`,
+        rationale: `Confidence is ${Math.round(conf * 100)}% — above the 85% autonomous execution threshold.`,
+      });
+    }
+
+    // Priority 2: Validate fix if fix was recently run
+    if (fix && conf >= 0.7) {
+      actions.push({
+        priority: 2,
+        emoji: '✅',
+        action: 'Validate the fix',
+        tool: `validate_fix(command: "${fix}")`,
+        rationale: 'Confirms error rate decreased after fix — required for corpus update.',
+      });
+    }
+
+    // Priority 3: Create a ticket for tracking
+    if (svc || errors.length > 0) {
+      const title = tag ? `Investigate ${tag} in ${svc ?? 'service'}` : `Post-incident follow-up${svc ? ` — ${svc}` : ''}`;
+      actions.push({
+        priority: 3,
+        emoji: '🎫',
+        action: 'Create a tracking ticket',
+        tool: `create_ticket(title: "${title}", description: "See Mergen incident context for details.")`,
+        rationale: 'Ensures incident action items are tracked to completion.',
+      });
+    }
+
+    // Priority 4: Draft postmortem for severe incidents
+    if (svc && errors.length >= 5) {
+      actions.push({
+        priority: 4,
+        emoji: '📋',
+        action: 'Draft a blameless postmortem',
+        tool: `draft_postmortem(service: "${svc}", summary: "${context ?? (tag ? `${tag} failure` : 'incident')}")`,
+        rationale: `${errors.length} errors observed — warrants a formal postmortem document.`,
+      });
+    }
+
+    // Priority 5: Update or generate a runbook
+    if (svc) {
+      actions.push({
+        priority: 5,
+        emoji: '📖',
+        action: 'Update runbook for this failure mode',
+        tool: `generate_runbook(service: "${svc}"${tag ? `, failure_mode: "${tag}"` : ''})`,
+        rationale: 'Codifies the resolution path so future incidents resolve faster.',
+      });
+    }
+
+    // Priority 6: Open incidents that need attention
+    for (const inc of openIncidents.slice(0, 2)) {
+      actions.push({
+        priority: 6,
+        emoji: '🚨',
+        action: `Acknowledge open incident ${inc.pid}`,
+        tool: `triage_incident(pid: "${inc.pid}")`,
+        rationale: `Incident ${inc.pid} is still ${inc.status} — may be related.`,
+      });
+    }
+
+    // Priority 7: Search similar past incidents
+    if (tag) {
+      actions.push({
+        priority: 7,
+        emoji: '🔍',
+        action: 'Search for similar past incidents',
+        tool: `find_similar_incidents(query: "${tag}")`,
+        rationale: 'Recurring patterns need systemic fixes, not just one-off patches.',
+      });
+    }
+
+    if (actions.length === 0) {
+      return { content: [{ type: 'text', text: '## Suggested Follow-ups\n\nNo active incident context found. Run `triage_incident` or `analyze_runtime` first to generate context.' }] };
+    }
+
+    const lines = [
+      '## Suggested Follow-ups',
+      '',
+      '_Prioritized next actions based on current incident state:_',
+      '',
+      ...actions.sort((a, b) => a.priority - b.priority).map((a, i) => [
+        `### ${i + 1}. ${a.emoji} ${a.action}`,
+        '',
+        `**Why:** ${a.rationale}`,
+        '',
+        a.tool ? `**Call:** \`${a.tool}\`` : a.command ? `**Run:** \`${a.command}\`` : '',
+        '',
+      ].filter((l) => l !== undefined).join('\n')),
+    ];
+
+    return { content: [{ type: 'text', text: lines.join('\n') }] };
+    },
+  );
+
+  // ── find_similar_incidents ───────────────────────────────────────────────────
+  // @ts-ignore — TS2589
+  server.registerTool(
+    'find_similar_incidents',
+    {
+    description:
+      'Find past incidents similar to the current failure. ' +
+      'Uses hybrid retrieval (BM25 + TF-IDF + RRF fusion) over the postmortem corpus to surface ' +
+      'the top matches — each with its root cause, fix command, and MTTR. ' +
+      'Call after `analyze_runtime` to see if this is a recurring pattern and what fixed it before. ' +
+      'Returns: similarity score, root cause, fix command, MTTR, and whether it resolved autonomously.',
+    inputSchema: {
+      query: z.string().optional()
+        .describe('Free-text description of the current failure (default: uses latest hypothesis tag).'),
+      limit: z.number().int().min(1).max(10).optional()
+        .describe('Number of similar incidents to return (default: 3).'),
+    },
+    },
+    withTierGate(getTierForTool('find_similar_incidents'), async ({ query, limit = 3 }) => {
+    trackCall('find_similar_incidents');
+
+    // Derive query from latest hypothesis if not provided
+    const latest     = hypothesisHistory.latest();
+    const tag        = latest?.topHypothesis?.tag ?? null;
+    const svc        = latest?.topHypothesis?.service ?? null;
+    const effectiveQ = query ?? (tag ? tagToQuery(tag) : null);
+
+    if (!effectiveQ) {
+      return { content: [{ type: 'text', text: 'No query provided and no active hypothesis found. Run `analyze_runtime` first or pass a query string.' }] };
+    }
+
+    const results = await hybridSearch(effectiveQ, limit);
+
+    if (results.length === 0) {
+      return { content: [{ type: 'text', text: `## Similar Past Incidents\n\nNo matches found for query: \`${effectiveQ}\`\n\nCorpus size: ${postmortemStore.count()} postmortems.` }] };
+    }
+
+    const lines = [
+      '## Similar Past Incidents',
+      '',
+      `_Query: \`${effectiveQ}\`${svc ? ` · Service: \`${svc}\`` : ''} · Corpus: ${postmortemStore.count()} postmortems_`,
+      '',
+    ];
+
+    for (let i = 0; i < results.length; i++) {
+      const r  = results[i];
+      const pm = r.postmortem;
+      const simPct = Math.round((r.score ?? 0) * 100);
+      const mttrLabel = pm.mttrMs ? fmtMs(pm.mttrMs) : 'unknown';
+      const autoLabel = pm.resolvedAutonomously ? '🤖 autonomous' : '👤 manual';
+      lines.push(
+        `### ${i + 1}. ${pm.tag ?? pm.service} — ${simPct}% match`,
+        '',
+        `| Field | Value |`,
+        `|-------|-------|`,
+        `| **Service** | ${pm.service ?? 'unknown'} |`,
+        `| **Root cause** | ${pm.rootCause ?? '_not recorded_'} |`,
+        `| **Fix** | ${pm.fixCommand ? `\`${pm.fixCommand}\`` : '_not recorded_'} |`,
+        `| **MTTR** | ${mttrLabel} |`,
+        `| **Resolution** | ${autoLabel} |`,
+        `| **Date** | ${pm.resolvedAt ? new Date(pm.resolvedAt).toISOString().slice(0, 10) : 'unknown'} |`,
+        '',
+        pm.fixCommand ? `**↳ To apply this fix:** \`execute_fix(command: "${pm.fixCommand}", confirm: true)\`` : '',
+        '',
+      );
+    }
+
+    lines.push('---');
+    lines.push('_Call `check_fix_history(command: "<fix>")` before executing any of the above fixes._');
+
+    return { content: [{ type: 'text', text: lines.filter((l) => l !== undefined).join('\n') }] };
     }),
   );
 }

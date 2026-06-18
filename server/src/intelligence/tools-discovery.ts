@@ -15,6 +15,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { ALL_TOOLS } from './tool-manifest.js';
 import { trackCall } from './tools-state.js';
+import { store } from '../sensor/buffer.js';
 
 export function registerDiscoveryTools(server: McpServer): void {
   server.registerTool(
@@ -149,6 +150,143 @@ export function registerDiscoveryTools(server: McpServer): void {
       sections.push('*This report is generated from live server state. Re-run after adding tools or routes.*');
 
       return { content: [{ type: 'text', text: sections.join('\n') }] };
+    },
+  );
+
+  // ── get_buffer_schema ────────────────────────────────────────────────────────
+  // @ts-ignore — TS2589
+  server.registerTool(
+    'get_buffer_schema',
+    {
+      description:
+        'Inspect the live event buffer without reading raw events — returns a structural summary: ' +
+        'event types present, log levels, URL patterns, detected services, error patterns, and time range. ' +
+        'Free to call; no credits consumed. ' +
+        'Use this before `analyze_runtime` to understand what telemetry is available and ' +
+        'calibrate how much context to request.',
+      inputSchema: {
+        include_samples: z.boolean().optional()
+          .describe('Include one sample message per error pattern (default: false).'),
+      },
+    },
+    async ({ include_samples = false }) => {
+      trackCall('get_buffer_schema');
+
+      const logs    = store.getLogs(500);
+      const network = store.getNetwork(500);
+      const ctx     = store.getContext(20);
+      const terminal = store.getTerminalOutput(100);
+      const ci      = store.getCIEvents(20);
+      const deploys = store.getDeployments(20);
+
+      const eventTypes: Record<string, number> = {};
+      if (logs.length)     eventTypes['console']  = logs.length;
+      if (network.length)  eventTypes['network']  = network.length;
+      if (ctx.length)      eventTypes['context']  = ctx.length;
+      if (terminal.length) eventTypes['terminal'] = terminal.length;
+      if (ci.length)       eventTypes['ci']       = ci.length;
+      if (deploys.length)  eventTypes['deploy']   = deploys.length;
+
+      const totalEvents = Object.values(eventTypes).reduce((a, b) => a + b, 0);
+
+      // Log levels
+      const levelCounts: Record<string, number> = {};
+      for (const l of logs) {
+        const lv = l.level ?? 'log';
+        levelCounts[lv] = (levelCounts[lv] ?? 0) + 1;
+      }
+
+      // URL patterns (deduplicated path prefixes)
+      const urlPatterns = new Set<string>();
+      for (const n of network) {
+        try {
+          const u = new URL(n.url ?? '');
+          const parts = u.pathname.split('/').filter(Boolean);
+          urlPatterns.add('/' + (parts.slice(0, 2).join('/') || ''));
+        } catch { /* non-URL */ }
+      }
+
+      // Services detected from console context
+      const services = new Set<string>();
+      for (const c of ctx) {
+        if ((c as any).service) services.add((c as any).service);
+      }
+      for (const l of logs) {
+        const m = String(l.args?.[0] ?? '').match(/^\[([a-z0-9_-]{2,24})\]/i);
+        if (m) services.add(m[1].toLowerCase());
+      }
+
+      // Error patterns
+      const errorMsgs = logs.filter((l) => l.level === 'error').map((l) => String(l.args?.[0] ?? ''));
+      const errorPatternMap = new Map<string, string>();
+      for (const msg of errorMsgs) {
+        const pat = msg.replace(/\d{3,}/g, 'N').replace(/"[^"]{0,40}"/g, '"…"').slice(0, 80);
+        if (!errorPatternMap.has(pat)) errorPatternMap.set(pat, msg);
+      }
+      const errorPatterns = [...errorPatternMap.keys()].slice(0, 10);
+
+      // Time range
+      const allTs = [
+        ...logs.map((l) => l.timestamp),
+        ...network.map((n) => n.timestamp),
+      ].filter(Boolean) as number[];
+      const minTs = allTs.length ? Math.min(...allTs) : null;
+      const maxTs = allTs.length ? Math.max(...allTs) : null;
+
+      // Network status distribution
+      const statusBuckets: Record<string, number> = {};
+      for (const n of network) {
+        const s = n.status ?? 0;
+        const bucket = s >= 500 ? '5xx' : s >= 400 ? '4xx' : s >= 300 ? '3xx' : s >= 200 ? '2xx' : 'other';
+        statusBuckets[bucket] = (statusBuckets[bucket] ?? 0) + 1;
+      }
+
+      const lines = [
+        '## Buffer Schema',
+        '',
+        `**Total events:** ${totalEvents}`,
+        '',
+        '### Event Types',
+        ...Object.entries(eventTypes).map(([k, v]) => `- \`${k}\`: ${v} events`),
+        '',
+        '### Log Levels',
+        Object.keys(levelCounts).length > 0
+          ? Object.entries(levelCounts).map(([k, v]) => `- \`${k}\`: ${v}`).join('\n')
+          : '_No console events_',
+        '',
+        '### Network Status Distribution',
+        Object.keys(statusBuckets).length > 0
+          ? Object.entries(statusBuckets).map(([k, v]) => `- \`${k}\`: ${v}`).join('\n')
+          : '_No network events_',
+        '',
+        '### URL Patterns (top path prefixes)',
+        [...urlPatterns].length > 0
+          ? [...urlPatterns].slice(0, 15).map((u) => `- \`${u}\``).join('\n')
+          : '_No network events_',
+        '',
+        '### Detected Services',
+        [...services].length > 0
+          ? [...services].slice(0, 10).map((s) => `- \`${s}\``).join('\n')
+          : '_No service identifiers detected_',
+        '',
+        '### Error Patterns',
+        errorPatterns.length > 0
+          ? errorPatterns.map((p, i) => {
+              const sample = include_samples ? `\n  _Sample: ${errorPatternMap.get(p)?.slice(0, 100)}_` : '';
+              return `${i + 1}. \`${p}\`${sample}`;
+            }).join('\n')
+          : '_No errors in buffer_',
+        '',
+        '### Time Range',
+        minTs && maxTs
+          ? `- Oldest: ${new Date(minTs).toISOString()}\n- Newest: ${new Date(maxTs).toISOString()}\n- Span: ${Math.round((maxTs - minTs) / 1000)}s`
+          : '_No timestamped events_',
+        '',
+        '---',
+        '_Call `analyze_runtime` to run full causal analysis, or `get_recent_logs` to read raw events._',
+      ];
+
+      return { content: [{ type: 'text', text: lines.join('\n') }] };
     },
   );
 }

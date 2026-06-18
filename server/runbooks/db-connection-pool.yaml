@@ -1,0 +1,35 @@
+name: db-connection-pool
+description: Database connection pool exhaustion investigation and remediation
+steps:
+  - name: Check error logs for connection errors
+    tool: get_recent_logs
+    params:
+      level: error
+      limit: 100
+
+  - name: Check network activity for database timeouts
+    tool: get_network_activity
+    params:
+      limit: 50
+
+  - name: Run causal analysis
+    tool: analyze_runtime
+
+  - name: Check fix history for pool resize
+    tool: check_fix_history
+    params:
+      description: database connection pool exhausted resize restart
+
+  - name: Search similar past pool incidents
+    tool: find_similar_incidents
+    params:
+      query: database connection pool exhaustion timeout
+
+  - name: Draft postmortem if severity is high
+    tool: draft_postmortem
+    params:
+      service: database
+      summary: Connection pool exhausted
+
+  - name: Suggest next actions
+    tool: suggest_followups

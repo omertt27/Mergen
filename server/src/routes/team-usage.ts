@@ -38,8 +38,8 @@ export function createTeamUsageRouter(): Router {
 
     // Recent incidents — who touched them
     const recentIncidents = incidentStore.list(undefined, 50);
-    const acknowledgedBy  = new Set(recentIncidents.map((i) => (i as Record<string, unknown>).acknowledgedBy as string).filter(Boolean));
-    const resolvedBy      = new Set(recentIncidents.map((i) => (i as Record<string, unknown>).resolvedBy as string).filter(Boolean));
+    const acknowledgedBy  = new Set(recentIncidents.map((i) => i.acknowledgedBy).filter((v): v is string => !!v));
+    const resolvedBy      = new Set(recentIncidents.map((i) => i.assignee).filter((v): v is string => !!v));
     const activeResponders = new Set([...acknowledgedBy, ...resolvedBy]);
 
     // Seat utilization

@@ -1,0 +1,29 @@
+name: auth-failures
+description: Authentication failure spike investigation — token errors, session issues, 401/403 surges
+steps:
+  - name: Check authentication error logs
+    tool: get_recent_logs
+    params:
+      level: error
+      limit: 50
+
+  - name: Check 401 and 403 network responses
+    tool: get_network_activity
+    params:
+      limit: 50
+
+  - name: Run causal analysis
+    tool: analyze_runtime
+
+  - name: Check fix history for auth errors
+    tool: check_fix_history
+    params:
+      description: authentication token invalid expired session
+
+  - name: Search similar auth incidents
+    tool: find_similar_incidents
+    params:
+      query: authentication failure token expired invalid session
+
+  - name: Suggest follow-up actions
+    tool: suggest_followups

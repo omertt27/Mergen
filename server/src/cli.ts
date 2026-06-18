@@ -52,6 +52,35 @@ async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function seedBuiltinRunbooks(): Promise<void> {
+  const { mkdirSync: mkd, copyFileSync, existsSync: ex } = await import('fs');
+  const { join: j, dirname, resolve: res } = await import('path');
+  const { homedir: hd } = await import('os');
+  const { fileURLToPath } = await import('url');
+
+  const RUNBOOKS_DIR = j(hd(), '.mergen', 'runbooks', '_builtin');
+  mkd(RUNBOOKS_DIR, { recursive: true });
+
+  // Runbooks ship alongside the package in server/runbooks/
+  const __filename = fileURLToPath(import.meta.url);
+  const pkgRunbooks = res(dirname(__filename), '..', 'runbooks');
+  if (!ex(pkgRunbooks)) return; // not present in this environment
+
+  const { readdirSync } = await import('fs');
+  let seeded = 0;
+  for (const f of readdirSync(pkgRunbooks)) {
+    if (!f.endsWith('.yaml') && !f.endsWith('.yml')) continue;
+    const dest = j(RUNBOOKS_DIR, f);
+    if (!ex(dest)) {
+      copyFileSync(j(pkgRunbooks, f), dest);
+      seeded++;
+    }
+  }
+  if (seeded > 0) {
+    log(`Seeded ${seeded} built-in runbook${seeded !== 1 ? 's' : ''} → ~/.mergen/runbooks/_builtin/`, '✅');
+  }
+}
+
 // ── Commands ───────────────────────────────────────────────────────────────────
 
 async function setupCommand(): Promise<void> {
@@ -126,7 +155,10 @@ async function setupCommand(): Promise<void> {
     log('Run later: mergen-server connect github --repo <owner/repo>', 'ℹ');
   }
 
-  // 6. Summary + start server
+  // 6. Seed built-in runbooks
+  await seedBuiltinRunbooks();
+
+  // 7. Summary + start server
   hr();
   log('\n✨ Setup complete!\n');
   console.log('Next steps:');

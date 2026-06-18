@@ -90,6 +90,9 @@ export const ALL_TOOLS: readonly ToolEntry[] = [
   { name: 'draft_postmortem',         module: 'tools-runbook',        tier: 'pro'  },
   { name: 'create_postmortem',        module: 'tools-runbook',        tier: 'pro'  },
   { name: 'list_postmortems',         module: 'tools-runbook',        tier: 'pro'  },
+  { name: 'start_runbook',            module: 'tools-runbook',        tier: 'all'  },
+  { name: 'suggest_followups',        module: 'tools-runbook',        tier: 'all'  },
+  { name: 'find_similar_incidents',   module: 'tools-runbook',        tier: 'pro'  },
 
   // ── Sessions / audit ──────────────────────────────────────────────────────
   { name: 'get_session_replay',       module: 'tools-sessions',       tier: 'all'  },
@@ -112,6 +115,7 @@ export const ALL_TOOLS: readonly ToolEntry[] = [
   // ── ADR / discovery / agent workflow ─────────────────────────────────────
   { name: 'search_adrs',              module: 'tools-utility',        tier: 'all'  },
   { name: 'discover_repo_context',    module: 'tools-discovery',      tier: 'all'  },
+  { name: 'get_buffer_schema',        module: 'tools-discovery',      tier: 'all'  },
   { name: 'report_confidence',        module: 'tools-utility',        tier: 'all'  },
   { name: 'plan_rollback',            module: 'tools-utility',        tier: 'all'  },
 

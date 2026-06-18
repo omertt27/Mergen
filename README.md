@@ -20,6 +20,13 @@ mergen-server setup   # writes the config file for your IDE automatically
 
 Then ask: *"Triage the api-service."*
 
+**One-click install:**
+
+[![Install in Cursor](https://img.shields.io/badge/Cursor-Install%20MCP-000?logo=cursor&logoColor=white)](cursor://anysphere.cursor-deeplink/mcp/install?name=mergen&command=npx&args=mergen-server%20start)
+[![Install in VS Code](https://img.shields.io/badge/VS%20Code-Install%20MCP-007ACC?logo=visualstudiocode&logoColor=white)](vscode://github.copilot-chat/installMcpServer?name=mergen&command=npx&args=mergen-server%20start)
+[![Install in Windsurf](https://img.shields.io/badge/Windsurf-Install%20MCP-4A90D9?logo=windsurf&logoColor=white)](windsurf://mcp/install?name=mergen&command=npx&args=mergen-server%20start)
+[![Install in Claude Code](https://img.shields.io/badge/Claude%20Code-Add%20MCP-D97706?logo=anthropic&logoColor=white)](https://claude.ai/code?addMcp=mergen)
+
 [![npm](https://img.shields.io/npm/v/mergen-server)](https://www.npmjs.com/package/mergen-server)
 [![License](https://img.shields.io/badge/license-MIT%20%2B%20ELv2-blue)](./LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-stdio-black)](https://modelcontextprotocol.io)

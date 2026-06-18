@@ -5,6 +5,15 @@
 Connect your AI IDE to live production telemetry in under 2 minutes.
 Once connected, ask *"Triage the api-service"* and get a causal chain with a fix command — not a log dump.
 
+**One-click install (if your IDE supports MCP deeplinks):**
+
+[![Install in Cursor](https://img.shields.io/badge/Cursor-Install%20MCP-000?logo=cursor&logoColor=white)](cursor://anysphere.cursor-deeplink/mcp/install?name=mergen&command=npx&args=mergen-server%20start)
+[![Install in VS Code](https://img.shields.io/badge/VS%20Code-Install%20MCP-007ACC?logo=visualstudiocode&logoColor=white)](vscode://github.copilot-chat/installMcpServer?name=mergen&command=npx&args=mergen-server%20start)
+[![Install in Windsurf](https://img.shields.io/badge/Windsurf-Install%20MCP-4A90D9?logo=windsurf&logoColor=white)](windsurf://mcp/install?name=mergen&command=npx&args=mergen-server%20start)
+[![Install in Claude Code](https://img.shields.io/badge/Claude%20Code-Add%20MCP-D97706?logo=anthropic&logoColor=white)](https://claude.ai/code?addMcp=mergen)
+
+Or follow the 3-step manual setup below.
+
 ---
 
 ## Step 1 — Install & configure (30 seconds)

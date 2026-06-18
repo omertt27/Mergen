@@ -56,10 +56,10 @@ export function createBillingDashboardRouter(): Router {
     let upgradePlan: string | null = null;
     if (atLimit) {
       upgradeMessage = `You've reached your ${usage.included} credit limit for ${usage.month}. Upgrade to keep running analyses.`;
-      upgradePlan = plan.ctaUrl;
+      upgradePlan = (plan as { ctaUrl?: unknown }).ctaUrl != null ? String((plan as { ctaUrl?: unknown }).ctaUrl) : null;
     } else if (nearLimit && usage.remaining !== null) {
       upgradeMessage = `${usage.remaining} credits remaining this month. Consider upgrading to avoid interruption.`;
-      upgradePlan = plan.ctaUrl;
+      upgradePlan = (plan as { ctaUrl?: unknown }).ctaUrl != null ? String((plan as { ctaUrl?: unknown }).ctaUrl) : null;
     } else if (!isPaid) {
       upgradeMessage = 'Upgrade to unlock backend observability, more credits, and autonomous execution.';
       upgradePlan = DOCS_URL;

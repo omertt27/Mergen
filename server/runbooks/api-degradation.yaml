@@ -1,0 +1,29 @@
+name: api-degradation
+description: Systematic investigation for API latency spikes and error rate increases
+steps:
+  - name: Check recent error logs
+    tool: get_recent_logs
+    params:
+      level: error
+      limit: 50
+
+  - name: Review network failures
+    tool: get_network_activity
+    params:
+      limit: 30
+
+  - name: Run causal analysis
+    tool: analyze_runtime
+
+  - name: Check fix history for top hypothesis
+    tool: check_fix_history
+    params:
+      description: api latency timeout connection pool
+
+  - name: Search similar past incidents
+    tool: find_similar_incidents
+    params:
+      query: api degradation latency timeout
+
+  - name: Suggest follow-up actions
+    tool: suggest_followups
