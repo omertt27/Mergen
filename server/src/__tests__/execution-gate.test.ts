@@ -7,11 +7,14 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { requestApproval, approveExecution, denyExecution, pruneExpired } from '../intelligence/execution-gate.js';
+import { requestApproval, approveExecution, denyExecution, pruneExpired, _resetForTesting } from '../intelligence/execution-gate.js';
 import { approvalEvents } from '../intelligence/approval-events.js';
 
 beforeEach(() => {
-  // Clean up any listeners added in previous tests
+  // Reset in-memory Map and prevent disk reads — without this, load() may
+  // restore a real ~/.mergen/approval-pending.json entry from a prior run,
+  // contaminating fake-timer expiry assertions.
+  _resetForTesting();
   approvalEvents.removeAllListeners();
 });
 

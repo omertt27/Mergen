@@ -35,6 +35,13 @@ export interface Postmortem {
   confidence: number;
   mttrMs: number | null;
   resolvedAutonomously: boolean;
+  /**
+   * True when the autonomous fix was causally verified: error rate dropped AND
+   * the calibration verdict was 'correct'. False for failed/partial autonomous
+   * fixes and all manual resolutions unless explicitly set. Used by
+   * aggregateFixStats() in runbook-updater to compute honest success rates.
+   */
+  causallyCorrect: boolean;
   generatedAt: number;
   body: string;
 }
@@ -48,6 +55,8 @@ export interface PostmortemInput {
   confidence: number;
   mttrMs: number | null;
   resolvedAutonomously: boolean;
+  /** See Postmortem.causallyCorrect. Defaults to false when not provided. */
+  causallyCorrect?: boolean;
   evidence?: string[];
   fixHint?: string | null;
 }
@@ -101,12 +110,17 @@ class PostmortemStore {
           confidence            REAL NOT NULL DEFAULT 0,
           mttr_ms               INTEGER,
           resolved_autonomously INTEGER NOT NULL DEFAULT 0,
+          causally_correct      INTEGER NOT NULL DEFAULT 0,
           generated_at          INTEGER NOT NULL,
           body                  TEXT NOT NULL DEFAULT ''
         );
       `);
       this.db.run(`CREATE INDEX IF NOT EXISTS pm_tag_idx ON postmortems (tag);`);
       this.db.run(`CREATE INDEX IF NOT EXISTS pm_gen_idx  ON postmortems (generated_at DESC);`);
+      // Migration: add causally_correct to databases written before this column existed.
+      // DEFAULT 0 means existing postmortems are conservatively treated as unverified —
+      // honest, because we cannot retroactively know whether those fixes were causal.
+      try { this.db.run(`ALTER TABLE postmortems ADD COLUMN causally_correct INTEGER NOT NULL DEFAULT 0`); } catch { /**/ }
 
       // FTS5 full-text index for keyword search (hybrid retrieval).
       // Graceful fallback if this sql.js build was compiled without FTS5.
@@ -164,6 +178,7 @@ class PostmortemStore {
       confidence: Number(row.confidence ?? 0),
       mttrMs: row.mttr_ms != null ? Number(row.mttr_ms) : null,
       resolvedAutonomously: Boolean(row.resolved_autonomously),
+      causallyCorrect: Boolean(row.causally_correct),
       generatedAt: Number(row.generated_at ?? 0),
       body: String(row.body ?? ''),
     };
@@ -175,12 +190,13 @@ class PostmortemStore {
       this.db.run(
         `INSERT OR REPLACE INTO postmortems
           (pid, tag, service, git_sha, git_branch, root_cause, fix_command,
-           confidence, mttr_ms, resolved_autonomously, generated_at, body)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+           confidence, mttr_ms, resolved_autonomously, causally_correct, generated_at, body)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           pm.pid, pm.tag, pm.service, pm.gitSha, pm.gitBranch,
           pm.rootCause, pm.fixCommand, pm.confidence,
           pm.mttrMs ?? null, pm.resolvedAutonomously ? 1 : 0,
+          pm.causallyCorrect ? 1 : 0,
           pm.generatedAt, pm.body,
         ],
       );
@@ -193,6 +209,7 @@ class PostmortemStore {
           [pm.pid, content],
         );
       }
+      this.invalidateTagStatsCache();
       this._flush();
       logger.debug({ pid: pm.pid, tag: pm.tag }, 'postmortem written');
     } catch (err) {
@@ -315,8 +332,28 @@ class PostmortemStore {
     } catch { return null; }
   }
 
-  /** Tag-level stats for runbook and corpus reporting. */
+  // 60-second cache for tagStats — called on every validateHypothesis() inside
+  // the agent pipeline. Without the cache this is a GROUP BY query per incident.
+  private _tagStatsCache: {
+    data: Array<{ tag: string; count: number; avgMttrMs: number | null; lastAt: number }>;
+    cachedAt: number;
+  } | null = null;
+  private static readonly TAG_STATS_TTL_MS = 60_000;
+
+  /** Tag-level stats for runbook and corpus reporting. Results are cached 60 s. */
   tagStats(): Array<{ tag: string; count: number; avgMttrMs: number | null; lastAt: number }> {
+    const now = Date.now();
+    if (this._tagStatsCache && now - this._tagStatsCache.cachedAt < PostmortemStore.TAG_STATS_TTL_MS) {
+      return this._tagStatsCache.data;
+    }
+    const data = this._computeTagStats();
+    this._tagStatsCache = { data, cachedAt: now };
+    return data;
+  }
+
+  invalidateTagStatsCache(): void { this._tagStatsCache = null; }
+
+  private _computeTagStats(): Array<{ tag: string; count: number; avgMttrMs: number | null; lastAt: number }> {
     if (!this.db) return [];
     try {
       const res = this.db.exec(`
@@ -356,22 +393,28 @@ class PostmortemStore {
     if (!this.db) return [];
     try {
       const likePattern = `%${command.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
+      // causally_correct (not resolved_autonomously) is the success signal.
+      // resolved_autonomously only means autopilot ran a command — it does NOT
+      // distinguish fixes that worked from fixes that regressed or were no-ops.
+      // causally_correct is set only when the error rate verifiably dropped AND
+      // the calibration verdict was 'correct'. This is what check_fix_history
+      // surfaces as the "resolution rate" — it must be honest.
       const sql = service
         ? `SELECT fix_command, service,
-                  COUNT(*)                   AS times_applied,
-                  SUM(resolved_autonomously) AS times_resolved,
-                  AVG(mttr_ms)               AS avg_mttr,
-                  MAX(generated_at)          AS last_used
+                  COUNT(*)                AS times_applied,
+                  SUM(causally_correct)   AS times_resolved,
+                  AVG(mttr_ms)            AS avg_mttr,
+                  MAX(generated_at)       AS last_used
            FROM postmortems
            WHERE fix_command LIKE ? AND service = ?
            GROUP BY fix_command, service
            ORDER BY times_applied DESC
            LIMIT 10`
         : `SELECT fix_command, service,
-                  COUNT(*)                   AS times_applied,
-                  SUM(resolved_autonomously) AS times_resolved,
-                  AVG(mttr_ms)               AS avg_mttr,
-                  MAX(generated_at)          AS last_used
+                  COUNT(*)                AS times_applied,
+                  SUM(causally_correct)   AS times_resolved,
+                  AVG(mttr_ms)            AS avg_mttr,
+                  MAX(generated_at)       AS last_used
            FROM postmortems
            WHERE fix_command LIKE ?
            GROUP BY fix_command, service
@@ -483,6 +526,25 @@ class PostmortemStore {
   }
 
   /**
+   * Count of postmortems where autopilot ran (resolved_autonomously=1) but
+   * causal verification is missing (causally_correct=0). This includes:
+   *   - Rows written before the causallyCorrect fix was deployed (DEFAULT 0)
+   *   - Post-fix rows where the error rate did not verifiably drop
+   *
+   * Used only by the startup diagnostic — not surfaced as a metric.
+   * Returns 0 when the DB is not initialized.
+   */
+  countUnverifiedAutonomous(): number {
+    if (!this.db) return 0;
+    try {
+      const res = this.db.exec(
+        `SELECT COUNT(*) FROM postmortems WHERE resolved_autonomously=1 AND causally_correct=0`,
+      );
+      return Number(res[0]?.values?.[0]?.[0] ?? 0);
+    } catch { return 0; }
+  }
+
+  /**
    * Total MTTR saved vs. the baseline average manual MTTR (for outcome billing).
    * Returns null if there are fewer than 3 samples.
    */
@@ -544,6 +606,32 @@ export function generatePostmortem(input: PostmortemInput): Postmortem {
     ? `**Branch:** ${gitBranch}  |  **SHA:** ${gitSha ?? 'unknown'}`
     : '';
 
+  // Cross-incident linking: find the 3 most recent prior incidents with the
+  // same failure mode for this service. Surfaces recurrence patterns and lets
+  // engineers see if MTTR is improving or worsening over time.
+  const relatedPrior = postmortemStore.getByTag(input.tag, 10)
+    .filter((pm) => pm.pid !== input.pid && pm.service === input.service)
+    .slice(0, 3);
+
+  const relatedSection = relatedPrior.length > 0
+    ? [
+        '## Related Past Incidents (same failure mode, same service)',
+        '',
+        ...relatedPrior.map((pm) => {
+          const date = new Date(pm.generatedAt).toISOString().slice(0, 10);
+          const mttr = pm.mttrMs != null ? fmtMs(pm.mttrMs) : 'unknown';
+          const how  = pm.resolvedAutonomously ? '🤖 autonomous' : '👤 manual';
+          return `- [${date}] MTTR: ${mttr} · ${how} · ${pm.rootCause.slice(0, 100)}`;
+        }),
+        '',
+        relatedPrior.length > 1
+          ? `_Recurring pattern detected (${relatedPrior.length + 1} incidents). ` +
+            `Consider a systemic fix rather than a one-off patch._`
+          : '',
+        '',
+      ].filter(Boolean).join('\n')
+    : '';
+
   const body = [
     `# Postmortem — ${input.tag.replace(/^infra_/, '')}`,
     '',
@@ -565,6 +653,7 @@ export function generatePostmortem(input: PostmortemInput): Postmortem {
       ? `- Fix executed autonomously — RESOLVED in ${mttrLabel}`
       : `- Fix applied manually — RESOLVED in ${mttrLabel}`,
     '',
+    relatedSection,
   ].filter((l) => l !== undefined).join('\n');
 
   const pm: Postmortem = {
@@ -578,6 +667,7 @@ export function generatePostmortem(input: PostmortemInput): Postmortem {
     confidence: input.confidence,
     mttrMs: input.mttrMs,
     resolvedAutonomously: input.resolvedAutonomously,
+    causallyCorrect: input.causallyCorrect ?? false,
     generatedAt: now,
     body,
   };

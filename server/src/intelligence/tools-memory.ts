@@ -2,6 +2,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { memoryStore, formatMttr, type IncidentMemoryRecord } from '../datadog/memory-store.js';
 import { agentMemoryStore } from '../sensor/agent-memory-store.js';
+import { getOverrideSummary, getOverridesForTag } from './override-corpus.js';
+import { getStats, getStatsForTag } from './calibration.js';
 import { trackCall } from './tools-state.js';
 
 function formatRecord(r: IncidentMemoryRecord, index: number): string {
@@ -25,6 +27,13 @@ function formatRecord(r: IncidentMemoryRecord, index: number): string {
     `   MTTR: ${mttr} · ${fix}`,
     r.deployedSha ? `   Deploy: \`${r.deployedSha.slice(0, 7)}\`` : '',
   ].filter(Boolean).join('\n');
+}
+
+function fmtMs(ms: number): string {
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+  const min = Math.floor(ms / 60_000);
+  const sec = Math.round((ms % 60_000) / 1_000);
+  return sec > 0 ? `${min}m ${sec}s` : `${min}m`;
 }
 
 export function registerMemoryTools(server: McpServer): void {
@@ -213,6 +222,254 @@ export function registerMemoryTools(server: McpServer): void {
         lines.push(`### ${e.key}${ctx ? ` [${ctx}]` : ''}${expiry}`, e.value, '');
       }
       return { content: [{ type: 'text', text: lines.join('\n') }] };
+    },
+  );
+
+  // ── get_override_patterns ──────────────────────────────────────────────────
+  // Exposes the override corpus to the AI agent so it can understand operational
+  // constraints BEFORE proposing a fix — prevents re-proposing actions that
+  // engineers have already decided are unsafe in a given context.
+  server.registerTool(
+    'get_override_patterns',
+    {
+      description:
+        'Returns the override corpus — all the times engineers said NO to Mergen\'s recommendations, ' +
+        'categorised by why and when. Use this BEFORE proposing or executing a fix to understand ' +
+        'operational constraints that are not encoded in code: Friday batch windows, compliance holds, ' +
+        'cost ceilings, or on-call preferences. ' +
+        'If a pattern shows "batch-window" overrides every Friday evening for a service, do not propose ' +
+        'restarts on Friday evenings. This is the team\'s institutional knowledge in structured form.',
+      inputSchema: {
+        service: z.string().optional()
+          .describe('Filter to override patterns for a specific service.'),
+        tag: z.string().optional()
+          .describe('Filter to a specific failure mode tag (e.g. "connection_pool_exhausted").'),
+        limit: z.number().int().min(1).max(50).optional()
+          .describe('Max patterns to return (default 20).'),
+      },
+    },
+    async ({ service, tag, limit = 20 }) => {
+      trackCall('get_override_patterns');
+
+      // Tag-specific lookup: return raw events + summary
+      if (tag) {
+        const normalizedTag = tag.startsWith('infra_') ? tag : tag;
+        const events = getOverridesForTag(normalizedTag)
+          .filter((e) => !service || e.service === service)
+          .slice(-limit);
+
+        if (events.length === 0) {
+          return {
+            content: [{
+              type: 'text' as const,
+              text: `## Override Patterns — \`${normalizedTag}\`\n\nNo overrides recorded for this failure mode${service ? ` on service \`${service}\`` : ''}.\n\n_If Mergen has never been overridden for this (tag, service) pair, autonomous execution is not blocked by the corpus._`,
+            }],
+          };
+        }
+
+        const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const lines = [
+          `## Override Patterns — \`${normalizedTag}\`${service ? ` · service: \`${service}\`` : ''}`,
+          '',
+          `**${events.length} override${events.length !== 1 ? 's' : ''} recorded**`,
+          '',
+          '| Date | Service | Reason | Time (UTC) | Outcome |',
+          '|------|---------|--------|------------|---------|',
+          ...events.map((e) => {
+            const date    = new Date(e.recordedAt).toISOString().slice(0, 10);
+            const time    = `${DAY_NAMES[e.dayOfWeek]} ${e.hourOfDay}:00`;
+            const outcome = e.outcome ?? 'unknown';
+            return `| ${date} | ${e.service} | ${e.overrideReason} | ${time} | ${outcome} |`;
+          }),
+          '',
+          events.length > 0
+            ? `_Dominant pattern: \`${events.reduce((best, e, _, arr) => {
+                const counts = new Map<string, number>();
+                for (const ev of arr) counts.set(ev.overrideReason, (counts.get(ev.overrideReason) ?? 0) + 1);
+                let topReason = best;
+                let topCount  = 0;
+                for (const [r, c] of counts) if (c > topCount) { topReason = r; topCount = c; }
+                return topReason;
+              }, events[0].overrideReason)}\` — check time pattern before proposing a fix._`
+            : '',
+        ];
+
+        return { content: [{ type: 'text' as const, text: lines.filter(Boolean).join('\n') }] };
+      }
+
+      // Global summary across all tags
+      const summaries = getOverrideSummary()
+        .filter((s) => !service || s.services.includes(service))
+        .slice(0, limit);
+
+      if (summaries.length === 0) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: '## Override Patterns\n\nNo overrides recorded yet.\n\n_The override corpus grows automatically as engineers decline Mergen\'s recommendations. POST /overrides to record a manual override._',
+          }],
+        };
+      }
+
+      const totalOverrides = summaries.reduce((s, x) => s + x.total, 0);
+      const lines = [
+        '## Override Patterns — Corpus Summary',
+        '',
+        `**${totalOverrides} total overrides** across **${summaries.length} failure modes**`,
+        '',
+        '| Failure Mode | Overrides | Dominant Reason | Time Pattern | Services |',
+        '|---|---|---|---|---|',
+        ...summaries.map((s) => {
+          const tp = s.timePattern ?? '—';
+          const sv = s.services.slice(0, 3).join(', ') + (s.services.length > 3 ? '…' : '');
+          return `| \`${s.tag}\` | ${s.total} | ${s.dominantReason ?? '—'} | ${tp} | ${sv} |`;
+        }),
+        '',
+        '---',
+        '_Call `get_override_patterns(tag: "...")` for full history of a specific failure mode._',
+        '_Before proposing a fix, check whether the (tag, service, time) combination has been overridden before._',
+      ];
+
+      return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+    },
+  );
+
+  // ── get_detector_calibration ───────────────────────────────────────────────
+  // Exposes calibration accuracy to the AI agent so it can self-assess how
+  // much to trust its own diagnosis before proposing a fix.
+  server.registerTool(
+    'get_detector_calibration',
+    {
+      description:
+        'Returns calibration accuracy for Mergen\'s detectors — how often each diagnosis type has ' +
+        'been correct, wrong, or partial based on production feedback. ' +
+        'Use this to understand how reliable a specific hypothesis is before acting on it. ' +
+        'A detector with 90% accuracy and 30+ verdicts is highly trusted. ' +
+        'One with 50% accuracy or fewer than 5 verdicts is uncertain — require higher confidence or manual review. ' +
+        'Also returns the 7-day accuracy trend to detect detectors that are drifting.',
+      inputSchema: {
+        tag: z.string().optional()
+          .describe('Specific failure mode tag to look up (e.g. "connection_pool_exhausted"). Omit to return all detectors.'),
+      },
+    },
+    async ({ tag }) => {
+      trackCall('get_detector_calibration');
+
+      if (tag) {
+        const normalizedTag = tag.startsWith('infra_') ? tag : tag;
+        const stats = getStatsForTag(normalizedTag);
+
+        if (!stats) {
+          return {
+            content: [{
+              type: 'text' as const,
+              text: [
+                `## Detector Calibration — \`${normalizedTag}\``,
+                '',
+                '_No calibration data yet for this detector._',
+                '',
+                `Calibration builds automatically as incidents of type \`${normalizedTag}\` are diagnosed and verdicts recorded.`,
+                'With fewer than 5 verdicts, execution decisions use the built-in prior (developer estimate).',
+              ].join('\n'),
+            }],
+          };
+        }
+
+        const trustLabel = stats.trusted
+          ? `✅ TRUSTED (${stats.verdicts} verdicts)`
+          : `⚠️ PRIOR ESTIMATE (${stats.verdicts}/${5} verdicts needed)`;
+
+        const trendLabel = stats.trendDelta !== null
+          ? stats.trendDelta > 0.05
+            ? `📈 Improving (+${Math.round(stats.trendDelta * 100)}% vs all-time)`
+            : stats.trendDelta < -0.05
+              ? `📉 Degrading (${Math.round(stats.trendDelta * 100)}% vs all-time)`
+              : `→ Stable`
+          : '— insufficient 7-day data';
+
+        const shouldAct = stats.accuracy >= 0.7
+          ? '✅ Proceed with `execute_fix` if confidence ≥ threshold'
+          : stats.accuracy >= 0.5
+            ? '⚠️ Mixed accuracy — require confidence ≥ 0.90 or manual review'
+            : '🚫 Poor accuracy — do not auto-execute; manual review required';
+
+        const lines = [
+          `## Detector Calibration — \`${normalizedTag}\``,
+          '',
+          `**Status:** ${trustLabel}`,
+          `**All-time accuracy:** ${Math.round(stats.accuracy * 100)}%`,
+          `**7-day accuracy:** ${stats.accuracy7d !== null ? Math.round(stats.accuracy7d * 100) + '%' : '—'}`,
+          `**Trend:** ${trendLabel}`,
+          `**Total predictions:** ${stats.predictions}`,
+          `**Verdicts:** ${stats.verdicts} (correct: ${Math.round(stats.diagnosisAccuracy * 100)}%, remediation: ${Math.round(stats.remediationAccuracy * 100)}%)`,
+          '',
+          `**Recommended action:** ${shouldAct}`,
+          '',
+          stats.commonFailureModes.length > 0
+            ? [
+                '**Common reasons for wrong diagnoses:**',
+                ...stats.commonFailureModes.slice(0, 3).map((m) => `- "${m.note}" (${m.count}×)`),
+              ].join('\n')
+            : '',
+        ].filter(Boolean);
+
+        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+      }
+
+      // All detectors overview
+      const allStats = getStats().filter((s) => s.predictions > 0);
+
+      if (allStats.length === 0) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: '## Detector Calibration\n\nNo calibration data yet.\n\nCalibration builds automatically as incidents are diagnosed and resolved. Each correct/wrong verdict updates the accuracy scores shown here.',
+          }],
+        };
+      }
+
+      const trusted    = allStats.filter((s) => s.trusted);
+      const untrusted  = allStats.filter((s) => !s.trusted);
+      const avgAccuracy = trusted.length > 0
+        ? trusted.reduce((sum, s) => sum + s.accuracy, 0) / trusted.length
+        : null;
+
+      const lines = [
+        '## Detector Calibration — All Detectors',
+        '',
+        `**${allStats.length} detectors tracked** · **${trusted.length} trusted** (≥5 verdicts) · **${untrusted.length} on prior estimate**`,
+        avgAccuracy !== null
+          ? `**Mean accuracy (trusted):** ${Math.round(avgAccuracy * 100)}%`
+          : '',
+        '',
+        '### Trusted Detectors',
+        '',
+        '| Tag | Accuracy | 7d Trend | Verdicts | Suppress? |',
+        '|-----|----------|----------|----------|-----------|',
+        ...trusted
+          .sort((a, b) => b.accuracy - a.accuracy)
+          .map((s) => {
+            const acc7d = s.accuracy7d !== null ? Math.round(s.accuracy7d * 100) + '%' : '—';
+            const trend = s.trendDelta !== null
+              ? (s.trendDelta > 0.05 ? '📈' : s.trendDelta < -0.05 ? '📉' : '→')
+              : '—';
+            const suppress = s.shouldInterrupt ? '🚫 YES' : '—';
+            return `| \`${s.tag}\` | ${Math.round(s.accuracy * 100)}% | ${trend} ${acc7d} | ${s.verdicts} | ${suppress} |`;
+          }),
+        '',
+        untrusted.length > 0
+          ? [
+              '### On Prior Estimate (< 5 verdicts)',
+              '',
+              untrusted.map((s) => `- \`${s.tag}\`: ${s.predictions} predictions, ${s.verdicts} verdict${s.verdicts !== 1 ? 's' : ''}`).join('\n'),
+            ].join('\n')
+          : '',
+        '',
+        '---',
+        '_A detector is suppressed (🚫) when accuracy falls below 20% on trusted data — Mergen will stop surfacing it until the corpus improves._',
+      ].filter(Boolean);
+
+      return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
     },
   );
 }

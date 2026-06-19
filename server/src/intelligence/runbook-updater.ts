@@ -1,0 +1,230 @@
+/**
+ * runbook-updater.ts — Auto-update corpus-driven runbooks on incident resolution.
+ *
+ * Every time a postmortem is generated, this module:
+ *   1. Computes aggregate stats for the failure mode from the postmortem corpus.
+ *   2. Creates or updates a YAML runbook in ~/.mergen/runbooks/ with:
+ *      - corpus_stats: incident count, avg MTTR, autonomous rate, top fix
+ *      - verified_fixes: ranked fix commands with success rates
+ *      - last_updated: ISO date of most recent update
+ *
+ * These auto-generated runbooks are separate from the built-in static runbooks
+ * in server/runbooks/. They accumulate team-specific knowledge that the
+ * static runbooks can never contain (your Friday batch window, your preferred
+ * fix for DB pool exhaustion, your service-specific MTTR baselines).
+ *
+ * The update is idempotent: re-running for the same tag overwrites the previous
+ * version with fresher stats. No history is lost — the postmortem DB retains
+ * the full record.
+ *
+ * Called by: incident-autopilot.ts (after autonomous resolution via setImmediate)
+ *            routes/postmortem.ts POST /postmortem/generate (manual resolution path)
+ */
+
+import fs from 'fs';
+import path from 'path';
+import { USER_RUNBOOKS_DIR, zeroRetentionMode } from '../sensor/paths.js';
+import { postmortemStore, type Postmortem } from './postmortem-store.js';
+import logger from '../sensor/logger.js';
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function fmtMs(ms: number): string {
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+  const min = Math.floor(ms / 60_000);
+  const sec = Math.round((ms % 60_000) / 1_000);
+  return sec > 0 ? `${min}m ${sec}s` : `${min}m`;
+}
+
+function tagToSlug(tag: string): string {
+  return tag.replace(/^infra_/, '').replace(/_/g, '-');
+}
+
+function tagToTitle(tag: string): string {
+  return tag.replace(/^infra_/, '').replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// ── Fix stats ─────────────────────────────────────────────────────────────────
+
+interface FixStats {
+  command:       string;
+  timesApplied:  number;
+  timesResolved: number;
+  successRate:   number;
+  avgMttrMs:     number | null;
+}
+
+function aggregateFixStats(postmortems: Postmortem[]): FixStats[] {
+  const map = new Map<string, { applied: number; resolved: number; mttrSamples: number[] }>();
+  for (const pm of postmortems) {
+    if (!pm.fixCommand) continue;
+    const entry = map.get(pm.fixCommand) ?? { applied: 0, resolved: 0, mttrSamples: [] };
+    entry.applied++;
+    // Use causallyCorrect (not resolvedAutonomously) as the success signal.
+    // resolvedAutonomously is set whenever autopilot runs a command — it does
+    // NOT distinguish between fixes that worked and fixes that were applied but
+    // left the error rate unchanged or higher. causallyCorrect is only set when
+    // the error rate demonstrably dropped AND the calibration verdict was
+    // 'correct'. This produces honest success rates in runbook verified_fixes.
+    if (pm.causallyCorrect) entry.resolved++;
+    if (pm.mttrMs != null) entry.mttrSamples.push(pm.mttrMs);
+    map.set(pm.fixCommand, entry);
+  }
+  return [...map.entries()]
+    .map(([cmd, s]): FixStats => ({
+      command:       cmd,
+      timesApplied:  s.applied,
+      timesResolved: s.resolved,
+      successRate:   s.applied > 0 ? Math.round((s.resolved / s.applied) * 100) : 0,
+      avgMttrMs:     s.mttrSamples.length > 0
+        ? s.mttrSamples.reduce((a, b) => a + b, 0) / s.mttrSamples.length
+        : null,
+    }))
+    .sort((a, b) => b.timesApplied - a.timesApplied || b.successRate - a.successRate)
+    .slice(0, 5);
+}
+
+// ── YAML serialisation (no external dep) ─────────────────────────────────────
+
+function yamlStr(value: string): string {
+  // Use double-quoted form when value contains YAML-special chars
+  if (/[:#,\[\]{}&*!|>'"%@`]/.test(value) || value.includes('\n')) {
+    return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+  }
+  return value;
+}
+
+function buildRunbookYaml(
+  tag: string,
+  postmortems: Postmortem[],
+  fixes: FixStats[],
+): string {
+  const total     = postmortems.length;
+  const autoCount = postmortems.filter((pm) => pm.resolvedAutonomously).length;
+  const autoRate  = total > 0 ? Math.round((autoCount / total) * 100) : 0;
+  const mttrSamples = postmortems.filter((pm) => pm.mttrMs != null).map((pm) => pm.mttrMs!);
+  const avgMttr   = mttrSamples.length > 0
+    ? fmtMs(mttrSamples.reduce((a, b) => a + b, 0) / mttrSamples.length)
+    : 'unknown';
+
+  const topFix    = fixes[0]?.command ?? null;
+  const slug      = tagToSlug(tag);
+  const title     = tagToTitle(tag);
+  const date      = new Date().toISOString().slice(0, 10);
+  const services  = [...new Set(postmortems.map((pm) => pm.service))].slice(0, 5);
+
+  const lines: string[] = [
+    `# Auto-generated by Mergen — do not edit manually.`,
+    `# Source: ${total} incident postmortems. Re-generated on every resolution.`,
+    `name: ${yamlStr(slug)}`,
+    `title: ${yamlStr(title)}`,
+    `description: ${yamlStr(`Auto-generated runbook for ${title} — based on ${total} real incidents.`)}`,
+    ``,
+    `corpus_stats:`,
+    `  last_updated: ${yamlStr(date)}`,
+    `  total_incidents: ${total}`,
+    `  avg_mttr: ${yamlStr(avgMttr)}`,
+    `  autonomous_rate_pct: ${autoRate}`,
+    `  services: [${services.map(yamlStr).join(', ')}]`,
+    `  top_fix: ${topFix ? yamlStr(topFix) : 'null'}`,
+    ``,
+  ];
+
+  if (fixes.length > 0) {
+    lines.push(`verified_fixes:`);
+    for (const f of fixes) {
+      const mttr = f.avgMttrMs != null ? fmtMs(f.avgMttrMs) : 'unknown';
+      lines.push(`  - command: ${yamlStr(f.command)}`);
+      lines.push(`    times_applied: ${f.timesApplied}`);
+      lines.push(`    success_rate_pct: ${f.successRate}`);
+      lines.push(`    avg_mttr: ${yamlStr(mttr)}`);
+    }
+    lines.push(``);
+  }
+
+  // Common root causes (deduplicated)
+  const rootCauses = [...new Set(
+    postmortems.map((pm) => pm.rootCause.split('.')[0].trim()).filter(Boolean),
+  )].slice(0, 3);
+
+  if (rootCauses.length > 0) {
+    lines.push(`common_root_causes:`);
+    for (const rc of rootCauses) {
+      lines.push(`  - ${yamlStr(rc)}`);
+    }
+    lines.push(``);
+  }
+
+  // Standard procedure steps (templated from corpus data)
+  lines.push(`steps:`);
+  lines.push(`  - name: Confirm current error state`);
+  lines.push(`    tool: analyze_runtime`);
+  lines.push(``);
+  lines.push(`  - name: Search for similar past incidents`);
+  lines.push(`    tool: search_postmortems`);
+  lines.push(`    params:`);
+  lines.push(`      query: ${yamlStr(slug.replace(/-/g, ' '))}`);
+  lines.push(``);
+
+  if (topFix) {
+    lines.push(`  - name: Check fix history before applying`);
+    lines.push(`    tool: check_fix_history`);
+    lines.push(`    params:`);
+    lines.push(`      command: ${yamlStr(topFix)}`);
+    lines.push(``);
+    lines.push(`  - name: Apply top verified fix (${fixes[0].successRate}% success rate)`);
+    lines.push(`    tool: execute_fix`);
+    lines.push(`    params:`);
+    lines.push(`      command: ${yamlStr(topFix)}`);
+    lines.push(`      confirm: true`);
+    lines.push(``);
+  }
+
+  lines.push(`  - name: Validate resolution`);
+  lines.push(`    tool: validate_fix`);
+  lines.push(``);
+  lines.push(`  - name: Suggest follow-up actions`);
+  lines.push(`    tool: suggest_followups`);
+  lines.push(``);
+
+  return lines.join('\n');
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
+/**
+ * Update the runbook for `pm.tag` based on current corpus data.
+ * Safe to call on every incident resolution — the update is fast (SQL lookup)
+ * and idempotent (overwrites the previous runbook file).
+ *
+ * Skips silently when:
+ *  - zero-retention mode is active
+ *  - fewer than 2 resolved incidents exist for this tag (not enough signal)
+ */
+export function updateRunbookFromPostmortem(pm: Postmortem): void {
+  if (zeroRetentionMode()) return;
+
+  try {
+    // Load all postmortems for this failure mode (any service)
+    const related = postmortemStore.getByTag(pm.tag, 100);
+    if (related.length < 2) return; // not enough signal to generate a useful runbook
+
+    const fixes   = aggregateFixStats(related);
+    const yaml    = buildRunbookYaml(pm.tag, related, fixes);
+    const slug    = tagToSlug(pm.tag);
+    const outPath = path.join(USER_RUNBOOKS_DIR, `${slug}.yaml`);
+
+    fs.mkdirSync(USER_RUNBOOKS_DIR, { recursive: true });
+    const tmp = `${outPath}.tmp.${process.pid}`;
+    fs.writeFileSync(tmp, yaml, 'utf8');
+    fs.renameSync(tmp, outPath);
+
+    logger.info(
+      { tag: pm.tag, incidents: related.length, fixes: fixes.length, path: outPath },
+      'runbook-updater: runbook updated',
+    );
+  } catch (err) {
+    logger.warn({ err, tag: pm.tag }, 'runbook-updater: failed to update runbook');
+  }
+}

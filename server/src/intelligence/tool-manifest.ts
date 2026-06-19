@@ -46,6 +46,7 @@ export const ALL_TOOLS: readonly ToolEntry[] = [
   { name: 'get_ci_results',           module: 'tools-infra',          tier: 'all'  },
   { name: 'get_deployments',          module: 'tools-infra',          tier: 'all'  },
   { name: 'get_unified_timeline',     module: 'tools-infra',          tier: 'pro'  },
+  { name: 'get_service_graph',        module: 'tools-infra',          tier: 'all'  },
   { name: 'get_code_owners',          module: 'tools-infra',          tier: 'pro'  },
 
   // ── Blast radius ───────────────────────────────────────────────────────────
@@ -98,9 +99,11 @@ export const ALL_TOOLS: readonly ToolEntry[] = [
   { name: 'get_session_replay',       module: 'tools-sessions',       tier: 'all'  },
   { name: 'get_audit_log',            module: 'tools-sessions',       tier: 'pro'  },
 
-  // ── Agent memory ──────────────────────────────────────────────────────────
+  // ── Agent memory + operational knowledge ─────────────────────────────────
   { name: 'store_agent_memory',       module: 'tools-memory',         tier: 'all'  },
   { name: 'recall_agent_memory',      module: 'tools-memory',         tier: 'all'  },
+  { name: 'get_override_patterns',    module: 'tools-memory',         tier: 'all'  },
+  { name: 'get_detector_calibration', module: 'tools-memory',         tier: 'all'  },
 
   // ── Intent / tickets ─────────────────────────────────────────────────────
   { name: 'create_ticket',            module: 'tools-utility',        tier: 'pro'  },

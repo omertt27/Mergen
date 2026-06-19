@@ -13,7 +13,7 @@ export const KNOWN_TOOLS = new Set([
   'get_snapshots', 'get_websocket_activity', 'get_sse_activity', 'get_service_topology',
   // Backend / infra
   'get_process_logs', 'get_backend_logs', 'get_backend_spans', 'get_correlated_trace',
-  'get_ci_results', 'get_deployments', 'get_unified_timeline',
+  'get_ci_results', 'get_deployments', 'get_unified_timeline', 'get_service_graph',
   // Blast radius
   'get_blast_radius', 'get_code_owners', 'get_attribution_accuracy',
   // Incidents
@@ -27,17 +27,19 @@ export const KNOWN_TOOLS = new Set([
   // Runbook / postmortem
   'create_postmortem', 'list_postmortems',
   'check_fix_history', 'explain_service', 'generate_runbook', 'search_postmortems', 'draft_postmortem',
+  'start_runbook', 'suggest_followups', 'find_similar_incidents',
   // Sessions / audit
   'get_session_replay', 'get_audit_log',
   // Memory
   'store_agent_memory', 'recall_agent_memory',
+  'get_override_patterns', 'get_detector_calibration',
   // Intent
   'create_ticket',
   // Utility
   'clear_buffer', 'get_status', 'mark_capture_start', 'export_session', 'suggest_logging_locations',
   'watch_for_fix', 'stop_file_watch',
   // ADR / discovery / agent workflow
-  'search_adrs', 'discover_repo_context', 'report_confidence', 'plan_rollback',
+  'search_adrs', 'discover_repo_context', 'report_confidence', 'plan_rollback', 'get_buffer_schema',
   // Architectural governance
   'check_arch_violations', 'score_change_risk', 'query_arch_graph', 'critique_implementation',
 ]);

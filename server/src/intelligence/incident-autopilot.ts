@@ -48,6 +48,8 @@ import { plattScale } from './platt-scaling.js';
 import { formatValidatedFactsForLLM } from './llm-spokesperson.js';
 import { serviceGraph } from '../sensor/service-graph.js';
 import { routeReachability } from '../sensor/route-reachability.js';
+import { updateRunbookFromPostmortem } from './runbook-updater.js';
+import { generatePostmortem } from './postmortem-store.js';
 import logger from '../sensor/logger.js';
 
 // Forward approval expiry events to the Slack thread without coupling
@@ -67,6 +69,14 @@ const _recentlyTriaged = new Map<string, number>();
 // Prevents cost spikes when many services page at the same time.
 const MAX_CONCURRENT_AUTOPILOT = 3;
 let _activeCalls = 0;
+
+// Periodic cleanup of the dedup map so it doesn't grow unbounded when many
+// unique incident fingerprints arrive. Without this the map only shrinks when
+// size > 200 AND a new incident triggers the inline cleanup check.
+setInterval(() => {
+  const cutoff = Date.now() - DEDUP_TTL_MS;
+  for (const [k, v] of _recentlyTriaged) if (v < cutoff) _recentlyTriaged.delete(k);
+}, DEDUP_TTL_MS).unref();
 
 // Observability counters — exposed via getCostGuardStats().
 const _stats = {
@@ -596,20 +606,53 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
   if (topHyp.pid) {
     const existing = getRecords().find((r) => r.pid === topHyp.pid);
     if (existing && !existing.verdict) recordVerdict(topHyp.pid, verdict);
+
+    const resolvedAt = Date.now();
+
     if (verdict === 'correct') {
       incidentStore.upsert(topHyp.pid, {
         status: 'resolved',
-        resolvedAt: Date.now(),
+        resolvedAt,
         resolvedAutonomously: true,
         causallyCorrect: true,   // error rate dropped AND diagnosis confirmed
       });
     } else {
       incidentStore.upsert(topHyp.pid, {
         status: 'resolved',
-        resolvedAt: Date.now(),
+        resolvedAt,
         resolvedAutonomously: true,
         causallyCorrect: false,
       });
+    }
+
+    // Write a postmortem and update the runbook for this failure mode.
+    // The postmortem records the fix, MTTR, and git context so the next
+    // engineer to see this failure has a verified history to work from.
+    try {
+      // firedAt is the authoritative incident start: it is the PagerDuty trigger
+      // timestamp, set before any telemetry is collected. chain[0].ts is the
+      // first buffered event, which may predate the incident by seconds or
+      // minutes (DOM state snapshots, background network calls). Using firedAt
+      // gives an honest MTTR from the moment the alert fired.
+      const mttrMs = resolvedAt - firedAt;
+      const pm = generatePostmortem({
+        pid:      topHyp.pid,
+        tag:      topHyp.tag,
+        service,
+        rootCause: topHyp.summary,
+        fixCommand: command,
+        confidence: topHyp.confidenceScore ?? 0,
+        mttrMs,
+        resolvedAutonomously: true,
+        causallyCorrect: verdict === 'correct',
+        evidence: topHyp.evidence,
+        fixHint:  topHyp.fixHint ?? null,
+      });
+      // Non-blocking runbook update — failure here must never interrupt the
+      // incident resolution flow.
+      setImmediate(() => updateRunbookFromPostmortem(pm));
+    } catch (err) {
+      logger.warn({ err, pid: topHyp.pid }, 'incident-autopilot: postmortem generation failed');
     }
   }
 

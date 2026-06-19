@@ -12,9 +12,19 @@
  * if service B is erroring AND service A → B is an observed edge, surface
  * a cascading-failure hypothesis for A with boosted confidence.
  *
- * The graph is in-memory (rebuilt from the OTLP stream per server run).
- * It is also exposed via GET /service-graph for dashboards and MCP tools.
+ * Persistence: the graph is saved to TOPOLOGY_FILE after each recordCall()
+ * (debounced 30 s). On startup it is restored so blast-risk calculations
+ * work immediately without replaying the full OTLP stream. Edges older than
+ * MAX_EDGE_AGE_MS are pruned on load to prevent stale topology.
  */
+
+import fs from 'fs';
+import { TOPOLOGY_FILE, DATA_DIR, zeroRetentionMode } from './paths.js';
+import logger from './logger.js';
+
+// Topology edges older than 7 days are pruned on load — stale edges from
+// decommissioned services produce incorrect blast-risk calculations.
+const MAX_EDGE_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 
 interface EdgeStats {
   callCount:  number;
@@ -29,15 +39,88 @@ interface ServiceNode {
   calledBy: Set<string>;
 }
 
+interface PersistedEdge {
+  source: string; target: string;
+  callCount: number; errorCount: number; lastSeenAt: number;
+}
+
+interface PersistedTopology {
+  version: 1;
+  savedAt: number;
+  edges: PersistedEdge[];
+}
+
 class ServiceGraph {
   private _nodes = new Map<string, ServiceNode>();
   private _lastUpdated = 0;
+  private _saveTimer: ReturnType<typeof setTimeout> | null = null;
 
   private _node(service: string): ServiceNode {
     if (!this._nodes.has(service)) {
       this._nodes.set(service, { calls: new Map(), calledBy: new Set() });
     }
     return this._nodes.get(service)!;
+  }
+
+  // ── Persistence ─────────────────────────────────────────────────────────────
+
+  /** Restore graph from TOPOLOGY_FILE. Called once at server startup. */
+  loadPersisted(): void {
+    if (zeroRetentionMode() || !fs.existsSync(TOPOLOGY_FILE)) return;
+    try {
+      const raw = JSON.parse(fs.readFileSync(TOPOLOGY_FILE, 'utf8')) as PersistedTopology;
+      if (raw?.version !== 1 || !Array.isArray(raw.edges)) return;
+      const cutoff = Date.now() - MAX_EDGE_AGE_MS;
+      let loaded = 0;
+      for (const e of raw.edges) {
+        if (!e.source || !e.target || e.lastSeenAt < cutoff) continue;
+        this._restoreEdge(e.source, e.target, e.callCount, e.errorCount, e.lastSeenAt);
+        loaded++;
+      }
+      this._lastUpdated = raw.savedAt;
+      logger.debug({ loaded, file: TOPOLOGY_FILE }, 'service-graph: topology restored');
+    } catch (err) {
+      logger.warn({ err }, 'service-graph: failed to load persisted topology');
+    }
+  }
+
+  private _restoreEdge(
+    source: string, target: string,
+    callCount: number, errorCount: number, lastSeenAt: number,
+  ): void {
+    const node = this._node(source);
+    node.calls.set(target, { callCount, errorCount, lastSeenAt });
+    this._node(target).calledBy.add(source);
+  }
+
+  private _scheduleSave(): void {
+    if (zeroRetentionMode()) return;
+    if (this._saveTimer) clearTimeout(this._saveTimer);
+    this._saveTimer = setTimeout(() => { this._saveTimer = null; this._save(); }, 30_000);
+  }
+
+  private _save(): void {
+    try {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+      const edges: PersistedEdge[] = [];
+      for (const [source, node] of this._nodes) {
+        for (const [target, stats] of node.calls) {
+          edges.push({ source, target, ...stats });
+        }
+      }
+      const payload: PersistedTopology = { version: 1, savedAt: Date.now(), edges };
+      const tmp = `${TOPOLOGY_FILE}.tmp.${process.pid}`;
+      fs.writeFileSync(tmp, JSON.stringify(payload), 'utf8');
+      fs.renameSync(tmp, TOPOLOGY_FILE);
+    } catch (err) {
+      logger.warn({ err }, 'service-graph: persist failed');
+    }
+  }
+
+  /** Flush any pending save immediately — call on graceful shutdown. */
+  flushSync(): void {
+    if (this._saveTimer) { clearTimeout(this._saveTimer); this._saveTimer = null; }
+    this._save();
   }
 
   /** Record an observed call from `caller` to `callee`. */
@@ -58,6 +141,7 @@ class ServiceGraph {
     }
     this._node(callee).calledBy.add(caller);
     this._lastUpdated = Date.now();
+    this._scheduleSave();
   }
 
   /** Returns all services that directly depend on (call) `service`. */

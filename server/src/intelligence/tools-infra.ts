@@ -7,6 +7,8 @@ import { getActivePlanId } from './license.js';
 import { getPlan } from './plans.js';
 import { trackCall, withTierGate } from './tools-state.js';
 import { getTierForTool } from './tool-manifest.js';
+import { serviceGraph } from '../sensor/service-graph.js';
+import { incidentStore } from '../sensor/incident-store.js';
 import logger from '../sensor/logger.js';
 
 export function registerInfraTools(server: McpServer): void {
@@ -580,6 +582,200 @@ export function registerInfraTools(server: McpServer): void {
           : '⚠️  PARTIAL — backend span found, no browser event';
 
       lines.push('', joinStatus);
+
+      return { content: [{ type: 'text', text: lines.join('\n') }] };
+    },
+  );
+
+  // ── get_service_graph ──────────────────────────────────────────────────────
+  // @ts-ignore — TS2589: MCP SDK's deep generic inference hits the recursion limit
+  server.registerTool(
+    'get_service_graph',
+    {
+      description:
+        'Returns the live service dependency graph — which services call which, blast risk ' +
+        'for each service (how many upstream callers would be affected by a fix), ' +
+        'and historical co-occurrence edges from incident data (which services tend to ' +
+        'fail together). ' +
+        'Use this BEFORE proposing a fix to understand blast radius: a service with 6+ ' +
+        'upstream callers has HIGH blast risk and requires manual approval for any autonomous fix. ' +
+        'Also use this to identify cascading failure patterns: if A → B → C all show errors ' +
+        'simultaneously, fix B first. ' +
+        'The OTLP graph is built from live traces; the incident graph accumulates from past incidents. ' +
+        'Both are shown — they complement each other.',
+      inputSchema: {
+        service: z.string().optional()
+          .describe(
+            'Focus on a single service. Returns its direct callers, callees, blast risk tier, ' +
+            'transitive upstream impact count, and co-incident service history. ' +
+            'Omit to see the full cross-service topology.',
+          ),
+        include_incidents: z.boolean().optional()
+          .describe('Include incident co-occurrence graph (default: true).'),
+      },
+    },
+    async ({ service, include_incidents = true }) => {
+      trackCall('get_service_graph');
+
+      // ── Single-service focus ─────────────────────────────────────────────────
+      if (service) {
+        const callers      = serviceGraph.getCallers(service);
+        const callees      = serviceGraph.getCallees(service);
+        const blastRisk    = serviceGraph.getBlastRisk(service);
+        const upstream     = serviceGraph.getUpstreamImpact(service);
+        const hasOtlpData  = serviceGraph.size > 0;
+
+        const coIncident = include_incidents
+          ? incidentStore.coOccurringServices(service, 10 * 60_000, 8)
+          : [];
+
+        const riskEmoji = blastRisk === 'high' ? '🔴' : blastRisk === 'medium' ? '🟡' : '🟢';
+        const lines: string[] = [
+          `## Service Graph — \`${service}\``,
+          '',
+          `**Blast risk:** ${riskEmoji} ${blastRisk.toUpperCase()} — ${upstream.length} transitive upstream service${upstream.length !== 1 ? 's' : ''} affected by a fix`,
+          '',
+        ];
+
+        if (!hasOtlpData) {
+          lines.push(
+            '_OTLP graph is empty — no spans received yet. ' +
+            'Instrument your services with the OpenTelemetry SDK and point them at ' +
+            '`:4318/v1/traces` or `:3000/v1/traces` to populate the live topology._',
+            '',
+          );
+        } else {
+          if (callers.length > 0) {
+            lines.push(
+              `**Callers** (services that call \`${service}\`):`,
+              ...callers.map((s) => `- \`${s}\``),
+              '',
+            );
+          } else {
+            lines.push(`**Callers:** none observed in OTLP stream`, '');
+          }
+
+          if (callees.length > 0) {
+            lines.push(
+              `**Callees** (services \`${service}\` calls):`,
+              ...callees.map((s) => `- \`${s}\``),
+              '',
+            );
+          } else {
+            lines.push(`**Callees:** none observed in OTLP stream`, '');
+          }
+
+          if (upstream.length > 0) {
+            lines.push(
+              `**Transitive upstream impact** (BFS depth ≤ 3):`,
+              upstream.map((s) => `\`${s}\``).join(', '),
+              '',
+            );
+          }
+        }
+
+        if (include_incidents) {
+          if (coIncident.length > 0) {
+            lines.push(
+              `**Co-incident services** (failed together within 10 min in incident history):`,
+              '',
+              '| Service | Co-occurrences |',
+              '|---------|---------------|',
+              ...coIncident.map(({ service: s, count }) => `| \`${s}\` | ${count} |`),
+              '',
+              '_High co-occurrence suggests a shared dependency or cascade pattern._',
+            );
+          } else {
+            lines.push(`**Co-incident services:** no co-occurrence data yet`);
+          }
+        }
+
+        lines.push(
+          '',
+          '---',
+          `_Blast risk: LOW = 0–2 upstream, MEDIUM = 3–5, HIGH = 6+. ` +
+          `HIGH blast risk raises the autonomous execution threshold by 10 percentage points._`,
+        );
+
+        return { content: [{ type: 'text', text: lines.join('\n') }] };
+      }
+
+      // ── Full graph overview ──────────────────────────────────────────────────
+      const hasOtlpData   = serviceGraph.size > 0;
+      const graphJson     = serviceGraph.toJSON() as {
+        services: string[]; edges: Array<{ source: string; target: string; callCount: number; errorCount: number; lastSeenAt: number }>; lastUpdated: number;
+      };
+      const coEdges = include_incidents
+        ? incidentStore.getInteractionGraph()
+        : [];
+
+      const lines: string[] = ['## Service Graph — Full Topology', ''];
+
+      if (!hasOtlpData) {
+        lines.push(
+          `**OTLP graph:** empty`,
+          '',
+          '_No OTLP spans received. To populate the live service graph:_',
+          '```',
+          '# Point your services at Mergen:',
+          'OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:3000 node your-app.js',
+          '```',
+          '',
+        );
+      } else {
+        const lastUpdated = graphJson.lastUpdated
+          ? `${Math.round((Date.now() - graphJson.lastUpdated) / 1000)}s ago`
+          : 'unknown';
+
+        lines.push(
+          `**OTLP graph:** ${graphJson.services.length} service${graphJson.services.length !== 1 ? 's' : ''}, ` +
+          `${graphJson.edges.length} edge${graphJson.edges.length !== 1 ? 's' : ''} · last updated ${lastUpdated}`,
+          '',
+          '**Services:**',
+          graphJson.services.map((s) => {
+            const risk = serviceGraph.getBlastRisk(s);
+            const emoji = risk === 'high' ? '🔴' : risk === 'medium' ? '🟡' : '🟢';
+            return `${emoji} \`${s}\``;
+          }).join('  '),
+          '',
+        );
+
+        // Top 5 edges by call count
+        const topEdges = [...graphJson.edges]
+          .sort((a, b) => b.callCount - a.callCount)
+          .slice(0, 5);
+        if (topEdges.length > 0) {
+          lines.push(
+            '**Top call paths (by volume):**',
+            '',
+            '| From | To | Calls | Errors |',
+            '|------|----|-------|--------|',
+            ...topEdges.map((e) => `| \`${e.source}\` | \`${e.target}\` | ${e.callCount} | ${e.errorCount} |`),
+            '',
+          );
+        }
+      }
+
+      if (include_incidents && coEdges.length > 0) {
+        const topCoEdges = coEdges.slice(0, 5);
+        lines.push(
+          '**Top co-incident pairs (from incident history):**',
+          '',
+          '| Service A | Service B | Co-occurrences |',
+          '|-----------|-----------|---------------|',
+          ...topCoEdges.map((e) => `| \`${e.source}\` | \`${e.target}\` | ${e.weight} |`),
+          '',
+          '_Co-incident pairs often share a common dependency. When both are paging, fix the shared upstream first._',
+        );
+      } else if (include_incidents) {
+        lines.push('**Co-incident pairs:** no incident history yet');
+      }
+
+      lines.push(
+        '',
+        '---',
+        `_Call \`get_service_graph(service: "name")\` for per-service blast risk and callers/callees._`,
+      );
 
       return { content: [{ type: 'text', text: lines.join('\n') }] };
     },

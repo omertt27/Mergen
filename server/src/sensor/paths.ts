@@ -59,6 +59,15 @@ export const PR_SHADOW_FILE = path.join(DATA_DIR, 'pr-shadow.json');
  * Set MERGEN_ZERO_RETENTION=true for VPC / regulated deployments where
  * telemetry must never touch disk (Y4 enterprise compliance feature).
  */
+/** Persisted calibration corpus — prediction records + verdicts survive restarts. */
+export const CALIBRATION_FILE = path.join(DATA_DIR, 'calibration.json');
+
+/** Auto-generated runbooks written to user directory (separate from built-in). */
+export const USER_RUNBOOKS_DIR = path.join(DATA_DIR, 'runbooks');
+
+/** Pending Slack approval records — survives server restarts within the 15-min window. */
+export const APPROVALS_FILE = path.join(DATA_DIR, 'approval-pending.json');
+
 export function zeroRetentionMode(): boolean {
   return process.env.MERGEN_ZERO_RETENTION === 'true';
 }

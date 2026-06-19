@@ -58,6 +58,7 @@ import { startHeartbeatMonitor, setHeartbeatAlertFn } from './sensor/heartbeat-m
 import { startK8sEventsPoller } from './sensor/k8s-events.js';
 import { loadPlugins } from './intelligence/detector-plugins.js';
 import { notify } from './intelligence/notifications.js';
+import { serviceGraph } from './sensor/service-graph.js';
 import { createApp } from './app.js';
 import { checkForUpdates, formatUpdateMessage } from './update-checker.js';
 
@@ -158,9 +159,35 @@ async function main(): Promise<void> {
   await historyStore.init();
   await incidentStore.init();
   await postmortemStore.init();
+
+  // Diagnostic: warn when the corpus contains autonomous resolutions without
+  // verified causal correctness. These rows were written before the
+  // causallyCorrect fix or represent fixes that didn't resolve the incident.
+  // check_fix_history and runbook success rates show 0% for these entries
+  // until new causally-verified resolutions accumulate.
+  try {
+    const staleCount = postmortemStore.countUnverifiedAutonomous();
+    if (staleCount > 0) {
+      logger.warn(
+        `startup: ${staleCount} postmortem${staleCount !== 1 ? 's' : ''} with ` +
+        `resolved_autonomously=1 and causally_correct=0 found in corpus — ` +
+        `likely written before the causal-verification fix. check_fix_history ` +
+        `and runbook verified_fixes will show conservative (low) success rates ` +
+        `until new causally-verified resolutions are recorded. ` +
+        `These rows expire from the 90-day retention window automatically.`,
+      );
+    }
+  } catch { /* non-fatal — DB not yet ready */ }
+
   await memoryStore.init();
   await commitContextStore.init();
   await agentMemoryStore.init();
+
+  // Restore the service dependency graph from the last run. Without this, blast
+  // risk calculations default to 'low' until OTLP spans rebuild the graph live —
+  // which can take minutes on a freshly restarted server.
+  serviceGraph.loadPersisted();
+
   setBufferSizeGetter(() => getPlan(getActivePlanId()).bufferSize);
 
   // ── Detector plugins ───────────────────────────────────────────────────────
@@ -364,6 +391,10 @@ async function main(): Promise<void> {
     const events = store.serialize();
     saveSessionToHistory(events, `shutdown-${signal.toLowerCase()}`);
     saveSession(events);
+    // Flush the service graph so the next startup has an immediately correct
+    // blast-risk map instead of waiting for OTLP spans to rebuild it.
+    serviceGraph.flushSync();
+
     Promise.all([flushOverageOnShutdown(), flushPendingRebuild()]).finally(() => {
       stopDockerMonitor();
       stopDockerLogStream();
