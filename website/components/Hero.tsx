@@ -6,7 +6,7 @@ const heroStats = [
   { val: '94%',    label: 'Root cause accuracy',    sub: '33-incident eval corpus' },
   { val: '31/33',  label: 'Correct classifications', sub: '2 known false positives' },
   { val: '< 60s',  label: 'Time to first insight',   sub: 'zero config required' },
-  { val: '≥85%',   label: 'Confidence gate',         sub: 'before any autonomous action' },
+  { val: '≥85%',   label: 'Calibrated Gate',         sub: 'Platt-scaled safety threshold' },
 ]
 
 function formatStars(n: number): string {
@@ -64,8 +64,8 @@ export default function Hero() {
           'No configuration required',
           '50 sample incidents pre-loaded',
           'Override-based learning',
-          'Shadow mode safe by default',
-          'Local-first · VPC-ready',
+          'Semantic safety & blast-radius check',
+          'Platt-calibrated probability model',
         ].map((b) => (
           <span key={b} className="hero-badge">✓ {b}</span>
         ))}

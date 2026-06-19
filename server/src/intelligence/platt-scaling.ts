@@ -21,11 +21,15 @@
  */
 
 import { getRecords, getStats } from './calibration.js';
+import path from 'path';
+import fs from 'fs';
+import { DATA_DIR } from '../sensor/paths.js';
 
 const LEARNING_RATE = 0.1;
 const EPOCHS        = 200;
 const MIN_SAMPLES   = 10;
 const CACHE_TTL_MS  = 5 * 60_000; // refit at most every 5 minutes
+const FEDERATED_FILE = path.join(DATA_DIR, 'federated-calibration.json');
 
 interface PlattParams {
   A: number;
@@ -34,10 +38,44 @@ interface PlattParams {
   accuracy: number; // empirical accuracy used for validation
 }
 
+interface FederatedData {
+  tags?: Record<string, { A: number; B: number; n: number; accuracy: number }>;
+}
+
 const _cache = new Map<string, { params: PlattParams; fittedAt: number }>();
+let _federatedCache: FederatedData | null = null;
+let _federatedLoadedAt = 0;
 
 function sigmoid(z: number): number {
   return 1 / (1 + Math.exp(-z));
+}
+
+/** Return cached federated Platt params from ~/.mergen/federated-calibration.json */
+function getFederatedParams(tag: string): PlattParams | null {
+  const now = Date.now();
+  if (!_federatedCache || now - _federatedLoadedAt > CACHE_TTL_MS) {
+    try {
+      if (fs.existsSync(FEDERATED_FILE)) {
+        const raw = fs.readFileSync(FEDERATED_FILE, 'utf8');
+        _federatedCache = JSON.parse(raw) as FederatedData;
+        _federatedLoadedAt = now;
+      } else {
+        _federatedCache = { tags: {} };
+      }
+    } catch {
+      _federatedCache = { tags: {} };
+    }
+  }
+  if (_federatedCache && _federatedCache.tags && _federatedCache.tags[tag]) {
+    const val = _federatedCache.tags[tag];
+    return {
+      A: val.A,
+      B: val.B,
+      n: val.n,
+      accuracy: val.accuracy,
+    };
+  }
+  return null;
 }
 
 /**
@@ -102,13 +140,14 @@ function getParams(tag: string): PlattParams | null {
  *
  * Falls back gracefully:
  *   1. Per-tag Platt model (if ≥10 verdicts for this tag)
- *   2. Global Platt model (if ≥10 total verdicts)
- *   3. Tag's empirical accuracy from stats (if trusted)
- *   4. Raw score unchanged (no calibration data yet)
+ *   2. Federated per-tag Platt model (loaded from federated calibration cache)
+ *   3. Global Platt model (if ≥10 total verdicts)
+ *   4. Tag's empirical accuracy from stats (if trusted)
+ *   5. Raw score unchanged (no calibration data yet)
  */
 export function plattScale(rawScore: number, tag?: string): {
   calibrated: number;
-  source: 'tag-platt' | 'global-platt' | 'empirical' | 'raw';
+  source: 'tag-platt' | 'federated-platt' | 'global-platt' | 'empirical' | 'raw';
   n: number;
 } {
   // Try per-tag model first
@@ -119,6 +158,18 @@ export function plattScale(rawScore: number, tag?: string): {
         calibrated: Math.min(0.99, Math.max(0.01, sigmoid(tagParams.A * rawScore + tagParams.B))),
         source: 'tag-platt',
         n: tagParams.n,
+      };
+    }
+  }
+
+  // Try federated per-tag model
+  if (tag) {
+    const fedParams = getFederatedParams(tag);
+    if (fedParams) {
+      return {
+        calibrated: Math.min(0.99, Math.max(0.01, sigmoid(fedParams.A * rawScore + fedParams.B))),
+        source: 'federated-platt',
+        n: fedParams.n,
       };
     }
   }

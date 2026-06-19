@@ -142,7 +142,7 @@ describe('calibration persistence: kill-9 / orphan .tmp file', () => {
 });
 
 describe('calibration persistence: TTL semantics', () => {
-  it('getPendingFeedback() still expires after 7 days (PENDING_TTL_MS unchanged)', async () => {
+  it('getPendingFeedback() still expires after 30 days (PENDING_TTL_MS extended)', async () => {
     const { recordPrediction, getPendingFeedback, _resetForTesting } = await freshCalibration();
     _resetForTesting();
 
@@ -153,12 +153,12 @@ describe('calibration persistence: TTL semantics', () => {
     recordPrediction([{ tag: 'pending_test', summary: 's', confidence: 'HIGH',
       confidenceScore: 0.9, evidence: [], causalPath: [], fixHint: null }]);
 
-    // At t+6d: still pending
-    vi.setSystemTime(now + 6 * 24 * 60 * 60 * 1000);
+    // At t+29d: still pending
+    vi.setSystemTime(now + 29 * 24 * 60 * 60 * 1000);
     expect(getPendingFeedback()).toHaveLength(1);
 
-    // At t+8d: pending TTL elapsed — no longer pending
-    vi.setSystemTime(now + 8 * 24 * 60 * 60 * 1000);
+    // At t+31d: pending TTL elapsed — no longer pending
+    vi.setSystemTime(now + 31 * 24 * 60 * 60 * 1000);
     expect(getPendingFeedback()).toHaveLength(0);
   });
 
@@ -226,5 +226,38 @@ describe('calibration persistence: TTL semantics', () => {
     expect(rec!.expiresAt).toBeGreaterThan(oldBuggyExpiry + 1_000); // not the 7-day cliff
     expect(rec!.expiresAt).toBeGreaterThanOrEqual(correctExpiry - 2_000); // near 93 days
     expect(rec!.expiresAt).toBeLessThanOrEqual(correctExpiry + 2_000);
+  });
+
+  it('a prediction survives to receive a verdict on day 10 under the extended TTL (30 days)', async () => {
+    const { recordPrediction, recordVerdict, getRecords, _resetForTesting } = await freshCalibration();
+    _resetForTesting();
+
+    vi.useFakeTimers();
+    const t0 = Date.now();
+    vi.setSystemTime(t0);
+
+    const [tagged] = recordPrediction([{
+      tag: 'day_10_survival', summary: 's', confidence: 'HIGH',
+      confidenceScore: 0.95, evidence: [], causalPath: [], fixHint: null,
+    }]);
+
+    // Fast-forward past the old 7-day cliff to day 10
+    const day10 = t0 + 10 * 24 * 60 * 60 * 1000;
+    vi.setSystemTime(day10);
+
+    // Call recordVerdict on day 10. Under the old 7-day TTL this would have expired or failed.
+    // Here it should succeed and extend expiry to day 10 + 90 days = day 100
+    const res = recordVerdict(tagged.pid!, 'correct');
+    expect(res.found).toBe(true);
+
+    const recs = getRecords();
+    const rec = recs.find((r: { pid: string }) => r.pid === tagged.pid);
+    expect(rec).toBeTruthy();
+    expect(rec!.verdict).toBe('correct');
+    
+    // Expected expiry is day 10 + 90 days
+    const expectedExpiry = day10 + 90 * 24 * 60 * 60 * 1000;
+    expect(rec!.expiresAt).toBeGreaterThanOrEqual(expectedExpiry - 2000);
+    expect(rec!.expiresAt).toBeLessThanOrEqual(expectedExpiry + 2000);
   });
 });

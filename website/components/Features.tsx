@@ -106,12 +106,12 @@ const features = [
   {
     num: '01',
     icon: <IconLoop />,
-    title: 'Operational Memory',
+    title: 'Operational Memory & Calibration',
     desc: (
       <>
-        Every resolved incident generates a structured record: root cause, fix applied, who overrode what and why.
-        Mergen indexes this history and consults it before every autonomous action —
-        so <span className="highlight">the same incident never gets diagnosed from scratch twice.</span>
+        Every resolved incident generates a structured record. To resolve AI overconfidence, Mergen uses{' '}
+        <span className="highlight">Platt scaling calibration</span> to convert raw heuristics into empirical probabilities
+        based on your system's verdict corpus—ensuring autonomous actions run only at calibrated safety levels.
         <SlackAuditTrail />
       </>
     ),
@@ -119,37 +119,36 @@ const features = [
   {
     num: '02',
     icon: <IconDatabase />,
-    title: 'Override-Based Learning',
+    title: 'Override-Based Policy',
     desc: (
       <>
-        Every time your team overrides Mergen's recommendation, that decision becomes policy.
-        After six months: your Friday settlement windows, your compliance holds, your on-call's preferred fixes —
-        <span className="highlight"> structured, queryable, and impossible to replicate from a standing start.</span>
+        Every time your team overrides Mergen's recommendation, that decision becomes machine-readable policy.
+        After six months: your Friday settlement windows, compliance holds, and on-call preferences form your specific
+        <span className="highlight"> operational DNA—enforcing invariants before autopilot triggers.</span>
       </>
     ),
   },
   {
     num: '03',
     icon: <IconShield />,
-    title: 'Agent Blunder Log',
+    title: 'Agent Blunder Log (CISO Insurance)',
     desc: (
       <>
-        Every autonomous action Mergen's safety layer blocks is recorded: allowlist block, RBAC rejection,
-        override corpus halt, planning gate denial.
-        <span className="highlight"> This is your audit trail for AI-driven operations — and your answer to "how do you trust an AI agent with prod?"</span>
+        Your audit trail for AI-driven operations and your financial insurance policy against the Agent Outage Tax.
+        Mergen records every blocked action—allowlist blocks, corpus halts, planning gates, and semantic blocks—so
+        <span className="highlight"> security teams can quantify prevented downtime.</span>
       </>
     ),
   },
   {
     num: '04',
     icon: <IconArchive />,
-    title: 'Incident Replay',
+    title: 'Semantic Safety Gates',
     desc: (
       <>
-        Before a real incident fires, replay one that already happened. Mergen runs full root cause analysis
-        on your past alert payloads and shows{' '}
-        <span className="highlight">exactly what it would have done.</span> This is how teams prove value before
-        committing.
+        AI agents generate code in seconds but create silent risks. Mergen red-teams commands using a
+        <span className="highlight"> local semantic safety engine</span>, assessing action risk, blast radius,
+        and context limits instead of relying on simple string/regex allowlists.
         <IDEHint />
       </>
     ),
@@ -157,24 +156,24 @@ const features = [
   {
     num: '05',
     icon: <IconClock />,
-    title: 'Measurable MTTR',
+    title: 'Measurable MTTR & Progress',
     desc: (
       <>
-        Designed for the <span className="highlight">sleep-deprived on-call engineer.</span> The impact report
-        tracks autonomous MTTR vs. manual MTTR per failure mode — so you can show the before/after in a
-        board deck, not just feel it.
+        Show the before/after in a board deck. The impact report isolates Mergen's context-assisted value,
+        contrasting autonomous vs. manual MTTR and tracking developer engagement rates to demonstrate
+        <span className="highlight"> organic workflow integration.</span>
       </>
     ),
   },
   {
     num: '06',
     icon: <IconServer />,
-    title: 'Shadow Mode Safe by Default',
+    title: 'Staged Trust Progression',
     desc: (
       <>
-        Mergen can run without acting: observe production, simulate decisions, build a 30-day confidence track record.
-        <span className="highlight"> No risk required to start.</span> Flip to autopilot when the track record
-        earns it. Every action is logged and reversible.
+        De-risk automation step-by-step. Run in shadow mode for 30 days to build a track record, then gradually promote
+        execution permission tiers from
+        <span className="highlight"> service restarts, to rollbacks/pins, to full autonomous action.</span>
       </>
     ),
   },

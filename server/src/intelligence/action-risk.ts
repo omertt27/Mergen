@@ -22,16 +22,14 @@
 
 /** Risk tier of a single command. Lower = safer. */
 export type CommandRiskTier = 'restart' | 'deploy' | 'full';
-
-/**
- * Autopilot level — which risk tiers are permitted for autonomous execution.
- * Maps to MERGEN_AUTOPILOT_LEVEL env var.
- */
 export type AutopilotLevel = 'restarts' | 'deploys' | 'full';
 
-// ── Pattern sets ──────────────────────────────────────────────────────────────
+export interface SemanticRiskResult {
+  risk: 'low' | 'medium' | 'high';
+  blocked: boolean;
+  reason: string | null;
+}
 
-/** Commands that only restart or reload a running service. No code/config change. */
 const RESTART_PATTERNS: RegExp[] = [
   /\bpm2\s+(restart|reload|gracefulReload)\b/i,
   /\bkubectl\s+rollout\s+restart\b/i,
@@ -50,31 +48,25 @@ const RESTART_PATTERNS: RegExp[] = [
   /\bunicorn_rails\s+.*-s\s+HUP\b/i,
 ];
 
-/**
- * Commands that change the running version or pinned dependencies.
- * Higher risk than restarts but still reversible without data loss.
- * Includes everything in RESTART_PATTERNS.
- */
 const DEPLOY_PATTERNS: RegExp[] = [
   ...RESTART_PATTERNS,
-  /\bkubectl\s+rollout\s+undo\b/i,                      // rollback deployment
-  /\bkubectl\s+set\s+image\b/i,                         // update container image
-  /\bkubectl\s+set\s+env\b/i,                           // set env var on deployment
-  /\bhelm\s+(upgrade|rollback)\b/i,                     // helm change
-  /\bnpm\s+install\s+\S+@\S+/i,                         // pin a dep to specific version
+  /\bkubectl\s+rollout\s+undo\b/i,
+  /\bkubectl\s+set\s+image\b/i,
+  /\bkubectl\s+set\s+env\b/i,
+  /\bhelm\s+(upgrade|rollback)\b/i,
+  /\bnpm\s+install\s+\S+@\S+/i,
   /\bpip\s+install\s+\S+==\S+/i,
   /\bpip\s+install\s+--upgrade\s+\S+/i,
   /\byarn\s+add\s+\S+@\S+/i,
   /\bgem\s+install\s+\S+\s+-v\s+\S+/i,
-  /\bgit\s+checkout\s+\S+\s+--\s+\S+/i,                // revert a specific file
-  /\bgit\s+revert\s+[a-f0-9]{7}/i,                      // git revert a commit
+  /\bgit\s+checkout\s+\S+\s+--\s+\S+/i,
+  /\bgit\s+revert\s+[a-f0-9]{7}/i,
   /\baws\s+ecs\s+update-service\b/i,
   /\bgcloud\s+(app|run)\s+deploy\b/i,
+  /\bgc\s+(app|run)\s+deploy\b/i,
   /\baz\s+(webapp|containerapp)\s+(restart|update)\b/i,
   /\bdocker-compose\s+(restart|up\s+--force-recreate)\b/i,
 ];
-
-// ── Tier order for numeric comparison ─────────────────────────────────────────
 
 const RISK_TIER_ORDER: Record<CommandRiskTier, number> = {
   restart: 0,
@@ -88,46 +80,97 @@ const LEVEL_ORDER: Record<AutopilotLevel, number> = {
   full:     2,
 };
 
-// ── Public API ────────────────────────────────────────────────────────────────
-
-/**
- * Classify a command string into a risk tier.
- * Returns 'restart' for pure service restarts, 'deploy' for version/dep changes,
- * and 'full' for anything else (env changes, schema migrations, etc.).
- */
 export function classifyCommandRisk(command: string): CommandRiskTier {
   if (RESTART_PATTERNS.some((p) => p.test(command))) return 'restart';
   if (DEPLOY_PATTERNS.some((p) => p.test(command)))  return 'deploy';
   return 'full';
 }
 
-/**
- * Returns true if the command's risk tier is within the configured autopilot level.
- *
- * level=restarts → only 'restart' tier commands
- * level=deploys  → 'restart' and 'deploy' tier commands
- * level=full     → all commands (same as before this feature existed)
- */
 export function autopilotLevelPermits(command: string, level: AutopilotLevel): boolean {
   const risk = classifyCommandRisk(command);
   return RISK_TIER_ORDER[risk] <= LEVEL_ORDER[level];
 }
 
-/**
- * Parse MERGEN_AUTOPILOT_LEVEL env var. Defaults to 'full' if unset or invalid.
- * 'full' preserves backwards-compatible behaviour for existing deployments.
- */
 export function getAutopilotLevel(): AutopilotLevel {
   const raw = process.env.MERGEN_AUTOPILOT_LEVEL;
   if (raw === 'restarts' || raw === 'deploys' || raw === 'full') return raw;
   return 'full';
 }
 
-/** Human-readable description of what a level permits (for Slack messages). */
 export function autopilotLevelDescription(level: AutopilotLevel): string {
   switch (level) {
     case 'restarts': return 'service restarts and reloads only';
     case 'deploys':  return 'restarts, rollbacks, and dependency pins';
     case 'full':     return 'all commands';
   }
+}
+
+/**
+ * Semantic risk analysis to classify commands based on context and potential blast radius impact.
+ */
+export function analyzeSemanticRisk(
+  command: string,
+  context?: { service?: string; service_time?: { dayOfWeek: number; hourOfDay: number } }
+): SemanticRiskResult {
+  const lower = command.toLowerCase();
+  
+  // 1. Context check: Resizing DB connection pool during Friday settlement window (20:00 - 24:00 UTC)
+  const isDBPoolResize = (lower.includes('pool') || lower.includes('max_connections') || lower.includes('db_pool')) && 
+                         (lower.includes('set') || lower.includes('env') || lower.includes('export') || lower.includes('scale'));
+  
+  if (isDBPoolResize) {
+    const day = context?.service_time?.dayOfWeek ?? new Date().getUTCDay();
+    const hour = context?.service_time?.hourOfDay ?? new Date().getUTCHours();
+    
+    // Friday is dayOfWeek = 5
+    if (day === 5 && hour >= 20 && hour <= 24) {
+      return {
+        risk: 'high',
+        blocked: true,
+        reason: 'Semantic Safety: Database pool resize is unsafe during Friday 20-24 UTC settlement window.',
+      };
+    }
+  }
+
+  // 2. Destructive command safety: Check for destructive mutations
+  const isDestructive = lower.includes('drop') || lower.includes('truncate') || lower.includes('delete') || lower.includes('rm -rf');
+  if (isDestructive && (lower.includes('table') || lower.includes('database') || lower.includes('/') || lower.includes('bucket'))) {
+    return {
+      risk: 'high',
+      blocked: true,
+      reason: 'Semantic Safety: Destructive operation detected. Execution blocked.',
+    };
+  }
+
+  // 3. Scale risk check: Resizing replicas or instances
+  const isScale = lower.includes('scale') || lower.includes('replicas') || lower.includes('resize');
+  if (isScale) {
+    return {
+      risk: 'medium',
+      blocked: false,
+      reason: 'Semantic Safety: Service scaling in progress.',
+    };
+  }
+
+  // Default fallback classification based on command tier
+  const tier = classifyCommandRisk(command);
+  if (tier === 'full') {
+    return {
+      risk: 'high',
+      blocked: false,
+      reason: null,
+    };
+  } else if (tier === 'deploy') {
+    return {
+      risk: 'medium',
+      blocked: false,
+      reason: null,
+    };
+  }
+
+  return {
+    risk: 'low',
+    blocked: false,
+    reason: null,
+  };
 }

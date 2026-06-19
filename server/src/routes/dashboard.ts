@@ -294,6 +294,11 @@ function buildDashboardHtml(version: string, nonce: string): string {
         <div id="mttr-content"><div style="font-size:11px;color:var(--muted)">Loading…</div></div>
       </div>
 
+      <div class="card" id="blunder-card">
+        <div class="card-title">Agent Blunder Log (Prevented Outages)</div>
+        <div id="blunder-content"><div style="font-size:11px;color:var(--muted)">Loading…</div></div>
+      </div>
+
       <div class="card" id="corpus-card">
         <div class="card-title">Accuracy Gate</div>
         <div id="corpus-progress">
@@ -917,6 +922,43 @@ async function pollMttr() {
   } catch(e) {}
 }
 
+async function pollBlunders() {
+  try {
+    const d = await fetch('/agent-blunders').then(r => r.json());
+    const el = document.getElementById('blunder-content');
+    if (!el || !d) return;
+
+    if (!d.prevented) {
+      el.innerHTML = '<div style="font-size:11px;color:var(--muted)">0 autonomous actions blocked. Prod is running fine.</div>';
+      return;
+    }
+
+    let html = '';
+    html += '<div class="stat"><span class="stat-label">Prevented Outages</span><span class="stat-val" style="color:var(--green)">' + d.prevented + '</span></div>';
+    
+    const types = d.byType || {};
+    for (const [key, val] of Object.entries(types)) {
+      if (val > 0) {
+        const name = key.replace(/_/g, ' ');
+        html += '<div class="stat"><span class="stat-label" style="font-size:11px;padding-left:8px">• ' + name + '</span><span class="stat-val" style="font-size:11px">' + val + '</span></div>';
+      }
+    }
+
+    if (d.recent && d.recent.length > 0) {
+      html += '<div style="margin-top:8px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Recent Interceptions</div>';
+      for (const b of d.recent.slice(0, 3)) {
+        const reason = b.blockReason || b.reason || 'Safety block';
+        html += '<div style="padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:11px">'
+          + '<div style="font-weight:600;color:var(--red);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(b.command) + '">❌ ' + esc(b.command) + '</div>'
+          + '<div style="color:var(--muted);font-size:10px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(reason) + '">' + esc(reason) + '</div>'
+          + '</div>';
+      }
+    }
+
+    el.innerHTML = html;
+  } catch(e) {}
+}
+
 async function pollCorpusProgress() {
   try {
     const d = await fetch('/calibration/corpus-progress').then(r => r.json());
@@ -1014,6 +1056,7 @@ pollCalibrationHealth();
 pollWarRoom();
 pollCorpusProgress();
 pollMttr();
+pollBlunders();
 pollServiceMemory();
 setInterval(poll,5000);
 setInterval(pollSdkStatus,10000);
@@ -1022,6 +1065,7 @@ setInterval(pollCalibrationHealth,30000);
 setInterval(pollWarRoom,10000);
 setInterval(pollCorpusProgress,30000);
 setInterval(pollMttr,30000);
+setInterval(pollBlunders,30000);
 setInterval(pollServiceMemory,30000);
 </script>
 </body></html>`;

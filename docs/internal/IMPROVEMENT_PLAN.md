@@ -1,128 +1,110 @@
-# Mergen: 90-Day Improvement Plan
-**Plan Date:** 2026-06-02  
-**Target:** Become the definitive runtime context layer for AI agents  
-**Status:** Strategic Refinement Complete
+# Mergen: 90-Day Strategic & Technical Improvement Plan
+**Plan Date:** 2026-06-20  
+**Strategic Direction:** Unified Agentic Safety & Understanding Platform (Integrating Andrew Ng's Feedback)  
+**Status:** In Progress (Implementing Stage 1)
 
 ---
 
 ## Executive Summary
 
-This plan positions Mergen as the **production memory layer** for AI IDEs — giving Claude Code and peers the incident context they need to triage autonomously. 
+This plan positions Mergen as the **critical safety and understanding layer for AI coding agents**. AI assistants write code at machine speed but are "blind to runtime" operations—leading to technical debt and production incidents (the **"Agent Outage Tax"**). Mergen bridges this gap by feeding real-time browser/infrastructure telemetry back into AI IDEs and enforcing autonomous safety guardrails.
 
-AI agents can read code, but they are "blind to runtime." They cannot see the causal links between a browser crash and a backend timeout. Mergen bridges this gap by providing **deterministic causal joins** (EXACT evidence) that give agents the ground truth they need to debug accurately.
-
-**The Moat:** Unlike headless browser MCPs, Mergen runs in the developer's **REAL browser** with REAL authentication, cookies, and state. This makes it the only tool capable of debugging production-gated issues.
+### 💡 Andrew Ng Strategic Integrations
+Following strategic feedback, we are adjusting our product vector to address three critical challenges:
+1. **The Platt-Scaling Cold Start:** Implementing **Anonymized Federated Telemetry** to bootstrap our calibration engine on Day 0.
+2. **Beyond Regex Safety:** Replacing standard regex command blocklists with a **Semantic Safety Gate** that evaluates action risk and blast radius.
+3. **Enterprise GTM Defensibility:** Positioning Mergen as an SRE "insurance policy" for VP/CISO buyers by visualising prevented agent incidents via the **Agent Blunder Log**.
 
 ---
 
-## Prioritization Matrix
+## Strategic Prioritization Matrix
 
 | Initiative | Impact | Effort | Priority | Strategic Value |
 |-----------|--------|--------|----------|----------------|
-| **Deterministic Causal Joins** | 🔥 Critical | 2 weeks | **P0** | **The Moat:** EXACT evidence joins |
-| **Evidence-based Taxonomy** | 🔥 Critical | 1 week | **P0** | Credibility vs. raw confidence |
-| **Real Browser Advantage Doc** | 🔥 Critical | 1 week | **P0** | Market differentiation |
-| **npm + Web Store publish** | 🟡 High | 2 weeks | **P1** | Distribution |
-| **Silent failure detectors (×7)** | 🟡 High | 4 weeks | **P1** | Value beyond crashes |
-| **ROI / Time-saved metrics** | 🟡 High | 2 weeks | **P1** | Enterprise justification |
-| **Team sync MVP** | 🟢 Medium | 4 weeks | **P2** | Collaboration & Revenue |
+| **Deterministic Causal Joins** | 🔥 Critical | 2 weeks | **P0** | EXACT evidence joins via browser extension |
+| **Federated Calibration Telemetry** | 🔥 Critical | 1 week | **P0** | Solves the Platt scaling cold-start problem |
+| **Semantic Safety Gate** | 🟡 High | 2 weeks | **P1** | Replaces regex blocklist with LLM blast-radius evaluations |
+| **CISO Agent Blunder Dashboard** | 🟡 High | 1.5 weeks | **P1** | Enterprise sales enablement & ROI justification |
+| **AI IDE Partner Program** | 🟡 High | Ongoing | **P1** | Grassroots distribution via Claude Code & Cursor |
+| **Silent Failure Detectors (×7)** | 🟢 Medium | 3 weeks | **P2** | Value-add detection of infinite loops/stale closures |
+| **Team Share & Sync MVP** | 🟢 Medium | 4 weeks | **P2** | Multi-seat accounts & shared override corpus |
 
 ---
 
-## Stage 1: The Causal Context Layer (Weeks 1–4)
+## Stage 1: The Causal Context & Calibration Layer (Weeks 1–4)
 
-### Week 1: Deterministic Joins & Evidence Taxonomy
+### Week 1–2: Deterministic Joins & Evidence Taxonomy
 
-#### Task 1.1: Implement EXACT joins (Trace Correlation) ⏱️ 3 days
+#### Task 1.1: Trace Correlation (EXACT Joins)
+* **Goal:** Auto-inject `traceparent` headers to link frontend errors to backend server spans.
+* **Deliverables:** Extension patch (content script) + SDK updates + telemetry matching in [causal-graph.ts](file:///Users/omer/Desktop/Mergen/server/src/intelligence/causal-graph.ts).
+* **Metrics:** Output contains `EXACT` tag when trace IDs match.
 
-**Goal:** Link browser network calls to backend logs with 100% certainty.
+#### Task 1.2: Evidence-Based Prompts
+* **Goal:** Instruct LLM spokesperson in [llm-spokesperson.ts](file:///Users/omer/Desktop/Mergen/server/src/intelligence/llm-spokesperson.ts) to weigh structured evidence tags (`EXACT` vs. `~CORR` vs. `OBS`) over raw confidence scores.
 
-**Implementation:**
-- [ ] Auto-inject `traceparent` headers into all outbound `fetch`/`XHR` in the extension.
-- [ ] Update Node/Python/Go SDKs to extract `traceparent` and include it in log metadata.
-- [ ] Update `causal.ts` to scan for matching trace IDs and label them as **EXACT** in the Context Pack.
+### Week 3–4: Calibration Cold-Start Mitigation
 
-**Acceptance criteria:**
-- [ ] `analyze_runtime` shows `EXACT` labels when trace IDs match.
-- [ ] AI agent can cite specific backend log lines as the confirmed cause of a browser error.
-
----
-
-#### Task 1.2: Evidence-based Taxonomy Update ⏱️ 2 days
-
-**Goal:** Move from "91% confidence" to "2 EXACT joins, 1 LINKED join."
-
-**Implementation:**
-- [ ] Update `Hypothesis` type to include `evidenceTier: 'EXACT' | 'LINKED' | '~CORR' | 'OBS'`.
-- [ ] Replace percentage-based confidence with a list of verified evidence pieces.
-- [ ] Update `prompts.ts` to instruct the LLM on how to weigh different evidence tiers.
-
-**Acceptance criteria:**
-- [ ] Context Pack leads with Evidence, not just Confidence.
-- [ ] "EXACT" evidence is prioritized at the top of the diagnosis.
+#### Task 1.3: Anonymized Federated Calibration Telemetry
+* **Goal:** Pre-train global Platt calibration coefficients and bootstrap the Day 0 experience.
+* **Implementation:** 
+  - Define schema in [calibration.d.ts](file:///Users/omer/Desktop/Mergen/server/src/intelligence/calibration.d.ts) for opt-in telemetry payloads (`MERGEN_TELEMETRY=1`).
+  - Deploy global aggregator endpoint on `corpus.mergen.dev` to collect tag-verdict outcomes.
+  - Implement fallback hierarchy in [platt-scaling.ts](file:///Users/omer/Desktop/Mergen/server/src/intelligence/platt-scaling.ts): `local-tag-platt` $\rightarrow$ `federated-tag-platt` $\rightarrow$ `global-platt` $\rightarrow$ `raw`.
+* **Success Metric:** Day 0 installations output calibrated probabilities rather than uncalibrated raw scores.
 
 ---
 
-#### Task 1.3: "Why Mergen?" Marketing & Docs ⏱️ 2 days
+## Stage 2: Safety Gates & Distribution (Weeks 5–8)
 
-**Goal:** Explicitly differentiate against `chrome-devtools-mcp`.
+### Week 5–6: Upgrading Safety Execution Boundaries
 
-**Implementation:**
-- [ ] Update `README.md` and `CLAUDE.md` to highlight the **Real Browser** moat.
-- [ ] Create a "Headless vs. Real" comparison table.
-- [ ] Record a 30s demo debugging an app behind a REAL login (OAuth/SSO) that headless tools can't touch.
+#### Task 2.1: Semantic Safety & Blast-Radius Engine
+* **Goal:** Prevent agents from executing high-risk commands that pass syntax-based regexes.
+* **Implementation:** 
+  - Enhance [action-risk.ts](file:///Users/omer/Desktop/Mergen/server/src/intelligence/action-risk.ts) and [blast-radius.ts](file:///Users/omer/Desktop/Mergen/server/src/intelligence/blast-radius.ts).
+  - Feed proposed fix commands into a lightweight, local semantic analysis gate.
+  - Grade commands on destructive risk (low/medium/high) and context checks (e.g., "resizing DB connection pool during a known high-load window").
+* **Metrics:** 0 bypasses of critical system changes; correct classification of non-trivial destructive commands.
 
----
+### Week 7–8: Distribution & Silent Detectors
 
-## Stage 2: Distribution & silent failures (Weeks 5–8)
+#### Task 2.2: Chrome Web Store & npm Release
+* **Goal:** Publish the browser extension to Chrome Web Store and the server to npm.
 
-### Week 5: Distribution Foundation
-
-#### Task 2.1: npm + Chrome Web Store publish ⏱️ 7 days
-
-**Goal:** One-click install via `npx mergen-server` and the Web Store.
-
----
-
-### Week 6–8: Silent Failure Detectors
-
-#### Task 3.1: Catch "Invisible" Bugs ⏱️ 14 days
-
-**Implementation:**
-- [ ] Implement detectors for:
-  - Infinite render loops (React/Vue)
-  - Swallowed promises (empty catch blocks)
-  - CORS preflight failures (silent in console)
-  - Hydration mismatches (SSR/CSR)
-  - Stale closures (React useState)
+#### Task 2.3: Silent failure detectors
+* **Goal:** Catch issues that do not crash the browser console but degrade UX.
+* **Implementation:** Write specific detector plug-ins in [detector-plugins.ts](file:///Users/omer/Desktop/Mergen/server/src/intelligence/detector-plugins.ts) for React infinite render loops, stale closures, and CORS preflight blocks.
 
 ---
 
-## Stage 3: ROI & Team Features (Weeks 9–12)
+## Stage 3: Enterprise Trust & Partnerships (Weeks 9–12)
 
-### Week 9–10: ROI Metrics
+### Week 9–10: CISO Dashboard & ROI Visualizer
 
-#### Task 4.1: Time-to-resolution tracking ⏱️ 7 days
+#### Task 3.1: Visualizing the Agent Blunder Log
+* **Goal:** Give VP of Eng/CISO a clear dashboard showing "AI errors caught before reaching prod."
+* **Implementation:** 
+  - Expose API at `/agent-blunders` returning blocked actions.
+  - Build UI page visualizing incident prevention rates, time-saved stats, and MTTR changes.
+* **Metrics:** Average estimated cost of outages prevented shown on screen.
 
-**Goal:** Prove "3.2 hours saved per month" by tracking time from `analyze_runtime` to `git commit`.
+### Week 11–12: Strategic Partnerships & Team Sync
 
----
+#### Task 3.2: AI IDE Partnerships
+* **Goal:** Direct standard integrations with major AI agent CLI and developer platforms.
+* **Implementation:** Standardize Mergen's MCP server configuration schemas, establishing plug-and-play defaults for Claude Code and Cursor.
 
-### Week 11–12: Team Sync MVP
-
-#### Task 5.1: Shared Calibration ⏱️ 7 days
-
-**Goal:** Aggregate "Evidence accuracy" across the team to suppress flaky detectors.
-
----
-
-## Success Metrics (90-Day Checkpoint)
-
-- [ ] **1,000 weekly active users**
-- [ ] **$5,000 MRR**
-- [ ] **EXACT joins enabled in 50% of user sessions** (SDK adoption metric)
-- [ ] **Avg detector accuracy > 75%**
+#### Task 3.3: Team Sync MVP
+* **Goal:** Sync the override corpus and blunder logs across team seats.
 
 ---
 
-**End of Plan**
+## Success Metrics (90-Day Evaluation)
+
+* **Calibrated Confidence:** 100% of Day 0 setups present calibrated or empirical confidence metrics rather than raw priors.
+* **Zero Autopilot Outages:** Zero fatal actions executed by autopilot due to the upgraded semantic safety gate.
+* **Developer Engagement:** Monthly active users (MAU) reaching 2,500; 40% organic developer response rate to PR comment reviews.
+* **Enterprise ROI:** Verified reduction in MTTR by $\ge 40\%$ when using Mergen’s context briefs for manual triage.
+
+---

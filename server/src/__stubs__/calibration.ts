@@ -20,10 +20,9 @@ const MIN_SAMPLES        = 5;
 const DEMOTE_THRESHOLD   = 0.5;
 const SUPPRESS_THRESHOLD = 0.2;
 // PENDING_TTL_MS governs how long an unresolved prediction stays in the
-// getPendingFeedback() queue before it's considered stale. 7 days is the
-// original acknowledgement window — engineers are unlikely to provide a
-// verdict on an incident older than a week.
-const PENDING_TTL_MS     = 7  * 24 * 60 * 60 * 1000; // 7 days — pending predictions
+// getPendingFeedback() queue before it's considered stale. 30 days provides
+// ample time for human operator review across shifts/sprints.
+const PENDING_TTL_MS     = 30 * 24 * 60 * 60 * 1000; // 30 days — pending predictions
 // LABELED_TTL_MS governs how long a *verdict-bearing* record is retained for
 // classifier training and ROC analysis. 90 days matches the override corpus
 // retention window and gives at least a quarter of real production data before

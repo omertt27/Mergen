@@ -154,13 +154,51 @@ class PostmortemStore {
     }
   }
 
+  private isWriting = false;
+  private pendingWrite = false;
+  private nextBuffer: Buffer | null = null;
+
   private _flush(): void {
     if (!this.db || zeroRetentionMode()) return;
     try {
       const data = this.db.export();
-      fs.writeFileSync(POSTMORTEMS_DB, Buffer.from(data));
+      this.writeBufferAsync(Buffer.from(data.buffer, data.byteOffset, data.byteLength));
     } catch (err) {
       logger.warn({ err }, 'postmortem store flush failed');
+    }
+  }
+
+  private writeBufferAsync(buf: Buffer): void {
+    if (this.isWriting) {
+      this.pendingWrite = true;
+      this.nextBuffer = buf;
+      return;
+    }
+    this.isWriting = true;
+    const tmp = `${POSTMORTEMS_DB}.tmp.${process.pid}`;
+    fs.writeFile(tmp, buf, (err) => {
+      if (err) {
+        logger.warn({ err }, 'postmortem store async write failed');
+        this.isWriting = false;
+        this.processPendingWrite();
+        return;
+      }
+      fs.rename(tmp, POSTMORTEMS_DB, (renameErr) => {
+        if (renameErr) {
+          logger.warn({ err: renameErr }, 'postmortem store async rename failed');
+        }
+        this.isWriting = false;
+        this.processPendingWrite();
+      });
+    });
+  }
+
+  private processPendingWrite(): void {
+    if (this.pendingWrite && this.nextBuffer) {
+      this.pendingWrite = false;
+      const buf = this.nextBuffer;
+      this.nextBuffer = null;
+      this.writeBufferAsync(buf);
     }
   }
 

@@ -28,7 +28,7 @@ import { computeBlastRadius } from './blast-radius.js';
 import { deriveRollback } from './rollback.js';
 import { getStatsForTag } from './calibration.js';
 import { hasRecentOverride } from './override-corpus.js';
-import { getAutopilotLevel, autopilotLevelPermits, classifyCommandRisk } from './action-risk.js';
+import { getAutopilotLevel, autopilotLevelPermits, classifyCommandRisk, analyzeSemanticRisk } from './action-risk.js';
 import { postmortemStore } from './postmortem-store.js';
 import logger from '../sensor/logger.js';
 
@@ -270,6 +270,19 @@ function critiqueExecutionPlan(
     verdict = verdict === 'proceed' ? 'review' : verdict;
   }
 
+  // Semantic safety check
+  const semantic = analyzeSemanticRisk(plan.command, {
+    service,
+    service_time: opts.service_time,
+  });
+  if (semantic.blocked) {
+    concerns.push(semantic.reason ?? 'Semantic safety block');
+    verdict = 'block';
+  } else if (semantic.risk === 'high') {
+    concerns.push(semantic.reason ?? 'High semantic risk detected');
+    verdict = verdict === 'proceed' ? 'review' : verdict;
+  }
+
   // Validation contradictions
   if (validation.contradictions.length > 0) {
     concerns.push(...validation.contradictions.map((c) => `Validation: ${c}`));
@@ -493,4 +506,80 @@ export function renderPipelineStages(stages: PipelineStage[]): string {
     if (stage.detail) lines.push(`   _${stage.detail}_`);
   }
   return lines.join('\n');
+}
+
+export interface GovernanceHookContext {
+  chain: CausalChain;
+  hypothesis: Hypothesis;
+  plan: ExecutionPlan;
+  opts: PipelineOpts;
+}
+
+export type GovernanceHook = (ctx: GovernanceHookContext) => Promise<{
+  verdict: 'proceed' | 'review' | 'block';
+  reason?: string;
+}>;
+
+const _hooks: GovernanceHook[] = [];
+
+export function registerGovernanceHook(hook: GovernanceHook): void {
+  _hooks.push(hook);
+}
+
+export function clearGovernanceHooks(): void {
+  _hooks.length = 0;
+}
+
+export async function runAgentPipelineAsync(chain: CausalChain, opts: PipelineOpts = {}): Promise<PipelineResult> {
+  const result = runAgentPipeline(chain, opts);
+
+  // If the sync pipeline blocked or has no topHypothesis/plan, skip async hooks
+  if (result.verdict === 'block' || !result.topHypothesis || !result.plan) {
+    return result;
+  }
+
+  const ctx: GovernanceHookContext = {
+    chain,
+    hypothesis: result.topHypothesis,
+    plan: result.plan,
+    opts,
+  };
+
+  for (let i = 0; i < _hooks.length; i++) {
+    const hook = _hooks[i];
+    try {
+      const hookRes = await hook(ctx);
+      const status: PipelineStageStatus =
+        hookRes.verdict === 'proceed' ? 'pass' :
+        hookRes.verdict === 'review' ? 'warn' : 'block';
+
+      result.stages.push({
+        name: `pre-execution-hook-${i + 1}`,
+        status,
+        summary: hookRes.reason ?? `Hook ${i + 1} returned ${hookRes.verdict}`,
+      });
+
+      if (hookRes.verdict === 'block') {
+        result.verdict = 'block';
+        result.blockReason = hookRes.reason ?? `Blocked by pre-execution hook ${i + 1}`;
+        break;
+      } else if (hookRes.verdict === 'review') {
+        if (result.verdict === 'proceed') {
+          result.verdict = 'review';
+        }
+      }
+    } catch (err: any) {
+      logger.error({ err, hookIndex: i }, 'agent-pipeline: async pre-execution hook failed');
+      result.stages.push({
+        name: `pre-execution-hook-${i + 1}`,
+        status: 'warn',
+        summary: `Hook failed with error: ${err.message || err}`,
+      });
+      if (result.verdict === 'proceed') {
+        result.verdict = 'review';
+      }
+    }
+  }
+
+  return result;
 }

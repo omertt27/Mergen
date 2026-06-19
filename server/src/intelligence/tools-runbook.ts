@@ -37,6 +37,99 @@ function fmtMs(ms: number): string {
   return sec > 0 ? `${min}m ${sec}s` : `${min}m`;
 }
 
+export interface RunbookStep {
+  step: string;
+  tool: string;
+  params: Record<string, any>;
+}
+
+export function parseRunbookYaml(yaml: string): { name: string; description: string; steps: RunbookStep[] } {
+  const steps: RunbookStep[] = [];
+  let currentStep: RunbookStep | null = null;
+  let inParams = false;
+  let name = '';
+  let description = '';
+
+  const lines = yaml.split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+
+    if (currentStep === null) {
+      if (line.startsWith('name:')) {
+        name = line.replace('name:', '').trim();
+        if ((name.startsWith('"') && name.endsWith('"')) || (name.startsWith("'") && name.endsWith("'"))) {
+          name = name.slice(1, -1);
+        }
+        continue;
+      }
+      if (line.startsWith('description:')) {
+        description = line.replace('description:', '').trim();
+        if ((description.startsWith('"') && description.endsWith('"')) || (description.startsWith("'") && description.endsWith("'"))) {
+          description = description.slice(1, -1);
+        }
+        continue;
+      }
+    }
+
+    if (line.match(/^\s*-\s*name:/)) {
+      let stepName = line.replace(/^\s*-\s*name:/, '').trim();
+      if ((stepName.startsWith('"') && stepName.endsWith('"')) || (stepName.startsWith("'") && stepName.endsWith("'"))) {
+        stepName = stepName.slice(1, -1);
+      }
+      currentStep = {
+        step: stepName,
+        tool: '',
+        params: {}
+      };
+      steps.push(currentStep);
+      inParams = false;
+      continue;
+    }
+
+    if (currentStep) {
+      if (line.match(/^\s*tool:/)) {
+        let toolName = line.replace(/^\s*tool:/, '').trim();
+        if ((toolName.startsWith('"') && toolName.endsWith('"')) || (toolName.startsWith("'") && toolName.endsWith("'"))) {
+          toolName = toolName.slice(1, -1);
+        }
+        currentStep.tool = toolName;
+        inParams = false;
+        continue;
+      }
+      if (line.match(/^\s*params:/)) {
+        inParams = true;
+        continue;
+      }
+      if (inParams) {
+        const kvMatch = line.match(/^\s*([a-zA-Z0-9_-]+)\s*:\s*(.+)$/);
+        if (kvMatch) {
+          const [, k, rawVal] = kvMatch;
+          let valStr = rawVal.trim();
+          if ((valStr.startsWith('"') && valStr.endsWith('"')) || (valStr.startsWith("'") && valStr.endsWith("'"))) {
+            valStr = valStr.slice(1, -1);
+          }
+          let val: any = valStr;
+          if (valStr === 'true') val = true;
+          else if (valStr === 'false') val = false;
+          else if (valStr === 'null') val = null;
+          else if (!isNaN(Number(valStr))) val = Number(valStr);
+          
+          currentStep.params[k] = val;
+        } else {
+          const indentMatch = line.match(/^(\s*)/);
+          const indent = indentMatch ? indentMatch[0].length : 0;
+          if (indent < 6) {
+            inParams = false;
+          }
+        }
+      }
+    }
+  }
+
+  return { name, description, steps };
+}
+
 export function registerRunbookTools(server: McpServer): void {
 
   // ── check_fix_history ───────────────────────────────────────────────────────
@@ -696,17 +789,19 @@ export function registerRunbookTools(server: McpServer): void {
       return { content: [{ type: 'text', text: `Runbook \`${name}\` not found. Call \`start_runbook()\` with no arguments to list available runbooks.` }] };
     }
 
-    // Simple YAML parsing for the step names (no external dep)
-    const lines    = yaml.split('\n');
-    const rbName   = (lines.find((l) => l.startsWith('name:')) ?? '').replace('name:', '').trim() || name;
-    const rbDesc   = (lines.find((l) => l.startsWith('description:')) ?? '').replace('description:', '').trim();
-    const stepLines = lines.filter((l) => /^\s+-\s+name:/.test(l));
-    const toolLines = lines.filter((l) => /^\s+tool:/.test(l));
+    // Parse YAML structure extracting name, description, steps and step-level params
+    const parsed = parseRunbookYaml(yaml);
+    const rbName = parsed.name || name;
+    const rbDesc = parsed.description;
+    const steps = parsed.steps;
 
-    const steps = stepLines.map((s, i) => ({
-      step: s.replace(/^\s+-\s+name:\s*/, ''),
-      tool: (toolLines[i] ?? '').replace(/^\s+tool:\s*/, ''),
-    }));
+    // Substitute/wire manual-path parameters: if service is provided, inject it into the params
+    if (service) {
+      for (const s of steps) {
+        s.params = s.params || {};
+        s.params.service = service;
+      }
+    }
 
     const serviceNote = service ? ` for service **${service}**` : '';
     const output: string[] = [
@@ -715,7 +810,12 @@ export function registerRunbookTools(server: McpServer): void {
       '',
       `**${steps.length} step${steps.length !== 1 ? 's' : ''}:**`,
       '',
-      ...steps.map((s, i) => `${i + 1}. **${s.step}** → \`${s.tool}\``),
+      ...steps.map((s, i) => {
+        const paramStr = Object.keys(s.params).length > 0
+          ? '(' + Object.entries(s.params).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join(', ') + ')'
+          : '';
+        return `${i + 1}. **${s.step}** → \`${s.tool}${paramStr}\``;
+      }),
       '',
       '---',
       '_Execute each step in order. Each tool call returns evidence for the next step._',
