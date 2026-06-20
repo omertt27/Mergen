@@ -40,8 +40,8 @@ export function getThread(pid: string): { channel: string; ts: string } | undefi
   return _threadByPid.get(pid);
 }
 
-/** GET a Slack Web API endpoint (read-only calls like conversations.replies). */
-async function _slackApiGet(path: string): Promise<unknown> {
+/** Single-attempt GET to a Slack Web API endpoint (no retry). */
+async function _slackApiGetOnce(path: string): Promise<unknown> {
   if (!BOT_TOKEN) return null;
   return new Promise((resolve) => {
     try {
@@ -67,6 +67,22 @@ async function _slackApiGet(path: string): Promise<unknown> {
       resolve(null);
     }
   });
+}
+
+/** GET a Slack Web API endpoint with retry on transient failures. */
+async function _slackApiGet(path: string, maxAttempts = 3): Promise<unknown> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const result = await _slackApiGetOnce(path) as { ok?: boolean; error?: string } | null;
+    if (!result || result.ok !== false) return result; // null or successful parse
+    if (result.error && SLACK_NON_RETRYABLE.has(result.error)) {
+      logger.warn({ path, error: result.error }, 'slack: permanent GET error — not retrying');
+      return result;
+    }
+    if (attempt < maxAttempts) {
+      await new Promise((r) => setTimeout(r, 500 * attempt));
+    }
+  }
+  return null;
 }
 
 /**
@@ -218,8 +234,19 @@ export async function fetchIncidentChannelContext(
   return lines.length > 0 ? lines.join('\n') : null;
 }
 
-/** Post a JSON payload to a generic Slack Web API endpoint. */
-async function _slackApi(
+// Slack errors that will never succeed on retry — don't waste attempts.
+const SLACK_NON_RETRYABLE = new Set([
+  'ratelimited',        // handled separately (exponential back-off needed)
+  'channel_not_found',
+  'not_in_channel',
+  'invalid_auth',
+  'token_revoked',
+  'account_inactive',
+  'no_permission',
+]);
+
+/** Single-attempt POST to a Slack Web API endpoint (no retry). */
+async function _slackApiOnce(
   path: string,
   payload: Record<string, unknown>,
 ): Promise<{ ok: boolean; ts?: string; error?: string } | null> {
@@ -260,6 +287,32 @@ async function _slackApi(
       resolve(null);
     }
   });
+}
+
+/**
+ * Post a JSON payload to a Slack Web API endpoint with exponential backoff retry.
+ * Retries up to 2 additional attempts (3 total) on transient failures.
+ * Never retries rate_limited errors — caller should back off at a higher level.
+ */
+async function _slackApi(
+  path: string,
+  payload: Record<string, unknown>,
+  maxAttempts = 3,
+): Promise<{ ok: boolean; ts?: string; error?: string } | null> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const result = await _slackApiOnce(path, payload);
+    if (result?.ok) return result;
+    if (result?.error && SLACK_NON_RETRYABLE.has(result.error)) {
+      logger.warn({ path, error: result.error }, 'slack: permanent error — not retrying');
+      return result;
+    }
+    if (attempt < maxAttempts) {
+      const delayMs = 500 * attempt; // 500ms, 1000ms
+      logger.debug({ path, attempt, delayMs }, 'slack: retrying after transient failure');
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  return null;
 }
 
 /** Post a message via Slack Web API (chat.postMessage). Returns { ts } or null. */

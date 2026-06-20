@@ -76,7 +76,19 @@ const PdMessageSchema = z.object({
 export function createPagerDutyRouter(): Router {
   const router = Router();
 
-  router.post('/webhooks/pagerduty', (req, res) => {
+  function handleWebhook(req: import('express').Request, res: import('express').Response): void {
+    const tenantId = (req.params as Record<string, string>).tenantId as string | undefined;
+
+    // In cloud mode, reject requests to the no-tenant path to prevent data
+    // from landing in the wrong tenant's analysis context.
+    if (CLOUD_MODE && !tenantId) {
+      res.status(400).json({
+        error: 'Cloud mode requires a tenant-scoped webhook URL: /webhooks/pagerduty/<tenantId>',
+        docs: 'https://github.com/omertt27/Mergen/blob/main/INSTALL.md#pagerduty-cloud-mode',
+      });
+      return;
+    }
+
     const chunks: Buffer[] = [];
     req.on('data', (chunk: Buffer) => chunks.push(chunk));
     req.on('end', () => {
@@ -102,13 +114,19 @@ export function createPagerDutyRouter(): Router {
         return;
       }
 
-      processMessages(parsed.data.messages, res);
+      processMessages(parsed.data.messages, res, tenantId);
     });
-  });
+  }
+
+  // Local mode: no tenant segment (backwards-compatible)
+  router.post('/webhooks/pagerduty', handleWebhook);
+  // Cloud mode: tenant-scoped URL so autopilot reads only that tenant's events
+  router.post('/webhooks/pagerduty/:tenantId', handleWebhook);
 
   function processMessages(
     messages: z.infer<typeof PdMessageSchema>['messages'],
     res: import('express').Response,
+    tenantId?: string,
   ): void {
     for (const msg of messages) {
       const { event_type, data } = msg.event;
@@ -257,7 +275,7 @@ export function createPagerDutyRouter(): Router {
             // ── Incident autopilot ────────────────────────────────────────────
             // Runs in the background: causal analysis → autonomous fix if confidence ≥ 0.85.
             // The MERGEN_AUTOPILOT env var must be set to "true" to enable.
-            void runIncidentAutopilot({ service, pid: fingerprint, firedAt });
+            void runIncidentAutopilot({ service, pid: fingerprint, firedAt, tenantId });
 
             logger.info({ service, traceId: result.traceId, fingerprint }, 'runtime fact pre-computed');
           } catch (err) {

@@ -22,7 +22,7 @@
 import { store } from '../sensor/buffer.js';
 import { buildCausalChain, fixActionToCommand } from './causal.js';
 import type { CausalChain, Hypothesis } from './causal.js';
-import { getRecords, recordVerdict } from './calibration.js';
+import { getRecords, recordVerdict, classifyVerdict, recordRemediationVerdict } from './calibration.js';
 import { executeRemediation, extractCommand } from './autonomy.js';
 import { postThreadReply, postApprovalRequest, fetchIncidentChannelContext } from './slack.js';
 import { requestApproval } from './execution-gate.js';
@@ -112,11 +112,11 @@ const TELEMETRY_WAIT_MAX_MS   = 10_000;
 const TELEMETRY_POLL_INTERVAL = 250;
 const TELEMETRY_MIN_EVENTS    = 3;
 
-async function waitForTelemetry(firedAt: number): Promise<void> {
+async function waitForTelemetry(firedAt: number, tenantId?: string): Promise<void> {
   const deadline = Date.now() + TELEMETRY_WAIT_MAX_MS;
   while (Date.now() < deadline) {
-    const logs = store.getLogs(TELEMETRY_MIN_EVENTS, undefined, firedAt);
-    const net  = store.getNetwork(TELEMETRY_MIN_EVENTS, undefined, firedAt);
+    const logs = store.getLogs(TELEMETRY_MIN_EVENTS, undefined, firedAt, tenantId);
+    const net  = store.getNetwork(TELEMETRY_MIN_EVENTS, undefined, firedAt, tenantId);
     if (logs.length + net.length >= TELEMETRY_MIN_EVENTS) return;
     await new Promise((r) => setTimeout(r, TELEMETRY_POLL_INTERVAL));
   }
@@ -128,6 +128,8 @@ export interface AutopilotOpts {
   pid: string;
   firedAt: number;
   cwd?: string;
+  /** Cloud mode: restrict buffer reads to this tenant's events only. */
+  tenantId?: string;
 }
 
 export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
@@ -201,7 +203,7 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
   _activeCalls++;
   if (_activeCalls > _stats.concurrentPeak) _stats.concurrentPeak = _activeCalls;
 
-  return _runAutopilotCore(service, pid, firedAt, cwd).finally(() => {
+  return _runAutopilotCore(service, pid, firedAt, cwd, opts.tenantId).finally(() => {
     _activeCalls--;
   });
 }
@@ -209,18 +211,18 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
 // ── Core analysis (runs with concurrency slot held) ───────────────────────────
 // Extracted so runIncidentAutopilot can manage the concurrency counter with
 // try/finally semantics without restructuring every return path.
-async function _runAutopilotCore(service: string, pid: string, firedAt: number, cwd: string | undefined): Promise<void> {
+async function _runAutopilotCore(service: string, pid: string, firedAt: number, cwd: string | undefined, tenantId: string | undefined): Promise<void> {
 
   // Wait for telemetry to accumulate (event-driven, capped at 10s)
-  await waitForTelemetry(firedAt);
+  await waitForTelemetry(firedAt, tenantId);
 
-  const logs         = store.getLogs(200, undefined, firedAt);
-  const network      = store.getNetwork(200, undefined, firedAt);
-  const contexts     = store.getContext(20, firedAt);
-  const terminal     = store.getTerminalOutput(100, undefined, firedAt);
-  const processExits = store.getProcessExits(20, undefined, firedAt);
-  const ciEvents     = store.getCIEvents(20, undefined, firedAt);
-  const deployments  = store.getDeployments(10, undefined, firedAt);
+  const logs         = store.getLogs(200, undefined, firedAt, tenantId);
+  const network      = store.getNetwork(200, undefined, firedAt, tenantId);
+  const contexts     = store.getContext(20, firedAt, tenantId);
+  const terminal     = store.getTerminalOutput(100, undefined, firedAt, tenantId);
+  const processExits = store.getProcessExits(20, undefined, firedAt, tenantId);
+  const ciEvents     = store.getCIEvents(20, undefined, firedAt, tenantId);
+  const deployments  = store.getDeployments(10, undefined, firedAt, tenantId);
 
   // ── Token budget ────────────────────────────────────────────────────────
   // Cap telemetry arrays sent to buildCausalChain. A noisy buffer (200 logs +
@@ -475,7 +477,7 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
   const pipelineBlocked = pipeline.verdict === 'block';
   const pipelineReview  = pipeline.verdict === 'review';
 
-  if (!command || pipelineBlocked || isShadowMode() || gateDenied ||
+  if (!command || pipelineBlocked || corpusBlocked || isShadowMode() || gateDenied ||
       (!pipelineReview && execConfidence < getAutoExecuteThreshold())) {
     let skipReason: 'no-command' | 'confidence-below-threshold' | 'remediation-below-threshold' | 'override-corpus' | 'autopilot-disabled' | 'level-restricted' | 'pipeline-block' | 'planning-gate';
     let slackReason: string;
@@ -593,19 +595,17 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
     afterCount = ddErrorCount;
     logger.info({ service, pid, ddErrorCount }, 'incident-autopilot: validation via Datadog');
   } else {
-    const logsAfter = store.getLogs(200, 'error', firedAt);
-    const netAfter  = store.getNetwork(200, undefined, firedAt).filter((n) => n.status >= 400 || !!n.error);
+    const logsAfter = store.getLogs(200, 'error', firedAt, tenantId);
+    const netAfter  = store.getNetwork(200, undefined, firedAt, tenantId).filter((n) => n.status >= 400 || !!n.error);
     afterCount = logsAfter.length + netAfter.length;
   }
 
-  let verdict: 'correct' | 'partial' | 'wrong';
-  if (afterCount === 0 && beforeCount > 0)                           { verdict = 'correct'; }
-  else if (beforeCount > 0 && afterCount < beforeCount * 0.5)       { verdict = 'partial'; }
-  else                                                               { verdict = 'wrong'; }
+  const verdict = classifyVerdict(beforeCount, afterCount);
 
   if (topHyp.pid) {
     const existing = getRecords().find((r) => r.pid === topHyp.pid);
     if (existing && !existing.verdict) recordVerdict(topHyp.pid, verdict);
+    recordRemediationVerdict(topHyp.pid, verdict);
 
     const resolvedAt = Date.now();
 

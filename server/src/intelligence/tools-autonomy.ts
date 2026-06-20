@@ -24,7 +24,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { store } from '../sensor/buffer.js';
 import { buildCausalChain, fixActionToCommand } from './causal.js';
-import { getRecords, recordVerdict } from './calibration.js';
+import { getRecords, recordVerdict, classifyVerdict, recordRemediationVerdict } from './calibration.js';
 import { executeRemediation, extractCommand } from './autonomy.js';
 import { deriveRollback, executeRollback } from './rollback.js';
 import { getAutopilotLevel, autopilotLevelPermits, classifyCommandRisk, autopilotLevelDescription } from './action-risk.js';
@@ -71,6 +71,16 @@ export function registerAutonomyTools(server: McpServer): void {
     withTierGate(getTierForTool('execute_fix'), async ({ pid, confirm, since, dry_run, cwd, actor }) => {
       trackCall('execute_fix');
       const isDryRun = dry_run === 'true';
+      const isShadow = process.env.MERGEN_SHADOW_MODE === 'true' && process.env.MERGEN_AUTOPILOT !== 'true';
+
+      if (isShadow && !isDryRun) {
+        return {
+          content: [{
+            type: 'text',
+            text: '👁️ **Shadow mode** — execute_fix is suppressed. No command was run. Pass `dry_run: "true"` to preview the command that would execute.',
+          }],
+        };
+      }
 
       if (!confirm) {
         return {
@@ -98,11 +108,12 @@ export function registerAutonomyTools(server: McpServer): void {
       // We need the fixHint from the hypothesis — it's not in the calibration record.
       // The AI must pass it via the cwd field or we reconstruct from recent causal chain.
       // Workaround: re-run a lightweight causal pass to find the hypothesis by tag.
-      const logs       = store.getLogs(200, undefined, undefined);
-      const network    = store.getNetwork(200, undefined, undefined);
-      const contexts   = store.getContext(20, undefined);
-      const terminal   = store.getTerminalOutput(100, undefined, undefined);
-      const processExits = store.getProcessExits(20, undefined, undefined);
+      const tenantId   = process.env.MERGEN_TENANT_ID;
+      const logs       = store.getLogs(200, undefined, undefined, tenantId);
+      const network    = store.getNetwork(200, undefined, undefined, tenantId);
+      const contexts   = store.getContext(20, undefined, tenantId);
+      const terminal   = store.getTerminalOutput(100, undefined, undefined, tenantId);
+      const processExits = store.getProcessExits(20, undefined, undefined, tenantId);
       const causal     = await buildCausalChain(logs, network, contexts, undefined, terminal, processExits, [], []);
       const hyp        = causal.hypotheses.find((h) => h.tag === prediction.tag);
       const fixHint    = hyp?.fixHint ?? null;
@@ -266,11 +277,17 @@ export function registerAutonomyTools(server: McpServer): void {
           .describe('Working directory for any fix command. Defaults to process cwd.'),
         actor: z.string().optional()
           .describe('Identity of the engineer (email or username). Used for RBAC and audit log.'),
+        tenant_id: z.string().optional()
+          .describe('Cloud mode: restrict analysis to this tenant\'s events. Required when MERGEN_CLOUD_MODE=true.'),
       },
     },
-    async ({ service, since, auto_execute, cwd, actor }) => {
+    async ({ service, since, auto_execute, cwd, actor, tenant_id }) => {
       trackCall('triage_incident');
       const shouldAutoExecute = auto_execute === 'true';
+      // Prefer the explicit parameter; fall back to the deployment-level env var
+      // so cloud operators can set MERGEN_TENANT_ID once rather than relying on
+      // the AI to pass tenant_id on every call.
+      const tenantId = tenant_id ?? process.env.MERGEN_TENANT_ID;
 
       // Y2 hybrid billing: meter each incident triage against monthly quota
       const incidentResult = await consumeIncident();
@@ -289,15 +306,15 @@ export function registerAutonomyTools(server: McpServer): void {
       }
 
       const sinceTs = since ?? Date.now() - 5 * 60_000;
-      logger.info({ service, sinceTs, auto_execute }, 'triage_incident: starting');
+      logger.info({ service, sinceTs, auto_execute, tenantId }, 'triage_incident: starting');
 
-      const logs       = store.getLogs(200, undefined, sinceTs);
-      const network    = store.getNetwork(200, undefined, sinceTs);
-      const contexts   = store.getContext(20, sinceTs);
-      const terminal   = store.getTerminalOutput(100, undefined, sinceTs);
-      const processExits = store.getProcessExits(20, undefined, sinceTs);
-      const ciEvents   = store.getCIEvents(20, undefined, sinceTs);
-      const deployments = store.getDeployments(10, undefined, sinceTs);
+      const logs       = store.getLogs(200, undefined, sinceTs, tenantId);
+      const network    = store.getNetwork(200, undefined, sinceTs, tenantId);
+      const contexts   = store.getContext(20, sinceTs, tenantId);
+      const terminal   = store.getTerminalOutput(100, undefined, sinceTs, tenantId);
+      const processExits = store.getProcessExits(20, undefined, sinceTs, tenantId);
+      const ciEvents   = store.getCIEvents(20, undefined, sinceTs, tenantId);
+      const deployments = store.getDeployments(10, undefined, sinceTs, tenantId);
 
       if (logs.length === 0 && network.filter((n) => n.status >= 400).length === 0) {
         return {
@@ -386,9 +403,14 @@ export function registerAutonomyTools(server: McpServer): void {
       const execPct = Math.round(execConfidence * 100);
       const autopilotLevel = getAutopilotLevel();
       const levelPermits = !command || autopilotLevelPermits(command, autopilotLevel);
-      const canAutoExecute = shouldAutoExecute && command && pipeline.verdict === 'proceed' && levelPermits;
+      const isShadow = process.env.MERGEN_SHADOW_MODE === 'true' && process.env.MERGEN_AUTOPILOT !== 'true';
+      const canAutoExecute = shouldAutoExecute && !isShadow && command && pipeline.verdict === 'proceed' && levelPermits;
 
-      if (shouldAutoExecute && !canAutoExecute) {
+      if (isShadow && shouldAutoExecute && command) {
+        lines.push(`👁️ **Shadow mode** — would execute \`${command}\` (remediation: ${execPct}%). No action taken.`, '');
+      }
+
+      if (shouldAutoExecute && !canAutoExecute && !isShadow) {
         if (!command) {
           lines.push('⚠️ Auto-execute skipped — no executable command found in fixHint.');
         } else if (pipeline.verdict === 'block') {
@@ -429,25 +451,24 @@ export function registerAutonomyTools(server: McpServer): void {
           // Brief pause then validate
           await new Promise((r) => setTimeout(r, 3000));
 
-          const logsAfter = store.getLogs(200, 'error', sinceTs);
-          const netAfter  = store.getNetwork(200, undefined, sinceTs).filter((n) => n.status >= 400 || n.error);
+          const logsAfter = store.getLogs(200, 'error', sinceTs, tenantId);
+          const netAfter  = store.getNetwork(200, undefined, sinceTs, tenantId).filter((n) => n.status >= 400 || n.error);
           const afterCount = logsAfter.length + netAfter.length;
           const beforeCount = errorCount + netErrors;
 
-          let verdict: 'correct' | 'partial' | 'wrong';
-          if (afterCount === 0 && beforeCount > 0)          { verdict = 'correct'; }
-          else if (beforeCount > 0 && afterCount < beforeCount * 0.5) { verdict = 'partial'; }
-          else { verdict = afterCount > beforeCount ? 'wrong' : 'partial'; }
+          const verdict = classifyVerdict(beforeCount, afterCount);
 
           if (topHyp.pid) {
             const existing = getRecords().find((r) => r.pid === topHyp.pid);
             if (existing && !existing.verdict) recordVerdict(topHyp.pid, verdict);
+            recordRemediationVerdict(topHyp.pid, verdict);
             if (verdict === 'correct') {
               const resolvedAt = Date.now();
               const inc = incidentStore.upsert(topHyp.pid, {
                 status: 'resolved',
                 resolvedAt,
                 resolvedAutonomously: true,
+                causallyCorrect: true,
               });
               // Y1 corpus moat: write postmortem on every autonomous resolution
               generatePostmortem({

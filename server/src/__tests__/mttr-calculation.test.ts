@@ -262,47 +262,41 @@ describe('MTTR calculation: source audit that firedAt is used, not chain[0].ts',
   });
 });
 
-// ── causallyCorrect semantics ──────────────────────────────────────────────────
+// ── classifyVerdict / causallyCorrect semantics ───────────────────────────────
 
-describe('causallyCorrect: only set when verdict is "correct"', () => {
-  it('causallyCorrect is true when error count drops to zero (verdict = correct)', () => {
-    // Simulate the verdict logic from _runAutopilotCore
-    const beforeCount = 5;
-    const afterCount  = 0;
-    let verdict: 'correct' | 'partial' | 'wrong';
+import { classifyVerdict } from '../__stubs__/calibration.js';
 
-    if (afterCount === 0 && beforeCount > 0)                         verdict = 'correct';
-    else if (beforeCount > 0 && afterCount < beforeCount * 0.5)     verdict = 'partial';
-    else                                                              verdict = 'wrong';
-
-    expect(verdict).toBe('correct');
-    expect(verdict === 'correct').toBe(true); // this is what causallyCorrect: is set to
+describe('classifyVerdict — aligns with Slack statusLabel', () => {
+  it('(5→0) correct: all errors gone', () => {
+    expect(classifyVerdict(5, 0)).toBe('correct');
   });
 
-  it('causallyCorrect is false when error count is reduced but not zero (verdict = partial)', () => {
-    const beforeCount = 10;
-    const afterCount  = 3; // reduced by 70% but not to zero
-
-    let verdict: 'correct' | 'partial' | 'wrong';
-    if (afterCount === 0 && beforeCount > 0)                         verdict = 'correct';
-    else if (beforeCount > 0 && afterCount < beforeCount * 0.5)     verdict = 'partial';
-    else                                                              verdict = 'wrong';
-
-    expect(verdict).toBe('partial');
-    expect(verdict === 'correct').toBe(false); // causallyCorrect = false
+  it('(0→0) partial: no errors before or after (sensor gap / nothing to fix)', () => {
+    // Previously recorded as 'wrong' — now 'partial' to avoid corrupting calibration
+    expect(classifyVerdict(0, 0)).toBe('partial');
   });
 
-  it('causallyCorrect is false when error count does not improve (verdict = wrong)', () => {
-    const beforeCount = 5;
-    const afterCount  = 5; // unchanged
+  it('(10→3) partial: 70% reduction', () => {
+    expect(classifyVerdict(10, 3)).toBe('partial');
+  });
 
-    let verdict: 'correct' | 'partial' | 'wrong';
-    if (afterCount === 0 && beforeCount > 0)                         verdict = 'correct';
-    else if (beforeCount > 0 && afterCount < beforeCount * 0.5)     verdict = 'partial';
-    else                                                              verdict = 'wrong';
+  it('(10→6) partial: 40% reduction (previously wrong under 50% threshold)', () => {
+    // Matches statusLabel=PARTIAL; calibration now agrees
+    expect(classifyVerdict(10, 6)).toBe('partial');
+  });
 
-    expect(verdict).toBe('wrong');
-    expect(verdict === 'correct').toBe(false);
+  it('(10→10) wrong: no improvement', () => {
+    expect(classifyVerdict(10, 10)).toBe('wrong');
+  });
+
+  it('(10→15) wrong: regression', () => {
+    expect(classifyVerdict(10, 15)).toBe('wrong');
+  });
+
+  it('causallyCorrect is true only when verdict is "correct"', () => {
+    expect(classifyVerdict(5, 0) === 'correct').toBe(true);
+    expect(classifyVerdict(10, 3) === 'correct').toBe(false);
+    expect(classifyVerdict(10, 10) === 'correct').toBe(false);
   });
 });
 

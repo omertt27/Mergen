@@ -4,14 +4,50 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      skip_ci_check:
+        description: 'Skip CI gate (emergency release only — requires justification in PR)'
+        required: false
+        default: 'false'
 
 permissions:
   contents: write
   packages: write
 
 jobs:
+  ci-gate:
+    name: Verify CI passed on release commit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            if (context.payload.inputs?.skip_ci_check === 'true') {
+              core.warning('CI gate bypassed via skip_ci_check input — ensure tests passed manually');
+              return;
+            }
+            const sha = context.sha;
+            // Use the check runs API (not getCombinedStatusForRef) because GitHub
+            // Actions reports results as check runs, not legacy commit statuses.
+            const { data } = await github.rest.checks.listForRef({
+              owner:    context.repo.owner,
+              repo:     context.repo.repo,
+              ref:      sha,
+              per_page: 100,
+            });
+            const pending = data.check_runs.filter(r => r.status !== 'completed');
+            const failed  = data.check_runs.filter(
+              r => r.conclusion === 'failure' || r.conclusion === 'cancelled' || r.conclusion === 'timed_out'
+            );
+            if (pending.length > 0) {
+              core.setFailed(`${pending.length} check(s) still running on ${sha} — wait for CI to complete`);
+            } else if (failed.length > 0) {
+              core.setFailed(`${failed.length} check(s) failed on ${sha}: ${failed.map(r => r.name).join(', ')}`);
+            }
+
   build-binaries:
     name: Build Binaries
+    needs: ci-gate
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -76,6 +112,7 @@ jobs:
 
   publish-npm:
     name: Publish to NPM
+    needs: ci-gate
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -105,6 +142,7 @@ jobs:
 
   publish-docker:
     name: Publish Docker Image
+    needs: ci-gate
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

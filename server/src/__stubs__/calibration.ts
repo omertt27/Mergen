@@ -45,6 +45,9 @@ interface CalibrationRecord {
   expiresAt:        number;
   /** True for synthetic warm-start priors seeded at install time. False for production verdicts. */
   isBuiltinSeed:    boolean;
+  /** Remediation outcome recorded separately from the diagnosis verdict. */
+  remediationVerdict:   'correct' | 'wrong' | 'partial' | null;
+  remediationVerdictAt: Date | null;
 }
 
 // ── Serialized form (Dates → ISO strings) ─────────────────────────────────────
@@ -55,6 +58,9 @@ interface SerializedRecord {
   note: string | null; verdictDimension: string | null; expiresAt: number;
   /** Optional — absent in files written before this field was added (treated as false). */
   isBuiltinSeed?: boolean;
+  /** Optional — absent in files written before independent remediation tracking was added. */
+  remediationVerdict?:   string | null;
+  remediationVerdictAt?: string | null;
 }
 
 interface PersistedCalibration { version: 1; records: SerializedRecord[] }
@@ -86,9 +92,11 @@ function _persist(): void {
       version: 1,
       records: _records.map((r): SerializedRecord => ({
         ...r,
-        predictedAt:   r.predictedAt.toISOString(),
-        verdictAt:     r.verdictAt?.toISOString() ?? null,
-        isBuiltinSeed: r.isBuiltinSeed,
+        predictedAt:          r.predictedAt.toISOString(),
+        verdictAt:            r.verdictAt?.toISOString() ?? null,
+        isBuiltinSeed:        r.isBuiltinSeed,
+        remediationVerdict:   r.remediationVerdict,
+        remediationVerdictAt: r.remediationVerdictAt?.toISOString() ?? null,
       })),
     };
     const tmp = `${CALIBRATION_FILE}.tmp.${process.pid}`;
@@ -185,6 +193,8 @@ function load(): void {
           verdictDimension: r.verdictDimension,
           expiresAt:       r.expiresAt,
           isBuiltinSeed:   r.isBuiltinSeed ?? false,
+          remediationVerdict:   (r.remediationVerdict ?? null) as CalibrationRecord['remediationVerdict'],
+          remediationVerdictAt: r.remediationVerdictAt ? new Date(r.remediationVerdictAt) : null,
         }));
 
       // Detect whether the corpus is made up entirely of built-in seeds.
@@ -245,8 +255,10 @@ export function recordPrediction(hypotheses: Hypothesis[]): CalibratedHypothesis
       // is recorded before expiry, recordVerdict() extends expiresAt to
       // LABELED_TTL_MS (90 days) so the labeled record survives for classifier
       // training. The two TTLs serve different purposes and must not be merged.
-      expiresAt:       Date.now() + PENDING_TTL_MS,
-      isBuiltinSeed:   false,
+      expiresAt:            Date.now() + PENDING_TTL_MS,
+      isBuiltinSeed:        false,
+      remediationVerdict:   null,
+      remediationVerdictAt: null,
     });
     schedulePersist();
     return { ...h, pid };
@@ -265,32 +277,41 @@ export function recordVerdict(
   const rec = _records.find((r) => r.pid === pid);
   if (!rec) return { found: false, persisted: false };
 
-  rec.verdict          = verdict;
-  rec.verdictAt        = new Date();
-  rec.note             = note ?? null;
-  rec.verdictDimension = dimension ?? null;
-  rec.isBuiltinSeed    = false; // this is now a real production verdict
-  _corpusIsSeeded      = false; // at least one real verdict exists
+  rec.isBuiltinSeed = false; // this is now a real production verdict
+  _corpusIsSeeded   = false; // at least one real verdict exists
+
+  if (dimension === 'remediation') {
+    // Store fix outcome in the dedicated remediation slot, keeping the
+    // diagnosis verdict intact for independent accuracy tracking.
+    rec.remediationVerdict   = verdict;
+    rec.remediationVerdictAt = new Date();
+  } else {
+    rec.verdict          = verdict;
+    rec.verdictAt        = new Date();
+    rec.note             = note ?? null;
+    rec.verdictDimension = dimension ?? null;
+  }
+
   // Extend retention: now that this record carries a ground-truth label it is
   // training data, not just a pending notification. Re-stamp expiresAt to
   // LABELED_TTL_MS from NOW so the record survives for 90 days from verdict
   // time regardless of when the original prediction was made.
   rec.expiresAt = Date.now() + LABELED_TTL_MS;
 
-  // Online update: one SGD step on the new labeled sample.
-  // getStatsForTag() reads _records in its current state — the verdict we just
-  // recorded is included, giving the classifier the most recent accuracy signal.
-  const stats = getStatsForTag(rec.tag);
-  calibrationClassifier.update(
-    rec.confidenceScore,
-    stats?.accuracy      ?? 0.5,
-    stats?.verdicts      ?? 0,
-    stats?.trusted       ?? false,
-    verdict === 'correct' || verdict === 'partial',
-  );
-
-  // Invalidate the ROC threshold cache — new labeled data may shift the optimum.
-  invalidateThresholdCache();
+  // Online update: one SGD step on the new labeled sample (diagnosis only —
+  // the classifier predicts diagnosis correctness, not remediation success).
+  if (dimension !== 'remediation') {
+    const stats = getStatsForTag(rec.tag);
+    calibrationClassifier.update(
+      rec.confidenceScore,
+      stats?.accuracy      ?? 0.5,
+      stats?.verdicts      ?? 0,
+      stats?.trusted       ?? false,
+      verdict === 'correct' || verdict === 'partial',
+    );
+    // Invalidate the ROC threshold cache — new labeled data may shift the optimum.
+    invalidateThresholdCache();
+  }
 
   schedulePersist();
   return { found: true, persisted: true };
@@ -314,7 +335,8 @@ export interface TagStats {
   isEmpirical:        boolean;
   shouldInterrupt:    boolean;
   diagnosisAccuracy:  number;
-  remediationAccuracy: number;
+  /** Independently measured from fix outcomes (dimension='remediation'). Null when no data yet. */
+  remediationAccuracy: number | null;
   trendDelta:         number | null;
   accuracy7d:         number | null;
   commonFailureModes: Array<{ note: string; count: number }>;
@@ -365,12 +387,24 @@ function _computeTagStats(tag: string, recs: CalibrationRecord[]): TagStats {
     .sort((a, b) => b.count - a.count)
     .map(({ canonical, count }) => ({ note: canonical, count }));
 
+  // Remediation accuracy: computed from records that have a remediationVerdict,
+  // independently of whether the diagnosis was correct.
+  const remediationRecs = recs.filter((r) => r.remediationVerdict !== null);
+  let remediationCorrect = 0;
+  for (const r of remediationRecs) {
+    if (r.remediationVerdict === 'correct') remediationCorrect += 1;
+    else if (r.remediationVerdict === 'partial') remediationCorrect += 0.5;
+  }
+  const remediationAccuracy = remediationRecs.length > 0
+    ? remediationCorrect / remediationRecs.length
+    : null;
+
   return {
     tag, predictions, verdicts, accuracy, trusted,
     isEmpirical:        trusted,
     shouldInterrupt:    trusted && accuracy < SUPPRESS_THRESHOLD,
     diagnosisAccuracy:  accuracy,
-    remediationAccuracy: accuracy * 0.7,
+    remediationAccuracy,
     trendDelta,
     accuracy7d,
     commonFailureModes,
@@ -389,6 +423,32 @@ export function getStats(): TagStats[] {
 }
 
 export function getGlobalStats(): null { return null; }
+
+/**
+ * Classify a validation result into a calibration verdict.
+ * Aligns with the Slack statusLabel (RESOLVED / PARTIAL / REGRESSED / UNRESOLVED)
+ * so what engineers see in Slack matches what is recorded in the corpus.
+ */
+export function classifyVerdict(
+  beforeCount: number,
+  afterCount: number,
+): 'correct' | 'partial' | 'wrong' {
+  if (afterCount === 0) return beforeCount > 0 ? 'correct' : 'partial';
+  if (afterCount < beforeCount) return 'partial';
+  return 'wrong';
+}
+
+/**
+ * Record the outcome of a fix execution separately from the diagnosis verdict.
+ * Writes to the remediationVerdict slot without touching the diagnosis verdict,
+ * so both dimensions accumulate independently.
+ */
+export function recordRemediationVerdict(
+  pid: string,
+  verdict: 'correct' | 'wrong' | 'partial',
+): { found: boolean; persisted: boolean } {
+  return recordVerdict(pid, verdict, undefined, 'remediation');
+}
 
 /**
  * Returns true when the active corpus consists entirely of built-in synthetic
@@ -472,6 +532,7 @@ export function seedCalibration(
         note: null, verdictDimension: null,
         expiresAt: Date.now() + LABELED_TTL_MS, // already labeled — use retention TTL
         isBuiltinSeed: false,
+        remediationVerdict: null, remediationVerdictAt: null,
       });
     }
   };
@@ -558,6 +619,7 @@ function _seedBuiltInPriors(): void {
         note: null, verdictDimension: null,
         expiresAt: Date.now() + SEED_TTL_MS,
         isBuiltinSeed: true,
+        remediationVerdict: null, remediationVerdictAt: null,
       });
     }
     for (let i = 0; i < wrong; i++) {
@@ -570,6 +632,7 @@ function _seedBuiltInPriors(): void {
         note: null, verdictDimension: null,
         expiresAt: Date.now() + SEED_TTL_MS,
         isBuiltinSeed: true,
+        remediationVerdict: null, remediationVerdictAt: null,
       });
     }
   }

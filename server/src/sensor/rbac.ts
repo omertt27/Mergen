@@ -33,11 +33,22 @@ interface RbacStore {
 // Role hierarchy: higher index = more permissions
 const ROLE_RANK: Record<Role, number> = { viewer: 0, responder: 1, admin: 2 };
 
+// Tracks whether the last load attempt failed due to a corrupt/unreadable file
+// (as opposed to the file simply not existing). Used to fail closed.
+let _loadFailed = false;
+
 function load(): RbacStore {
+  if (!fs.existsSync(RBAC_FILE)) {
+    _loadFailed = false;
+    return { members: [] }; // no RBAC configured → open by design
+  }
   try {
     const raw = fs.readFileSync(RBAC_FILE, 'utf8');
+    _loadFailed = false;
     return JSON.parse(raw) as RbacStore;
-  } catch {
+  } catch (err) {
+    _loadFailed = true;
+    logger.error({ err }, 'rbac: RBAC file is unreadable — failing closed (all actors restricted to viewer)');
     return { members: [] };
   }
 }
@@ -46,6 +57,7 @@ function save(store: RbacStore): void {
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     fs.writeFileSync(RBAC_FILE, JSON.stringify(store, null, 2), 'utf8');
+    _loadFailed = false; // successful write → file is now readable again
   } catch (err) {
     logger.warn({ err }, 'rbac: failed to write rbac.json');
   }
@@ -81,13 +93,17 @@ export function removeMember(id: string): boolean {
 }
 
 /**
- * Resolve an actor's role. Returns 'admin' when RBAC is unconfigured (no
- * members defined) — preserves backwards-compatible behaviour for single-user
- * installs. The synthetic "autopilot" actor always has admin role.
+ * Resolve an actor's role.
+ * - 'autopilot' always maps to admin (synthetic actor for autonomous execution).
+ * - When RBAC is unconfigured (no members, file absent) all actors get admin
+ *   — backwards-compatible default for single-user installs.
+ * - When the RBAC file exists but is unreadable/corrupt, fails CLOSED:
+ *   all actors get 'viewer' until the file is repaired.
  */
 export function resolveRole(actor: string): Role {
   if (actor === 'autopilot') return 'admin';
   const store = load();
+  if (_loadFailed) return 'viewer'; // corrupt file → fail closed
   if (store.members.length === 0) return 'admin'; // unconfigured → open
   const member = store.members.find((m) => m.id === actor);
   return member?.role ?? 'viewer'; // unknown actor → least privilege
@@ -99,4 +115,9 @@ export function resolveRole(actor: string): Role {
 export function hasPermission(actor: string, required: Role): boolean {
   const actual = resolveRole(actor);
   return ROLE_RANK[actual] >= ROLE_RANK[required];
+}
+
+/** Reset module state between tests. Not for production use. */
+export function _resetForTesting(): void {
+  _loadFailed = false;
 }

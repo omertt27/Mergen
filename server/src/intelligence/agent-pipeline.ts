@@ -27,7 +27,7 @@ import { extractCommand } from './autonomy.js';
 import { computeBlastRadius } from './blast-radius.js';
 import { deriveRollback } from './rollback.js';
 import { getStatsForTag } from './calibration.js';
-import { hasRecentOverride } from './override-corpus.js';
+import { hasRecentOverride, dominantOverrideReason } from './override-corpus.js';
 import { getAutopilotLevel, autopilotLevelPermits, classifyCommandRisk, analyzeSemanticRisk } from './action-risk.js';
 import { postmortemStore } from './postmortem-store.js';
 import logger from '../sensor/logger.js';
@@ -300,13 +300,7 @@ function critiqueExecutionPlan(
   };
   const corpusConflict = hasRecentOverride(hyp.tag, service, now.dayOfWeek, now.hourOfDay);
   if (corpusConflict) {
-    const reason = (() => {
-      try {
-        // dominantOverrideReason may not be exported — safe fallback
-        const mod = require('./override-corpus.js') as { dominantOverrideReason?: (tag: string, service: string) => string };
-        return mod.dominantOverrideReason?.(hyp.tag, service) ?? 'override corpus conflict';
-      } catch { return 'override corpus conflict'; }
-    })();
+    const reason = dominantOverrideReason(hyp.tag, service) ?? 'override corpus conflict';
     concerns.push(`Override corpus: ${reason}`);
     verdict = verdict === 'proceed' ? 'review' : verdict;
   }
