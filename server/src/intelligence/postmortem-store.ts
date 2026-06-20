@@ -597,6 +597,9 @@ class PostmortemStore {
       return val != null ? Number(val) : null;
     } catch { return null; }
   }
+
+  /** Returns true when the SQLite database initialised successfully. */
+  isHealthy(): boolean { return this.db !== null; }
 }
 
 export const postmortemStore = new PostmortemStore();

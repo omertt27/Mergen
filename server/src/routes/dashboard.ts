@@ -12,10 +12,23 @@
 import { randomUUID } from 'crypto';
 import { Router } from 'express';
 
-export function createDashboardRouter(serverVersion: string): Router {
+export function createDashboardRouter(serverVersion: string, localSecret: string): Router {
   const router = Router();
 
-  router.get('/dashboard', (_req, res) => {
+  function checkAuth(req: import('express').Request, res: import('express').Response): boolean {
+    if (!localSecret) return true; // no secret configured — open access (dev/test)
+    const presented =
+      (req.headers['x-mergen-secret'] as string | undefined) ??
+      (req.query['secret'] as string | undefined);
+    if (presented !== localSecret) {
+      res.status(401).send('Unauthorized — pass x-mergen-secret header or ?secret= query param');
+      return false;
+    }
+    return true;
+  }
+
+  router.get('/dashboard', (req, res) => {
+    if (!checkAuth(req, res)) return;
     const nonce = randomUUID().replace(/-/g, '');
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Content-Security-Policy',
@@ -24,7 +37,8 @@ export function createDashboardRouter(serverVersion: string): Router {
   });
 
   // Also serve at root for team instances where /dashboard is the primary UI
-  router.get('/', (_req, res) => {
+  router.get('/', (req, res) => {
+    if (!checkAuth(req, res)) return;
     const nonce = randomUUID().replace(/-/g, '');
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Content-Security-Policy',

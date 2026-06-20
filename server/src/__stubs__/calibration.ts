@@ -43,6 +43,8 @@ interface CalibrationRecord {
   note:             string | null;
   verdictDimension: string | null;
   expiresAt:        number;
+  /** True for synthetic warm-start priors seeded at install time. False for production verdicts. */
+  isBuiltinSeed:    boolean;
 }
 
 // ── Serialized form (Dates → ISO strings) ─────────────────────────────────────
@@ -51,6 +53,8 @@ interface SerializedRecord {
   pid: string; tag: string; confidence: string; confidenceScore: number;
   predictedAt: string; verdict: string | null; verdictAt: string | null;
   note: string | null; verdictDimension: string | null; expiresAt: number;
+  /** Optional — absent in files written before this field was added (treated as false). */
+  isBuiltinSeed?: boolean;
 }
 
 interface PersistedCalibration { version: 1; records: SerializedRecord[] }
@@ -59,6 +63,9 @@ interface PersistedCalibration { version: 1; records: SerializedRecord[] }
 
 let _records: CalibrationRecord[] = [];
 let _loaded   = false;
+// True when the active corpus is synthetic priors, not production verdicts.
+// Set by _seedBuiltInPriors(); cleared when real labeled records are loaded.
+let _corpusIsSeeded = false;
 
 // ── Debounced persistence ─────────────────────────────────────────────────────
 // Writes are deferred 1 s after the last mutation — prevents fsync on every
@@ -79,8 +86,9 @@ function _persist(): void {
       version: 1,
       records: _records.map((r): SerializedRecord => ({
         ...r,
-        predictedAt: r.predictedAt.toISOString(),
-        verdictAt:   r.verdictAt?.toISOString() ?? null,
+        predictedAt:   r.predictedAt.toISOString(),
+        verdictAt:     r.verdictAt?.toISOString() ?? null,
+        isBuiltinSeed: r.isBuiltinSeed,
       })),
     };
     const tmp = `${CALIBRATION_FILE}.tmp.${process.pid}`;
@@ -100,6 +108,7 @@ function _trainClassifierFromCorpus(): void {
   const tagMap = new Map<string, CalibrationRecord[]>();
   for (const r of _records) {
     if (!r.verdict) continue;
+    if (r.isBuiltinSeed) continue; // synthetic priors must not bias the classifier
     const list = tagMap.get(r.tag) ?? [];
     list.push(r);
     tagMap.set(r.tag, list);
@@ -133,8 +142,11 @@ function _trainClassifierFromCorpus(): void {
 
   if (samples.length >= 10) {
     calibrationClassifier.trainBulk(samples);
-    logger.debug({ samples: samples.length }, 'calibration: classifier warm-started from corpus');
   }
+  logger.debug(
+    { samples: samples.length, totalRecords: _records.length },
+    'calibration: classifier warm-started from real corpus (seeds excluded)',
+  );
 }
 
 // ── Lazy load ─────────────────────────────────────────────────────────────────
@@ -172,7 +184,15 @@ function load(): void {
           note:            r.note,
           verdictDimension: r.verdictDimension,
           expiresAt:       r.expiresAt,
+          isBuiltinSeed:   r.isBuiltinSeed ?? false,
         }));
+
+      // Detect whether the corpus is made up entirely of built-in seeds.
+      // Seeds carry isBuiltinSeed=true; real verdicts carry false.
+      // Legacy files that predate this field default isBuiltinSeed to false (real data assumed).
+      if (_records.length > 0) {
+        _corpusIsSeeded = _records.every((r) => r.isBuiltinSeed);
+      }
 
       if (_records.length === 0) {
         _seedBuiltInPriors();
@@ -221,11 +241,12 @@ export function recordPrediction(hypotheses: Hypothesis[]): CalibratedHypothesis
       verdictAt:       null,
       note:            null,
       verdictDimension: null,
-      // Pending predictions expire after PENDING_TTL_MS (7 days). If a verdict
+      // Pending predictions expire after PENDING_TTL_MS (30 days). If a verdict
       // is recorded before expiry, recordVerdict() extends expiresAt to
       // LABELED_TTL_MS (90 days) so the labeled record survives for classifier
       // training. The two TTLs serve different purposes and must not be merged.
       expiresAt:       Date.now() + PENDING_TTL_MS,
+      isBuiltinSeed:   false,
     });
     schedulePersist();
     return { ...h, pid };
@@ -248,6 +269,8 @@ export function recordVerdict(
   rec.verdictAt        = new Date();
   rec.note             = note ?? null;
   rec.verdictDimension = dimension ?? null;
+  rec.isBuiltinSeed    = false; // this is now a real production verdict
+  _corpusIsSeeded      = false; // at least one real verdict exists
   // Extend retention: now that this record carries a ground-truth label it is
   // training data, not just a pending notification. Re-stamp expiresAt to
   // LABELED_TTL_MS from NOW so the record survives for 90 days from verdict
@@ -367,6 +390,17 @@ export function getStats(): TagStats[] {
 
 export function getGlobalStats(): null { return null; }
 
+/**
+ * Returns true when the active corpus consists entirely of built-in synthetic
+ * priors — i.e., no production verdicts have been recorded yet (or all have
+ * expired). When true, accuracy numbers shown to agents are estimates, not
+ * empirical measurements from this system's production history.
+ */
+export function isCorpusSeeded(): boolean {
+  load();
+  return _corpusIsSeeded;
+}
+
 export function getStatsForTag(tag: string): TagStats | undefined {
   load();
   const recs = _records.filter((r) => r.tag === tag);
@@ -437,6 +471,7 @@ export function seedCalibration(
         verdict, verdictAt: new Date(),
         note: null, verdictDimension: null,
         expiresAt: Date.now() + LABELED_TTL_MS, // already labeled — use retention TTL
+        isBuiltinSeed: false,
       });
     }
   };
@@ -486,6 +521,7 @@ export const CALIBRATION_CONFIG: Record<string, unknown> = {};
 
 function _seedBuiltInPriors(): void {
   if (_records.length > 0) return;
+  _corpusIsSeeded = true;
 
   const DAY  = 24 * 60 * 60 * 1000;
   const seeds: Array<[string, number, number]> = [
@@ -521,6 +557,7 @@ function _seedBuiltInPriors(): void {
         verdictAt:   new Date(Date.now() - Math.floor(Math.random() * 59) * DAY),
         note: null, verdictDimension: null,
         expiresAt: Date.now() + SEED_TTL_MS,
+        isBuiltinSeed: true,
       });
     }
     for (let i = 0; i < wrong; i++) {
@@ -532,6 +569,7 @@ function _seedBuiltInPriors(): void {
         verdictAt:   new Date(Date.now() - Math.floor(Math.random() * 59) * DAY),
         note: null, verdictDimension: null,
         expiresAt: Date.now() + SEED_TTL_MS,
+        isBuiltinSeed: true,
       });
     }
   }

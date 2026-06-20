@@ -76,6 +76,9 @@ export interface BenchmarkStats {
 
 class IncidentMemoryStore {
   private db: Database | null = null;
+  private isWriting = false;
+  private pendingWrite = false;
+  private nextBuffer: Buffer | null = null;
 
   private resolveWasmPath(): string {
     if (process.env.MERGEN_WASM_PATH) return process.env.MERGEN_WASM_PATH;
@@ -227,10 +230,15 @@ class IncidentMemoryStore {
     const resolvedAt = opts.resolvedAt ?? Date.now();
     const resolutionType = opts.resolutionType ?? 'unknown';
 
-    const where = opts.id ? `id = ${opts.id}` : `pd_incident_id = '${opts.pdIncidentId}'`;
-    const openRec = this.db.exec(
-      `SELECT id, fired_at, fingerprint FROM incident_memory WHERE ${where} AND resolved_at IS NULL LIMIT 1`,
-    );
+    const openRec = opts.id
+      ? this.db.exec(
+          'SELECT id, fired_at, fingerprint FROM incident_memory WHERE id = ? AND resolved_at IS NULL LIMIT 1',
+          [opts.id],
+        )
+      : this.db.exec(
+          'SELECT id, fired_at, fingerprint FROM incident_memory WHERE pd_incident_id = ? AND resolved_at IS NULL LIMIT 1',
+          [opts.pdIncidentId ?? null],
+        );
 
     if (!openRec[0]?.values?.length) return;
 
@@ -458,10 +466,49 @@ class IncidentMemoryStore {
     });
   }
 
+  /** Returns true when the SQLite database initialised successfully. */
+  isHealthy(): boolean { return this.db !== null; }
+
   private _flush(): void {
     if (!this.db) return;
-    try { fs.writeFileSync(MEMORY_DB, Buffer.from(this.db.export())); }
-    catch (err) { logger.warn({ err }, 'memory store flush failed'); }
+    try {
+      const data = this.db.export();
+      this._writeBufferAsync(Buffer.from(data.buffer, data.byteOffset, data.byteLength));
+    } catch (err) {
+      logger.warn({ err }, 'memory store flush failed');
+    }
+  }
+
+  private _writeBufferAsync(buf: Buffer): void {
+    if (this.isWriting) {
+      this.pendingWrite = true;
+      this.nextBuffer = buf;
+      return;
+    }
+    this.isWriting = true;
+    const tmp = `${MEMORY_DB}.tmp.${process.pid}`;
+    fs.writeFile(tmp, buf, (err) => {
+      if (err) {
+        logger.warn({ err }, 'memory store async write failed');
+        this.isWriting = false;
+        this._processPendingWrite();
+        return;
+      }
+      fs.rename(tmp, MEMORY_DB, (renameErr) => {
+        if (renameErr) logger.warn({ err: renameErr }, 'memory store async rename failed');
+        this.isWriting = false;
+        this._processPendingWrite();
+      });
+    });
+  }
+
+  private _processPendingWrite(): void {
+    if (this.pendingWrite && this.nextBuffer) {
+      this.pendingWrite = false;
+      const buf = this.nextBuffer;
+      this.nextBuffer = null;
+      this._writeBufferAsync(buf);
+    }
   }
 }
 

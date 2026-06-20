@@ -280,7 +280,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   }
 
   // ── Route modules ─────────────────────────────────────────────────────────
-  app.use(createDashboardRouter(serverVersion)); // Read-only web dashboard
+  app.use(createDashboardRouter(serverVersion, localSecret)); // Read-only web dashboard
   app.use(createSetupRouter()); // Setup wizard UI
   app.use(createDemoRouter()); // 3-minute interactive demo
   app.use(createSdkRouter()); // serves @mergen/browser as /sdk.js — one <script> tag install

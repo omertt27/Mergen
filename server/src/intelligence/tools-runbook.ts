@@ -433,6 +433,15 @@ export function registerRunbookTools(server: McpServer): void {
     withTierGate(getTierForTool('generate_runbook'), async ({ tag, query, service, limit = 10 }) => {
       trackCall('generate_runbook');
 
+      if (!postmortemStore.isHealthy()) {
+        return {
+          content: [{
+            type: 'text',
+            text: '⚠️ **Postmortem store is unavailable** (SQLite init failed — check logs for WASM or file error). Runbooks cannot be generated until the store recovers on next restart.',
+          }],
+        };
+      }
+
       // No tag or query: return corpus coverage overview
       if (!tag && !query) {
         const stats = postmortemStore.tagStats();
@@ -621,6 +630,15 @@ export function registerRunbookTools(server: McpServer): void {
     },
     withTierGate(getTierForTool('search_postmortems'), async ({ query, service, tag, limit = 5 }) => {
       trackCall('search_postmortems');
+
+      if (!postmortemStore.isHealthy()) {
+        return {
+          content: [{
+            type: 'text',
+            text: '⚠️ **Postmortem store is unavailable** (SQLite init failed). Search cannot run until the store recovers on next restart.',
+          }],
+        };
+      }
 
       const normalizedTag = tag
         ? (tag.startsWith('infra_') ? tag : `infra_${tag}`)

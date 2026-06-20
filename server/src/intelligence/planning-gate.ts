@@ -32,6 +32,7 @@
 import { calibrationClassifier } from './calibration-classifier.js';
 import { getStatsForTag } from './calibration.js';
 import { serviceGraph } from '../sensor/service-graph.js';
+import { postmortemStore } from './postmortem-store.js';
 import type { Hypothesis } from './causal.js';
 
 export interface PlanningSignals {
@@ -41,8 +42,12 @@ export interface PlanningSignals {
   upstreamImpact: number;
   /** Blast risk tier derived from upstream impact count */
   blastRisk: 'low' | 'medium' | 'high';
-  /** Historical autonomous fix success rate for this (tag, service) */
+  /** Historical autonomous fix success rate for this tag across all services */
   histSuccessRate: number | null;
+  /** Causal-correctness rate of the last ≤5 (tag, service) incidents specifically */
+  recentServiceSuccessRate: number | null;
+  /** How many corpus samples drove recentServiceSuccessRate (0 = signal absent) */
+  recentServiceSamples: number;
 }
 
 export interface PlanningDecision {
@@ -96,6 +101,20 @@ export function planningGate(
   // ── Signal 3: historical fix success rate ───────────────────────────────────
   const histSuccessRate = tagStats?.trusted ? tagStats.accuracy : null;
 
+  // ── Signal 4: per-(tag, service) recency success rate ───────────────────────
+  // Queries the postmortem corpus for the 5 most recent incidents with the exact
+  // (tag, service) pair. Fires as a veto when ≥3 samples show <30% causal success,
+  // even if the global tag accuracy is high. This operationalises cross-incident
+  // linking into the execution decision rather than just the postmortem display.
+  const recentPms = postmortemStore
+    .getByTag(hyp.tag, 10)
+    .filter((pm) => pm.service === service)
+    .slice(0, 5);
+  const recentServiceSuccessRate = recentPms.length >= 3
+    ? recentPms.filter((pm) => pm.causallyCorrect).length / recentPms.length
+    : null;
+  const recentServiceSamples = recentPms.length;
+
   // ── Adjusted confidence ─────────────────────────────────────────────────────
   // Blend raw confidence with classifier score (60/40 weighting — raw confidence
   // still dominates so existing tuning isn't disrupted).
@@ -110,6 +129,8 @@ export function planningGate(
     upstreamImpact,
     blastRisk,
     histSuccessRate: histSuccessRate !== null ? Math.round(histSuccessRate * 1000) / 1000 : null,
+    recentServiceSuccessRate: recentServiceSuccessRate !== null ? Math.round(recentServiceSuccessRate * 1000) / 1000 : null,
+    recentServiceSamples,
   };
 
   // ── Decision logic ──────────────────────────────────────────────────────────
@@ -141,9 +162,18 @@ export function planningGate(
     };
   }
 
+  if (recentServiceSuccessRate !== null && recentServiceSuccessRate < 0.30) {
+    return {
+      execute: false,
+      reason: `service-specific failure: last ${recentServiceSamples} (${hyp.tag}, ${service}) incidents resolved correctly only ${Math.round(recentServiceSuccessRate * 100)}% of the time — requires manual review`,
+      adjustedConfidence,
+      signals,
+    };
+  }
+
   return {
     execute: true,
-    reason: `planning gate approved: adjusted confidence ${(adjustedConfidence * 100).toFixed(0)}%, classifier ${(classifierScore * 100).toFixed(0)}%, blast risk ${blastRisk}`,
+    reason: `planning gate approved: adjusted confidence ${(adjustedConfidence * 100).toFixed(0)}%, classifier ${(classifierScore * 100).toFixed(0)}%, blast risk ${blastRisk}${recentServiceSuccessRate !== null ? `, service success ${Math.round(recentServiceSuccessRate * 100)}%` : ''}`,
     adjustedConfidence,
     signals,
   };

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { memoryStore, formatMttr, type IncidentMemoryRecord } from '../datadog/memory-store.js';
 import { agentMemoryStore } from '../sensor/agent-memory-store.js';
 import { getOverrideSummary, getOverridesForTag } from './override-corpus.js';
-import { getStats, getStatsForTag } from './calibration.js';
+import { getStats, getStatsForTag, getRecords, isCorpusSeeded } from './calibration.js';
 import { trackCall } from './tools-state.js';
 
 function formatRecord(r: IncidentMemoryRecord, index: number): string {
@@ -67,6 +67,15 @@ export function registerMemoryTools(server: McpServer): void {
     },
     async ({ fingerprint, service, limit = 5 }) => {
       trackCall('get_incident_history');
+
+      if (!memoryStore.isHealthy()) {
+        return {
+          content: [{
+            type: 'text',
+            text: '⚠️ **Incident memory store is unavailable** (SQLite init failed — check logs for WASM or file error). History cannot be queried. New incidents will not be persisted until the store recovers on next restart.',
+          }],
+        };
+      }
 
       if (!fingerprint && !service) {
         return {
@@ -184,6 +193,14 @@ export function registerMemoryTools(server: McpServer): void {
     },
     async ({ key, value, agentId = 'default', ttlMs = 0, service = '', errorFingerprint = '' }) => {
       trackCall('store_agent_memory');
+      if (!agentMemoryStore.isHealthy()) {
+        return {
+          content: [{
+            type: 'text',
+            text: '⚠️ **Agent memory store is unavailable** (SQLite init failed). Memory was NOT persisted. Check server logs for the root cause.',
+          }],
+        };
+      }
       const entry = agentMemoryStore.store(agentId, key, value, ttlMs, service, errorFingerprint);
       return {
         content: [{ type: 'text', text: `Memory stored: "${key}" [id=${entry.id}${service ? `, service=${service}` : ''}]` }],
@@ -209,6 +226,14 @@ export function registerMemoryTools(server: McpServer): void {
     },
     async ({ key, agentId = 'default', limit = 10, service, errorFingerprint }) => {
       trackCall('recall_agent_memory');
+      if (!agentMemoryStore.isHealthy()) {
+        return {
+          content: [{
+            type: 'text',
+            text: '⚠️ **Agent memory store is unavailable** (SQLite init failed — check logs for WASM or file error). Memories cannot be retrieved. Call `store_agent_memory` to check if the issue has resolved.',
+          }],
+        };
+      }
       const entries = agentMemoryStore.recall(agentId, key, limit, service, errorFingerprint);
       if (entries.length === 0) {
         return { content: [{ type: 'text', text: 'No memories found.' }] };
@@ -222,6 +247,49 @@ export function registerMemoryTools(server: McpServer): void {
         lines.push(`### ${e.key}${ctx ? ` [${ctx}]` : ''}${expiry}`, e.value, '');
       }
       return { content: [{ type: 'text', text: lines.join('\n') }] };
+    },
+  );
+
+  // ── list_agent_memory_keys ─────────────────────────────────────────────────
+  server.registerTool(
+    'list_agent_memory_keys',
+    {
+      description:
+        'List all memory keys stored for an agent. Use this at the start of a session to discover ' +
+        'what was previously stored before calling recall_agent_memory with a specific key. ' +
+        'Without this tool, an agent would need to already know the key names — defeating the purpose of persistent memory.',
+      inputSchema: {
+        agentId: z.string().optional()
+          .describe('Agent ID to scope the listing. Defaults to "default".'),
+      },
+    },
+    async ({ agentId = 'default' }) => {
+      trackCall('list_agent_memory_keys');
+      if (!agentMemoryStore.isHealthy()) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: '⚠️ **Agent memory store is unavailable** (SQLite init failed). Keys cannot be listed.',
+          }],
+        };
+      }
+      const keys = agentMemoryStore.listKeys(agentId);
+      if (keys.length === 0) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `No memories stored for agent \`${agentId}\`.\n\nCall \`store_agent_memory\` to begin persisting context across sessions.`,
+          }],
+        };
+      }
+      const lines = [
+        `## Agent Memory Keys — \`${agentId}\` (${keys.length} key${keys.length !== 1 ? 's' : ''})`,
+        '',
+        ...keys.map((k) => `- **${k.key}** — last updated ${new Date(k.lastStoredAt).toISOString().slice(0, 16)} UTC`),
+        '',
+        '_Call `recall_agent_memory(key: "...")` to retrieve the value for a specific key._',
+      ];
+      return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
     },
   );
 
@@ -355,6 +423,10 @@ export function registerMemoryTools(server: McpServer): void {
     async ({ tag }) => {
       trackCall('get_detector_calibration');
 
+      const seededWarning = isCorpusSeeded()
+        ? '\n> ⚠️ **SYNTHETIC PRIORS ACTIVE** — no production verdicts have been recorded yet (or all have expired). The accuracy figures below are developer estimates, not measurements from this system\'s incident history. Do not use them to gate autonomous execution decisions.\n'
+        : '';
+
       if (tag) {
         const normalizedTag = tag.startsWith('infra_') ? tag : tag;
         const stats = getStatsForTag(normalizedTag);
@@ -365,12 +437,12 @@ export function registerMemoryTools(server: McpServer): void {
               type: 'text' as const,
               text: [
                 `## Detector Calibration — \`${normalizedTag}\``,
-                '',
+                seededWarning,
                 '_No calibration data yet for this detector._',
                 '',
                 `Calibration builds automatically as incidents of type \`${normalizedTag}\` are diagnosed and verdicts recorded.`,
                 'With fewer than 5 verdicts, execution decisions use the built-in prior (developer estimate).',
-              ].join('\n'),
+              ].filter(Boolean).join('\n'),
             }],
           };
         }
@@ -393,15 +465,24 @@ export function registerMemoryTools(server: McpServer): void {
             ? '⚠️ Mixed accuracy — require confidence ≥ 0.90 or manual review'
             : '🚫 Poor accuracy — do not auto-execute; manual review required';
 
+        // Real vs. synthetic verdict breakdown so agents know what the accuracy is based on
+        const tagRecs = getRecords().filter((r) => r.tag === normalizedTag);
+        const realVerdicts    = tagRecs.filter((r) => !r.isBuiltinSeed && r.verdict !== null).length;
+        const syntheticVerdicts = tagRecs.filter((r) => r.isBuiltinSeed).length;
+        const verdictBreakdown = realVerdicts > 0
+          ? `${realVerdicts} real · ${syntheticVerdicts} synthetic priors`
+          : `0 real · ${syntheticVerdicts} synthetic priors _(accuracy based on estimates only)_`;
+
         const lines = [
           `## Detector Calibration — \`${normalizedTag}\``,
-          '',
+          seededWarning,
           `**Status:** ${trustLabel}`,
           `**All-time accuracy:** ${Math.round(stats.accuracy * 100)}%`,
           `**7-day accuracy:** ${stats.accuracy7d !== null ? Math.round(stats.accuracy7d * 100) + '%' : '—'}`,
           `**Trend:** ${trendLabel}`,
           `**Total predictions:** ${stats.predictions}`,
           `**Verdicts:** ${stats.verdicts} (correct: ${Math.round(stats.diagnosisAccuracy * 100)}%, remediation: ${Math.round(stats.remediationAccuracy * 100)}%)`,
+          `**Verdict breakdown:** ${verdictBreakdown}`,
           '',
           `**Recommended action:** ${shouldAct}`,
           '',
@@ -436,7 +517,7 @@ export function registerMemoryTools(server: McpServer): void {
 
       const lines = [
         '## Detector Calibration — All Detectors',
-        '',
+        seededWarning,
         `**${allStats.length} detectors tracked** · **${trusted.length} trusted** (≥5 verdicts) · **${untrusted.length} on prior estimate**`,
         avgAccuracy !== null
           ? `**Mean accuracy (trusted):** ${Math.round(avgAccuracy * 100)}%`

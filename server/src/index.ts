@@ -45,7 +45,7 @@ import { initLicense, getActivePlanId } from './intelligence/license.js';
 import { initUsage, flushOverageOnShutdown } from './intelligence/usage.js';
 import { flushPendingRebuild } from './intelligence/hypothesis-history.js';
 import { initTeam, broadcastToTeam } from './intelligence/team.js';
-import { initTelemetry, maybeSendTelemetry, uploadCalibrationBatch } from './intelligence/telemetry.js';
+import { initTelemetry, maybeSendTelemetry } from './intelligence/telemetry.js';
 import { getPlan } from './intelligence/plans.js';
 import { registerTools, toolCallCounts } from './intelligence/tools.js';
 import { registerResources } from './intelligence/mcp-resources.js';
@@ -233,10 +233,10 @@ async function main(): Promise<void> {
     if (redisStore !== store) setStore(redisStore);
   }
 
-  // ── Crash-safe session flush (every 30 s) ────────────────────────────────
+  // ── Crash-safe session flush (every 10 s) ────────────────────────────────
   // Graceful shutdown already saves the buffer, but a SIGKILL / OOM kill skips
-  // that path. Flushing every 30 s bounds event loss on crash to ≤ 30 seconds.
-  setInterval(() => saveSession(store.serialize()), 30_000).unref();
+  // that path. Flushing every 10 s bounds event loss on crash to ≤ 10 seconds.
+  setInterval(() => saveSession(store.serialize()), 10_000).unref();
 
   // Wire team broadcast: events ingested by the sensor layer are fanned out
   // to all connected SSE peers that share the same team token.
@@ -319,7 +319,6 @@ async function main(): Promise<void> {
       toolCallCounts,
       bufferedEvents: store.size(),
     });
-    void uploadCalibrationBatch();
   };
   setTimeout(telemetryTick, 60_000).unref();
   setInterval(telemetryTick, 60 * 60 * 1000).unref();

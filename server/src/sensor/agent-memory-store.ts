@@ -191,6 +191,44 @@ class AgentMemoryStore {
     return this.recall(undefined, undefined, limit, service, errorFingerprint);
   }
 
+  /** Returns true when the SQLite database initialised successfully. */
+  isHealthy(): boolean { return this.db !== null; }
+
+  /**
+   * List all non-expired keys stored by an agent, grouped for discovery.
+   * Lets an agent enumerate what it has stored without knowing keys in advance.
+   */
+  listKeys(agentId?: string): Array<{ agentId: string; key: string; lastStoredAt: number }> {
+    if (!this.db) return [];
+    const now = Date.now();
+    const clauses = ['(ttl_ms = 0 OR stored_at + ttl_ms > ?)'];
+    const params: (string | number)[] = [now];
+    if (agentId) { clauses.push('agent_id = ?'); params.push(agentId); }
+    const sql = `SELECT agent_id, key, MAX(stored_at) AS last_at
+                 FROM agent_memory
+                 WHERE ${clauses.join(' AND ')}
+                 GROUP BY agent_id, key
+                 ORDER BY last_at DESC`;
+    try {
+      const stmt = this.db.prepare(sql);
+      stmt.bind(params);
+      const rows: Array<{ agentId: string; key: string; lastStoredAt: number }> = [];
+      while (stmt.step()) {
+        const r = stmt.getAsObject() as Record<string, unknown>;
+        rows.push({
+          agentId:     r['agent_id'] as string,
+          key:         r['key'] as string,
+          lastStoredAt: r['last_at'] as number,
+        });
+      }
+      stmt.free();
+      return rows;
+    } catch (err) {
+      logger.warn({ err }, 'agent-memory-store: listKeys failed');
+      return [];
+    }
+  }
+
   /** Remove a specific memory by (agentId, key). */
   forget(agentId: string, key: string): void {
     if (!this.db) return;

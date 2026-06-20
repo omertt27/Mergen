@@ -22,9 +22,15 @@ import fs from 'fs';
 import { TOPOLOGY_FILE, DATA_DIR, zeroRetentionMode } from './paths.js';
 import logger from './logger.js';
 
-// Topology edges older than 7 days are pruned on load — stale edges from
-// decommissioned services produce incorrect blast-risk calculations.
-const MAX_EDGE_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
+// Topology edges older than MAX_EDGE_AGE_MS are pruned on load — stale edges
+// from decommissioned services produce incorrect blast-risk calculations.
+// Override via MERGEN_TOPOLOGY_MAX_EDGE_AGE_DAYS (default: 7).
+// Raise for systems with low-frequency traffic patterns (batch jobs, DR services)
+// where a 7-day quiet period would cause dependency edges to be silently pruned.
+const MAX_EDGE_AGE_MS = (() => {
+  const days = parseInt(process.env.MERGEN_TOPOLOGY_MAX_EDGE_AGE_DAYS ?? '7', 10);
+  return (Number.isFinite(days) && days > 0 ? Math.min(days, 365) : 7) * 24 * 60 * 60 * 1_000;
+})();
 
 interface EdgeStats {
   callCount:  number;
