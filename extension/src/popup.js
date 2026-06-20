@@ -27,7 +27,6 @@ const mutedBanner   = document.getElementById('muted-banner');
 const noCsBanner    = document.getElementById('no-cs-banner');
 const btnClear      = document.getElementById('btn-clear');
 const btnCapture    = document.getElementById('btn-capture');
-const btnGear       = document.getElementById('btn-gear');
 const welcomeLink   = document.getElementById('welcome-link');
 const pricingLink   = document.getElementById('pricing-link');
 const planBadge     = document.getElementById('plan-badge');
@@ -218,11 +217,19 @@ async function loadMuteState() {
 async function refresh(port) {
   setStatus('checking', 'Checking…');
 
-  let health = null;
+  let data = null;
+  let lic = null;
   try {
-    const res = await fetch(`${getBaseUrl(port)}/health`, { signal: AbortSignal.timeout(2000) });
-    if (res.ok) health = await res.json();
+    const [res, licRes] = await Promise.all([
+      fetch(`${getBaseUrl(port)}/unified-dashboard`, { signal: AbortSignal.timeout(2000) }),
+      fetch(`${getBaseUrl(port)}/license`, { signal: AbortSignal.timeout(2000) }).catch(() => null),
+    ]);
+    if (res.ok) data = await res.json();
+    if (licRes && licRes.ok) lic = await licRes.json();
   } catch { /* offline */ }
+
+  const health = data?.health;
+  const usage = data?.usage;
 
   if (!health?.ok) {
     setStatus('disconnected', 'Offline');
@@ -297,14 +304,7 @@ async function refresh(port) {
   }
 
   // Plan badge + credit meter
-  try {
-    const [licRes, usageRes] = await Promise.all([
-      fetch(`${getBaseUrl(port)}/license`, { signal: AbortSignal.timeout(2000) }),
-      fetch(`${getBaseUrl(port)}/usage`,   { signal: AbortSignal.timeout(2000) }),
-    ]);
-    const lic   = await licRes.json();
-    const usage = await usageRes.json();
-
+  if (lic && usage) {
     const planId   = lic.plan?.id   ?? 'free';
     const planName = lic.plan?.name ?? 'Free';
 
@@ -332,7 +332,9 @@ async function refresh(port) {
     } else {
       creditWrap.style.display = 'none';
     }
-  } catch { /* server may not have license module */ }
+  } else {
+    creditWrap.style.display = 'none';
+  }
 }
 
 // ── Engineer identity ─────────────────────────────────────────────────────────
@@ -384,13 +386,7 @@ portSave.addEventListener('click', async () => {
   refresh(port);
 });
 
-// ── Gear toggle (port settings) ───────────────────────────────────────────────
-
-btnGear.addEventListener('click', () => {
-  const isOpen = portRow.classList.toggle('open');
-  btnGear.classList.toggle('active', isOpen);
-  btnGear.title = isOpen ? 'Close settings' : 'Settings';
-});
+// ── Gear toggle (port settings) removed (now handled by tab navigation) ───────
 
 // ── Mute toggle ───────────────────────────────────────────────────────────────
 
@@ -614,18 +610,24 @@ async function refreshPiiPanel(port) {
   } catch { /* server unreachable */ }
 }
 
-const btnPii   = document.getElementById('btn-pii');
-const piiPanel = document.getElementById('pii-panel');
-const piiClose = document.getElementById('pii-close');
+// ── Tab Management ────────────────────────────────────────────────────────────
+function switchTab(tabId) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab-item').forEach(el => el.classList.remove('active'));
+  
+  const contentEl = document.getElementById(`tab-${tabId}`);
+  const buttonEl = document.getElementById(`tab-btn-${tabId}`);
+  if (contentEl) contentEl.classList.add('active');
+  if (buttonEl) buttonEl.classList.add('active');
 
-btnPii.addEventListener('click', async () => {
-  const isOpen = piiPanel.classList.toggle('open');
-  if (isOpen) {
-    await refreshPiiPanel(parseInt(portInput.value, 10));
+  if (tabId === 'shield') {
+    refreshPiiPanel(parseInt(portInput.value, 10));
   }
-});
+}
 
-piiClose.addEventListener('click', () => piiPanel.classList.remove('open'));
+document.getElementById('tab-btn-live')?.addEventListener('click', () => switchTab('live'));
+document.getElementById('tab-btn-shield')?.addEventListener('click', () => switchTab('shield'));
+document.getElementById('tab-btn-config')?.addEventListener('click', () => switchTab('config'));
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 

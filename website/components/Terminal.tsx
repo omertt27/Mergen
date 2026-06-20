@@ -25,8 +25,12 @@ const lines = [
 export default function Terminal() {
   const [visibleLines, setVisibleLines] = useState<typeof lines>([])
   const [index, setIndex] = useState(0)
+  const [isPlaying, setIsPlaying] = useState(true)
+  const [speed, setSpeed] = useState(1)
 
   useEffect(() => {
+    if (!isPlaying) return
+
     if (index >= lines.length) {
       const timer = setTimeout(() => {
         setVisibleLines([])
@@ -38,18 +42,105 @@ export default function Terminal() {
     const timer = setTimeout(() => {
       setVisibleLines(prev => [...prev, lines[index]])
       setIndex(index + 1)
-    }, lines[index].delay)
+    }, lines[index].delay / speed)
 
     return () => clearTimeout(timer)
-  }, [index])
+  }, [index, isPlaying, speed])
+
+  function handlePlayPause() {
+    setIsPlaying(!isPlaying)
+  }
+
+  function handleRestart() {
+    setVisibleLines([])
+    setIndex(0)
+    setIsPlaying(true)
+  }
+
+  function handleStep() {
+    if (index < lines.length) {
+      setVisibleLines(prev => [...prev, lines[index]])
+      setIndex(index + 1)
+    }
+  }
 
   return (
     <div className="terminal">
-      <div className="terminal-header">
-        <div className="terminal-dots">
-          <span /> <span /> <span />
+      <div className="terminal-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+          <div className="terminal-dots">
+            <span /> <span /> <span />
+          </div>
+          <div className="terminal-title">mergen — autonomous incident loop</div>
         </div>
-        <div className="terminal-title">mergen — autonomous incident loop</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button 
+            onClick={handlePlayPause} 
+            style={{ 
+              background: 'transparent', 
+              border: '1px solid #333', 
+              color: '#888', 
+              fontSize: '10px', 
+              padding: '2px 8px', 
+              borderRadius: '2px', 
+              cursor: 'pointer',
+              fontFamily: 'var(--font-geist-mono), monospace'
+            }}
+          >
+            {isPlaying ? '⏸ Pause' : '▶ Play'}
+          </button>
+          {!isPlaying && index < lines.length && (
+            <button 
+              onClick={handleStep} 
+              style={{ 
+                background: 'transparent', 
+                border: '1px solid #333', 
+                color: '#888', 
+                fontSize: '10px', 
+                padding: '2px 8px', 
+                borderRadius: '2px', 
+                cursor: 'pointer',
+                fontFamily: 'var(--font-geist-mono), monospace'
+              }}
+            >
+              ⏭ Step
+            </button>
+          )}
+          <button 
+            onClick={handleRestart} 
+            style={{ 
+              background: 'transparent', 
+              border: '1px solid #333', 
+              color: '#888', 
+              fontSize: '10px', 
+              padding: '2px 8px', 
+              borderRadius: '2px', 
+              cursor: 'pointer',
+              fontFamily: 'var(--font-geist-mono), monospace'
+            }}
+          >
+            ↺ Restart
+          </button>
+          <select 
+            value={speed} 
+            onChange={(e) => setSpeed(Number(e.target.value))}
+            style={{ 
+              background: '#0a0a0a', 
+              border: '1px solid #333', 
+              color: '#888', 
+              fontSize: '10px', 
+              padding: '1px 4px', 
+              borderRadius: '2px', 
+              cursor: 'pointer',
+              fontFamily: 'var(--font-geist-mono), monospace',
+              outline: 'none'
+            }}
+          >
+            <option value={1}>1x Speed</option>
+            <option value={1.5}>1.5x Speed</option>
+            <option value={2}>2x Speed</option>
+          </select>
+        </div>
       </div>
       <div className="terminal-body" style={{ minHeight: '450px' }}>
         {visibleLines.map((line, i) => (

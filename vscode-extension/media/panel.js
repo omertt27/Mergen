@@ -60,7 +60,7 @@
   function showCaptureStatus(timestamp) {
     const el = document.getElementById('capture-status');
     if (!el) return;
-    el.textContent   = '⏺ Capturing since ' + new Date(timestamp).toLocaleTimeString();
+    el.innerHTML = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--vscode-charts-red);margin-right:5px;vertical-align:middle;"></span> Capturing since ' + new Date(timestamp).toLocaleTimeString();
     el.style.display = 'block';
     if (_captureTimer) clearTimeout(_captureTimer);
     _captureTimer = setTimeout(() => { el.style.display = 'none'; _captureTimer = null; }, 30 * 60 * 1000);
@@ -267,8 +267,37 @@
         }
       } else if (rcBox) { rcBox.style.display = 'none'; }
 
-      const ICON = { error:'🔴', warn:'🟡', log:'⬜', request:'🟠', context:'⬜',
-                     terminal:'💻', process_exit:'💥', ci_failure:'❌', ci_success:'✅', deployment:'🚀' };
+      // Helper function to render a clean visual indicator instead of system emojis
+      const getIconHtml = (kind) => {
+        const svgColors = {
+          error: 'var(--vscode-charts-red)',
+          warn: 'var(--vscode-charts-yellow)',
+          log: 'var(--vscode-descriptionForeground)',
+          request: 'var(--vscode-charts-blue)',
+          context: 'var(--vscode-descriptionForeground)',
+          terminal: 'var(--vscode-descriptionForeground)',
+          process_exit: 'var(--vscode-charts-red)',
+          ci_failure: 'var(--vscode-charts-red)',
+          ci_success: 'var(--vscode-charts-green)',
+          deployment: 'var(--vscode-charts-blue)'
+        };
+        const color = svgColors[kind] || 'var(--vscode-foreground)';
+        
+        const svgs = {
+          error: `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="display:inline-block;vertical-align:middle;color:${color}"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0-1A6 6 0 1 0 8 2a6 6 0 0 0 0 12zM7 4h2v5H7V4zm0 6h2v2H7v-2z"/></svg>`,
+          warn: `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="display:inline-block;vertical-align:middle;color:${color}"><path d="M7.56 1.42c.19-.33.68-.33.88 0l7.2 12.5c.19.33-.05.75-.44.75H1.8c-.39 0-.63-.42-.44-.75l7.2-12.5zM8 5v5h1V5H8zm0 6v1h1v-1H8z"/></svg>`,
+          log: `<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="display:inline-block;vertical-align:middle;color:${color}"><rect x="2" y="2" width="12" height="12" rx="1.5"/><line x1="5" y1="6" x2="11" y2="6"/><line x1="5" y1="10" x2="11" y2="10"/></svg>`,
+          request: `<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="display:inline-block;vertical-align:middle;color:${color}"><circle cx="8" cy="8" r="6"/><line x1="2" y1="8" x2="14" y2="8"/><path d="M8 2a10.5 10.5 0 0 1 2.5 6A10.5 10.5 0 0 1 8 14 10.5 10.5 0 0 1 5.5 8 10.5 10.5 0 0 1 8 2z"/></svg>`,
+          context: `<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="display:inline-block;vertical-align:middle;color:${color}"><rect x="3" y="3" width="10" height="10" rx="1"/><path d="M3 7h10M7 3v10"/></svg>`,
+          terminal: `<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="display:inline-block;vertical-align:middle;color:${color}"><polyline points="3 5 6 8 3 11"/><line x1="8" y1="11" x2="13" y2="11"/></svg>`,
+          process_exit: `<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="display:inline-block;vertical-align:middle;color:${color}"><circle cx="8" cy="8" r="6"/><line x1="3.8" y1="3.8" x2="12.2" y2="12.2"/></svg>`,
+          ci_failure: `<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="display:inline-block;vertical-align:middle;color:${color}"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>`,
+          ci_success: `<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="display:inline-block;vertical-align:middle;color:${color}"><polyline points="3 8 6 11 13 4"/></svg>`,
+          deployment: `<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="display:inline-block;vertical-align:middle;color:${color}"><path d="M14 2L8 8V14L14 2Z"/><path d="M2 14L8 8V2L2 14Z"/></svg>`
+        };
+        return svgs[kind] || svgs.log;
+      };
+
       const activityList = document.getElementById('activity-list');
       if (activityList) {
         activityList.innerHTML = timeline.slice(-12).reverse().map(r => {
@@ -279,7 +308,7 @@
           const src = r.source || '';
           const sha = r.sha ? ' <span style="font-size:9px;opacity:.6">[' + escHtml(r.sha) + ']</span>' : '';
           return '<div class="activity-row">' +
-            '<span style="flex-shrink:0;width:18px;text-align:center">' + (ICON[r.kind] || '⬜') + '</span>' +
+            '<span style="flex-shrink:0;width:18px;text-align:center;display:flex;align-items:center;justify-content:center">' + getIconHtml(r.kind) + '</span>' +
             (src ? '<span class="activity-source ' + src + '">' + src + '</span>' : '') +
             '<span class="activity-summary">' + escHtml(r.summary) + sha + '</span>' +
             '<span class="activity-time">' + ageStr + '</span>' +
@@ -292,8 +321,18 @@
     const signals = h.signals || [];
     if (signals.length > 0) {
       showEl('card-signals', true);
-      const SICON = { repeated_network_error:'🔁', warn_spike:'⚠️', repeated_error:'❌',
-                      slow_requests:'🐢', auth_token_not_stored:'🔑', auth_500:'🔥', storage_cleared:'🗑️' };
+      const getSignalIconHtml = (kind) => {
+        const svgs = {
+          repeated_network_error: `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="display:inline-block;vertical-align:middle;color:var(--vscode-charts-blue)"><path d="M1.5 5.5A4.5 4.5 0 0 1 6 1h4a4.5 4.5 0 0 1 4.5 4.5v0A4.5 4.5 0 0 1 10 10H6A4.5 4.5 0 0 1 1.5 5.5z"/><path d="M10.5 4.5L13.5 1.5M10.5 4.5L7.5 1.5"/></svg>`,
+          warn_spike: `<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" style="display:inline-block;vertical-align:middle;color:var(--vscode-charts-yellow)"><path d="M7.56 1.42c.19-.33.68-.33.88 0l7.2 12.5c.19.33-.05.75-.44.75H1.8c-.39 0-.63-.42-.44-.75l7.2-12.5zM8 5v5h1V5H8zm0 6v1h1v-1H8z"/></svg>`,
+          repeated_error: `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="display:inline-block;vertical-align:middle;color:var(--vscode-charts-red)"><circle cx="8" cy="8" r="6"/><line x1="5.5" y1="5.5" x2="10.5" y2="10.5"/><line x1="10.5" y1="5.5" x2="5.5" y2="10.5"/></svg>`,
+          slow_requests: `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="display:inline-block;vertical-align:middle;color:var(--vscode-charts-yellow)"><circle cx="8" cy="8" r="6"/><polyline points="8 4 8 8 11 9.5"/></svg>`,
+          auth_token_not_stored: `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="display:inline-block;vertical-align:middle;color:var(--vscode-charts-blue)"><circle cx="5" cy="11" r="3"/><path d="M7.5 8.5L12 4M10.5 5.5L12 7M12 4L13.5 5.5"/></svg>`,
+          auth_500: `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="display:inline-block;vertical-align:middle;color:var(--vscode-charts-red)"><path d="M8 1c0 0 5 3 5 8a5 5 0 0 1-10 0c0-5 5-8 5-8z"/></svg>`,
+          storage_cleared: `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="display:inline-block;vertical-align:middle;color:var(--vscode-descriptionForeground)"><path d="M3 4h10M4 4v10a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4M6 4V2a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2"/></svg>`
+        };
+        return svgs[kind] || `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="display:inline-block;vertical-align:middle;"><circle cx="8" cy="8" r="6"/><line x1="8" y1="5" x2="8" y2="11"/><line x1="5" y1="8" x2="11" y2="8"/></svg>`;
+      };
       const signalsList = document.getElementById('signals-list');
       if (signalsList) {
         signalsList.innerHTML = signals.map(s => {
@@ -302,7 +341,7 @@
           const toolKey  = s.suggestedTool || 'quick_check';
           const actionText = s.action ? (s.action.length > 58 ? s.action.slice(0, 57) + '…' : s.action) : ('▶ Run ' + toolKey);
           return '<div class="signal-item">' +
-            '<span class="signal-icon">' + (SICON[s.kind] || '🔍') + '</span>' +
+            '<span class="signal-icon" style="display:flex;align-items:center;justify-content:center">' + getSignalIconHtml(s.kind) + '</span>' +
             '<div class="signal-body">' +
               '<div class="signal-msg">' + escHtml(s.message) + '</div>' +
               '<div class="signal-meta">' +

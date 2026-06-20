@@ -475,6 +475,222 @@ export function createSensorRouter(serverVersion: string): Router {
     });
   });
 
+  // ── Unified Dashboard Payload ──────────────────────────────────────────────
+  // Multiplexes health, usage, lastPack, history, calibration, and timeline/unified
+  // in a single network trip to eliminate VS Code extension polling overhead.
+  router.get('/unified-dashboard', (req, res) => {
+    const tid = req.tenantId;
+    const teamState = getTeamState();
+    const counters = store.getCounters(tid);
+    const buffered = store.size(tid);
+    const signals = store.getSignals(tid);
+    const allClear = counters.errors === 0
+      && counters.networkErrors === 0
+      && signals.length === 0
+      && buffered > 0;
+
+    const health = {
+      ok: true,
+      buffered,
+      errors: counters.errors,
+      warnings: counters.warnings,
+      networkErrors: counters.networkErrors,
+      websocketConnections: store.getWebSocketCount(tid),
+      lastEventAt: store.lastEventAt(tid),
+      clearedAt: store.clearedAt(),
+      mcpLastCallAt: lastMcpCallAt,
+      firstAnalyzeAt,
+      lastTimeToFirstAnalysisMs,
+      metrics: getMetricCounters(),
+      signals,
+      allClear,
+      allClearMessage: allClear ? `✅ 0 errors in the last session (${buffered} events captured)` : null,
+      allClearSince: allClear ? (store.clearedAt() ?? store.lastEventAt()) : null,
+      name: 'mergen',
+      version: serverVersion,
+      teamSync: isTeamEnabled()
+        ? { enabled: true, memberName: teamState?.memberName, connectedPeers: 0 }
+        : { enabled: false },
+      costGuard: getCostGuardStats(),
+    };
+
+    const usage = getUsageSnapshot();
+
+    // Last pack
+    const latest = hypothesisHistory.latest();
+    const stats = getStats();
+    const statsByTag = new Map(stats.map((s) => [s.tag, s]));
+    const enrich = (h: any) =>
+      h ? { ...h, calibration: statsByTag.get(h.tag) ?? null } : h;
+
+    const lastPack = latest
+      ? {
+          ok: true,
+          hasPack: true,
+          builtAt: latest.builtAt,
+          builtAtIso: latest.builtAtIso,
+          triggerMessage: latest.triggerMessage,
+          reason: latest.reason,
+          topHypothesis: enrich(latest.topHypothesis),
+          hypotheses: latest.chain.hypotheses.map((h) => enrich(h)),
+          contextPack: latest.chain.contextPack,
+          hypothesesCount: latest.chain.hypotheses.length,
+          errorsCount: latest.chain.errors.length,
+        }
+      : { ok: true, hasPack: false };
+
+    // History (last 5)
+    const history = hypothesisHistory.list(5).map((e) => ({
+      ...e,
+      topHypothesis: e.topHypothesis
+        ? { ...e.topHypothesis, calibration: statsByTag.get(e.topHypothesis.tag) ?? null }
+        : null,
+    }));
+
+    // Calibration
+    const trusted = stats.filter((s) => s.trusted);
+    const totalVerdicts = trusted.reduce((sum, s) => sum + s.verdicts, 0);
+    const overall = totalVerdicts > 0
+      ? trusted.reduce((sum, s) => sum + s.accuracy * s.verdicts, 0) / totalVerdicts
+      : null;
+    const calibration = {
+      ok: true,
+      overallAccuracy: overall,
+      trustedDetectors: trusted.length,
+      totalDetectors: stats.length,
+      perDetector: stats,
+    };
+
+    // Timeline unified logic
+    const seconds = 300;
+    const limit = 12;
+    const since = Date.now() - seconds * 1000;
+    type UnifiedRow = {
+      ts: number;
+      isoTs: string;
+      kind: 'error' | 'warn' | 'log' | 'request' | 'context' | 'terminal' | 'process_exit' | 'ci_failure' | 'ci_success' | 'deployment' | 'backend_span';
+      summary: string;
+      source: 'browser' | 'backend' | 'ci' | 'deploy';
+      sha?: string;
+      confidence?: number;
+      traceId?: string;
+    };
+    const rows: UnifiedRow[] = [];
+
+    // Browser signals
+    for (const e of store.getLogs(limit, undefined, since)) {
+      rows.push({
+        ts: e.timestamp, isoTs: new Date(e.timestamp).toISOString(),
+        kind: e.level === 'error' ? 'error' : e.level === 'warn' ? 'warn' : 'log',
+        summary: e.args.map((a) => typeof a === 'string' ? a : JSON.stringify(a)).join(' ').slice(0, 200),
+        source: 'browser',
+      });
+    }
+    for (const n of store.getNetwork(limit, undefined, since)) {
+      const fail = n.status >= 400 || n.status === 0 || !!n.error;
+      if (!fail) continue;
+      rows.push({
+        ts: n.timestamp, isoTs: new Date(n.timestamp).toISOString(),
+        kind: 'request',
+        summary: `${n.method} ${n.url} → ${n.status || 'ERR'} ${n.statusText} (${n.duration}ms)${n.error ? ' — ' + n.error : ''}`,
+        source: 'browser',
+      });
+    }
+
+    // Backend signals
+    const BACKEND_ERROR_RE = /error|exception|traceback|panic|fatal|killed|oom/i;
+    for (const t of store.getTerminalOutput(limit, undefined, since)) {
+      if (!BACKEND_ERROR_RE.test(t.data)) continue;
+      rows.push({
+        ts: t.timestamp, isoTs: new Date(t.timestamp).toISOString(),
+        kind: 'terminal',
+        summary: `[${t.terminalName}] ${t.data.slice(0, 200)}`,
+        source: 'backend',
+      });
+    }
+    for (const p of store.getProcessExits(20, undefined, since)) {
+      if (p.reason === 'normal') continue;
+      rows.push({
+        ts: p.timestamp, isoTs: new Date(p.timestamp).toISOString(),
+        kind: 'process_exit',
+        summary: `[${p.process}] exited ${p.exitCode} (${p.reason})${p.signal ? ' · ' + p.signal : ''}`,
+        source: 'backend',
+      });
+    }
+
+    // CI signals
+    for (const c of store.getCIEvents(50, undefined, since)) {
+      rows.push({
+        ts: c.timestamp, isoTs: new Date(c.timestamp).toISOString(),
+        kind: c.status === 'failure' ? 'ci_failure' : 'ci_success',
+        summary: c.status === 'failure'
+          ? `CI failed: ${c.job}${c.workflow ? ' (' + c.workflow + ')' : ''}${c.failedTests && c.failedTests.length > 0 ? ' — ' + c.failedTests.slice(0, 3).map(t => t.name).join(', ') : ''}`
+          : `CI passed: ${c.job}${c.workflow ? ' (' + c.workflow + ')' : ''}`,
+        source: 'ci',
+        sha: c.shortSha ?? c.sha.slice(0, 7),
+      });
+    }
+
+    // Deployments
+    for (const d of store.getDeployments(20, undefined, since)) {
+      rows.push({
+        ts: d.timestamp, isoTs: new Date(d.timestamp).toISOString(),
+        kind: 'deployment',
+        summary: `Deploy to ${d.environment}: ${d.status}${d.service ? ' (' + d.service + ')' : ''}${d.actor ? ' by ' + d.actor : ''}`,
+        source: 'deploy',
+        sha: d.shortSha ?? d.sha.slice(0, 7),
+      });
+    }
+
+    // Backend SDK spans
+    const browserTraceIds = new Set(
+      store.getNetwork(200, undefined, since)
+        .filter(n => n.traceId)
+        .map(n => n.traceId as string),
+    );
+    for (const s of store.getBackendSpans(limit, undefined, since)) {
+      const joined = browserTraceIds.has(s.traceId);
+      rows.push({
+        ts: s.timestamp, isoTs: new Date(s.timestamp).toISOString(),
+        kind: 'backend_span',
+        summary: `[${s.service}] ${s.method} ${s.route} → ${s.statusCode} (${s.durationMs}ms)${s.error ? ' — ' + s.error : ''}`,
+        source: 'backend',
+        confidence: joined ? 1.0 : 0.5,
+        traceId: s.traceId,
+      });
+    }
+
+    rows.sort((a, b) => a.ts - b.ts);
+    const topHyp = latest?.topHypothesis ?? null;
+    const rootCause = topHyp
+      ? {
+          hypothesis: topHyp.summary,
+          tag: topHyp.tag,
+          confidence: topHyp.confidenceScore,
+          fixHint: topHyp.fixHint,
+          builtAt: latest?.builtAt,
+          calibration: statsByTag.get(topHyp.tag) ?? null,
+        }
+      : null;
+
+    const timelineUnified = {
+      ok: true,
+      windowSeconds: seconds,
+      count: rows.length,
+      rootCause,
+      rows: rows.slice(-limit),
+    };
+
+    res.json({
+      health,
+      usage,
+      lastPack,
+      history,
+      calibration,
+      timelineUnified,
+    });
+  });
+
   // ── Process watchers ─────────────────────────────────────────────────────
   // Start/stop/list process watchers — lets the AI or VS Code panel
   // attach Mergen to any running dev server without code changes.

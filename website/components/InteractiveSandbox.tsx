@@ -1,55 +1,108 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
-const scenarios = [
+interface Scenario {
+  name: string
+  key: string
+  logic: string
+  remedy: string
+}
+
+const scenarios: Scenario[] = [
   {
     name: 'DB Connection Leak',
-    event: 'api-service error rate spike (14.2%)',
-    telemetry: 'pg_stat_activity count=98/100, wait_event=ClientRead',
-    logic: 'if (idle_conns > 80% && errors > 5%) => stuck_idle_connections',
-    result: 'REMEDY: flush_idle_pools(api-service)',
-    confidence: '92%',
+    key: 'db_leak',
+    logic: 'if (idle_connections > 80% && error_rate > 5%)',
+    remedy: 'flush_idle_pools(api-service)',
   },
   {
     name: 'OOM Kill',
-    event: 'worker-node status=Ready, MemoryPressure=True',
-    telemetry: 'container_memory_usage_bytes > limit, oom_score_adj=1000',
-    logic: 'if (mem_usage > 95% && oom_events > 0) => memory_leak_detected',
-    result: 'REMEDY: restart_with_profile(worker-node)',
-    confidence: '88%',
+    key: 'oom_kill',
+    logic: 'if (memory_usage > 95% && oom_events === true)',
+    remedy: 'restart_with_profile(worker-node)',
   },
   {
     name: 'Rate Limit Cascade',
-    event: 'auth-service latency=1.2s (p99)',
-    telemetry: '429 errors from upstream-api, retry-after=60s',
-    logic: 'if (upstream_429 > 0 && p99 > 1s) => external_rate_limit',
-    result: 'REMEDY: enable_circuit_breaker(auth-service)',
-    confidence: '94%',
+    key: 'rate_limit',
+    logic: 'if (upstream_429_errors > 0 && p99_latency > 1.0s)',
+    remedy: 'enable_circuit_breaker(auth-service)',
   },
 ]
 
 export default function InteractiveSandbox() {
-  const [selected, setSelected] = useState(scenarios[0])
+  const [selected, setSelected] = useState<Scenario>(scenarios[0])
   const [running, setRunning] = useState(false)
   const [output, setOutput] = useState<string[]>([])
 
+  // DB Leak State
+  const [idleConns, setIdleConns] = useState(85)
+  const [errorRate, setErrorRate] = useState(14.2)
+
+  // OOM Kill State
+  const [memoryUsage, setMemoryUsage] = useState(97)
+  const [oomEvents, setOomEvents] = useState(true)
+
+  // Rate Limit State
+  const [upstream429, setUpstream429] = useState(12)
+  const [latency, setLatency] = useState(1.2)
+
+  // Clear output on scenario selection change
+  useEffect(() => {
+    setOutput([])
+  }, [selected])
+
+  // Compute values dynamically
+  let isMatched = false
+  let telemetry = ''
+  let eventText = ''
+  let confidence = 0
+
+  if (selected.key === 'db_leak') {
+    isMatched = idleConns > 80 && errorRate > 5
+    telemetry = `pg_stat_activity count=${idleConns}/100, wait_event=ClientRead`
+    eventText = `api-service error rate spike (${errorRate.toFixed(1)}%)`
+    confidence = isMatched ? Math.min(99, Math.round(75 + (idleConns - 80) * 0.8 + (errorRate - 5) * 0.5)) : 0
+  } else if (selected.key === 'oom_kill') {
+    isMatched = memoryUsage > 95 && oomEvents
+    telemetry = `container_memory_usage_bytes > limit (${memoryUsage}%), oom_score_adj=1000`
+    eventText = `worker-node status=Ready, MemoryPressure=${memoryUsage > 80 ? 'True' : 'False'}`
+    confidence = isMatched ? Math.min(99, Math.round(80 + (memoryUsage - 95) * 2.0)) : 0
+  } else {
+    isMatched = upstream429 > 0 && latency > 1.0
+    telemetry = `${upstream429} errors from upstream-api, retry-after=60s`
+    eventText = `auth-service latency=${latency.toFixed(1)}s (p99)`
+    confidence = isMatched ? Math.min(99, Math.round(85 + (latency - 1.0) * 4 + (upstream429 > 10 ? 5 : 0))) : 0
+  }
+
   function runDetector() {
     setRunning(true)
-    setOutput(['> Initializing causal detector...', '> Fetching telemetry context...'])
-    
-    setTimeout(() => {
-      setOutput(prev => [...prev, `> Analyzing: "${selected.event}"`])
-    }, 600)
+    setOutput(['> Initializing causal detector...', '> Fetching live telemetry...'])
 
     setTimeout(() => {
-      setOutput(prev => [...prev, `> Pattern Match: ${selected.logic}`])
-    }, 1200)
+      setOutput(prev => [...prev, `> Event: "${eventText}"`])
+    }, 500)
 
     setTimeout(() => {
-      setOutput(prev => [...prev, `> SUCCESS: ${selected.result} (${selected.confidence} confidence)`])
+      setOutput(prev => [...prev, `> Telemetry: ${telemetry}`])
+    }, 1000)
+
+    setTimeout(() => {
+      if (isMatched) {
+        setOutput(prev => [
+          ...prev,
+          `> Pattern MATCHED: ${selected.logic}`,
+          `> SUCCESS: Executing remedy: ${selected.remedy} (${confidence}% Platt-scaled confidence)`
+        ])
+      } else {
+        setOutput(prev => [
+          ...prev,
+          `> Pattern NOT MATCHED: ${selected.logic}`,
+          `> HALTED: Input metrics are below threshold limits. Safe state maintained.`
+        ])
+      }
       setRunning(false)
-    }, 2000)
+    }, 1600)
   }
 
   return (
@@ -63,86 +116,252 @@ export default function InteractiveSandbox() {
 
       <div className="sandbox-grid mt-lg" style={{
         display: 'grid',
-        gridTemplateColumns: '300px 1fr',
+        gridTemplateColumns: '1fr',
         gap: '4px',
         background: 'var(--gray-800)',
         border: '1px solid var(--gray-800)',
       }}>
-        <div style={{ background: 'var(--bg)', padding: '2rem' }}>
-          <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--gray-600)', marginBottom: '1.5rem' }}>
-            Select Scenario
-          </p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            {scenarios.map((s) => (
+        {/* Responsive Grid Wrapper */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+          width: '100%'
+        }}>
+          {/* Controls Panel */}
+          <div style={{ background: 'var(--bg)', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            <div>
+              <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--gray-600)', marginBottom: '1rem' }}>
+                Select Scenario
+              </p>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                {scenarios.map((s) => (
+                  <button
+                    key={s.name}
+                    onClick={() => { setSelected(s); setOutput([]); }}
+                    style={{
+                      flex: '1 1 120px',
+                      padding: '0.75rem',
+                      textAlign: 'left',
+                      background: selected.key === s.key ? 'rgba(8, 145, 178, 0.1)' : 'transparent',
+                      border: '1px solid',
+                      borderColor: selected.key === s.key ? 'var(--accent)' : 'var(--gray-800)',
+                      color: selected.key === s.key ? 'var(--white)' : 'var(--gray-400)',
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                      borderRadius: '2px',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    {s.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Slider Adjustments Panel */}
+            <div style={{ borderTop: '1px solid var(--gray-800)', paddingTop: '1.5rem' }}>
+              <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--gray-600)', marginBottom: '1.25rem' }}>
+                Adjust Telemetry Inputs
+              </p>
+
+              {selected.key === 'db_leak' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
+                      <span style={{ color: 'var(--gray-400)' }}>Idle Connections</span>
+                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', color: idleConns > 80 ? 'var(--accent-text)' : 'var(--white)' }}>
+                        {idleConns}% {idleConns > 80 && '(Critical)'}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="10"
+                      max="100"
+                      value={idleConns}
+                      onChange={(e) => { setIdleConns(Number(e.target.value)); setOutput([]); }}
+                      style={{ width: '100%', accentColor: 'var(--accent)' }}
+                    />
+                  </div>
+
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
+                      <span style={{ color: 'var(--gray-400)' }}>Error Rate Spike</span>
+                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', color: errorRate > 5 ? 'var(--accent-text)' : 'var(--white)' }}>
+                        {errorRate.toFixed(1)}% {errorRate > 5 && '(High)'}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="30"
+                      step="0.5"
+                      value={errorRate}
+                      onChange={(e) => { setErrorRate(Number(e.target.value)); setOutput([]); }}
+                      style={{ width: '100%', accentColor: 'var(--accent)' }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {selected.key === 'oom_kill' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
+                      <span style={{ color: 'var(--gray-400)' }}>Memory Usage</span>
+                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', color: memoryUsage > 95 ? 'var(--accent-text)' : 'var(--white)' }}>
+                        {memoryUsage}% {memoryUsage > 95 && '(OOM Risk)'}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="50"
+                      max="100"
+                      value={memoryUsage}
+                      onChange={(e) => { setMemoryUsage(Number(e.target.value)); setOutput([]); }}
+                      style={{ width: '100%', accentColor: 'var(--accent)' }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem', marginTop: '0.5rem' }}>
+                    <span style={{ color: 'var(--gray-400)' }}>OOM Incident Triggered</span>
+                    <input
+                      type="checkbox"
+                      checked={oomEvents}
+                      onChange={(e) => { setOomEvents(e.target.checked); setOutput([]); }}
+                      style={{ width: '16px', height: '16px', accentColor: 'var(--accent)', cursor: 'pointer' }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {selected.key === 'rate_limit' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
+                      <span style={{ color: 'var(--gray-400)' }}>Upstream 429 Errors</span>
+                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', color: upstream429 > 0 ? 'var(--accent-text)' : 'var(--white)' }}>
+                        {upstream429} events
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="50"
+                      value={upstream429}
+                      onChange={(e) => { setUpstream429(Number(e.target.value)); setOutput([]); }}
+                      style={{ width: '100%', accentColor: 'var(--accent)' }}
+                    />
+                  </div>
+
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
+                      <span style={{ color: 'var(--gray-400)' }}>Latency p99</span>
+                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', color: latency > 1.0 ? 'var(--accent-text)' : 'var(--white)' }}>
+                        {latency.toFixed(1)}s {latency > 1.0 && '(Slow)'}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.1"
+                      max="3.0"
+                      step="0.1"
+                      value={latency}
+                      onChange={(e) => { setLatency(Number(e.target.value)); setOutput([]); }}
+                      style={{ width: '100%', accentColor: 'var(--accent)' }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div>
               <button
-                key={s.name}
-                onClick={() => { setSelected(s); setOutput([]); }}
-                style={{
-                  padding: '1rem',
-                  textAlign: 'left',
-                  background: selected.name === s.name ? 'rgba(8, 145, 178, 0.1)' : 'transparent',
-                  border: '1px solid',
-                  borderColor: selected.name === s.name ? 'var(--accent)' : 'var(--gray-800)',
-                  color: selected.name === s.name ? 'var(--white)' : 'var(--gray-600)',
-                  fontSize: '0.85rem',
-                  cursor: 'pointer',
-                  borderRadius: '2px',
-                }}
+                onClick={runDetector}
+                disabled={running}
+                className="btn btn-white"
+                style={{ width: '100%', padding: '1rem', opacity: running ? 0.5 : 1 }}
               >
-                {s.name}
+                {running ? 'Analyzing Telemetry...' : 'Run Detector →'}
               </button>
-            ))}
+            </div>
           </div>
 
-          <div style={{ marginTop: '3rem' }}>
-            <button
-              onClick={runDetector}
-              disabled={running}
-              className="btn btn-white"
-              style={{ width: '100%', padding: '1rem', opacity: running ? 0.5 : 1 }}
-            >
-              {running ? 'Analyzing...' : 'Run Detector →'}
-            </button>
-          </div>
-        </div>
+          {/* Terminal Output */}
+          <div style={{ background: '#000', padding: '2rem', fontFamily: 'var(--font-geist-mono), monospace', display: 'flex', flexDirection: 'column', gap: '1.5rem', minHeight: '320px' }}>
+            <div style={{ color: 'var(--gray-600)', fontSize: '0.75rem', borderBottom: '1px solid #222', paddingBottom: '1rem', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+              <span>// Telemetry context pack:</span>
+              <span style={{ color: '#4ade80' }}>{telemetry}</span>
+            </div>
 
-        <div style={{ background: '#000', padding: '2rem', fontFamily: 'var(--font-geist-mono), monospace', position: 'relative' }}>
-          <div style={{ color: 'var(--gray-600)', fontSize: '0.75rem', marginBottom: '1.5rem', borderBottom: '1px solid #222', paddingBottom: '1rem' }}>
-            // Telemetry Input: <span style={{ color: '#4ade80' }}>{selected.telemetry}</span>
-          </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', flex: 1 }}>
+              {output.length === 0 && (
+                <div style={{ color: '#555', fontStyle: 'italic', fontSize: '0.85rem' }}>
+                  Adjust parameters on the left, then click "Run Detector" to see Mergen's diagnostic check in action.
+                </div>
+              )}
+              {output.map((line, i) => {
+                const isSuccess = line.startsWith('> SUCCESS')
+                const isHalted = line.startsWith('> HALTED')
+                const isHeading = line.startsWith('>') && !isSuccess && !isHalted
+                
+                let textColor = '#888'
+                if (isSuccess) textColor = '#4ade80'
+                else if (isHalted) textColor = '#f87171'
+                else if (isHeading) textColor = '#67e8f9'
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {output.length === 0 && (
-              <div style={{ color: '#444', fontStyle: 'italic', fontSize: '0.85rem' }}>
-                Select a scenario and click "Run Detector" to see Mergen's causal logic in action.
-              </div>
-            )}
-            {output.map((line, i) => (
-              <div key={i} style={{
-                fontSize: '0.85rem',
-                color: line.startsWith('>') ? '#67e8f9' : line.startsWith('> SUCCESS') ? '#4ade80' : '#888',
-                fontWeight: line.startsWith('> SUCCESS') ? 800 : 400,
-              }}>
-                {line}
-              </div>
-            ))}
-            {running && <span className="terminal-cursor">_</span>}
-          </div>
-          
-          {output.length > 0 && !running && (
+                return (
+                  <div key={i} style={{
+                    fontSize: '0.85rem',
+                    color: textColor,
+                    fontWeight: (isSuccess || isHalted) ? 800 : 400,
+                  }}>
+                    {line}
+                  </div>
+                )
+              })}
+              {running && <span className="terminal-cursor">_</span>}
+            </div>
+
+            {/* Condition Status Badge */}
             <div style={{
-              marginTop: '3rem',
-              padding: '1rem',
-              border: '1px solid #333',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '0.75rem 1rem',
+              border: '1px solid #222',
               background: '#0d0d0d',
               fontSize: '0.75rem',
-              color: 'var(--gray-400)',
-              lineHeight: 1.6,
             }}>
-              <span style={{ color: 'var(--accent)' }}>Note:</span> This logic is part of the <code>stuck_idle_connections</code> detector in <code>@mergen/detectors-v1</code>. 
-              In production, this would trigger an autonomous remediation or a Slack alert based on your policy.
+              <span style={{ color: 'var(--gray-400)' }}>Causal Rule Match:</span>
+              {isMatched ? (
+                <span style={{ color: '#4ade80', fontWeight: 800 }}>✓ MATCHED (Armed)</span>
+              ) : (
+                <span style={{ color: '#666' }}>✗ UNMATCHED (Inactive)</span>
+              )}
             </div>
-          )}
+
+            {output.length > 0 && !running && (
+              <div style={{
+                padding: '1rem',
+                border: '1px solid #222',
+                background: '#0a0a0a',
+                fontSize: '0.75rem',
+                color: 'var(--gray-500)',
+                lineHeight: 1.6,
+              }}>
+                <span style={{ color: 'var(--accent)' }}>Causal Analysis:</span>{' '}
+                {isMatched ? (
+                  <span>
+                    The current telemetry metrics satisfy the safety gate check. Autopilot status is <b>ARMED</b> and ready to deploy <code>{selected.remedy}</code>.
+                  </span>
+                ) : (
+                  <span>
+                    Metrics do not cross the safety threshold boundary. Action was blocked at the planning layer, saving compute and preventing potential disruption.
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </section>

@@ -439,21 +439,21 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   } | null> {
     try {
       const base = `http://127.0.0.1:${port}`;
-      const [health, usage, lastPack, history, calibration, unifiedData, licenseData] = await Promise.all([
-        httpGet(`${base}/health`,    timeoutMs) as Promise<HealthResponse>,
-        httpGet(`${base}/usage`,     timeoutMs) as Promise<UsageSnapshot>,
-        httpGet(`${base}/last-pack`, timeoutMs).catch(() => ({ hasPack: false } as LastPack)) as Promise<LastPack>,
-        (httpGet(`${base}/history`,  timeoutMs) as Promise<{ entries: HistoryEntry[] }>)
-          .then(d => d.entries ?? []).catch(() => [] as HistoryEntry[]),
-        (httpGet(`${base}/calibration`, timeoutMs) as Promise<CalibrationOverview>)
-          .catch(() => null),
-        (httpGet(`${base}/timeline/unified?seconds=300&limit=12`, timeoutMs) as Promise<{ rows: TimelineRow[]; rootCause: RootCause | null }>)
-          .catch(() => ({ rows: [] as TimelineRow[], rootCause: null })),
+      const [dashData, licenseData] = await Promise.all([
+        httpGet(`${base}/unified-dashboard`, timeoutMs) as Promise<{
+          health: HealthResponse;
+          usage: UsageSnapshot;
+          lastPack: LastPack;
+          history: HistoryEntry[];
+          calibration: CalibrationOverview;
+          timelineUnified: { rows: TimelineRow[]; rootCause: RootCause | null };
+        }>,
         (httpGet(`${base}/license`, timeoutMs) as Promise<{
           plan: { id: string; name: string };
           license: { status: string; email: string | null; name: string | null } | null;
         }>).catch(() => null),
       ]);
+
       const account: AccountState | null = licenseData ? {
         email:    licenseData.license?.email ?? null,
         name:     licenseData.license?.name  ?? null,
@@ -461,7 +461,17 @@ export class MergenPanel implements vscode.WebviewViewProvider {
         planName: licenseData.plan?.name ?? 'Free',
         status:   (licenseData.license?.status as AccountState['status']) ?? null,
       } : null;
-      return { health, usage, lastPack, history, calibration, timeline: unifiedData.rows ?? [], rootCause: unifiedData.rootCause ?? null, account };
+
+      return {
+        health: dashData.health,
+        usage: dashData.usage,
+        lastPack: dashData.lastPack,
+        history: dashData.history,
+        calibration: dashData.calibration,
+        timeline: dashData.timelineUnified.rows ?? [],
+        rootCause: dashData.timelineUnified.rootCause ?? null,
+        account
+      };
     } catch {
       return null;
     }
@@ -676,6 +686,11 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     animation: spin 1.2s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes pulse {
+    0% { opacity: 0.5; transform: scale(0.9); }
+    70% { opacity: 1; transform: scale(1.1); }
+    100% { opacity: 0.5; transform: scale(0.9); }
+  }
 
   /* ── Disconnected state ── */
   .disconnected {
@@ -1271,9 +1286,15 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     </div>
   </div>
   <div class="btn-row" style="margin-top:10px">
-    <button class="primary" id="btn-refresh" onclick="onRefresh()">↺ Refresh</button>
-    <button id="btn-capture" onclick="send('startCapture')" title="Mark a start point — reproduce your bug — then ask your AI what happened since capture">⏺ Capture</button>
-    <button id="btn-clear" onclick="onClear()">✕ Clear</button>
+    <button class="primary" id="btn-refresh" onclick="onRefresh()">
+      <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-right:4px;vertical-align:middle;"><path d="M13.6 4.6A7 7 0 1 0 15 8h-2a5 5 0 1 1-1-3l2.2-2.2v4.8h-4.8z"/></svg>Refresh
+    </button>
+    <button id="btn-capture" onclick="send('startCapture')" title="Mark a start point — reproduce your bug — then ask your AI what happened since capture">
+      <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--vscode-charts-red);margin-right:4px;vertical-align:middle;"></span>Capture
+    </button>
+    <button id="btn-clear" onclick="onClear()">
+      <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-right:4px;vertical-align:middle;"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>Clear
+    </button>
   </div>
   <div id="capture-status" style="display:none;margin-top:6px;font-size:10px;color:var(--vscode-charts-green)"></div>
 </div>
