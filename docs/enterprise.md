@@ -424,9 +424,37 @@ The MTTR impact is largest for the 20% of bugs that are hardest to reproduce —
 
 ---
 
-## Questions
+## Enterprise pilot process
 
-For deployment questions, security review, or enterprise licensing:
+Every enterprise evaluation follows the same four-step path. No procurement until the pilot succeeds.
 
-- GitHub: [github.com/omertt27/Mergen](https://github.com/omertt27/Mergen)
-- Email: omertahtoko@gmail.com
+**Week 1 — Shadow mode setup**
+
+We help you point PagerDuty and one data source (Datadog or OTLP) at a self-hosted Mergen instance in your VPC. Shadow mode is on: Mergen analyzes incidents and posts what it *would have done* to your Slack thread. Nothing executes.
+
+**Weeks 2–4 — Track record**
+
+Mergen processes your real incidents silently. Your on-call team annotates shadow recommendations: "would-approve" or "would-override." Every override builds the override corpus — Mergen starts learning your specific operational constraints (batch windows, compliance holds, on-call preferences).
+
+**End of Week 4 — Impact report**
+
+```bash
+curl http://your-mergen-host:3000/impact-report?format=html > pilot-report.html
+```
+
+The PDF shows: N incidents processed, X% Mergen would have resolved correctly, MTTR autonomous estimate vs. actual, and the full comparison table of Mergen's recommendation vs. what your engineer did. This is what your CISO signs off on before approving autonomous execution.
+
+**Pilot success condition:** Mergen correctly analyzes ≥ 80% of incidents in shadow mode over the 30-day window.
+
+If the pilot fails to meet the threshold, you owe nothing and we debrief on what the false positives were.
+
+---
+
+## Start a pilot
+
+To start a 30-day shadow pilot or ask a deployment question:
+
+- **Email:** [hello@mergen.dev](mailto:hello@mergen.dev?subject=Enterprise%20Pilot%20Request) — include your stack (cloud provider, primary language, approximate incident volume/month)
+- **GitHub:** [github.com/omertt27/Mergen](https://github.com/omertt27/Mergen)
+
+We respond to enterprise inquiries within one business day. We'll define the pilot success criteria together before you run a line of code.

@@ -334,7 +334,10 @@ const DEMO_HTML = `<!DOCTYPE html>
 
       <div class="hint" id="p1-hint" style="display:none">
         In your AI IDE, ask: <code>triage_incident</code> — Mergen calls it automatically and returns the full causal chain.<br>
-        Or check the <a href="/dashboard" style="color:#58a6ff">dashboard →</a> to see the injected events.
+        <div class="btn-row" style="margin-top:12px">
+          <a href="/impact-report?format=html" target="_blank" class="btn btn-secondary" style="text-decoration:none;font-size:0.8rem">View Impact Report →</a>
+          <a href="/override-corpus" target="_blank" class="btn btn-secondary" style="text-decoration:none;font-size:0.8rem">View Override Corpus →</a>
+        </div>
       </div>
     </div>
   </div>
@@ -553,7 +556,7 @@ async function triggerP1() {
   log('t-warn', '  Autopilot: ' + analysis.autopilotBlockedReason);
   await sleep(600);
   log('t-bold', '');
-  log('t-ok',   '  Triage complete. Post this analysis to Slack thread: /incidents/impact-report');
+  log('t-ok',   '  Triage complete. Full audit trail: /impact-report');
 
   document.getElementById('p1-status').textContent = 'COMPLETE';
   document.getElementById('p1-status').className = 'badge badge-ok';

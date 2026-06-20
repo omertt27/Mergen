@@ -22,6 +22,7 @@ export interface CalibrationStat {
   /** Independently measured from fix outcomes. Null when no remediation verdicts recorded yet. */
   remediationAccuracy: number | null;
   trendDelta:          number | null;
+  accuracy7d:          number | null;
   [key: string]:       unknown;
 }
 

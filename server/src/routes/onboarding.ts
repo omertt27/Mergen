@@ -18,6 +18,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { store } from '../sensor/buffer.js';
 import { getActivePlanId } from '../intelligence/license.js';
+import { incidentStore } from '../sensor/incident-store.js';
 import { DATA_DIR } from '../sensor/paths.js';
 
 const DISMISSED_FILE = join(DATA_DIR, 'onboarding-dismissed.json');
@@ -84,6 +85,16 @@ function isOnPaidPlan(): boolean {
   return getActivePlanId() !== 'free';
 }
 
+const TEAM_UPGRADE_THRESHOLD = 5;
+
+function analyzedIncidentCount(): number {
+  return incidentStore.list(undefined, 200).length;
+}
+
+function shouldNudgeUpgrade(): boolean {
+  return !isOnPaidPlan() && analyzedIncidentCount() >= TEAM_UPGRADE_THRESHOLD;
+}
+
 export function createOnboardingRouter(): Router {
   const router = Router();
 
@@ -144,6 +155,14 @@ export function createOnboardingRouter(): Router {
         status:      isOnPaidPlan() ? 'done' : 'pending',
         docsUrl:     'https://mergen.dev/pricing',
       },
+      ...(shouldNudgeUpgrade() ? [{
+        id:          'team_upgrade_prompt',
+        label:       `You've analyzed ${analyzedIncidentCount()} incidents — share with your team`,
+        description: `The override corpus you've built on ${analyzedIncidentCount()} incidents is your team's most valuable asset. Team plan ($299/mo) shares it across your on-call rotation, adds incident replay, and unlocks the shadow analytics PDF your CISO needs for autopilot sign-off.`,
+        status:      'pending' as const,
+        docsUrl:     'https://mergen.dev/pricing',
+        command:     'open https://mergen.dev/pricing',
+      }] : []),
     ];
 
     const done    = steps.filter((s) => s.status === 'done').length;

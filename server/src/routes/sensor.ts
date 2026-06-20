@@ -217,7 +217,7 @@ export function createSensorRouter(serverVersion: string): Router {
     const entries = hypothesisHistory.list(limit).map((e) => ({
       ...e,
       topHypothesis: e.topHypothesis
-        ? { ...e.topHypothesis, calibration: statsByTag.get(e.topHypothesis.tag) ?? null }
+        ? { ...e.topHypothesis, calibration: statsByTag.get((e.topHypothesis as any).tag) ?? null }
         : null,
     }));
     res.json({ ok: true, entries });
@@ -543,7 +543,7 @@ export function createSensorRouter(serverVersion: string): Router {
     const history = hypothesisHistory.list(5).map((e) => ({
       ...e,
       topHypothesis: e.topHypothesis
-        ? { ...e.topHypothesis, calibration: statsByTag.get(e.topHypothesis.tag) ?? null }
+        ? { ...e.topHypothesis, calibration: statsByTag.get((e.topHypothesis as any).tag) ?? null }
         : null,
     }));
 

@@ -352,9 +352,9 @@ export function registerMemoryTools(server: McpServer): void {
           '',
           events.length > 0
             ? `_Dominant pattern: \`${events.reduce((best, e, _, arr) => {
-                const counts = new Map<string, number>();
+                const counts = new Map<OverrideReason, number>();
                 for (const ev of arr) counts.set(ev.overrideReason, (counts.get(ev.overrideReason) ?? 0) + 1);
-                let topReason = best;
+                let topReason: OverrideReason = best;
                 let topCount  = 0;
                 for (const [r, c] of counts) if (c > topCount) { topReason = r; topCount = c; }
                 return topReason;

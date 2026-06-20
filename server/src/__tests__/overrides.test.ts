@@ -35,8 +35,9 @@ vi.mock('../intelligence/override-corpus.js', () => ({
   getOverrideSummary: () => mockGetSummary(),
   getOverridesForTag: (...args: unknown[]) => mockGetForTag(...args),
   OVERRIDE_REASONS: [
-    'wrong-fix', 'wrong_environment', 'already_in_progress',
-    'compliance_hold', 'manual_fix_preferred', 'other',
+    'batch-window', 'cost-constraint', 'on-call-discretion',
+    'compliance-hold', 'prefer-read-replica', 'maintenance-window',
+    'wrong-diagnosis', 'wrong-fix', 'other',
   ],
 }));
 

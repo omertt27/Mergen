@@ -340,7 +340,63 @@ export default function InteractiveSandbox() {
               )}
             </div>
 
-            {output.length > 0 && !running && (
+            {output.length > 0 && !running && isMatched && (
+              <div style={{
+                border: '1px solid #1a3a1a',
+                background: '#0a1a0a',
+                borderRadius: '4px',
+                overflow: 'hidden',
+                fontSize: '0.75rem',
+              }}>
+                <div style={{
+                  background: '#4a1d96',
+                  padding: '0.5rem 0.75rem',
+                  fontSize: '0.65rem',
+                  fontWeight: 700,
+                  letterSpacing: '0.08em',
+                  color: '#c4b5fd',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                }}>
+                  <span>⚡</span> SLACK THREAD — what your team would see
+                </div>
+                <div style={{ padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                    <span style={{ color: '#f87171', minWidth: '16px' }}>🚨</span>
+                    <div>
+                      <span style={{ color: '#f1f5f9', fontWeight: 700 }}>Production Incident</span>
+                      <span style={{ color: '#64748b' }}> — {selected.name.toLowerCase().replace(' ', '-')}</span>
+                    </div>
+                  </div>
+                  <div style={{ paddingLeft: '1.5rem', color: '#94a3b8', lineHeight: 1.7 }}>
+                    <div>✅ <span style={{ color: '#4ade80', fontWeight: 600 }}>Causal Attribution — {confidence}% [HIGH]</span></div>
+                    <div style={{ color: '#64748b' }}>→ Root Cause: <span style={{ color: '#e2e8f0' }}>{
+                      selected.key === 'db_leak' ? `pg_stat_activity exhausted (${idleConns}/100 idle, ClientRead wait)` :
+                      selected.key === 'oom_kill' ? `Container OOM kill — memory at ${memoryUsage}%, oom_score_adj=1000` :
+                      `Upstream 429 cascade — ${upstream429} errors, p99 latency ${latency.toFixed(1)}s`
+                    }</span></div>
+                    <div style={{ color: '#64748b' }}>→ Fix: <code style={{ color: '#67e8f9', background: 'rgba(255,255,255,0.05)', padding: '1px 4px', borderRadius: '2px' }}>{selected.remedy}</code></div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                    <span style={{ minWidth: '16px' }}>⚙️</span>
+                    <span style={{ color: '#94a3b8' }}>Autopilot executing fix <code style={{ color: '#67e8f9' }}>{selected.remedy}</code></span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                    <span style={{ minWidth: '16px' }}>✅</span>
+                    <span style={{ color: '#4ade80', fontWeight: 700 }}>RESOLVED — 0 errors after fix (was {
+                      selected.key === 'db_leak' ? `${errorRate.toFixed(1)}%` :
+                      selected.key === 'oom_kill' ? 'OOM' : `${upstream429} upstream errors`
+                    })</span>
+                  </div>
+                  <div style={{ color: '#334155', fontSize: '0.65rem', borderTop: '1px solid #1e293b', paddingTop: '0.5rem' }}>
+                    resolvedAutonomously=true · MTTR=47s · audit trail at ~/.mergen/audit.log
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {output.length > 0 && !running && !isMatched && (
               <div style={{
                 padding: '1rem',
                 border: '1px solid #222',
@@ -349,16 +405,8 @@ export default function InteractiveSandbox() {
                 color: 'var(--gray-500)',
                 lineHeight: 1.6,
               }}>
-                <span style={{ color: 'var(--accent)' }}>Causal Analysis:</span>{' '}
-                {isMatched ? (
-                  <span>
-                    The current telemetry metrics satisfy the safety gate check. Autopilot status is <b>ARMED</b> and ready to deploy <code>{selected.remedy}</code>.
-                  </span>
-                ) : (
-                  <span>
-                    Metrics do not cross the safety threshold boundary. Action was blocked at the planning layer, saving compute and preventing potential disruption.
-                  </span>
-                )}
+                <span style={{ color: 'var(--accent)' }}>Safety gate held:</span>{' '}
+                Metrics do not cross the threshold boundary. Action was blocked at the planning layer. Raise the sliders above the threshold to see autopilot arm.
               </div>
             )}
           </div>

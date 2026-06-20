@@ -10,7 +10,8 @@ import type { CausalChain } from '../intelligence/causal.js';
 
 describe('agent-pipeline: runAgentPipelineAsync with async pre-execution hooks', () => {
   const mockChain: CausalChain = {
-    errors: [{ message: 'Service database degraded', ts: Date.now(), primaryFrame: null }],
+    errors: [{ message: 'Service database degraded', timestamp: Date.now(), primaryFrame: null }],
+    capturedAt: Date.now(),
     correlatedNetwork: [],
     correlatedBackend: [],
     chain: [],

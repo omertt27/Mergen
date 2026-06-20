@@ -143,8 +143,8 @@ describe('last-pack + calibration enrichment (panel contract)', () => {
       reason: expect.any(String),
     });
     if (row.topHypothesis) {
-      expect(row.topHypothesis.tag).toBeTruthy();
-      expect(row.topHypothesis.pid).toBeTruthy();
+      expect((row.topHypothesis as any).tag).toBeTruthy();
+      expect((row.topHypothesis as any).pid).toBeTruthy();
     }
   });
 

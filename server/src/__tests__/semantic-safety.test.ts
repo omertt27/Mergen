@@ -36,7 +36,8 @@ describe('semantic safety gate', () => {
   it('integrates with runAgentPipeline and blocks execution in critique stage', () => {
     // Create a mock causal chain
     const mockChain: CausalChain = {
-      errors: [{ message: 'database pool full', ts: Date.now(), primaryFrame: null }],
+      errors: [{ message: 'database pool full', timestamp: Date.now(), primaryFrame: null }],
+      capturedAt: Date.now(),
       correlatedNetwork: [],
       correlatedBackend: [],
       chain: [],

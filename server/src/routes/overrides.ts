@@ -73,7 +73,54 @@ export function createOverridesRouter(): Router {
 
   // ── Aggregated corpus summary ──────────────────────────────────────────────
   router.get('/override-corpus', (_req, res) => {
-    res.json({ ok: true, corpus: getOverrideSummary() });
+    const corpus = getOverrideSummary();
+    if (corpus.length > 0) {
+      res.json({ ok: true, corpus });
+      return;
+    }
+    // Return illustrative demo entries so visitors understand what a mature corpus looks like.
+    // Clearly labelled as demo — not real operational data from this install.
+    res.json({
+      ok: true,
+      corpus: [],
+      demo: true,
+      demoNote: 'No overrides recorded yet. The entries below show what your corpus will look like after 4-6 weeks of shadow mode.',
+      demoEntries: [
+        {
+          incidentTag: 'infra_db_connection_pool',
+          service: 'api',
+          environment: 'production',
+          overrideReason: 'batch-window',
+          note: 'Friday 20-24 UTC — settlement window. Pool resize causes lock contention on the batch job.',
+          proposedCommand: 'kubectl set env deployment/api DB_POOL_MAX=50',
+          manualAction: 'kubectl rollout restart deployment/api',
+          appliedCount: 4,
+          lastApplied: 'Friday 2026-06-14 21:30 UTC',
+        },
+        {
+          incidentTag: 'infra_oom_kill',
+          service: 'worker',
+          environment: 'production',
+          overrideReason: 'compliance-hold',
+          note: 'Memory limit change requires change advisory board sign-off. Cannot increase in-place.',
+          proposedCommand: 'kubectl set resources deployment/worker --limits=memory=4Gi',
+          manualAction: 'Opened CAB ticket #4421. Restarted worker with heap profiling enabled.',
+          appliedCount: 2,
+          lastApplied: 'Wednesday 2026-06-10 03:17 UTC',
+        },
+        {
+          incidentTag: 'infra_rate_limit_cascade',
+          service: 'auth',
+          environment: 'production',
+          overrideReason: 'wrong-fix',
+          note: 'Circuit breaker was the symptom, not the cause. Root cause was upstream API key rotation.',
+          proposedCommand: 'enable_circuit_breaker(auth-service)',
+          manualAction: 'Rotated upstream API credentials. Verified with ops team before action.',
+          appliedCount: 1,
+          lastApplied: 'Monday 2026-06-08 14:02 UTC',
+        },
+      ],
+    });
   });
 
   // ── Raw history for a tag ──────────────────────────────────────────────────

@@ -65,7 +65,6 @@ async function freshCalibration() {
     USAGE_FILE:        path.join(tmpDir, 'usage.json'),
     TEAM_FILE:         path.join(tmpDir, 'team.json'),
     TELEMETRY_FILE:    path.join(tmpDir, 'telemetry.json'),
-    CALIBRATION_FILE:  calibFile,
   }));
   return import('../intelligence/calibration.js');
 }

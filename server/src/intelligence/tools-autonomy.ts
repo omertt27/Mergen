@@ -37,7 +37,10 @@ import { postThreadReply } from './slack.js';
 import { consumeIncident } from './usage.js';
 import { generatePostmortem } from './postmortem-store.js';
 import { runAgentPipeline, renderPipelineStages } from './agent-pipeline.js';
+import { getActivePlanId } from './license.js';
 import logger from '../sensor/logger.js';
+
+const TEAM_UPGRADE_INCIDENT_THRESHOLD = 5;
 
 const AUTO_EXECUTE_CONFIDENCE_THRESHOLD = 0.85;
 
@@ -503,6 +506,18 @@ export function registerAutonomyTools(server: McpServer): void {
       } else if (command) {
         lines.push(`**Command to run:** \`${command}\``);
         lines.push('', `Call \`execute_fix(pid: "${topHyp.pid ?? 'unknown'}", confirm: true)\` to execute, or run manually.`);
+      }
+
+      // Team upgrade nudge: surfaces once the free-tier user has seen enough value
+      // to justify sharing the override corpus with their on-call rotation.
+      const analyzedCount = incidentStore.list(undefined, 200).length;
+      if (getActivePlanId() === 'free' && analyzedCount >= TEAM_UPGRADE_INCIDENT_THRESHOLD) {
+        lines.push(
+          '',
+          '---',
+          `> **You've analyzed ${analyzedCount} incidents with Mergen.** The override corpus you've built is your team's most valuable asset — it prevents repeat failures automatically. The **Team plan ($299/mo)** shares it across your on-call rotation, adds incident replay, and unlocks the shadow analytics PDF your CISO needs before approving autopilot.`,
+          `> → https://mergen.dev/pricing`,
+        );
       }
 
       return { content: [{ type: 'text', text: lines.join('\n') }] };

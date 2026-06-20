@@ -371,7 +371,7 @@ function _computeTagStats(tag: string, recs: CalibrationRecord[]): TagStats {
     else if (r.verdict === 'partial') recentCorrect += 0.5;
   }
   const accuracy7d   = recent.length >= 3 ? recentCorrect / recent.length : null;
-  const trendDelta   = accuracy7d !== null ? accuracy7d - accuracy : null;
+  const trendDelta   = accuracy7d !== null ? (accuracy7d as number) - accuracy : null;
 
   // Common failure modes from 'wrong' verdict notes
   const noteGroups = new Map<string, { canonical: string; count: number }>();
