@@ -221,3 +221,87 @@ describe('runIncidentAutopilot — shadow mode', () => {
     expect(joinSlackCalls()).toMatch(/Root Cause|Hypothesis|Mergen Autopilot/i);
   });
 });
+
+// ── Override corpus hard-block ────────────────────────────────────────────────
+// Fix 3: corpusBlocked must prevent execution regardless of command tier,
+// including restart-tier commands that bypass the approval gate.
+
+describe('runIncidentAutopilot — override corpus hard-block', () => {
+  let runIncidentAutopilot: Awaited<ReturnType<typeof importAutopilot>>;
+  let mockExecuteRemediation: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.resetModules();
+    process.env.MERGEN_AUTOPILOT = 'true';
+    delete process.env.MERGEN_SHADOW_MODE;
+
+    mockExecuteRemediation = vi.fn().mockResolvedValue({ ok: true, exitCode: 0, stdout: '', stderr: '', durationMs: 50, timedOut: false, blocked: false });
+
+    registerMocks();
+
+    // Planning gate must approve so it doesn't shadow the corpus block
+    vi.doMock('../intelligence/planning-gate.js', () => ({
+      planningGate: vi.fn().mockReturnValue({ execute: true, reason: 'approved', adjustedConfidence: 0.92, signals: { blastRisk: 'low', classifierScore: 0.92 } }),
+    }));
+    // Override the pipeline mock: corpus conflict → verdict 'review', corpusConflict: true
+    vi.doMock('../intelligence/agent-pipeline.js', () => ({
+      runAgentPipeline: vi.fn().mockReturnValue({
+        stages: [],
+        verdict: 'review',
+        plan: { command: 'systemctl restart api', rollbackCommand: null, steps: [], estimatedRisk: 'low', requiresApproval: false, reversible: true },
+        critique: { corpusConflict: true, levelConflict: false, verdict: 'review', concerns: ['Override corpus: batch-window'], blastRadiusSummary: 'low' },
+        blockReason: null,
+      }),
+      renderPipelineStages: vi.fn().mockReturnValue(''),
+    }));
+    vi.doMock('../intelligence/autonomy.js', () => ({
+      executeRemediation: mockExecuteRemediation,
+      extractCommand: vi.fn().mockReturnValue('systemctl restart api'),
+    }));
+    // High-confidence hypothesis with an executable restart command
+    mockBuildCausalChain.mockResolvedValue({
+      hypotheses: [{
+        tag:                   'db_pool_exhausted',
+        summary:               'DB connection pool exhausted',
+        confidence:            'high',
+        confidenceScore:       0.92,
+        remediationConfidence: 0.92,
+        causalPath:            ['spike', 'pool full', 'requests queued'],
+        evidence:              ['10 connection timeout errors'],
+        fixHint:               '`systemctl restart api`',
+        fixAction:             null,
+      }],
+      errors: [], correlatedNetwork: [], correlatedBackend: [], chain: [], contextPack: '', stateAtError: null, suppressedHypotheses: [],
+    });
+
+    runIncidentAutopilot = await importAutopilot();
+    activeStore.clear();
+  });
+
+  afterEach(() => {
+    delete process.env.MERGEN_AUTOPILOT;
+    vi.useRealTimers();
+  });
+
+  it('does not call executeRemediation when the override corpus has a conflict (restart-tier)', async () => {
+    pushErrors('connection pool exhausted');
+
+    const promise = runIncidentAutopilot({ service: 'api', pid: 'test-incident-pid', firedAt: Date.now() });
+    await vi.advanceTimersByTimeAsync(11_000);
+    await promise;
+
+    expect(mockExecuteRemediation).not.toHaveBeenCalled();
+  });
+
+  it('posts a corpus-block message to Slack when execution is suppressed', async () => {
+    pushErrors('connection pool exhausted');
+
+    const promise = runIncidentAutopilot({ service: 'api', pid: 'test-incident-pid', firedAt: Date.now() });
+    await vi.advanceTimersByTimeAsync(11_000);
+    await promise;
+
+    expect(joinSlackCalls()).toMatch(/override corpus|corpus/i);
+  });
+});

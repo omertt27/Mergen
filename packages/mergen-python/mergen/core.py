@@ -18,8 +18,6 @@ from typing import Any, Dict, Optional
 MERGEN_PORT   = int(os.environ.get("MERGEN_PORT",   "3000"))
 MERGEN_HOST   = os.environ.get("MERGEN_HOST",   "127.0.0.1")
 MERGEN_SECRET = os.environ.get("MERGEN_SECRET", None)
-PROCESS_NAME  = os.environ.get("MERGEN_NAME",   _resolve_process_name())
-PROCESS_URL   = f"mergen://python/{PROCESS_NAME}"
 
 
 def _resolve_process_name() -> str:
@@ -41,6 +39,10 @@ def _resolve_process_name() -> str:
     if sys.argv and sys.argv[0]:
         return os.path.splitext(os.path.basename(sys.argv[0]))[0] or "python"
     return "python"
+
+
+PROCESS_NAME  = os.environ.get("MERGEN_NAME",   _resolve_process_name())
+PROCESS_URL   = f"mergen://python/{PROCESS_NAME}"
 
 
 def _send_http(event: Dict[str, Any]) -> None:

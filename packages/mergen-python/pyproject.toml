@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "mergen-python"
@@ -13,10 +13,15 @@ keywords = ["mergen", "mcp", "observability", "debugging", "ai", "telemetry"]
 dependencies = []
 
 [project.optional-dependencies]
-django  = []
-fastapi = []
-flask   = []
+django  = ["django>=3.2"]
+fastapi = ["fastapi>=0.95", "httpx>=0.24"]
+flask   = ["flask>=2.0"]
+dev     = ["pytest>=7", "pytest-cov>=4"]
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["mergen*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+

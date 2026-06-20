@@ -19,7 +19,8 @@ export interface CalibrationStat {
   commonFailureModes:  FailureMode[];
   shouldInterrupt:     boolean;
   diagnosisAccuracy:   number;
-  remediationAccuracy: number;
+  /** Independently measured from fix outcomes. Null when no remediation verdicts recorded yet. */
+  remediationAccuracy: number | null;
   trendDelta:          number | null;
   [key: string]:       unknown;
 }
@@ -49,3 +50,6 @@ export declare function applyCalibration(hypotheses: Hypothesis[]): { active: Ca
 export declare function recordPrediction(hypotheses: Hypothesis[]): CalibratedHypothesis[];
 export declare function seedCalibration(...args: unknown[]): void;
 export declare function _resetForTesting(): void;
+export declare function isCorpusSeeded(): boolean;
+export declare function classifyVerdict(beforeCount: number, afterCount: number): 'correct' | 'partial' | 'wrong';
+export declare function recordRemediationVerdict(pid: string, verdict: 'correct' | 'wrong' | 'partial'): { found: boolean; persisted: boolean };

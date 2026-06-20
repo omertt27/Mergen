@@ -17,13 +17,19 @@ import type { Server as HttpServer } from 'http';
 // vi.mock() is hoisted above all const declarations, so variables used inside
 // mock factories must be created with vi.hoisted() — those ARE hoisted with it.
 
-const { mockIsConfigured } = vi.hoisted(() => ({
+const { mockIsConfigured, mockCloudMode } = vi.hoisted(() => ({
   mockIsConfigured: vi.fn().mockReturnValue(false),
+  mockCloudMode: { value: false },
 }));
 
 vi.mock('../datadog/client.js', () => ({
   isConfigured: () => mockIsConfigured(),
   fetchLatestErrorTrace: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock('../sensor/cloud-auth.js', () => ({
+  get CLOUD_MODE() { return mockCloudMode.value; },
+  cloudAuthMiddleware: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 
 vi.mock('../intelligence/slack.js', () => ({
@@ -174,6 +180,42 @@ describe('POST /webhooks/pagerduty', () => {
       body: 'not json',
     });
     expect(resp.status).toBe(400);
+  });
+
+  it('accepts a tenant-scoped webhook URL (/webhooks/pagerduty/:tenantId)', async () => {
+    const resp = await fetch(`${baseURL}/webhooks/pagerduty/tenant-abc`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(makePdPayload('incident.triggered')),
+    });
+    expect(resp.status).toBe(200);
+  });
+
+  it('sets the active incident when called via the tenant-scoped URL', async () => {
+    await fetch(`${baseURL}/webhooks/pagerduty/tenant-abc`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(makePdPayload('incident.triggered')),
+    });
+    const incident = getActiveIncident();
+    expect(incident).not.toBeNull();
+    expect(incident!.service).toBe('api');
+  });
+
+  it('rejects the no-tenant URL with 400 when MERGEN_CLOUD_MODE=true', async () => {
+    mockCloudMode.value = true;
+    try {
+      const resp = await fetch(`${baseURL}/webhooks/pagerduty`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(makePdPayload('incident.triggered')),
+      });
+      expect(resp.status).toBe(400);
+      const body = await resp.json() as { error: string };
+      expect(body.error).toMatch(/tenant/i);
+    } finally {
+      mockCloudMode.value = false;
+    }
   });
 
   it('does not overwrite an existing active incident for unrecognised event types', async () => {

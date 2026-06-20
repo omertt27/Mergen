@@ -1,0 +1,14 @@
+
+[dev]
+pytest>=7
+pytest-cov>=4
+
+[django]
+django>=3.2
+
+[fastapi]
+fastapi>=0.95
+httpx>=0.24
+
+[flask]
+flask>=2.0

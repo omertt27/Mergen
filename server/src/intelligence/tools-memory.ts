@@ -481,7 +481,7 @@ export function registerMemoryTools(server: McpServer): void {
           `**7-day accuracy:** ${stats.accuracy7d !== null ? Math.round(stats.accuracy7d * 100) + '%' : '—'}`,
           `**Trend:** ${trendLabel}`,
           `**Total predictions:** ${stats.predictions}`,
-          `**Verdicts:** ${stats.verdicts} (correct: ${Math.round(stats.diagnosisAccuracy * 100)}%, remediation: ${Math.round(stats.remediationAccuracy * 100)}%)`,
+          `**Verdicts:** ${stats.verdicts} (correct: ${Math.round(stats.diagnosisAccuracy * 100)}%, remediation: ${stats.remediationAccuracy !== null ? Math.round(stats.remediationAccuracy * 100) + '%' : '—'})`,
           `**Verdict breakdown:** ${verdictBreakdown}`,
           '',
           `**Recommended action:** ${shouldAct}`,

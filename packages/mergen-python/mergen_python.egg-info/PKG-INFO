@@ -1,0 +1,18 @@
+Metadata-Version: 2.4
+Name: mergen-python
+Version: 1.0.0
+Summary: Mergen Python SDK — instruments Django/FastAPI/Flask and streams telemetry to your AI IDE via MCP
+License: MIT
+Keywords: mergen,mcp,observability,debugging,ai,telemetry
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Provides-Extra: django
+Requires-Dist: django>=3.2; extra == "django"
+Provides-Extra: fastapi
+Requires-Dist: fastapi>=0.95; extra == "fastapi"
+Requires-Dist: httpx>=0.24; extra == "fastapi"
+Provides-Extra: flask
+Requires-Dist: flask>=2.0; extra == "flask"
+Provides-Extra: dev
+Requires-Dist: pytest>=7; extra == "dev"
+Requires-Dist: pytest-cov>=4; extra == "dev"

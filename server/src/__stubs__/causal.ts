@@ -50,12 +50,14 @@ export interface CorrelatedNetwork {
 }
 
 export interface CausalChain {
-  hypotheses:        Hypothesis[];
-  errors:            ErrorBlock[];
-  chain:             ChainEvent[];
-  contextPack:       string;
-  correlatedNetwork: CorrelatedNetwork[];
-  stateAtError:      ContextSnapshot | null;
+  hypotheses:            Hypothesis[];
+  suppressedHypotheses:  Hypothesis[];
+  errors:                ErrorBlock[];
+  chain:                 ChainEvent[];
+  contextPack:           string;
+  correlatedNetwork:     CorrelatedNetwork[];
+  correlatedBackend:     ChainEvent[];
+  stateAtError:          ContextSnapshot | null;
 }
 
 const SENSITIVE_HEADERS = new Set([
@@ -721,9 +723,9 @@ export async function buildCausalChain(
   );
 
   const tagged = recordPrediction(rawHyps) as Hypothesis[];
-  const { active } = applyCalibration(tagged) as { active: Hypothesis[]; suppressed: Hypothesis[] };
+  const { active, suppressed } = applyCalibration(tagged) as { active: Hypothesis[]; suppressed: Hypothesis[] };
 
-  return { errors: errorBlocks, chain, contextPack, correlatedNetwork: correlated, stateAtError, hypotheses: active };
+  return { errors: errorBlocks, chain, contextPack, correlatedNetwork: correlated, correlatedBackend: [], stateAtError, hypotheses: active, suppressedHypotheses: suppressed };
 }
 
 export function fixActionToCommand(_action: string | null): string | null {

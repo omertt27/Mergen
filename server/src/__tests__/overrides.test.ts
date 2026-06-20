@@ -14,7 +14,7 @@ const mockOverrideEvent = {
   id: 'evt-1',
   incidentTag: 'db_timeout',
   proposedCommand: 'kubectl rollout restart deployment/api',
-  overrideReason: 'wrong_service' as const,
+  overrideReason: 'wrong-fix' as const,
   service: 'api',
   environment: 'production',
   actor: 'alice',
@@ -26,7 +26,7 @@ const mockOverrideEvent = {
 
 const mockRecordOverride = vi.fn().mockReturnValue(mockOverrideEvent);
 const mockUpdateOutcome  = vi.fn().mockReturnValue(true);
-const mockGetSummary     = vi.fn().mockReturnValue([{ tag: 'db_timeout', count: 3, dominantReason: 'wrong_service' }]);
+const mockGetSummary     = vi.fn().mockReturnValue([{ tag: 'db_timeout', count: 3, dominantReason: 'wrong-fix' }]);
 const mockGetForTag      = vi.fn().mockReturnValue([mockOverrideEvent]);
 
 vi.mock('../intelligence/override-corpus.js', () => ({
@@ -35,7 +35,7 @@ vi.mock('../intelligence/override-corpus.js', () => ({
   getOverrideSummary: () => mockGetSummary(),
   getOverridesForTag: (...args: unknown[]) => mockGetForTag(...args),
   OVERRIDE_REASONS: [
-    'wrong_service', 'wrong_environment', 'already_in_progress',
+    'wrong-fix', 'wrong_environment', 'already_in_progress',
     'compliance_hold', 'manual_fix_preferred', 'other',
   ],
 }));
@@ -73,7 +73,7 @@ beforeEach(async () => {
   vi.clearAllMocks();
   mockRecordOverride.mockReturnValue(mockOverrideEvent);
   mockUpdateOutcome.mockReturnValue(true);
-  mockGetSummary.mockReturnValue([{ tag: 'db_timeout', count: 3, dominantReason: 'wrong_service' }]);
+  mockGetSummary.mockReturnValue([{ tag: 'db_timeout', count: 3, dominantReason: 'wrong-fix' }]);
   mockGetForTag.mockReturnValue([mockOverrideEvent]);
 
   port = await findFreePort();
@@ -94,7 +94,7 @@ describe('POST /overrides', () => {
   const validBody = {
     incidentTag:     'db_timeout',
     proposedCommand: 'kubectl rollout restart deployment/api',
-    overrideReason:  'wrong_service',
+    overrideReason:  'wrong-fix',
     service:         'api',
     environment:     'production',
     actor:           'alice',
