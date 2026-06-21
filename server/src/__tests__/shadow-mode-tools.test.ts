@@ -56,6 +56,7 @@ vi.mock('../intelligence/slack.js', () => ({
   postApprovalRequest:         vi.fn().mockResolvedValue(undefined),
   fetchIncidentChannelContext: vi.fn().mockResolvedValue(null),
   postIncidentAlert:           vi.fn().mockResolvedValue(undefined),
+  postSimpleWebhookNotification: vi.fn().mockResolvedValue(undefined),
   handleSlackActions:          vi.fn(),
   handleFeedbackLink:          vi.fn(),
 }));
@@ -75,7 +76,7 @@ vi.mock('../intelligence/usage.js', () => ({
 
 vi.mock('../intelligence/incident-replay.js', () => ({ captureSnapshot: vi.fn() }));
 vi.mock('../intelligence/postmortem-store.js',  () => ({ generatePostmortem: vi.fn(), postmortemStore: { getByTag: vi.fn().mockReturnValue([]) } }));
-vi.mock('../sensor/incident-store.js', () => ({ incidentStore: { upsert: vi.fn().mockReturnValue({ createdAt: Date.now() }) } }));
+vi.mock('../sensor/incident-store.js', () => ({ incidentStore: { upsert: vi.fn().mockReturnValue({ createdAt: Date.now() }), list: vi.fn().mockReturnValue([]) } }));
 vi.mock('../intelligence/action-risk.js', () => ({
   getAutopilotLevel:        vi.fn().mockReturnValue('full'),
   autopilotLevelPermits:    vi.fn().mockReturnValue(true),

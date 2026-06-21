@@ -36,6 +36,7 @@ import { postmortemStore } from './intelligence/postmortem-store.js';
 import { memoryStore } from './datadog/memory-store.js';
 import { commitContextStore } from './sensor/commit-context-store.js';
 import { agentMemoryStore } from './sensor/agent-memory-store.js';
+import { complianceLedgerStore } from './sensor/audit-log.js';
 import { stopAllProcessWatchers } from './sensor/process-watcher.js';
 import { stopFileWatch } from './sensor/fs-watcher.js';
 import { saveSession, loadSession } from './sensor/session-persist.js';
@@ -159,6 +160,7 @@ async function main(): Promise<void> {
   await historyStore.init();
   await incidentStore.init();
   await postmortemStore.init();
+  await complianceLedgerStore.init();
 
   // Diagnostic: warn when the corpus contains autonomous resolutions without
   // verified causal correctness. These rows were written before the

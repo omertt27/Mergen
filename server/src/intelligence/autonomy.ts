@@ -27,7 +27,7 @@
 
 import { spawn } from 'child_process';
 import fs from 'fs';
-import { AUDIT_LOG } from '../sensor/paths.js';
+import { recordExecutionAudit } from '../sensor/audit-log.js';
 import { hasPermission } from '../sensor/rbac.js';
 import { recordBlunder } from '../sensor/agent-blunder-store.js';
 import logger from '../sensor/logger.js';
@@ -109,8 +109,8 @@ export interface RemediationResult {
 
 function _auditExecution(cmd: string, result: RemediationResult, actor = 'unknown'): void {
   try {
-    const entry = JSON.stringify({
-      t: new Date().toISOString(),
+    recordExecutionAudit({
+      ts: new Date().toISOString(),
       event: 'autonomy.execute',
       actor,
       cmd: cmd.slice(0, 500),
@@ -118,10 +118,9 @@ function _auditExecution(cmd: string, result: RemediationResult, actor = 'unknow
       exitCode: result.exitCode,
       durationMs: result.durationMs,
       blocked: result.blocked,
-      blockReason: result.blockReason,
+      blockReason: result.blockReason ?? '',
       timedOut: result.timedOut,
     });
-    fs.appendFileSync(AUDIT_LOG, entry + '\n', 'utf8');
   } catch {
     // Audit log failures must never crash the server.
   }

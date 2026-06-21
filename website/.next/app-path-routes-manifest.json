@@ -1,10 +1,11 @@
 {
   "/_not-found/page": "/_not-found",
-  "/robots.txt/route": "/robots.txt",
   "/sitemap.xml/route": "/sitemap.xml",
-  "/page": "/",
+  "/robots.txt/route": "/robots.txt",
   "/account/page": "/account",
+  "/page": "/",
   "/privacy/page": "/privacy",
   "/install/page": "/install",
+  "/guide/page": "/guide",
   "/opengraph-image/route": "/opengraph-image"
 }

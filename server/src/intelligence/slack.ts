@@ -25,7 +25,7 @@ import { getRoutingForService } from './slack-routing.js';
 import { generateFeedbackToken } from '../sensor/feedback-token.js';
 import { approveExecution, denyExecution } from './execution-gate.js';
 import { executeRemediation } from './autonomy.js';
-import { recordShadowVerdict } from './shadow-log.js';
+import { recordShadowVerdict, updateShadowReasonByPid } from './shadow-log.js';
 import logger from '../sensor/logger.js';
 
 const WEBHOOK        = process.env.MERGEN_SLACK_WEBHOOK ?? '';
@@ -367,6 +367,21 @@ export async function postThreadReply(pid: string, text: string): Promise<void> 
     return;
   }
   await _postWebApi(thread.channel, { text }, thread.ts);
+}
+
+/** Pushes a simple high-signal notification to the Slack webhook URL. */
+export async function postSimpleWebhookNotification(service: string, text: string): Promise<void> {
+  const webhook = _webhookForService(service);
+  if (!webhook) {
+    logger.debug({ service }, 'slack: no webhook URL configured for service — cannot send webhook notification');
+    return;
+  }
+  const payload = JSON.stringify({
+    text,
+    username: 'Mergen',
+    icon_emoji: ':robot_face:',
+  });
+  await _postWebhook(payload, webhook);
 }
 
 /**
@@ -956,10 +971,13 @@ export async function handleSlackActions(req: Request, res: Response): Promise<v
             void executeRemediation(command, { cwd: record.cwd, actor: userId }).then((result) => {
               if (result.blocked) {
                 void postThreadReply(pid, `🚫 *Fix blocked by safety filter:* ${result.blockReason}`);
+                updateShadowReasonByPid(pid, 'blocked-by-safety-filter');
               } else if (!result.ok) {
                 void postThreadReply(pid, `❌ *Fix command failed* (exit ${result.exitCode})\n${result.stderr.slice(0, 500)}`);
+                updateShadowReasonByPid(pid, 'executed-failure');
               } else {
                 void postThreadReply(pid, `✅ *Fix executed* (${result.durationMs}ms)`);
+                updateShadowReasonByPid(pid, 'executed');
               }
             });
           }
@@ -977,6 +995,7 @@ export async function handleSlackActions(req: Request, res: Response): Promise<v
             recordVerdict(pid, 'wrong', 'denied via Slack');
             void postThreadReply(pid, `🚫 _Fix execution denied by <@${userId}>._`);
             logger.info({ pid, userId }, 'slack: fix execution denied');
+            updateShadowReasonByPid(pid, 'denied');
           }
         } catch (err) {
           logger.warn({ err, action }, 'slack: failed to handle deny_fix action');

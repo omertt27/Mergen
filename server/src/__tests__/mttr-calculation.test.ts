@@ -91,6 +91,7 @@ function registerMocks(): void {
     postApprovalRequest:         vi.fn().mockResolvedValue(undefined),
     fetchIncidentChannelContext: (...args: unknown[]) => mockFetchChannelCtx(...args),
     postIncidentAlert:           vi.fn().mockResolvedValue(undefined),
+    postSimpleWebhookNotification: vi.fn().mockResolvedValue(undefined),
     handleSlackActions:          vi.fn(),
     handleFeedbackLink:          vi.fn(),
   }));

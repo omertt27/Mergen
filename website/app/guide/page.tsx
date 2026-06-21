@@ -1,0 +1,566 @@
+'use client'
+
+import { useState } from 'react'
+import Nav from '@/components/Nav'
+import Footer from '@/components/Footer'
+import CodeBlock from '@/components/CodeBlock'
+
+const sections = [
+  { id: 'quickstart', label: 'Quick Start' },
+  { id: 'causaljoin', label: 'How it Works' },
+  { id: 'integrations', label: 'Stack Integrations' },
+  { id: 'ide', label: 'AI IDE Setup' },
+  { id: 'autopilot', label: 'Autopilot & Shadow' },
+  { id: 'cli', label: 'CLI Reference' },
+  { id: 'troubleshoot', label: 'Troubleshooting' },
+]
+
+export default function GuidePage() {
+  const [activeSection, setActiveSection] = useState('quickstart')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [openTroubleIndex, setOpenTroubleIndex] = useState<number | null>(null)
+
+  const troubleshootingItems = [
+    {
+      q: '"Command not found: claude"',
+      ans: 'This means Anthropic\'s Claude Code is not installed in your global NPM environment. Fix it by running:',
+      code: 'npm install -g @anthropic-ai/claude-code',
+    },
+    {
+      q: '"Mergen index failed: no documents found"',
+      ans: 'Mergen parser expects markdown (.md) documents representing postmortems or service specs. Check your path format and verify files exist in the target directory:',
+      code: 'ls -la ./docs/postmortems',
+    },
+    {
+      q: '"IDE not showing Mergen tools"',
+      ans: 'Your IDE caches active MCP configs. Restart your IDE window. If tools still don\'t show up, inspect the configuration file directly depending on your editor:',
+      code: '# Cursor:\ncat ~/.cursor/mcp.json\n\n# VS Code:\ncat ~/.vscode/mcp.json',
+    },
+    {
+      q: '"OTLP spans not arriving at port 4318"',
+      ans: 'Ensure your server is started and listening. Verify port 4318 or 3000 is bindable on your local network interface:',
+      code: 'curl -v http://127.0.0.1:3000/health',
+    },
+    {
+      q: '"Autopilot action rejected by policy"',
+      ans: 'By default, Mergen blocks execution if confidence is <85% or if no override playbook is matched. Verify confidence scores in ~/.mergen/audit.log.',
+      code: 'tail -n 50 ~/.mergen/audit.log',
+    },
+  ]
+
+  const filteredTroubleshooting = troubleshootingItems.filter(
+    (item) =>
+      item.q.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.ans.toLowerCase().includes(searchTerm.toLowerCase())
+  )
+
+  return (
+    <>
+      <Nav />
+      <main className="wrap" style={{ paddingTop: '8rem', paddingBottom: '8rem', minHeight: '100vh' }}>
+        
+        {/* ── Header ── */}
+        <div style={{ marginBottom: '5rem' }}>
+          <span className="section-label">Developer Hub</span>
+          <h1 style={{ fontSize: 'clamp(2.5rem, 8vw, 6rem)', marginBottom: '1.5rem', lineHeight: 0.95 }}>
+            Mergen<br />Developer Guide
+          </h1>
+          <p style={{ maxWidth: 700, color: 'var(--gray-400)', fontSize: '1.15rem', lineHeight: 1.7 }}>
+            Learn how Mergen correlates browser telemetry, indexes git repositories, integrates with IDE plugins, and safely guides autonomous coding agents.
+          </p>
+        </div>
+
+        {/* ── side-by-side Layout ── */}
+        <div className="guide-layout" style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: '4rem', alignItems: 'start' }}>
+          
+          {/* ── Left Navigation Sidebar ── */}
+          <aside style={{ position: 'sticky', top: '120px', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+            <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.2em', color: 'var(--gray-600)', marginBottom: '1rem', fontWeight: 700 }}>
+              Sections
+            </span>
+            {sections.map((sec) => (
+              <button
+                key={sec.id}
+                onClick={() => {
+                  setActiveSection(sec.id)
+                }}
+                className={`guide-nav-btn ${activeSection === sec.id ? 'active' : ''}`}
+                style={{
+                  textAlign: 'left',
+                  background: 'none',
+                  border: 'none',
+                  padding: '0.75rem 1rem',
+                  fontSize: '0.85rem',
+                  fontWeight: activeSection === sec.id ? '600' : '400',
+                  color: activeSection === sec.id ? 'var(--accent-text)' : 'var(--gray-400)',
+                  cursor: 'pointer',
+                  borderLeft: activeSection === sec.id ? '2px solid var(--accent)' : '2px solid transparent',
+                  transition: 'all 0.2s',
+                  display: 'block',
+                  width: '100%',
+                }}
+              >
+                {sec.label}
+              </button>
+            ))}
+            <div style={{ marginTop: '2rem', borderTop: '1px solid var(--gray-800)', paddingTop: '1.5rem' }}>
+              <p style={{ fontSize: '0.75rem', color: 'var(--gray-600)', marginBottom: '0.5rem' }}>Need support?</p>
+              <a href="mailto:hello@mergen.dev" style={{ fontSize: '0.8rem', color: 'var(--accent-text)', textDecoration: 'underline' }}>
+                Contact developers →
+              </a>
+            </div>
+          </aside>
+
+          {/* ── Right Content Panel ── */}
+          <section className="guide-content-panel" style={{ minWidth: 0 }}>
+            
+            {/* ── QUICKSTART SECTION ── */}
+            {activeSection === 'quickstart' && (
+              <div>
+                <h2 style={{ fontSize: '2rem', marginBottom: '1.5rem', color: 'var(--white)' }}>Quick Start</h2>
+                <p style={{ color: 'var(--gray-400)', lineHeight: 1.7, marginBottom: '2rem' }}>
+                  Mergen is designed to be running locally on your workstation in under 2 minutes. 
+                  It correlates logs, tracks telemetry streams, and serves as an operational context provider for your AI environment.
+                </p>
+
+                <div className="install-card" style={{ marginBottom: '2rem' }}>
+                  <div className="install-card-header">
+                    <div>
+                      <span className="install-num">Step 01</span>
+                      <h3 className="install-title">Run Sample Sandbox</h3>
+                      <p style={{ color: 'var(--gray-400)', fontSize: '0.85rem', marginTop: '0.25rem' }}>No configuration required. Instantly see Mergen in action.</p>
+                    </div>
+                  </div>
+                  <div className="install-card-body">
+                    <CodeBlock 
+                      code="npx mergen-server" 
+                      label="Spin up server with public postmortem samples"
+                    />
+                    <p style={{ color: 'var(--gray-400)', fontSize: '0.9rem', marginTop: '1rem', lineHeight: 1.6 }}>
+                      This starts a local server on port 3000 and hosts a demo console at{' '}
+                      <a href="http://localhost:3000/demo" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-text)', textDecoration: 'underline' }}>
+                        http://localhost:3000/demo
+                      </a>.
+                      Click <strong>"Trigger P1 Incident"</strong> to see how it automatically maps stack traces.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="install-card" style={{ marginBottom: '2rem' }}>
+                  <div className="install-card-header">
+                    <div>
+                      <span className="install-num">Step 02</span>
+                      <h3 className="install-title">IDE Configuration</h3>
+                      <p style={{ color: 'var(--gray-400)', fontSize: '0.85rem', marginTop: '0.25rem' }}>Integrate the MCP server into your AI coding tool.</p>
+                    </div>
+                  </div>
+                  <div className="install-card-body">
+                    <CodeBlock 
+                      code="npx mergen-server@latest setup" 
+                      label="Run interactive assistant"
+                    />
+                    <p style={{ color: 'var(--gray-400)', fontSize: '0.9rem', marginTop: '1rem', lineHeight: 1.6 }}>
+                      This scans your workstation, detects available AI clients (Claude Code, Cursor, VS Code, Windsurf) and automatically appends the MCP configuration structure.
+                    </p>
+                  </div>
+                </div>
+
+                <div style={{ background: 'rgba(8, 145, 178, 0.04)', border: '1px solid rgba(8, 145, 178, 0.15)', borderRadius: '4px', padding: '1.5rem', marginTop: '2rem' }}>
+                  <h4 style={{ color: 'var(--accent-text)', fontSize: '0.95rem', marginBottom: '0.5rem', fontWeight: 600 }}>💡 Pilot Success Goal</h4>
+                  <p style={{ color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 1.6 }}>
+                    The primary objective of a trial is <strong>one successful local triage of a real production/staging failure</strong>. Once Mergen maps a real incident inside your system, the verification phase is complete.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* ── CAUSAL JOIN / HOW IT WORKS ── */}
+            {activeSection === 'causaljoin' && (
+              <div>
+                <h2 style={{ fontSize: '2rem', marginBottom: '1.5rem', color: 'var(--white)' }}>How Causal Telemetry Join Works</h2>
+                <p style={{ color: 'var(--gray-400)', lineHeight: 1.7, marginBottom: '2rem' }}>
+                  Traditional monitoring platforms present raw logs and require engineers to connect the dots manually. 
+                  Mergen utilizes W3C header propagation to perform deterministic joins between browser logs, microservice spans, and active deployments.
+                </p>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem', marginBottom: '3rem' }}>
+                  <div style={{ border: '1px solid var(--gray-800)', borderRadius: '4px', padding: '1.5rem', background: 'var(--surface)' }}>
+                    <div style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>🌐</div>
+                    <h4 style={{ color: 'var(--white)', marginBottom: '0.5rem' }}>1. Browser Interception</h4>
+                    <p style={{ color: 'var(--gray-400)', fontSize: '0.85rem', lineHeight: 1.5 }}>
+                      The browser SDK intercepts HTTP requests, generating a traceparent header carrying a unique 32-character <code>traceId</code>.
+                    </p>
+                  </div>
+                  <div style={{ border: '1px solid var(--gray-800)', borderRadius: '4px', padding: '1.5rem', background: 'var(--surface)' }}>
+                    <div style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>⚙️</div>
+                    <h4 style={{ color: 'var(--white)', marginBottom: '0.5rem' }}>2. Backend Correlation</h4>
+                    <p style={{ color: 'var(--gray-400)', fontSize: '0.85rem', lineHeight: 1.5 }}>
+                      As the request passes through your endpoints, the backend structured logger embeds this trace identifier directly into active database or execution spans.
+                    </p>
+                  </div>
+                  <div style={{ border: '1px solid var(--gray-800)', borderRadius: '4px', padding: '1.5rem', background: 'var(--surface)' }}>
+                    <div style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>📦</div>
+                    <h4 style={{ color: 'var(--white)', marginBottom: '0.5rem' }}>3. Deployment Context</h4>
+                    <p style={{ color: 'var(--gray-400)', fontSize: '0.85rem', lineHeight: 1.5 }}>
+                      Deployment systems pass git hash hashes via webhooks, mapping source code commits with the client bundle executing in the user session.
+                    </p>
+                  </div>
+                </div>
+
+                <h3 style={{ color: 'var(--white)', fontSize: '1.25rem', marginBottom: '1rem' }}>Causal Confidence Ratings</h3>
+                <p style={{ color: 'var(--gray-400)', lineHeight: 1.6, marginBottom: '1.5rem' }}>
+                  When your coding agents request telemetry details, Mergen annotates each event stream with confidence scores:
+                </p>
+
+                <div style={{ overflowX: 'auto', marginBottom: '2rem' }}>
+                  <table className="compare-table">
+                    <thead>
+                      <tr>
+                        <th>Rating</th>
+                        <th>Connection Type</th>
+                        <th>Accuracy Factor</th>
+                        <th>Example Scenario</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td style={{ color: 'var(--accent-text)', fontFamily: 'var(--font-geist-mono)', fontWeight: 'bold' }}>EXACT</td>
+                        <td>Trace ID Correlation</td>
+                        <td>Deterministic (100%)</td>
+                        <td>A console log trace matches a backend SQL span.</td>
+                      </tr>
+                      <tr>
+                        <td style={{ color: '#4ade80', fontFamily: 'var(--font-geist-mono)', fontWeight: 'bold' }}>LINKED</td>
+                        <td>Build Commit Matching</td>
+                        <td>Structural (95%)</td>
+                        <td>A deploy script hook points to the bundle commit.</td>
+                      </tr>
+                      <tr>
+                        <td style={{ color: '#f59e0b', fontFamily: 'var(--font-geist-mono)', fontWeight: 'bold' }}>~CORR</td>
+                        <td>Temporal Proximity</td>
+                        <td>Probabilistic (80%)</td>
+                        <td>Spans grouped within a 2-second timestamp range.</td>
+                      </tr>
+                      <tr>
+                        <td style={{ color: 'var(--gray-600)', fontFamily: 'var(--font-geist-mono)' }}>OBS</td>
+                        <td>Singular Observation</td>
+                        <td>None</td>
+                        <td>Isolated log warning containing no trace markers.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* ── STACK INTEGRATIONS ── */}
+            {activeSection === 'integrations' && (
+              <div>
+                <h2 style={{ fontSize: '2rem', marginBottom: '1.5rem', color: 'var(--white)' }}>Stack Integrations</h2>
+                <p style={{ color: 'var(--gray-400)', lineHeight: 1.7, marginBottom: '2rem' }}>
+                  Connect your live application layers to Mergen to feed active telemetry directly to your workspace.
+                </p>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                  
+                  {/* Docker */}
+                  <div style={{ border: '1px solid var(--gray-800)', padding: '2rem', borderRadius: '4px', background: 'var(--surface)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                      <h3 style={{ color: 'var(--white)', margin: 0 }}>🐋 Docker Daemon</h3>
+                      <span className="install-tag">Easiest</span>
+                    </div>
+                    <p style={{ color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 1.6, marginBottom: '1.25rem' }}>
+                      Register local container environments to capture stderr/stdout lines and translate exceptions instantly:
+                    </p>
+                    <CodeBlock 
+                      code="curl -X POST http://127.0.0.1:3000/watchers/docker" 
+                      label="Command (Runs daemon listener)"
+                    />
+                  </div>
+
+                  {/* OpenTelemetry */}
+                  <div style={{ border: '1px solid var(--gray-800)', padding: '2rem', borderRadius: '4px', background: 'var(--surface)' }}>
+                    <h3 style={{ color: 'var(--white)', marginBottom: '1.5rem' }}>📊 OpenTelemetry (OTLP)</h3>
+                    <p style={{ color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 1.6, marginBottom: '1.25rem' }}>
+                      Configure standard OTel log exporters in your microservices to transmit traces directly to localhost:
+                    </p>
+                    <CodeBlock 
+                      code="OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:3000 node app.js" 
+                      label="Launch environment node.js parameter"
+                    />
+                  </div>
+
+                  {/* PagerDuty */}
+                  <div style={{ border: '1px solid var(--gray-800)', padding: '2rem', borderRadius: '4px', background: 'var(--surface)' }}>
+                    <h3 style={{ color: 'var(--white)', marginBottom: '1.5rem' }}>🚨 PagerDuty Alerts</h3>
+                    <p style={{ color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 1.6, marginBottom: '1.25rem' }}>
+                      To trigger automatic triage whenever a P1 incident fires, configure a webhook inside PagerDuty:
+                    </p>
+                    <ol style={{ paddingLeft: '1.25rem', color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 2 }}>
+                      <li>Open PagerDuty and navigate to your target Service integrations page.</li>
+                      <li>Click <strong>Add generic webhook (V3)</strong>.</li>
+                      <li>Set Webhook URL: <code>https://YOUR_SERVER:3000/webhooks/pagerduty</code>.</li>
+                      <li>Subscribe to <code>incident.triggered</code> events.</li>
+                    </ol>
+                  </div>
+
+                </div>
+              </div>
+            )}
+
+            {/* ── AI IDE SETUP ── */}
+            {activeSection === 'ide' && (
+              <div>
+                <h2 style={{ fontSize: '2rem', marginBottom: '1.5rem', color: 'var(--white)' }}>AI IDE Setup</h2>
+                <p style={{ color: 'var(--gray-400)', lineHeight: 1.7, marginBottom: '2rem' }}>
+                  Register Mergen as a Model Context Protocol (MCP) server so your AI agent can query incident telemetry directly when fixing code.
+                </p>
+
+                <div className="install-card" style={{ marginBottom: '2rem' }}>
+                  <div className="install-card-header">
+                    <h3 className="install-title">Anthropic Claude Code</h3>
+                  </div>
+                  <div className="install-card-body">
+                    <CodeBlock 
+                      code="claude mcp add mergen-local -- npx @mergen/mcp index ./docs" 
+                      label="Add Command"
+                    />
+                  </div>
+                </div>
+
+                <div className="install-card" style={{ marginBottom: '2rem' }}>
+                  <div className="install-card-header">
+                    <h3 className="install-title">Cursor / VS Code Configuration</h3>
+                  </div>
+                  <div className="install-card-body">
+                    <p style={{ color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 1.6, marginBottom: '1rem' }}>
+                      Open <strong>Settings → Features → MCP</strong> and add a new server with the following specs, or append to your workspace configuration manually:
+                    </p>
+                    <pre className="code-block" style={{ fontSize: '0.75rem', overflowX: 'auto', whiteSpace: 'pre-wrap' }}>
+{`{
+  "mcpServers": {
+    "mergen": {
+      "command": "npx",
+      "args": ["mergen-server", "start"]
+    }
+  }
+}`}
+                    </pre>
+                  </div>
+                </div>
+
+                <h3 style={{ color: 'var(--white)', fontSize: '1.25rem', marginBottom: '1rem' }}>Available AI Tools</h3>
+                <p style={{ color: 'var(--gray-400)', lineHeight: 1.6, marginBottom: '1.5rem' }}>
+                  Once registered, the following tools appear automatically in your AI agent\'s toolbox:
+                </p>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {[
+                    { name: 'triage_incident', desc: 'Queries unified telemetry matching active incident logs, determining exact causal chains.' },
+                    { name: 'analyze_runtime', desc: 'Inspects CPU load, memory utilization, and active logs of docker container endpoints.' },
+                    { name: 'validate_fix', desc: 'Re-runs tests, verifies health endpoints, and checks error status rates to prove the bug is squashed.' },
+                  ].map((tool) => (
+                    <div key={tool.name} style={{ border: '1px solid var(--gray-800)', borderRadius: '2px', padding: '1rem 1.5rem', background: '#0a0a0a' }}>
+                      <span style={{ fontFamily: 'var(--font-geist-mono)', color: 'var(--accent-text)', fontWeight: 600 }}>{tool.name}()</span>
+                      <p style={{ color: 'var(--gray-400)', fontSize: '0.85rem', marginTop: '0.25rem' }}>{tool.desc}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── AUTOPILOT & SHADOW MODE ── */}
+            {activeSection === 'autopilot' && (
+              <div>
+                <h2 style={{ fontSize: '2rem', marginBottom: '1.5rem', color: 'var(--white)' }}>Autopilot & Shadow Mode</h2>
+                <p style={{ color: 'var(--gray-400)', lineHeight: 1.7, marginBottom: '2rem' }}>
+                  Mergen can operate either as an advisory helper, or actively execute code remediations on your production infrastructure using confidence gates.
+                </p>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', marginBottom: '3rem' }}>
+                  <div style={{ border: '1px solid var(--gray-800)', padding: '2rem', borderRadius: '4px', background: 'var(--surface)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+                      <span style={{ color: '#f59e0b', fontSize: '1.2rem' }}>🕵️‍♂️</span>
+                      <h3 style={{ color: 'var(--white)', margin: 0, fontSize: '1.1rem' }}>Shadow Mode</h3>
+                    </div>
+                    <p style={{ color: 'var(--gray-400)', fontSize: '0.85rem', lineHeight: 1.6, marginBottom: '1rem' }}>
+                      Advises decisions on active incidents, logs recommendations, and posts outcomes directly to your Slack channel—without applying fixes.
+                    </p>
+                    <CodeBlock 
+                      code="MERGEN_SHADOW_MODE=true mergen-server start" 
+                      label="Command"
+                    />
+                  </div>
+
+                  <div style={{ border: '1px solid var(--gray-800)', padding: '2rem', borderRadius: '4px', background: 'var(--surface)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+                      <span style={{ color: '#ef4444', fontSize: '1.2rem' }}>🤖</span>
+                      <h3 style={{ color: 'var(--white)', margin: 0, fontSize: '1.1rem' }}>Autopilot</h3>
+                    </div>
+                    <p style={{ color: 'var(--gray-400)', fontSize: '0.85rem', lineHeight: 1.6, marginBottom: '1rem' }}>
+                      Enables autonomous incident resolution. If confidence levels match or exceed the safety threshold, fixes are applied instantly.
+                    </p>
+                    <CodeBlock 
+                      code="MERGEN_AUTOPILOT=true mergen-server start" 
+                      label="Command"
+                    />
+                  </div>
+                </div>
+
+                <div style={{ border: '1px solid var(--gray-800)', padding: '2rem', borderRadius: '4px', background: 'var(--surface)' }}>
+                  <h3 style={{ color: 'var(--white)', marginBottom: '1rem' }}>Confidence Gate Protection</h3>
+                  <p style={{ color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 1.6 }}>
+                    Before Autopilot modifies any service settings or applies hotfixes:
+                  </p>
+                  <ul style={{ paddingLeft: '1.25rem', color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 2, marginTop: '0.75rem' }}>
+                    <li>It calculates a probability score using a <strong>Platt-scaled classification model</strong>.</li>
+                    <li>The action is allowed only if confidence is <strong>&ge;85%</strong>.</li>
+                    <li>If lower, it triggers a warning fallback and alerts a human reviewer.</li>
+                    <li>An audit trail is recorded in <code>~/.mergen/audit.log</code> for compliance.</li>
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {/* ── CLI REFERENCE ── */}
+            {activeSection === 'cli' && (
+              <div>
+                <h2 style={{ fontSize: '2rem', marginBottom: '1.5rem', color: 'var(--white)' }}>CLI Command Reference</h2>
+                <p style={{ color: 'var(--gray-400)', lineHeight: 1.7, marginBottom: '2rem' }}>
+                  Manage the local Mergen telemetry daemon using the terminal controls.
+                </p>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                  {[
+                    { cmd: 'mergen-server start', desc: 'Starts the telemetry daemon server on background port 3000.' },
+                    { cmd: 'mergen-server stop', desc: 'Terminates active background server instances safely.' },
+                    { cmd: 'mergen-server status', desc: 'Queries running daemon, ports bindings, and total events in memory queue.' },
+                    { cmd: 'mergen-server test', desc: 'Simulates a mock incident end-to-end to verify integrations and triggers.' },
+                    { cmd: 'mergen-server setup', desc: 'Interactive console assistant that writes MCP configs into your IDE folder path.' },
+                  ].map((cli) => (
+                    <div key={cli.cmd} style={{ borderBottom: '1px solid var(--gray-800)', paddingBottom: '1.5rem' }}>
+                      <code style={{ fontSize: '1rem', color: 'var(--white)', display: 'block', marginBottom: '0.5rem', fontFamily: 'var(--font-geist-mono)' }}>
+                        $ {cli.cmd}
+                      </code>
+                      <p style={{ color: 'var(--gray-400)', fontSize: '0.875rem' }}>{cli.desc}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── TROUBLESHOOTING ── */}
+            {activeSection === 'troubleshoot' && (
+              <div>
+                <h2 style={{ fontSize: '2rem', marginBottom: '1.5rem', color: 'var(--white)' }}>Troubleshooting</h2>
+                <p style={{ color: 'var(--gray-400)', lineHeight: 1.7, marginBottom: '2rem' }}>
+                  Find fixes for common workspace setups, configuration warnings, or integration hiccups.
+                </p>
+
+                {/* Search box */}
+                <div style={{ position: 'relative', marginBottom: '2rem' }}>
+                  <input
+                    type="text"
+                    placeholder="Search issues (e.g. 'mcp', 'port', 'command')..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    style={{
+                      width: '100%',
+                      background: 'var(--surface)',
+                      border: '1px solid var(--gray-800)',
+                      borderRadius: '4px',
+                      padding: '0.85rem 1.25rem',
+                      color: 'var(--white)',
+                      fontSize: '0.9rem',
+                      outline: 'none',
+                    }}
+                  />
+                  {searchTerm && (
+                    <button
+                      onClick={() => setSearchTerm('')}
+                      style={{
+                        position: 'absolute',
+                        right: '1.25rem',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--gray-600)',
+                        cursor: 'pointer',
+                        fontSize: '0.8rem',
+                      }}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  {filteredTroubleshooting.map((t, idx) => (
+                    <div
+                      key={idx}
+                      className="trouble-item"
+                      style={{
+                        border: '1px solid var(--gray-800)',
+                        borderRadius: '4px',
+                        background: '#0d0d0d',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <button
+                        onClick={() => setOpenTroubleIndex(openTroubleIndex === idx ? null : idx)}
+                        style={{
+                          width: '100%',
+                          textAlign: 'left',
+                          background: 'none',
+                          border: 'none',
+                          padding: '1.25rem 1.75rem',
+                          color: 'var(--white)',
+                          fontSize: '0.9rem',
+                          fontWeight: '600',
+                          fontFamily: 'var(--font-geist-mono)',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span>{t.q}</span>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}>
+                          {openTroubleIndex === idx ? '▲' : '▼'}
+                        </span>
+                      </button>
+                      
+                      {openTroubleIndex === idx && (
+                        <div style={{ padding: '0 1.75rem 1.5rem', borderTop: '1px solid rgba(255,255,255,0.03)', marginTop: '0.5rem' }}>
+                          <p style={{ color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 1.6, marginBottom: '1rem', marginTop: '1rem' }}>
+                            {t.ans}
+                          </p>
+                          <CodeBlock code={t.code} style={{ margin: '0' }} />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
+                  {filteredTroubleshooting.length === 0 && (
+                    <div style={{ textAlign: 'center', padding: '3rem', border: '1px dashed var(--gray-800)', borderRadius: '4px' }}>
+                      <p style={{ color: 'var(--gray-600)', fontSize: '0.9rem' }}>No results match "{searchTerm}"</p>
+                      <button onClick={() => setSearchTerm('')} style={{ background: 'none', border: 'none', color: 'var(--accent-text)', textDecoration: 'underline', marginTop: '0.5rem', cursor: 'pointer' }}>
+                        Reset search filters
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+              </div>
+            )}
+
+          </section>
+
+        </div>
+
+      </main>
+      <Footer />
+    </>
+  )
+}

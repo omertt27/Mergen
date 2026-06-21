@@ -13,6 +13,7 @@ export default function Footer() {
         </div>
         <div>
           <a href="https://github.com/omertt27/Mergen" target="_blank" rel="noopener noreferrer">GitHub</a>
+          <a href="/guide">Guide</a>
           <a href="mailto:hello@mergen.dev">Contact</a>
           <a href="https://github.com/omertt27/Mergen/blob/main/docs/ENTERPRISE_SECURITY.md" target="_blank" rel="noopener noreferrer">Security</a>
           <a href="https://github.com/omertt27/Mergen/blob/main/ARCHITECTURE.md" target="_blank" rel="noopener noreferrer">Architecture</a>

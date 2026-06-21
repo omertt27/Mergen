@@ -39,10 +39,13 @@ import { generatePostmortem } from './postmortem-store.js';
 import { runAgentPipeline, renderPipelineStages } from './agent-pipeline.js';
 import { getActivePlanId } from './license.js';
 import logger from '../sensor/logger.js';
+import { trace, SpanStatusCode } from '@opentelemetry/api';
 
 const TEAM_UPGRADE_INCIDENT_THRESHOLD = 5;
 
 const AUTO_EXECUTE_CONFIDENCE_THRESHOLD = 0.85;
+
+const tracer = trace.getTracer('mergen-agent');
 
 export function registerAutonomyTools(server: McpServer): void {
   // ── execute_fix ──────────────────────────────────────────────────────────────
@@ -210,9 +213,9 @@ export function registerAutonomyTools(server: McpServer): void {
 
         let verdict: 'correct' | 'partial' | 'wrong';
         let status: string;
-        if (errsAfter === 0 && errsBefore > 0)           { verdict = 'correct'; status = 'RESOLVED'; }
-        else if (errsAfter === 0 && errsBefore === 0)    { verdict = 'correct'; status = 'CLEAN'; }
-        else if (errsBefore > 0 && errsAfter < errsBefore * 0.5) { verdict = 'partial'; status = 'PARTIAL'; }
+        if (errsAfter === 0 && errsBefore > 0)        { verdict = 'correct'; status = 'RESOLVED'; }
+        else if (errsAfter === 0 && errsBefore === 0)  { verdict = 'correct'; status = 'CLEAN'; }
+        else if (errsAfter < errsBefore)               { verdict = 'partial'; status = 'PARTIAL'; }
         else { verdict = 'wrong'; status = errsAfter > errsBefore ? 'REGRESSED' : 'UNRESOLVED'; }
 
         if (!prediction.verdict) recordVerdict(pid, verdict);
@@ -311,216 +314,253 @@ export function registerAutonomyTools(server: McpServer): void {
       const sinceTs = since ?? Date.now() - 5 * 60_000;
       logger.info({ service, sinceTs, auto_execute, tenantId }, 'triage_incident: starting');
 
-      const logs       = store.getLogs(200, undefined, sinceTs, tenantId);
-      const network    = store.getNetwork(200, undefined, sinceTs, tenantId);
-      const contexts   = store.getContext(20, sinceTs, tenantId);
-      const terminal   = store.getTerminalOutput(100, undefined, sinceTs, tenantId);
-      const processExits = store.getProcessExits(20, undefined, sinceTs, tenantId);
-      const ciEvents   = store.getCIEvents(20, undefined, sinceTs, tenantId);
-      const deployments = store.getDeployments(10, undefined, sinceTs, tenantId);
-
-      if (logs.length === 0 && network.filter((n) => n.status >= 400).length === 0) {
-        return {
-          content: [{
-            type: 'text',
-            text: [
-              '## Triage Report — No Issues Found',
-              '',
-              service ? `No errors found for service \`${service}\` in the last ${Math.round((Date.now() - sinceTs) / 60_000)} minutes.`
-                      : `No errors found in the last ${Math.round((Date.now() - sinceTs) / 60_000)} minutes.`,
-              '',
-              'Buffer is clean. If you expected errors, verify the browser extension is connected and capturing events.',
-            ].join('\n'),
-          }],
-        };
-      }
-
-      const causal = await buildCausalChain(logs, network, contexts, sinceTs, terminal, processExits, ciEvents, deployments);
-      const topHyp = causal.hypotheses[0];
-      const errorCount = logs.filter((e) => e.level === 'error').length;
-      const netErrors  = network.filter((n) => n.status >= 400 || n.error).length;
-
-      // Persist telemetry snapshot for replay corpus — same as autopilot path.
-      // Every triage call (manual or automated) grows the replay dataset.
-      if (topHyp) {
-        captureSnapshot({
-          pid: topHyp.pid ?? `mcp-${Date.now()}`,
-          capturedAt: Date.now(),
-          firedAt: sinceTs,
-          logs, network, contexts, terminal, processExits, ciEvents, deployments,
-          infraEvents: [],
-          originalTag:             topHyp.tag ?? null,
-          originalConfidenceScore: topHyp.confidenceScore ?? null,
-          originalFixHint:         topHyp.fixHint ?? null,
-        });
-      }
-
-      const lines: string[] = [
-        `## Triage Report${service ? ` — ${service}` : ''}`,
-        '',
-        `**Window:** ${new Date(sinceTs).toISOString()} → now`,
-        `**Console errors:** ${errorCount}  |  **Network errors:** ${netErrors}`,
-        '',
-      ];
-
-      if (!topHyp) {
-        lines.push('No hypothesis generated. Errors may be unrelated or below detector threshold.');
-        return { content: [{ type: 'text', text: lines.join('\n') }] };
-      }
-
-      const pct = Math.round((topHyp.confidenceScore ?? 0) * 100);
-      const calStats = getStatsForTag(topHyp.tag);
-      const calibrationLabel = calStats?.isEmpirical
-        ? `calibrated — ${calStats.verdicts} verdicts on this installation`
-        : 'estimated — runs /feedback after resolution to calibrate';
-      lines.push(
-        `### Root Cause — ${topHyp.confidence} (${pct}%)`,
-        `_Confidence source: ${calibrationLabel}_`,
-        '',
-        topHyp.summary,
-        '',
-      );
-
-      if (topHyp.evidence?.length) {
-        lines.push('**Evidence:**');
-        topHyp.evidence.slice(0, 4).forEach((e) => lines.push(`- ${e}`));
-        lines.push('');
-      }
-
-      if (topHyp.fixHint) {
-        lines.push(`**Fix:** ${topHyp.fixHint}`, '');
-      }
-
-      // Run multi-agent governance pipeline (Validator → Planner → Critic → Guard)
-      const pipeline = runAgentPipeline(causal, {
-        service,
-        executionThreshold: AUTO_EXECUTE_CONFIDENCE_THRESHOLD,
+      const span = tracer.startSpan('mergen.triage_incident', {
+        attributes: {
+          'mergen.service': service ?? 'all',
+          'mergen.auto_execute': shouldAutoExecute,
+          'mergen.tenant_id': tenantId ?? '',
+        },
       });
-      lines.push('', renderPipelineStages(pipeline.stages), '');
 
-      // Pipeline-derived command takes precedence over regex extraction
-      const command = pipeline.plan?.command
-        ?? (topHyp.fixAction ? fixActionToCommand(topHyp.fixAction) : null)
-        ?? (topHyp.fixHint ? extractCommand(topHyp.fixHint) : null);
-      const execConfidence = topHyp.remediationConfidence ?? topHyp.confidenceScore ?? 0;
-      const execPct = Math.round(execConfidence * 100);
-      const autopilotLevel = getAutopilotLevel();
-      const levelPermits = !command || autopilotLevelPermits(command, autopilotLevel);
-      const isShadow = process.env.MERGEN_SHADOW_MODE === 'true' && process.env.MERGEN_AUTOPILOT !== 'true';
-      const canAutoExecute = shouldAutoExecute && !isShadow && command && pipeline.verdict === 'proceed' && levelPermits;
+      try {
+        const logs       = store.getLogs(200, undefined, sinceTs, tenantId);
+        const network    = store.getNetwork(200, undefined, sinceTs, tenantId);
+        const contexts   = store.getContext(20, sinceTs, tenantId);
+        const terminal   = store.getTerminalOutput(100, undefined, sinceTs, tenantId);
+        const processExits = store.getProcessExits(20, undefined, sinceTs, tenantId);
+        const ciEvents   = store.getCIEvents(20, undefined, sinceTs, tenantId);
+        const deployments = store.getDeployments(10, undefined, sinceTs, tenantId);
 
-      if (isShadow && shouldAutoExecute && command) {
-        lines.push(`👁️ **Shadow mode** — would execute \`${command}\` (remediation: ${execPct}%). No action taken.`, '');
-      }
-
-      if (shouldAutoExecute && !canAutoExecute && !isShadow) {
-        if (!command) {
-          lines.push('⚠️ Auto-execute skipped — no executable command found in fixHint.');
-        } else if (pipeline.verdict === 'block') {
-          lines.push(`⚠️ Auto-execute blocked by governance pipeline: ${pipeline.blockReason ?? 'see pipeline stages above'}`);
-        } else if (!levelPermits) {
-          const commandTier = classifyCommandRisk(command);
-          lines.push(`⚠️ Auto-execute skipped — MERGEN_AUTOPILOT_LEVEL=${autopilotLevel} permits ${autopilotLevelDescription(autopilotLevel)}. This command is \`${commandTier}\` tier. Set MERGEN_AUTOPILOT_LEVEL=full to enable.`);
-        } else if (topHyp.remediationConfidence !== undefined && topHyp.remediationConfidence < AUTO_EXECUTE_CONFIDENCE_THRESHOLD) {
-          lines.push(`⚠️ Auto-execute skipped — remediation confidence ${execPct}% is below the 85% threshold (diagnosis: ${pct}%). The root cause is identified with high confidence but the fix has variable reliability — apply manually.`);
-        } else {
-          lines.push(`⚠️ Auto-execute skipped — confidence ${pct}% is below the 85% threshold for autonomous action.`);
+        if (logs.length === 0 && network.filter((n) => n.status >= 400).length === 0) {
+          span.setAttribute('mergen.status', 'clean_buffer');
+          return {
+            content: [{
+              type: 'text',
+              text: [
+                '## Triage Report — No Issues Found',
+                '',
+                service ? `No errors found for service \`${service}\` in the last ${Math.round((Date.now() - sinceTs) / 60_000)} minutes.`
+                        : `No errors found in the last ${Math.round((Date.now() - sinceTs) / 60_000)} minutes.`,
+                '',
+                'Buffer is clean. If you expected errors, verify the browser extension is connected and capturing events.',
+              ].join('\n'),
+            }],
+          };
         }
-        lines.push('');
-      }
 
-      if (canAutoExecute && command) {
-        lines.push(`### Auto-Execute`, '', `Running: \`${command}\``, '');
-        if (topHyp.pid) {
-          void postThreadReply(topHyp.pid, `⚙️ *Mergen auto-executing fix* (diagnosis: ${pct}%, remediation: ${execPct}%)\n\`${command}\``);
-        }
-        const resolvedActor = actor ?? process.env.MERGEN_MCP_ACTOR ?? 'mcp-client';
-        const execResult = await executeRemediation(command, { cwd, actor: resolvedActor });
+        const causal = await buildCausalChain(logs, network, contexts, sinceTs, terminal, processExits, ciEvents, deployments);
+        const topHyp = causal.hypotheses[0];
+        const errorCount = logs.filter((e) => e.level === 'error').length;
+        const netErrors  = network.filter((n) => n.status >= 400 || n.error).length;
 
-        if (execResult.blocked) {
-          lines.push(`🚫 **Blocked:** ${execResult.blockReason}`, '', 'Apply manually and validate.');
-        } else if (!execResult.ok) {
-          lines.push(`❌ Command failed (exit ${execResult.exitCode}).`);
-          if (execResult.stderr.trim()) {
-            lines.push('', '```', execResult.stderr.trim().slice(0, 500), '```');
+        // Persist telemetry snapshot for replay corpus — same as autopilot path.
+        // Every triage call (manual or automated) grows the replay dataset.
+        if (topHyp) {
+          span.setAttribute('mergen.incident_tag', topHyp.tag ?? '');
+          span.setAttribute('mergen.confidence_score', topHyp.confidenceScore ?? 0);
+          span.setAttribute('mergen.summary', topHyp.summary ?? '');
+          if (topHyp.fixHint) {
+            span.setAttribute('mergen.fix_hint', topHyp.fixHint);
           }
-        } else {
-          lines.push(`✅ Executed (${execResult.durationMs}ms, exit 0)`);
-          if (execResult.stdout.trim()) {
-            lines.push('', '```', execResult.stdout.trim().slice(0, 500), '```');
+          captureSnapshot({
+            pid: topHyp.pid ?? `mcp-${Date.now()}`,
+            capturedAt: Date.now(),
+            firedAt: sinceTs,
+            logs, network, contexts, terminal, processExits, ciEvents, deployments,
+            infraEvents: [],
+            originalTag:             topHyp.tag ?? null,
+            originalConfidenceScore: topHyp.confidenceScore ?? null,
+            originalFixHint:         topHyp.fixHint ?? null,
+          });
+        }
+
+        const lines: string[] = [
+          `## Triage Report${service ? ` — ${service}` : ''}`,
+          '',
+          `**Window:** ${new Date(sinceTs).toISOString()} → now`,
+          `**Console errors:** ${errorCount}  |  **Network errors:** ${netErrors}`,
+          '',
+        ];
+
+        if (!topHyp) {
+          span.setAttribute('mergen.status', 'no_hypothesis');
+          lines.push('No hypothesis generated. Errors may be unrelated or below detector threshold.');
+          return { content: [{ type: 'text', text: lines.join('\n') }] };
+        }
+
+        const pct = Math.round((topHyp.confidenceScore ?? 0) * 100);
+        const calStats = getStatsForTag(topHyp.tag);
+        const calibrationLabel = calStats?.isEmpirical
+          ? `calibrated — ${calStats.verdicts} verdicts on this installation`
+          : 'estimated — runs /feedback after resolution to calibrate';
+        lines.push(
+          `### Root Cause — ${topHyp.confidence} (${pct}%)`,
+          `_Confidence source: ${calibrationLabel}_`,
+          '',
+          topHyp.summary,
+          '',
+        );
+
+        if (topHyp.evidence?.length) {
+          lines.push('**Evidence:**');
+          topHyp.evidence.slice(0, 4).forEach((e) => lines.push(`- ${e}`));
+          lines.push('');
+        }
+
+        if (topHyp.fixHint) {
+          lines.push(`**Fix:** ${topHyp.fixHint}`, '');
+        }
+
+        // Run multi-agent governance pipeline (Validator → Planner → Critic → Guard)
+        const pipeline = runAgentPipeline(causal, {
+          service,
+          executionThreshold: AUTO_EXECUTE_CONFIDENCE_THRESHOLD,
+        });
+        lines.push('', renderPipelineStages(pipeline.stages), '');
+
+        // Pipeline-derived command takes precedence over regex extraction
+        const command = pipeline.plan?.command
+          ?? (topHyp.fixAction ? fixActionToCommand(topHyp.fixAction) : null)
+          ?? (topHyp.fixHint ? extractCommand(topHyp.fixHint) : null);
+        const execConfidence = topHyp.remediationConfidence ?? topHyp.confidenceScore ?? 0;
+        const execPct = Math.round(execConfidence * 100);
+        const autopilotLevel = getAutopilotLevel();
+        const levelPermits = !command || autopilotLevelPermits(command, autopilotLevel);
+        const isShadow = process.env.MERGEN_SHADOW_MODE === 'true' && process.env.MERGEN_AUTOPILOT !== 'true';
+        const canAutoExecute = shouldAutoExecute && !isShadow && command && pipeline.verdict === 'proceed' && levelPermits;
+
+        span.setAttribute('mergen.pipeline.verdict', pipeline.verdict ?? '');
+        if (command) {
+          span.setAttribute('mergen.command', command);
+        }
+
+        if (isShadow && shouldAutoExecute && command) {
+          lines.push(`👁️ **Shadow mode** — would execute \`${command}\` (remediation: ${execPct}%). No action taken.`, '');
+        }
+
+        if (shouldAutoExecute && !canAutoExecute && !isShadow) {
+          if (!command) {
+            lines.push('⚠️ Auto-execute skipped — no executable command found in fixHint.');
+          } else if (pipeline.verdict === 'block') {
+            lines.push(`⚠️ Auto-execute blocked by governance pipeline: ${pipeline.blockReason ?? 'see pipeline stages above'}`);
+          } else if (!levelPermits) {
+            const commandTier = classifyCommandRisk(command);
+            lines.push(`⚠️ Auto-execute skipped — MERGEN_AUTOPILOT_LEVEL=${autopilotLevel} permits ${autopilotLevelDescription(autopilotLevel)}. This command is \`${commandTier}\` tier. Set MERGEN_AUTOPILOT_LEVEL=full to enable.`);
+          } else if (topHyp.remediationConfidence !== undefined && topHyp.remediationConfidence < AUTO_EXECUTE_CONFIDENCE_THRESHOLD) {
+            lines.push(`⚠️ Auto-execute skipped — remediation confidence ${execPct}% is below the 85% threshold (diagnosis: ${pct}%). The root cause is identified with high confidence but the fix has variable reliability — apply manually.`);
+          } else {
+            lines.push(`⚠️ Auto-execute skipped — confidence ${pct}% is below the 85% threshold for autonomous action.`);
           }
           lines.push('');
+        }
 
-          // Brief pause then validate
-          await new Promise((r) => setTimeout(r, 3000));
-
-          const logsAfter = store.getLogs(200, 'error', sinceTs, tenantId);
-          const netAfter  = store.getNetwork(200, undefined, sinceTs, tenantId).filter((n) => n.status >= 400 || n.error);
-          const afterCount = logsAfter.length + netAfter.length;
-          const beforeCount = errorCount + netErrors;
-
-          const verdict = classifyVerdict(beforeCount, afterCount);
-
+        if (canAutoExecute && command) {
+          span.setAttribute('mergen.execution.attempted', true);
+          lines.push(`### Auto-Execute`, '', `Running: \`${command}\``, '');
           if (topHyp.pid) {
-            const existing = getRecords().find((r) => r.pid === topHyp.pid);
-            if (existing && !existing.verdict) recordVerdict(topHyp.pid, verdict);
-            recordRemediationVerdict(topHyp.pid, verdict);
-            if (verdict === 'correct') {
-              const resolvedAt = Date.now();
-              const inc = incidentStore.upsert(topHyp.pid, {
-                status: 'resolved',
-                resolvedAt,
-                resolvedAutonomously: true,
-                causallyCorrect: true,
-              });
-              // Y1 corpus moat: write postmortem on every autonomous resolution
-              generatePostmortem({
-                pid: topHyp.pid,
-                tag: topHyp.tag ?? 'unknown',
-                service: service ?? 'unknown',
-                rootCause: topHyp.summary ?? '',
-                fixCommand: command,
-                confidence: topHyp.confidenceScore ?? 0,
-                mttrMs: inc.createdAt ? resolvedAt - inc.createdAt : null,
-                resolvedAutonomously: true,
-                evidence: topHyp.evidence,
-                fixHint: topHyp.fixHint,
-              });
+            void postThreadReply(topHyp.pid, `⚙️ *Mergen auto-executing fix* (diagnosis: ${pct}%, remediation: ${execPct}%)\n\`${command}\``);
+          }
+          const resolvedActor = actor ?? process.env.MERGEN_MCP_ACTOR ?? 'mcp-client';
+          const execResult = await executeRemediation(command, { cwd, actor: resolvedActor });
+
+          if (execResult.blocked) {
+            span.setAttribute('mergen.execution.blocked', true);
+            span.setAttribute('mergen.execution.block_reason', execResult.blockReason ?? '');
+            lines.push(`🚫 **Blocked:** ${execResult.blockReason}`, '', 'Apply manually and validate.');
+          } else if (!execResult.ok) {
+            span.setAttribute('mergen.execution.ok', false);
+            span.setAttribute('mergen.execution.exit_code', execResult.exitCode);
+            lines.push(`❌ Command failed (exit ${execResult.exitCode}).`);
+            if (execResult.stderr.trim()) {
+              lines.push('', '```', execResult.stderr.trim().slice(0, 500), '```');
+            }
+          } else {
+            span.setAttribute('mergen.execution.ok', true);
+            span.setAttribute('mergen.execution.exit_code', 0);
+            lines.push(`✅ Executed (${execResult.durationMs}ms, exit 0)`);
+            if (execResult.stdout.trim()) {
+              lines.push('', '```', execResult.stdout.trim().slice(0, 500), '```');
+            }
+            lines.push('');
+
+            // Brief pause then validate
+            await new Promise((r) => setTimeout(r, 3000));
+
+            const logsAfter = store.getLogs(200, 'error', sinceTs, tenantId);
+            const netAfter  = store.getNetwork(200, undefined, sinceTs, tenantId).filter((n) => n.status >= 400 || n.error);
+            const afterCount = logsAfter.length + netAfter.length;
+            const beforeCount = errorCount + netErrors;
+
+            const verdict = classifyVerdict(beforeCount, afterCount);
+            span.setAttribute('mergen.execution.verdict', verdict);
+
+            if (topHyp.pid) {
+              const existing = getRecords().find((r) => r.pid === topHyp.pid);
+              if (existing && !existing.verdict) recordVerdict(topHyp.pid, verdict);
+              recordRemediationVerdict(topHyp.pid, verdict);
+              if (verdict === 'correct') {
+                const resolvedAt = Date.now();
+                const inc = incidentStore.upsert(topHyp.pid, {
+                  status: 'resolved',
+                  resolvedAt,
+                  resolvedAutonomously: true,
+                  causallyCorrect: true,
+                });
+                // Y1 corpus moat: write postmortem on every autonomous resolution
+                generatePostmortem({
+                  pid: topHyp.pid,
+                  tag: topHyp.tag ?? 'unknown',
+                  service: service ?? 'unknown',
+                  rootCause: topHyp.summary ?? '',
+                  fixCommand: command,
+                  confidence: topHyp.confidenceScore ?? 0,
+                  mttrMs: inc.createdAt ? resolvedAt - inc.createdAt : null,
+                  resolvedAutonomously: true,
+                  evidence: topHyp.evidence,
+                  fixHint: topHyp.fixHint,
+                });
+              }
+            }
+
+            if (afterCount === 0) {
+              lines.push('### Validation — RESOLVED', '', '✅ Zero errors after fix.');
+              if (topHyp.pid) void postThreadReply(topHyp.pid, '✅ *RESOLVED* — zero errors after autonomous fix.');
+            } else if (afterCount < beforeCount) {
+              lines.push('### Validation — PARTIAL', '', `⚠️ ${afterCount} errors remain (down from ${beforeCount}).`);
+              if (topHyp.pid) void postThreadReply(topHyp.pid, `⚠️ *PARTIAL* — ${afterCount} errors remain (down from ${beforeCount}).`);
+            } else if (afterCount > beforeCount) {
+              lines.push('### Validation — REGRESSED', '', `❌ ${afterCount} errors (up from ${beforeCount}). Consider reverting.`);
+              if (topHyp.pid) void postThreadReply(topHyp.pid, `❌ *REGRESSED* — ${afterCount} errors (up from ${beforeCount}). Consider reverting.`);
+            } else {
+              lines.push('### Validation — UNRESOLVED', '', `❌ ${afterCount} errors remain (same as before).`);
+              if (topHyp.pid) void postThreadReply(topHyp.pid, `❌ *UNRESOLVED* — ${afterCount} errors remain.`);
             }
           }
-
-          if (afterCount === 0) {
-            lines.push('### Validation — RESOLVED', '', '✅ Zero errors after fix.');
-            if (topHyp.pid) void postThreadReply(topHyp.pid, '✅ *RESOLVED* — zero errors after autonomous fix.');
-          } else if (afterCount < beforeCount) {
-            lines.push('### Validation — PARTIAL', '', `⚠️ ${afterCount} errors remain (down from ${beforeCount}).`);
-            if (topHyp.pid) void postThreadReply(topHyp.pid, `⚠️ *PARTIAL* — ${afterCount} errors remain (down from ${beforeCount}).`);
-          } else if (afterCount > beforeCount) {
-            lines.push('### Validation — REGRESSED', '', `❌ ${afterCount} errors (up from ${beforeCount}). Consider reverting.`);
-            if (topHyp.pid) void postThreadReply(topHyp.pid, `❌ *REGRESSED* — ${afterCount} errors (up from ${beforeCount}). Consider reverting.`);
-          } else {
-            lines.push('### Validation — UNRESOLVED', '', `❌ ${afterCount} errors remain (same as before).`);
-            if (topHyp.pid) void postThreadReply(topHyp.pid, `❌ *UNRESOLVED* — ${afterCount} errors remain.`);
-          }
+        } else if (command) {
+          lines.push(`**Command to run:** \`${command}\``);
+          lines.push('', `Call \`execute_fix(pid: "${topHyp.pid ?? 'unknown'}", confirm: true)\` to execute, or run manually.`);
         }
-      } else if (command) {
-        lines.push(`**Command to run:** \`${command}\``);
-        lines.push('', `Call \`execute_fix(pid: "${topHyp.pid ?? 'unknown'}", confirm: true)\` to execute, or run manually.`);
-      }
 
-      // Team upgrade nudge: surfaces once the free-tier user has seen enough value
-      // to justify sharing the override corpus with their on-call rotation.
-      const analyzedCount = incidentStore.list(undefined, 200).length;
-      if (getActivePlanId() === 'free' && analyzedCount >= TEAM_UPGRADE_INCIDENT_THRESHOLD) {
-        lines.push(
-          '',
-          '---',
-          `> **You've analyzed ${analyzedCount} incidents with Mergen.** The override corpus you've built is your team's most valuable asset — it prevents repeat failures automatically. The **Team plan ($299/mo)** shares it across your on-call rotation, adds incident replay, and unlocks the shadow analytics PDF your CISO needs before approving autopilot.`,
-          `> → https://mergen.dev/pricing`,
-        );
-      }
+        // Team upgrade nudge: surfaces once the free-tier user has seen enough value
+        // to justify sharing the override corpus with their on-call rotation.
+        const analyzedCount = incidentStore.list(undefined, 200).length;
+        if (getActivePlanId() === 'free' && analyzedCount >= TEAM_UPGRADE_INCIDENT_THRESHOLD) {
+          lines.push(
+            '',
+            '---',
+            `> **You've analyzed ${analyzedCount} incidents with Mergen.** The override corpus you've built is your team's most valuable asset — it prevents repeat failures automatically. The **Team plan ($299/mo)** shares it across your on-call rotation, adds incident replay, and unlocks the shadow analytics PDF your CISO needs before approving autopilot.`,
+            `> → https://mergen.dev/pricing`,
+          );
+        }
 
-      return { content: [{ type: 'text', text: lines.join('\n') }] };
+        return { content: [{ type: 'text', text: lines.join('\n') }] };
+      } catch (err: any) {
+        span.recordException(err);
+        span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+        throw err;
+      } finally {
+        span.end();
+      }
     },
   );
 }

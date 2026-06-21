@@ -39,6 +39,12 @@
       "namedRegex": "^/account(?:/)?$"
     },
     {
+      "page": "/guide",
+      "regex": "^/guide(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/guide(?:/)?$"
+    },
+    {
       "page": "/install",
       "regex": "^/install(?:/)?$",
       "routeKeys": {},

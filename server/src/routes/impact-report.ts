@@ -32,6 +32,7 @@ import { getOverrideSummary, getOverrideById } from '../intelligence/override-co
 import { getStats } from '../intelligence/calibration.js';
 import { incidentStore } from '../sensor/incident-store.js';
 import { postmortemStore } from '../intelligence/postmortem-store.js';
+import { plattScale } from '../intelligence/platt-scaling.js';
 import logger from '../sensor/logger.js';
 
 const DEFAULT_REVENUE_PER_MINUTE_USD = 100;
@@ -128,6 +129,21 @@ interface ImpactData {
   // Human review rate (shadow verdict annotations)
   humanReviewedCount: number;
   humanApprovalRate: number | null;
+  // Platt raw comparison accuracy
+  rawHighConfidenceApprovedRate: number | null;
+  plattHighConfidenceApprovedRate: number | null;
+  falsePositiveRate: number | null;
+  falsePositiveCount: number;
+  // Execution blocks triggered by >=85% confidence gate
+  executionBlocks: {
+    pid: string;
+    date: string;
+    service: string;
+    command: string;
+    confidence: number;
+    blockedBy: string;
+    reason: string;
+  }[];
   // CISO comparison table: what Mergen would have done vs. what actually happened
   comparisonRows: ComparisonRow[];
   // Raw numbers for the deck slide
@@ -236,6 +252,45 @@ function computeImpactData(windowDays: number): ImpactData {
   const approved = reviewed.filter((e) => e.humanVerdict === 'would-approve').length;
   const humanApprovalRate = reviewed.length >= 3 ? approved / reviewed.length : null;
 
+  // Platt accuracy vs raw accuracy
+  const rawHighConfidenceEntries = entries.filter((e) => e.remediationConfidence >= 0.85 && e.humanVerdict !== undefined);
+  const rawHighConfidenceApproved = rawHighConfidenceEntries.filter((e) => e.humanVerdict === 'would-approve').length;
+  const rawHighConfidenceApprovedRate = rawHighConfidenceEntries.length > 0 ? rawHighConfidenceApproved / rawHighConfidenceEntries.length : null;
+
+  const plattHighConfidenceEntries = entries.filter((e) => {
+    const cal = plattScale(e.remediationConfidence, e.incidentTag).calibrated;
+    return cal >= 0.85 && e.humanVerdict !== undefined;
+  });
+  const plattHighConfidenceApproved = plattHighConfidenceEntries.filter((e) => e.humanVerdict === 'would-approve').length;
+  const plattHighConfidenceApprovedRate = plattHighConfidenceEntries.length > 0 ? plattHighConfidenceApproved / plattHighConfidenceEntries.length : null;
+
+  const overrodeCount = reviewed.filter((e) => e.humanVerdict === 'would-override').length;
+  const falsePositiveRate = reviewed.length > 0 ? overrodeCount / reviewed.length : null;
+  const falsePositiveCount = overrodeCount;
+
+  // Execution blocks successfully triggered by the >=85% confidence gate
+  const executionBlocks = entries
+    .filter((e) => e.remediationConfidence >= 0.85 && e.skipReason !== 'executed' && e.skipReason !== 'executed-failure')
+    .map((e) => {
+      let blockReason = 'Safety block';
+      if (e.skipReason === 'override-corpus') blockReason = 'override corpus block';
+      else if (e.skipReason === 'planning-gate') blockReason = 'planning gate block';
+      else if (e.skipReason === 'level-restricted') blockReason = 'restricted by autopilot level';
+      else if (e.skipReason === 'denied') blockReason = 'denied via Slack';
+      else if (e.skipReason === 'blocked-by-safety-filter') blockReason = 'blocked by safety filter';
+      else if (e.skipReason === 'track-record-pause') blockReason = 'paused due to wrong verdicts';
+
+      return {
+        pid: e.pid,
+        date: new Date(e.firedAt ?? e.recordedAt).toISOString().slice(0, 16).replace('T', ' ') + ' UTC',
+        service: e.service,
+        command: e.command ?? 'unknown',
+        confidence: e.remediationConfidence,
+        blockedBy: e.skipReason,
+        reason: blockReason,
+      };
+    });
+
   // Revenue preservation (Y5 outcome billing) — use actual autonomous MTTR when available
   const revenuePerMinute =
     parseFloat(process.env.MERGEN_REVENUE_PER_MINUTE_USD ?? '') || DEFAULT_REVENUE_PER_MINUTE_USD;
@@ -292,7 +347,25 @@ function computeImpactData(windowDays: number): ImpactData {
       let agreementType: ComparisonRow['agreementType'] = 'unreviewed';
       let overrideReason: string | null = null;
 
-      if (entry.humanVerdict === 'would-approve') {
+      if (entry.skipReason === 'executed') {
+        engineerAction = 'Executed autonomously';
+        agreementType = 'agree';
+      } else if (entry.skipReason === 'executed-failure') {
+        engineerAction = 'Executed autonomously (failed)';
+        agreementType = 'override';
+        overrideReason = 'Command failed with non-zero exit code';
+      } else if (entry.skipReason === 'blocked-by-safety-filter') {
+        engineerAction = 'Blocked by safety gate';
+        agreementType = 'override';
+        overrideReason = 'Command triggered safety pattern blocklist';
+      } else if (entry.skipReason === 'denied') {
+        engineerAction = 'Denied by engineer';
+        agreementType = 'override';
+        overrideReason = 'Manual override via Slack gate';
+      } else if (entry.skipReason === 'approved') {
+        engineerAction = 'Approved by engineer';
+        agreementType = 'agree';
+      } else if (entry.humanVerdict === 'would-approve') {
         engineerAction = 'Would apply same fix';
         agreementType = 'agree';
       } else if (entry.humanVerdict === 'would-override' && entry.overrideId) {
@@ -352,6 +425,11 @@ function computeImpactData(windowDays: number): ImpactData {
     byTag,
     humanReviewedCount: reviewed.length,
     humanApprovalRate,
+    rawHighConfidenceApprovedRate,
+    plattHighConfidenceApprovedRate,
+    falsePositiveRate,
+    falsePositiveCount,
+    executionBlocks,
     comparisonRows,
     deckSummary,
     estimatedRevenuePreservedUsd,
@@ -450,8 +528,8 @@ function buildHtml(d: ImpactData): string {
     background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--blue);
     padding:16px 20px;border-radius:6px;font-size:15px;font-weight:500;margin-bottom:32px;line-height:1.5;
   }
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:32px}
-  @media(max-width:600px){.grid{grid-template-columns:1fr}}
+  .grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin-bottom:32px}
+  @media(max-width:900px){.grid{grid-template-columns:1fr}}
   .card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:20px}
   .card-title{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:16px}
   table{width:100%;border-collapse:collapse}
@@ -556,7 +634,57 @@ function buildHtml(d: ImpactData): string {
       </tr>
     </table>
   </div>
+  <div class="card">
+    <div class="card-title">Calibration & Safety (Platt)</div>
+    <table>
+      <tr>
+        <td>Raw High-Conf. Accuracy</td>
+        <td class="val">${d.rawHighConfidenceApprovedRate !== null ? pct(d.rawHighConfidenceApprovedRate) : '—'}</td>
+      </tr>
+      <tr>
+        <td>Platt-Calibrated Accuracy</td>
+        <td class="val green">${d.plattHighConfidenceApprovedRate !== null ? pct(d.plattHighConfidenceApprovedRate) : '—'}</td>
+      </tr>
+      <tr>
+        <td>False Positive Rate</td>
+        <td class="val red">${d.falsePositiveRate !== null ? pct(d.falsePositiveRate) : '—'}</td>
+      </tr>
+      <tr>
+        <td>False Positives (Overrides)</td>
+        <td class="val">${num(d.falsePositiveCount)}</td>
+      </tr>
+    </table>
+  </div>
 </div>
+
+${d.executionBlocks.length > 0 ? `
+<div class="card" style="margin-bottom:32px">
+  <div class="card-title">Execution Blocks (triggered by &ge;85% confidence gate)</div>
+  <table class="tag-table">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Service</th>
+        <th>Command</th>
+        <th>Confidence</th>
+        <th>Block Source</th>
+        <th>Reason</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${d.executionBlocks.map((b) => `
+        <tr>
+          <td class="muted">${b.date}</td>
+          <td>${b.service}</td>
+          <td><code class="mono" style="background:rgba(255,255,255,.04);padding:2px 5px;border-radius:3px">${b.command}</code></td>
+          <td>${pct(b.confidence)}</td>
+          <td><span class="badge badge-yellow">${b.blockedBy}</span></td>
+          <td class="yellow">${b.reason}</td>
+        </tr>
+      `).join('')}
+    </tbody>
+  </table>
+</div>` : ''}
 
 ${d.byTag.length > 0 ? `
 <div class="card" style="margin-bottom:32px">

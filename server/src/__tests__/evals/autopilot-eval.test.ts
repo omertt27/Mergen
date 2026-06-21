@@ -52,6 +52,7 @@ vi.mock('../../intelligence/slack.js', () => ({
   postThreadReply:            mockPostThreadReply,
   postApprovalRequest:        vi.fn().mockResolvedValue(undefined),
   fetchIncidentChannelContext: vi.fn().mockResolvedValue(null),
+  postSimpleWebhookNotification: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../../intelligence/causal.js', () => ({

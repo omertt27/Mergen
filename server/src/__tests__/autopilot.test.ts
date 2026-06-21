@@ -41,7 +41,7 @@ const mockFetchChannelCtx   = vi.fn().mockResolvedValue(null);
 // ── Mock registration ─────────────────────────────────────────────────────────
 // Must run after vi.resetModules() — see module-level JSDoc for explanation.
 
-function registerMocks(): void {
+function registerMocks(skip: string[] = []): void {
   // vitest.config.ts aliases `./causal.js` → `src/__stubs__/causal.ts`, so
   // the mock must target the stub path (the resolved id Vite actually loads),
   // not the original `intelligence/causal.js` path.
@@ -60,20 +60,27 @@ function registerMocks(): void {
     postApprovalRequest:         vi.fn().mockResolvedValue(undefined),
     fetchIncidentChannelContext: (...args: unknown[]) => mockFetchChannelCtx(...args),
     postIncidentAlert:           vi.fn().mockResolvedValue(undefined),
+    postSimpleWebhookNotification: vi.fn().mockResolvedValue(undefined),
     handleSlackActions:          vi.fn(),
     handleFeedbackLink:          vi.fn(),
   }));
-  vi.doMock('../intelligence/autonomy.js', () => ({
-    executeRemediation: vi.fn().mockResolvedValue({ success: true, output: '' }),
-    extractCommand:     vi.fn().mockReturnValue(null),
-  }));
-  vi.doMock('../intelligence/agent-pipeline.js', () => ({
-    runAgentPipeline:     vi.fn().mockReturnValue({ stages: [], verdict: 'block', plan: null, critique: null, blockReason: 'test' }),
-    renderPipelineStages: vi.fn().mockReturnValue(''),
-  }));
-  vi.doMock('../intelligence/planning-gate.js', () => ({
-    planningGate: vi.fn().mockReturnValue({ execute: false, reason: 'test', adjustedConfidence: 0, signals: { blastRisk: 0, classifierScore: 0 } }),
-  }));
+  if (!skip.includes('autonomy')) {
+    vi.doMock('../intelligence/autonomy.js', () => ({
+      executeRemediation: vi.fn().mockResolvedValue({ success: true, output: '' }),
+      extractCommand:     vi.fn().mockReturnValue(null),
+    }));
+  }
+  if (!skip.includes('agent-pipeline')) {
+    vi.doMock('../intelligence/agent-pipeline.js', () => ({
+      runAgentPipeline:     vi.fn().mockReturnValue({ stages: [], verdict: 'block', plan: null, critique: null, blockReason: 'test' }),
+      renderPipelineStages: vi.fn().mockReturnValue(''),
+    }));
+  }
+  if (!skip.includes('planning-gate')) {
+    vi.doMock('../intelligence/planning-gate.js', () => ({
+      planningGate: vi.fn().mockReturnValue({ execute: false, reason: 'test', adjustedConfidence: 0, signals: { blastRisk: 0, classifierScore: 0 } }),
+    }));
+  }
   vi.doMock('../intelligence/platt-scaling.js', () => ({
     plattScale: vi.fn().mockImplementation((score: number) => ({ calibrated: score, source: 'raw' })),
   }));
@@ -239,13 +246,14 @@ describe('runIncidentAutopilot — override corpus hard-block', () => {
 
     mockExecuteRemediation = vi.fn().mockResolvedValue({ ok: true, exitCode: 0, stdout: '', stderr: '', durationMs: 50, timedOut: false, blocked: false });
 
-    registerMocks();
+    // Skip the modules we register explicitly below, eliminating competing doMock registrations.
+    registerMocks(['agent-pipeline', 'planning-gate', 'autonomy']);
 
     // Planning gate must approve so it doesn't shadow the corpus block
     vi.doMock('../intelligence/planning-gate.js', () => ({
       planningGate: vi.fn().mockReturnValue({ execute: true, reason: 'approved', adjustedConfidence: 0.92, signals: { blastRisk: 'low', classifierScore: 0.92 } }),
     }));
-    // Override the pipeline mock: corpus conflict → verdict 'review', corpusConflict: true
+    // Corpus conflict → verdict 'review', corpusConflict: true (not 'block' so pipelineBlocked=false)
     vi.doMock('../intelligence/agent-pipeline.js', () => ({
       runAgentPipeline: vi.fn().mockReturnValue({
         stages: [],

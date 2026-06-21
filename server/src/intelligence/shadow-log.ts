@@ -39,7 +39,11 @@ export type ShadowSkipReason =
   | 'no-command'                 // no executable command in fixHint
   | 'level-restricted'           // command tier exceeds MERGEN_AUTOPILOT_LEVEL
   | 'planning-gate'              // deterministic planning gate denied execution
-  | 'track-record-pause';        // too many recent wrong verdicts
+  | 'track-record-pause'        // too many recent wrong verdicts
+  | 'executed'                   // Autopilot successfully executed
+  | 'executed-failure'           // Autopilot executed but command failed
+  | 'blocked-by-safety-filter'   // Autopilot command blocked by safety filters
+  | 'denied';                    // Execution denied by human via Slack gate
 
 export type HumanVerdict = 'would-approve' | 'would-override';
 
@@ -173,6 +177,18 @@ export function recordShadowVerdict(
   persist();
   return { found: true, entry, overrideId };
 }
+
+/** Update the skipReason of an existing shadow entry by its PID. */
+export function updateShadowReasonByPid(pid: string, skipReason: ShadowSkipReason): void {
+  load();
+  const entry = _entries.find((e) => e.pid === pid);
+  if (entry) {
+    entry.skipReason = skipReason;
+    persist();
+    logger.info({ pid, skipReason }, 'shadow-log: entry updated by pid');
+  }
+}
+
 
 /** All shadow entries, oldest first. */
 export function getShadowLog(): readonly ShadowEntry[] {

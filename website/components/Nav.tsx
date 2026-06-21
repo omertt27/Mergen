@@ -3,11 +3,11 @@
 import { useState, useEffect } from 'react'
 
 const navLinks = [
-  { href: '#how',          label: 'How It Works' },
-  { href: '#why',          label: 'Capabilities' },
-  { href: '#sandbox',      label: 'Sandbox' },
-  { href: '#access',       label: 'Pricing' },
-  { href: 'https://github.com/omertt27/Mergen/tree/main/docs', label: 'Docs', external: true },
+  { href: '/#how',          label: 'How It Works' },
+  { href: '/#why',          label: 'Capabilities' },
+  { href: '/#sandbox',      label: 'Sandbox' },
+  { href: '/#access',       label: 'Pricing' },
+  { href: '/guide',         label: 'Guide' },
   { href: 'https://github.com/omertt27/Mergen', label: 'GitHub', external: true },
 ]
 
@@ -40,7 +40,7 @@ export default function Nav() {
               <li key={l.href}>
                 <a
                   href={l.href}
-                  className={active === l.href ? 'nav-active' : undefined}
+                  className={(active === l.href || (active && l.href.endsWith(active))) ? 'nav-active' : undefined}
                   {...(l.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
                 >
                   {l.label}

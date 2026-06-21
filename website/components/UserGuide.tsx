@@ -103,7 +103,7 @@ export default function UserGuide() {
       </div>
 
       <div className="guide-cta">
-        <a href="https://github.com/omertt27/Mergen/blob/main/INSTALL.md" className="btn btn-outline">
+        <a href="/guide" className="btn btn-outline">
           Full Install Guide →
         </a>
         <a href="mailto:hello@mergen.dev" className="btn-ghost">

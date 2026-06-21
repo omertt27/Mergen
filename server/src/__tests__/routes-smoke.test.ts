@@ -34,6 +34,7 @@ vi.mock('../intelligence/slack.js', () => ({
   postIncidentAlert: vi.fn(), postThreadReply: vi.fn(),
   handleSlackActions: vi.fn(), handleFeedbackLink: vi.fn(),
   postApprovalRequest: vi.fn(), fetchIncidentChannelContext: vi.fn(),
+  postSimpleWebhookNotification: vi.fn(),
 }));
 vi.mock('../intelligence/incident-autopilot.js', () => ({ runIncidentAutopilot: vi.fn() }));
 vi.mock('../datadog/client.js', () => ({ isConfigured: vi.fn().mockReturnValue(false), fetchLatestErrorTrace: vi.fn() }));

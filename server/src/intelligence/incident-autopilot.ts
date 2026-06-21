@@ -24,7 +24,7 @@ import { buildCausalChain, fixActionToCommand } from './causal.js';
 import type { CausalChain, Hypothesis } from './causal.js';
 import { getRecords, recordVerdict, classifyVerdict, recordRemediationVerdict } from './calibration.js';
 import { executeRemediation, extractCommand } from './autonomy.js';
-import { postThreadReply, postApprovalRequest, fetchIncidentChannelContext } from './slack.js';
+import { postThreadReply, postApprovalRequest, fetchIncidentChannelContext, postSimpleWebhookNotification } from './slack.js';
 import { requestApproval } from './execution-gate.js';
 import { approvalEvents } from './approval-events.js';
 import { deriveRollback, executeRollback } from './rollback.js';
@@ -445,6 +445,9 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
   await postThreadReply(pid, diagMsg);
   logger.info({ service, pid, confidence: pct, hypothesis: topHyp.tag }, 'incident-autopilot: diagnosis posted');
 
+  const webhookMsg = `📢 *Triage complete* for *${service}*. Hypothesis: *${topHyp.summary}* (${pct}% confidence). View unified timeline in Cursor/Claude Code.`;
+  void postSimpleWebhookNotification(service, webhookMsg);
+
   // Prefer pipeline-derived plan over direct fixAction extraction
   const command = pipeline.plan?.command
     ?? (topHyp.fixAction ? fixActionToCommand(topHyp.fixAction) : null)
@@ -493,6 +496,10 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
         : pipeline.critique?.corpusConflict ? 'override-corpus'
         : 'pipeline-block';
       slackReason = pipeline.blockReason ?? 'Governance pipeline blocked execution';
+    } else if (corpusBlocked) {
+      skipReason = 'override-corpus';
+      const corpusReason = dominantOverrideReason(topHyp.tag, service);
+      slackReason = `override corpus: this action has been overridden before for \`${service}\` (reason: ${corpusReason ?? 'unknown'})`;
     } else if (gateDenied) {
       skipReason = 'planning-gate';
       slackReason = `planning gate: ${gate.reason}`;
@@ -501,10 +508,6 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
       const commandTier = classifyCommandRisk(command);
       const autopilotLevel = getAutopilotLevel();
       slackReason = `autopilot level \`${autopilotLevel}\` permits ${autopilotLevelDescription(autopilotLevel)} — this command is \`${commandTier}\` tier. Set MERGEN_AUTOPILOT_LEVEL=full to enable.`;
-    } else if (corpusBlocked) {
-      skipReason = 'override-corpus';
-      const corpusReason = dominantOverrideReason(topHyp.tag, service);
-      slackReason = `override corpus: this action has been overridden before for \`${service}\` (reason: ${corpusReason ?? 'unknown'})`;
     } else if (topHyp.remediationConfidence !== undefined && topHyp.remediationConfidence < getAutoExecuteThreshold()) {
       skipReason = 'remediation-below-threshold';
       slackReason = `remediation confidence ${execPct}% below 85% threshold (diagnosis: ${pct}%)`;
@@ -553,6 +556,17 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
     logger.info({ service, pid, command, commandTier, blastScope: blastRadius.scope }, 'incident-autopilot: routing through approval gate');
     await postApprovalRequest(pid, command, commandTier, execConfidence, blastRadius);
     requestApproval({ pid, command, tier: commandTier, service, remediationConfidence: execConfidence, cwd, blastRadius });
+    recordShadow({
+      pid: topHyp.pid ?? pid,
+      incidentTag: topHyp.tag,
+      service,
+      command,
+      diagnosisConfidence: topHyp.confidenceScore ?? 0,
+      remediationConfidence: execConfidence,
+      wouldHaveExecuted: true,
+      skipReason: 'level-restricted',
+      firedAt,
+    });
     return;
   }
 
@@ -565,16 +579,50 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
     await postThreadReply(pid, `🚫 *Fix blocked by safety filter*: ${execResult.blockReason}\nApply manually.`);
     const execBlunderType = typeof execResult.blockReason === 'string' && /inject/i.test(execResult.blockReason) ? 'injection_attempt' : 'allowlist_block';
     recordBlunder({ blunderType: execBlunderType, command, blockReason: execResult.blockReason ?? '', service, tag: topHyp.tag, actor: 'autopilot', pid: topHyp.pid ?? pid, confidenceScore: execConfidence });
+    recordShadow({
+      pid: topHyp.pid ?? pid,
+      incidentTag: topHyp.tag,
+      service,
+      command,
+      diagnosisConfidence: topHyp.confidenceScore ?? 0,
+      remediationConfidence: execConfidence,
+      wouldHaveExecuted: true,
+      skipReason: 'blocked-by-safety-filter',
+      firedAt,
+    });
     return;
   }
 
   if (!execResult.ok) {
     logger.warn({ service, pid, exitCode: execResult.exitCode }, 'incident-autopilot: fix command failed');
     await postThreadReply(pid, `❌ *Fix command failed* (exit ${execResult.exitCode})\n${execResult.stderr.slice(0, 500)}`);
+    recordShadow({
+      pid: topHyp.pid ?? pid,
+      incidentTag: topHyp.tag,
+      service,
+      command,
+      diagnosisConfidence: topHyp.confidenceScore ?? 0,
+      remediationConfidence: execConfidence,
+      wouldHaveExecuted: true,
+      skipReason: 'executed-failure',
+      firedAt,
+    });
     return;
   }
 
   await postThreadReply(pid, `⚙️ \`${command}\` executed (${execResult.durationMs}ms) — validating…`);
+
+  recordShadow({
+    pid: topHyp.pid ?? pid,
+    incidentTag: topHyp.tag,
+    service,
+    command,
+    diagnosisConfidence: topHyp.confidenceScore ?? 0,
+    remediationConfidence: execConfidence,
+    wouldHaveExecuted: true,
+    skipReason: 'executed',
+    firedAt,
+  });
 
   // Cache successful execution so re-triggers within 1hr fast-path without LLM.
   cacheIncidentResult({ fingerprint: pid, service, incidentTag: topHyp.tag, corpusBlocked: false, blockReason: null, executedCommand: command });

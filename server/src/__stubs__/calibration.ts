@@ -9,6 +9,7 @@
  */
 
 import fs from 'fs';
+import path from 'path';
 import { randomUUID } from 'crypto';
 import type { Hypothesis } from './causal.js';
 import { calibrationClassifier } from '../intelligence/calibration-classifier.js';
@@ -87,7 +88,7 @@ function schedulePersist(): void {
 
 function _persist(): void {
   try {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.mkdirSync(path.dirname(CALIBRATION_FILE), { recursive: true });
     const payload: PersistedCalibration = {
       version: 1,
       records: _records.map((r): SerializedRecord => ({

@@ -24,6 +24,7 @@
  */
 
 import fs from 'fs';
+import path from 'path';
 import { randomUUID } from 'crypto';
 import { OVERRIDE_CORPUS_FILE, DATA_DIR } from '../sensor/paths.js';
 import logger from '../sensor/logger.js';
@@ -131,7 +132,7 @@ let _tmpCounter = 0;
 
 function persist(): void {
   try {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.mkdirSync(path.dirname(OVERRIDE_CORPUS_FILE), { recursive: true });
     const payload: CorpusFile = { version: 1, events: _events };
     _tmpCounter = (_tmpCounter + 1) >>> 0;
     const tmp = `${OVERRIDE_CORPUS_FILE}.tmp.${process.pid}.${Date.now().toString(36)}.${_tmpCounter.toString(36)}`;

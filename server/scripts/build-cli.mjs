@@ -18,21 +18,22 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ENTRY = path.resolve(__dirname, '..', 'dist', 'index.js');
+const ENTRY     = path.resolve(__dirname, '..', 'dist', 'index.js');
+const CLI_ENTRY = path.resolve(__dirname, '..', 'dist', 'cli.js');
 
-if (!fs.existsSync(ENTRY)) {
-  console.error(`build-cli: ${ENTRY} not found — run \`tsc\` first.`);
-  process.exit(1);
+for (const [file, src] of [[ENTRY, 'src/index.ts'], [CLI_ENTRY, 'src/cli.ts']]) {
+  if (!fs.existsSync(file)) {
+    console.error(`build-cli: ${file} not found — run \`tsc\` or \`build-fast\` first.`);
+    process.exit(1);
+  }
+  const head = fs.readFileSync(file, 'utf8').slice(0, 64);
+  if (!head.startsWith('#!')) {
+    console.error(`build-cli: ${file} is missing its shebang. Re-add \`#!/usr/bin/env node\` to ${src}.`);
+    process.exit(1);
+  }
+  fs.chmodSync(file, 0o755);
 }
-
-const head = fs.readFileSync(ENTRY, 'utf8').slice(0, 64);
-if (!head.startsWith('#!')) {
-  console.error('build-cli: dist/index.js is missing its shebang. Re-add `#!/usr/bin/env node` to src/index.ts.');
-  process.exit(1);
-}
-
-fs.chmodSync(ENTRY, 0o755);
-console.log('build-cli: dist/index.js → 0755, shebang OK');
+console.log('build-cli: dist/index.js + dist/cli.js → 0755, shebangs OK');
 
 // ── Inject stub proxy files for closed-source intelligence modules ─────────────
 // Each .d.ts in src/intelligence/ that has no corresponding .ts is a closed-source
