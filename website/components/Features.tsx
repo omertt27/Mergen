@@ -46,22 +46,22 @@ const IconServer = () => (
 const SlackAuditTrail = () => (
   <div style={{
     marginTop: '2rem',
-    background: '#1a1d21',
-    border: '1px solid #30363d',
+    background: '#ffffff',
+    border: '1px solid #e2e8f0',
     borderRadius: '8px',
     padding: '1.25rem',
     fontSize: '0.8rem',
-    color: '#d1d2d3',
-    boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
+    color: '#1d1c1d',
+    boxShadow: '0 10px 30px rgba(0,0,0,0.03)',
   }}>
     <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
       <div style={{ width: '36px', height: '36px', background: 'var(--accent)', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 800, fontSize: '0.6rem' }}>MRG</div>
       <div>
-        <div style={{ fontWeight: 900, marginBottom: '4px', color: 'white' }}>Mergen <span style={{ fontWeight: 400, fontSize: '0.7rem', color: '#ababad', marginLeft: '6px' }}>APP 3:17 PM</span></div>
-        <div style={{ marginBottom: '8px' }}>✅ <b>Incident #402 resolved autonomously</b></div>
-        <div style={{ background: '#222529', border: '1px solid #30363d', borderRadius: '4px', padding: '12px', borderLeft: '4px solid var(--accent)' }}>
-          <div style={{ color: '#ababad', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Audit Trail Summary</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        <div style={{ fontWeight: 900, marginBottom: '4px', color: '#1d1c1d' }}>Mergen <span style={{ fontWeight: 400, fontSize: '0.7rem', color: '#64748b', marginLeft: '6px' }}>APP 3:17 PM</span></div>
+        <div style={{ marginBottom: '8px', color: '#1d1c1d' }}>✅ <b>Incident #402 resolved autonomously</b></div>
+        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '12px', borderLeft: '4px solid var(--accent)' }}>
+          <div style={{ color: '#64748b', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', fontWeight: 700 }}>Audit Trail Summary</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', color: '#334155' }}>
             <div>• <b>Root Cause:</b> DB Connection Pool exhaustion (api-service)</div>
             <div>• <b>Confidence:</b> 91% (matches pattern: <i>stuck_idle_connections</i>)</div>
             <div>• <b>Action:</b> Flushed idle pools & increased capacity (max_idle: 5 → 20)</div>
@@ -76,27 +76,27 @@ const SlackAuditTrail = () => (
 const IDEHint = () => (
   <div style={{
     marginTop: '2rem',
-    background: '#0d0d0d',
+    background: '#ffffff',
     border: '1px solid var(--gray-800)',
-    borderRadius: '4px',
+    borderRadius: '6px',
     padding: '0',
     overflow: 'hidden',
-    boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
+    boxShadow: '0 10px 30px rgba(0,0,0,0.03)',
   }}>
-    <div style={{ background: '#1a1a1a', padding: '6px 12px', fontSize: '0.6rem', color: '#666', borderBottom: '1px solid #222', display: 'flex', justifyContent: 'space-between' }}>
+    <div style={{ background: '#f8fafc', padding: '8px 12px', fontSize: '0.65rem', color: '#64748b', borderBottom: '1px solid var(--gray-800)', display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
       <span>auth_middleware.ts — Mergen Context</span>
       <span>mcp.json</span>
     </div>
-    <div style={{ padding: '12px', fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.7rem' }}>
-      <div style={{ color: '#666' }}>// Mergen: Historical Context found</div>
-      <div style={{ color: '#4ade80', background: 'rgba(74, 222, 128, 0.05)', padding: '4px', margin: '8px 0', borderLeft: '2px solid #4ade80' }}>
+    <div style={{ padding: '12px', fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.72rem', color: '#24292f' }}>
+      <div style={{ color: '#8e8e93' }}>// Mergen: Historical Context found</div>
+      <div style={{ color: '#ea580c', background: 'rgba(234, 88, 12, 0.04)', padding: '6px 10px', margin: '8px 0', borderLeft: '2px solid #ea580c', borderRadius: '2px', lineHeight: 1.5 }}>
         ⚠️ This file was modified in <b>Incident #388</b> (OOM Kill).
         <br/>Reason: Recursive token validation on nested JWTs.
         <br/>Constraint: Do not increase stack depth &gt; 4.
       </div>
-      <div style={{ opacity: 0.5 }}>
-        <span style={{ color: '#c084fc' }}>export const</span> <span style={{ color: '#60a5fa' }}>validateToken</span> = (token: <span style={{ color: '#fbbf24' }}>string</span>) =&gt; &#123;
-        <br/>&nbsp;&nbsp;<span style={{ color: '#666' }}>// checking depth...</span>
+      <div style={{ opacity: 0.6 }}>
+        <span style={{ color: '#0550ae' }}>export const</span> <span style={{ color: '#8250df' }}>validateToken</span> = (token: <span style={{ color: '#953800' }}>string</span>) =&gt; &#123;
+        <br/>&nbsp;&nbsp;<span style={{ color: '#8e8e93' }}>// checking depth...</span>
       </div>
     </div>
   </div>

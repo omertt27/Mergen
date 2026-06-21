@@ -2,19 +2,19 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 <url>
 <loc>https://mergen.dev</loc>
-<lastmod>2026-06-21T09:54:58.999Z</lastmod>
+<lastmod>2026-06-21T11:01:49.171Z</lastmod>
 <changefreq>weekly</changefreq>
 <priority>1</priority>
 </url>
 <url>
 <loc>https://mergen.dev/install</loc>
-<lastmod>2026-06-21T09:54:58.999Z</lastmod>
+<lastmod>2026-06-21T11:01:49.171Z</lastmod>
 <changefreq>weekly</changefreq>
 <priority>0.8</priority>
 </url>
 <url>
 <loc>https://mergen.dev/privacy</loc>
-<lastmod>2026-06-21T09:54:58.999Z</lastmod>
+<lastmod>2026-06-21T11:01:49.171Z</lastmod>
 <changefreq>monthly</changefreq>
 <priority>0.3</priority>
 </url>

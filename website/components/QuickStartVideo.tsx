@@ -13,7 +13,7 @@ export default function QuickStartVideo() {
       justifyContent: 'center',
       position: 'relative',
       overflow: 'hidden',
-      boxShadow: '0 40px 100px rgba(0,0,0,0.5)',
+      boxShadow: '0 20px 50px rgba(0,0,0,0.06)',
     }}>
       <div style={{ textAlign: 'center' }}>
         <div style={{

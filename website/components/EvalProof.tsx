@@ -119,7 +119,7 @@ export default function EvalProof() {
         padding: '2rem 3rem',
         border: '1px solid var(--gray-800)',
         borderLeft: '3px solid var(--accent)',
-        background: 'rgba(8,145,178,0.03)',
+        background: 'rgba(255,85,0,0.03)',
         maxWidth: '800px',
       }}>
         <p style={{ color: 'var(--gray-400)', fontSize: '0.95rem', lineHeight: 1.7 }}>

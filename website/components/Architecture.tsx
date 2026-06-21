@@ -93,13 +93,13 @@ export default function Architecture() {
             className="arch-box"
             style={{
               borderColor: 'var(--accent)',
-              boxShadow: '0 0 40px rgba(165, 243, 252, 0.08)',
+              boxShadow: '0 0 40px rgba(255, 85, 0, 0.06)',
               width: '240px',
               flexShrink: 0,
               alignSelf: 'center',
             }}
           >
-            <span className="tag" style={{ background: 'var(--accent)', color: '#000' }}>
+            <span className="tag" style={{ background: 'var(--accent)', color: '#fff' }}>
               MEMORY LAYER
             </span>
             <h4 style={{ margin: '1rem 0 0.5rem' }}>Mergen</h4>

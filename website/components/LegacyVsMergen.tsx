@@ -52,7 +52,7 @@ export default function LegacyVsMergen() {
           </div>
         </div>
 
-        <div style={{ background: '#0891b208', padding: '3rem', borderLeft: '1px solid var(--gray-800)' }}>
+        <div style={{ background: 'rgba(255, 85, 0, 0.02)', padding: '3rem', borderLeft: '1px solid var(--gray-800)' }}>
           <h3 style={{ marginBottom: '2rem', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '1rem', color: 'var(--accent)' }}>
             With Mergen
           </h3>
@@ -71,9 +71,9 @@ export default function LegacyVsMergen() {
           <div style={{
             marginTop: '3rem',
             padding: '1.5rem',
-            background: 'rgba(8, 145, 178, 0.1)',
+            background: 'rgba(255, 85, 0, 0.06)',
             border: '1px solid var(--accent)',
-            borderRadius: '2px',
+            borderRadius: '4px',
           }}>
             <p style={{ fontSize: '0.8rem', color: 'var(--accent-text)', lineHeight: 1.6 }}>
               <strong>Result:</strong> The engineer wakes up to a resolved incident and a full audit trail — not a 3am fire drill.

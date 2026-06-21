@@ -142,13 +142,13 @@ export default function InteractiveSandbox() {
                       flex: '1 1 120px',
                       padding: '0.75rem',
                       textAlign: 'left',
-                      background: selected.key === s.key ? 'rgba(8, 145, 178, 0.1)' : 'transparent',
+                      background: selected.key === s.key ? 'rgba(255, 85, 0, 0.08)' : 'transparent',
                       border: '1px solid',
                       borderColor: selected.key === s.key ? 'var(--accent)' : 'var(--gray-800)',
-                      color: selected.key === s.key ? 'var(--white)' : 'var(--gray-400)',
+                      color: selected.key === s.key ? 'var(--accent-text)' : 'var(--gray-600)',
                       fontSize: '0.8rem',
                       cursor: 'pointer',
-                      borderRadius: '2px',
+                      borderRadius: '4px',
                       transition: 'all 0.2s',
                     }}
                   >
@@ -287,15 +287,15 @@ export default function InteractiveSandbox() {
           </div>
 
           {/* Terminal Output */}
-          <div style={{ background: '#000', padding: '2rem', fontFamily: 'var(--font-geist-mono), monospace', display: 'flex', flexDirection: 'column', gap: '1.5rem', minHeight: '320px' }}>
-            <div style={{ color: 'var(--gray-600)', fontSize: '0.75rem', borderBottom: '1px solid #222', paddingBottom: '1rem', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+          <div style={{ background: '#09090b', padding: '2rem', fontFamily: 'var(--font-geist-mono), monospace', display: 'flex', flexDirection: 'column', gap: '1.5rem', minHeight: '320px' }}>
+            <div style={{ color: '#71717a', fontSize: '0.75rem', borderBottom: '1px solid #27272a', paddingBottom: '1rem', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
               <span>// Telemetry context pack:</span>
               <span style={{ color: '#4ade80' }}>{telemetry}</span>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', flex: 1 }}>
               {output.length === 0 && (
-                <div style={{ color: '#555', fontStyle: 'italic', fontSize: '0.85rem' }}>
+                <div style={{ color: '#52525b', fontStyle: 'italic', fontSize: '0.85rem' }}>
                   Adjust parameters on the left, then click "Run Detector" to see Mergen's diagnostic check in action.
                 </div>
               )}
@@ -304,10 +304,10 @@ export default function InteractiveSandbox() {
                 const isHalted = line.startsWith('> HALTED')
                 const isHeading = line.startsWith('>') && !isSuccess && !isHalted
                 
-                let textColor = '#888'
+                let textColor = '#71717a'
                 if (isSuccess) textColor = '#4ade80'
-                else if (isHalted) textColor = '#f87171'
-                else if (isHeading) textColor = '#67e8f9'
+                else if (isHalted) textColor = '#ef4444'
+                else if (isHeading) textColor = '#38bdf8'
 
                 return (
                   <div key={i} style={{
@@ -328,15 +328,16 @@ export default function InteractiveSandbox() {
               alignItems: 'center',
               justifyContent: 'space-between',
               padding: '0.75rem 1rem',
-              border: '1px solid #222',
-              background: '#0d0d0d',
+              border: '1px solid #27272a',
+              background: '#18181b',
+              borderRadius: '4px',
               fontSize: '0.75rem',
             }}>
-              <span style={{ color: 'var(--gray-400)' }}>Causal Rule Match:</span>
+              <span style={{ color: '#a1a1aa' }}>Causal Rule Match:</span>
               {isMatched ? (
                 <span style={{ color: '#4ade80', fontWeight: 800 }}>✓ MATCHED (Armed)</span>
               ) : (
-                <span style={{ color: '#666' }}>✗ UNMATCHED (Inactive)</span>
+                <span style={{ color: '#71717a' }}>✗ UNMATCHED (Inactive)</span>
               )}
             </div>
 
@@ -376,11 +377,11 @@ export default function InteractiveSandbox() {
                       selected.key === 'oom_kill' ? `Container OOM kill — memory at ${memoryUsage}%, oom_score_adj=1000` :
                       `Upstream 429 cascade — ${upstream429} errors, p99 latency ${latency.toFixed(1)}s`
                     }</span></div>
-                    <div style={{ color: '#64748b' }}>→ Fix: <code style={{ color: '#67e8f9', background: 'rgba(255,255,255,0.05)', padding: '1px 4px', borderRadius: '2px' }}>{selected.remedy}</code></div>
+                    <div style={{ color: '#64748b' }}>→ Fix: <code style={{ color: '#38bdf8', background: 'rgba(255,255,255,0.05)', padding: '1px 4px', borderRadius: '2px' }}>{selected.remedy}</code></div>
                   </div>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
                     <span style={{ minWidth: '16px' }}>⚙️</span>
-                    <span style={{ color: '#94a3b8' }}>Autopilot executing fix <code style={{ color: '#67e8f9' }}>{selected.remedy}</code></span>
+                    <span style={{ color: '#94a3b8' }}>Autopilot executing fix <code style={{ color: '#38bdf8' }}>{selected.remedy}</code></span>
                   </div>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
                     <span style={{ minWidth: '16px' }}>✅</span>
@@ -399,10 +400,11 @@ export default function InteractiveSandbox() {
             {output.length > 0 && !running && !isMatched && (
               <div style={{
                 padding: '1rem',
-                border: '1px solid #222',
-                background: '#0a0a0a',
+                border: '1px solid #27272a',
+                background: '#18181b',
+                borderRadius: '4px',
                 fontSize: '0.75rem',
-                color: 'var(--gray-500)',
+                color: '#a1a1aa',
                 lineHeight: 1.6,
               }}>
                 <span style={{ color: 'var(--accent)' }}>Safety gate held:</span>{' '}

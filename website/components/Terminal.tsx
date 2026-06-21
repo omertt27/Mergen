@@ -78,8 +78,8 @@ export default function Terminal() {
             onClick={handlePlayPause} 
             style={{ 
               background: 'transparent', 
-              border: '1px solid #333', 
-              color: '#888', 
+              border: '1px solid #27272a', 
+              color: '#a1a1aa', 
               fontSize: '10px', 
               padding: '2px 8px', 
               borderRadius: '2px', 
@@ -94,8 +94,8 @@ export default function Terminal() {
               onClick={handleStep} 
               style={{ 
                 background: 'transparent', 
-                border: '1px solid #333', 
-                color: '#888', 
+                border: '1px solid #27272a', 
+                color: '#a1a1aa', 
                 fontSize: '10px', 
                 padding: '2px 8px', 
                 borderRadius: '2px', 
@@ -110,8 +110,8 @@ export default function Terminal() {
             onClick={handleRestart} 
             style={{ 
               background: 'transparent', 
-              border: '1px solid #333', 
-              color: '#888', 
+              border: '1px solid #27272a', 
+              color: '#a1a1aa', 
               fontSize: '10px', 
               padding: '2px 8px', 
               borderRadius: '2px', 
@@ -125,12 +125,12 @@ export default function Terminal() {
             value={speed} 
             onChange={(e) => setSpeed(Number(e.target.value))}
             style={{ 
-              background: '#0a0a0a', 
-              border: '1px solid #333', 
-              color: '#888', 
+              background: '#18181b', 
+              border: '1px solid #27272a', 
+              color: '#a1a1aa', 
               fontSize: '10px', 
               padding: '1px 4px', 
-              borderRadius: '2px', 
+              borderRadius: '4px', 
               cursor: 'pointer',
               fontFamily: 'var(--font-geist-mono), monospace',
               outline: 'none'

@@ -45,7 +45,7 @@ export default function MacroThesis() {
               borderRight: i < problems.length - 1 ? '1px solid var(--gray-800)' : 'none',
               transition: 'background 0.3s',
             }}
-            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(8,145,178,0.03)')}
+            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,85,0,0.02)')}
             onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
           >
             <span style={{
@@ -89,7 +89,7 @@ export default function MacroThesis() {
         padding: '3rem',
         border: '1px solid var(--gray-800)',
         borderTop: '1px solid var(--accent)',
-        background: 'rgba(8,145,178,0.04)',
+        background: 'rgba(255,85,0,0.03)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',

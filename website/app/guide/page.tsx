@@ -165,7 +165,7 @@ export default function GuidePage() {
                   </div>
                 </div>
 
-                <div style={{ background: 'rgba(8, 145, 178, 0.04)', border: '1px solid rgba(8, 145, 178, 0.15)', borderRadius: '4px', padding: '1.5rem', marginTop: '2rem' }}>
+                <div style={{ background: 'rgba(255, 85, 0, 0.03)', border: '1px solid rgba(255, 85, 0, 0.15)', borderRadius: '4px', padding: '1.5rem', marginTop: '2rem' }}>
                   <h4 style={{ color: 'var(--accent-text)', fontSize: '0.95rem', marginBottom: '0.5rem', fontWeight: 600 }}>💡 Pilot Success Goal</h4>
                   <p style={{ color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 1.6 }}>
                     The primary objective of a trial is <strong>one successful local triage of a real production/staging failure</strong>. Once Mergen maps a real incident inside your system, the verification phase is complete.
