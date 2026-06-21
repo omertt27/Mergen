@@ -242,7 +242,7 @@ describe('runIncidentAutopilot — override corpus hard-block', () => {
     vi.useFakeTimers();
     vi.resetModules();
     process.env.MERGEN_AUTOPILOT = 'true';
-    delete process.env.MERGEN_SHADOW_MODE;
+    process.env.MERGEN_SHADOW_MODE = 'false'; // explicit opt-out of shadow default
 
     mockExecuteRemediation = vi.fn().mockResolvedValue({ ok: true, exitCode: 0, stdout: '', stderr: '', durationMs: 50, timedOut: false, blocked: false });
 

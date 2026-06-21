@@ -188,13 +188,20 @@ describe('PATCH /overrides/:id/outcome', () => {
 });
 
 describe('GET /override-corpus', () => {
-  it('returns corpus summary', async () => {
-    const res = await fetch(`http://127.0.0.1:${port}/override-corpus`);
+  it('returns corpus summary (requires secret)', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/override-corpus`, {
+      headers: { 'x-mergen-secret': TEST_SECRET },
+    });
     expect(res.status).toBe(200);
     const body = await res.json() as { ok: boolean; corpus: unknown[] };
     expect(body.ok).toBe(true);
     expect(Array.isArray(body.corpus)).toBe(true);
     expect(mockGetSummary).toHaveBeenCalled();
+  });
+
+  it('returns 401 without secret', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/override-corpus`);
+    expect(res.status).toBe(401);
   });
 });
 

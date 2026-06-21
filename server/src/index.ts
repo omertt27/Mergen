@@ -93,6 +93,34 @@ async function findPort(start: number, end: number): Promise<number> {
 
 function validateConfig(): void {
   const CLOUD_MODE = process.env.MERGEN_CLOUD_MODE === 'true';
+  const AUTOPILOT  = process.env.MERGEN_AUTOPILOT === 'true';
+  const TEAM_MODE  = BIND_HOST !== '127.0.0.1';
+
+  // ── Hard failures — refuse to start in dangerous configurations ─────────────
+
+  // Autopilot + no PagerDuty secret: any caller can forge an incident.triggered
+  // event and trigger autonomous command execution.
+  if (AUTOPILOT && !process.env.MERGEN_PAGERDUTY_SECRET) {
+    logger.error(
+      'FATAL: MERGEN_AUTOPILOT=true but MERGEN_PAGERDUTY_SECRET is not set. ' +
+      'Without webhook signature verification any caller can trigger autonomous execution. ' +
+      'Set MERGEN_PAGERDUTY_SECRET to the signing secret from your PagerDuty webhook config, then restart.',
+    );
+    process.exit(1);
+  }
+
+  // Team mode + no ingest secret: any network peer can inject events into the
+  // ring buffer used for causal analysis and fix command generation.
+  if (TEAM_MODE && !process.env.MERGEN_SECRET) {
+    logger.error(
+      'FATAL: MERGEN_BIND is not 127.0.0.1 (team mode) but MERGEN_SECRET is not set. ' +
+      'The /ingest endpoint would accept events from any network caller. ' +
+      'Generate a secret with: openssl rand -hex 32  then set MERGEN_SECRET=<value> and restart.',
+    );
+    process.exit(1);
+  }
+
+  // ── Warnings — sub-optimal but non-fatal ────────────────────────────────────
 
   if (!process.env.MERGEN_SLACK_BOT_TOKEN) {
     logger.warn(
@@ -105,10 +133,10 @@ function validateConfig(): void {
       'startup: MERGEN_PAGERDUTY_SECRET not set in cloud mode — PagerDuty webhook requests will be rejected. ' +
       'Set it to the signing secret from your PagerDuty webhook config.',
     );
-  } else if (!process.env.MERGEN_PAGERDUTY_SECRET) {
+  } else if (!AUTOPILOT && !process.env.MERGEN_PAGERDUTY_SECRET) {
     logger.warn(
       'startup: MERGEN_PAGERDUTY_SECRET not set — PagerDuty webhook signature verification is disabled. ' +
-      'Any caller can trigger autonomous execution via the PagerDuty webhook endpoint.',
+      'Diagnosis-only mode is active so no commands will execute, but set the secret before enabling autopilot.',
     );
   }
   if (CLOUD_MODE && !process.env.MERGEN_TLS_CERT) {
@@ -117,9 +145,27 @@ function validateConfig(): void {
       'server will start in plain HTTP. Set TLS certificates for secure cloud deployments.',
     );
   }
+  if (!process.env.MERGEN_SECRET) {
+    logger.warn(
+      'startup: MERGEN_SECRET not set — /ingest endpoint accepts events from any local process. ' +
+      'Set MERGEN_SECRET=<random-string> to restrict ingest to authenticated sources.',
+    );
+  }
+
+  // Safe-default: when autopilot is enabled but MERGEN_SHADOW_MODE is not explicitly
+  // set to 'false', the system runs in shadow mode (diagnose, alert, but never execute).
+  // This prevents accidental live execution on first deploy. Set MERGEN_SHADOW_MODE=false
+  // after reviewing the shadow track record (GET /shadow-report) to enable live execution.
+  if (AUTOPILOT && process.env.MERGEN_SHADOW_MODE === undefined) {
+    logger.warn(
+      'startup: MERGEN_AUTOPILOT=true but MERGEN_SHADOW_MODE is not set — defaulting to SHADOW MODE. ' +
+      'Mergen will diagnose incidents and post Slack alerts but will NOT execute commands. ' +
+      'Review GET /shadow-report to build trust, then set MERGEN_SHADOW_MODE=false to enable live execution.',
+    );
+  }
 
   const enabled: string[] = [];
-  if (process.env.MERGEN_AUTOPILOT === 'true')         enabled.push('autopilot');
+  if (AUTOPILOT)                                         enabled.push('autopilot');
   if (process.env.MERGEN_SHADOW_MODE === 'true')        enabled.push('shadow-mode');
   if (process.env.MERGEN_DOCKER_MONITOR === 'true')     enabled.push('docker-monitor');
   if (process.env.MERGEN_DOCKER_LOGS === 'true')        enabled.push('docker-logs');

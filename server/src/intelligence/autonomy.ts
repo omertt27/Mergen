@@ -27,6 +27,8 @@
 
 import { spawn } from 'child_process';
 import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { recordExecutionAudit } from '../sensor/audit-log.js';
 import { hasPermission } from '../sensor/rbac.js';
 import { recordBlunder } from '../sensor/agent-blunder-store.js';
@@ -44,7 +46,9 @@ const ALLOWED_COMMANDS: Array<{ pattern: RegExp; description: string }> = [
   { pattern: /^npm (install|ci|rebuild|run \S+|update \S+)(\s|$)/i,   description: 'npm install / ci / rebuild / run / update' },
   { pattern: /^yarn (install|run \S+|add \S+)(\s|$)/i,               description: 'yarn install / run / add' },
   { pattern: /^pnpm (install|run \S+|update \S+|add \S+)(\s|$)/i,    description: 'pnpm install / run / update / add' },
-  { pattern: /^pip3? install /i,                                       description: 'pip install' },
+  // pip install: only allow package-name installs. Block URL schemes (https://, git+),
+  // and flags that write to arbitrary paths (--target, --prefix).
+  { pattern: /^pip3? install (?!https?:\/\/|git\+|--target[\s=]|--prefix[\s=])[\w.-]/i, description: 'pip install <package-name> (no URL or path installs)' },
   // Git — safe, read-side / restore operations only
   { pattern: /^git checkout [a-f0-9]{4,40}(\s|$)/i,                  description: 'git checkout <sha>' },
   { pattern: /^git fetch(\s|$)/i,                                     description: 'git fetch' },
@@ -57,8 +61,9 @@ const ALLOWED_COMMANDS: Array<{ pattern: RegExp; description: string }> = [
   // Service control
   { pattern: /^systemctl (restart|stop|start|reload) \S+/i,          description: 'systemctl restart/stop/start/reload' },
   { pattern: /^service \S+ (restart|stop|start)/i,                   description: 'service <name> restart/stop/start' },
-  // Build
-  { pattern: /^make \S+/i,                                            description: 'make <target>' },
+  // Build — restricted to known-safe targets only. Makefile targets can execute
+  // arbitrary shell code, so we permit only a fixed set rather than \S+ (any target).
+  { pattern: /^make (build|test|install|restart|reload|start|stop|clean|lint|check)(\s|$)/i, description: 'make <build|test|install|restart|reload|start|stop|clean|lint|check>' },
 ];
 
 export const ALLOWED_COMMAND_DESCRIPTIONS = ALLOWED_COMMANDS.map((r) => r.description);
@@ -95,6 +100,33 @@ function checkAllowlist(command: string): { allowed: boolean; matchedRule?: stri
 
 const MAX_OUTPUT_BYTES = 16 * 1024; // 16 KB
 const EXEC_TIMEOUT_MS  = 60_000;   // 60 s
+
+/**
+ * Validate a caller-supplied working directory.
+ * Only accepts real, existing directories rooted under the server's cwd
+ * or the current user's home directory. Rejects path-traversal attempts
+ * and any path that does not exist on disk.
+ *
+ * Shared by executeRemediation() and routes/incident-webhook.ts.
+ */
+export function validateCwd(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const resolved = path.resolve(raw);
+  const safePrefixes = [process.cwd(), os.homedir()];
+  const isUnderSafeRoot = safePrefixes.some(
+    (p) => resolved === p || resolved.startsWith(p + path.sep),
+  );
+  if (!isUnderSafeRoot) {
+    logger.warn({ cwd: raw, resolved }, 'autonomy: rejected cwd outside safe root');
+    return undefined;
+  }
+  try {
+    if (!fs.statSync(resolved).isDirectory()) return undefined;
+  } catch {
+    return undefined;
+  }
+  return resolved;
+}
 
 export interface RemediationResult {
   ok: boolean;
@@ -178,7 +210,10 @@ export async function executeRemediation(
   }
 
   // ── Execute ───────────────────────────────────────────────────────────────────
-  logger.info({ command, cwd: opts.cwd }, 'autonomy: executing remediation command');
+  // Validate the caller-supplied cwd: only allow paths under process.cwd() or
+  // the home directory. Falls back to process.cwd() if invalid or absent.
+  const safeCwd = validateCwd(opts.cwd) ?? process.cwd();
+  logger.info({ command, cwd: safeCwd }, 'autonomy: executing remediation command');
 
   return new Promise((resolve) => {
     let stdout = '';
@@ -186,7 +221,7 @@ export async function executeRemediation(
     let timedOut = false;
 
     const proc = spawn('/bin/sh', ['-c', command], {
-      cwd: opts.cwd ?? process.cwd(),
+      cwd: safeCwd,
       env: { ...process.env, NO_COLOR: '1', TERM: 'dumb' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -243,19 +278,33 @@ export async function executeRemediation(
  * Looks for: backtick code spans, $ prompts, or lines starting with known
  * package manager / shell commands.
  */
+// Prefix pattern shared by backtick extraction and line scanning.
+// Only strings starting with a known CLI keyword are treated as commands.
+// This prevents log-content injection: a fixHint containing an error message
+// like `could not run make deploy` would previously extract "make deploy"
+// from the backtick span. Now the span must start with a CLI keyword to qualify.
+const CLI_PREFIXES = /^(npm|yarn|pnpm|pip3?|python3?|node|git|docker|kubectl|make|cargo|go|brew|apt|systemctl|service)\s/i;
+
 export function extractCommand(fixHint: string): string | null {
   if (!fixHint) return null;
 
-  // Backtick code span: `npm install foo`
-  const backtick = fixHint.match(/`([^`]{4,200})`/);
-  if (backtick) return backtick[1].trim();
+  // Backtick code span — only accept if it starts with a known CLI keyword.
+  // Rejecting arbitrary backtick spans prevents log-content strings like
+  // `database connection refused` from being mistaken for executable commands.
+  const backtickMatches = [...fixHint.matchAll(/`([^`]{4,200})`/g)];
+  for (const m of backtickMatches) {
+    const candidate = m[1].trim();
+    if (CLI_PREFIXES.test(candidate)) return candidate;
+  }
 
   // $ prompt: $ npm run build
   const prompt = fixHint.match(/\$\s+([^\n]{4,200})/);
-  if (prompt) return prompt[1].trim();
+  if (prompt) {
+    const candidate = prompt[1].trim();
+    if (CLI_PREFIXES.test(candidate)) return candidate;
+  }
 
-  // Starts with a known CLI keyword
-  const CLI_PREFIXES = /^(npm|yarn|pnpm|pip|python|node|git|docker|kubectl|make|cargo|go|brew|apt|systemctl|service)\s/i;
+  // Line starting with a known CLI keyword
   const lines = fixHint.split('\n');
   for (const line of lines) {
     const trimmed = line.trim();

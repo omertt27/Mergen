@@ -133,19 +133,31 @@ async function get(path: string): Promise<{ status: number; body: unknown }> {
   return { status: res.status, body: await res.json() };
 }
 
+async function authGet(path: string): Promise<{ status: number; body: unknown }> {
+  const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+    headers: { 'x-mergen-secret': TEST_SECRET },
+  });
+  return { status: res.status, body: await res.json() };
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('GET /agent-blunders', () => {
-  it('returns prevented count and recent blunders', async () => {
-    const { status, body } = await get('/agent-blunders');
+  it('returns prevented count and recent blunders (requires secret)', async () => {
+    const { status, body } = await authGet('/agent-blunders');
     expect(status).toBe(200);
     expect((body as { ok: boolean }).ok).toBe(true);
     expect(typeof (body as { prevented: number }).prevented).toBe('number');
   });
 
   it('accepts ?limit= param', async () => {
-    const { status } = await get('/agent-blunders?limit=5');
+    const { status } = await authGet('/agent-blunders?limit=5');
     expect(status).toBe(200);
+  });
+
+  it('returns 401 without secret', async () => {
+    const { status } = await get('/agent-blunders');
+    expect(status).toBe(401);
   });
 });
 
@@ -186,8 +198,8 @@ describe('GET /shadow-report', () => {
 });
 
 describe('GET /shadow-report/entries', () => {
-  it('returns raw shadow log entries', async () => {
-    const { status, body } = await get('/shadow-report/entries');
+  it('returns raw shadow log entries (requires secret)', async () => {
+    const { status, body } = await authGet('/shadow-report/entries');
     expect(status).toBe(200);
     expect((body as { ok: boolean }).ok).toBe(true);
     expect(Array.isArray((body as { entries: unknown[] }).entries)).toBe(true);
@@ -202,21 +214,22 @@ describe('GET /shadow-report/slack-digest', () => {
 });
 
 describe('POST /shadow-report/:id/verdict', () => {
-  it('returns 400 for invalid verdict payload', async () => {
+  it('returns 401 for unauthenticated request', async () => {
     const res = await fetch(`http://127.0.0.1:${port}/shadow-report/some-id/verdict`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ verdict: 'invalid-value' }),
-    });
-    expect(res.status).toBe(400);
-  });
-
-  it('returns 404 for unknown shadow entry id', async () => {
-    const res = await fetch(`http://127.0.0.1:${port}/shadow-report/nonexistent-id/verdict`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ verdict: 'would-approve' }),
     });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 400 for invalid verdict payload (authenticated)', async () => {
+    const res = await authPost('/shadow-report/some-id/verdict', { verdict: 'invalid-value' });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 404 for unknown shadow entry id (authenticated)', async () => {
+    const res = await authPost('/shadow-report/nonexistent-id/verdict', { verdict: 'would-approve' });
     expect(res.status).toBe(404);
   });
 });
@@ -253,8 +266,8 @@ describe('DELETE /slack/routing/:id', () => {
 });
 
 describe('GET /incidents/postmortems', () => {
-  it('returns postmortem list', async () => {
-    const { status, body } = await get('/incidents/postmortems');
+  it('returns postmortem list (requires secret)', async () => {
+    const { status, body } = await authGet('/incidents/postmortems');
     expect(status).toBe(200);
     expect((body as { ok: boolean }).ok).toBe(true);
     expect(Array.isArray((body as { postmortems: unknown[] }).postmortems)).toBe(true);
@@ -284,16 +297,21 @@ describe('POST /incidents/resolve-active/attribution-feedback', () => {
 });
 
 describe('GET /override-corpus', () => {
-  it('returns corpus summary', async () => {
-    const { status, body } = await get('/override-corpus');
+  it('returns corpus summary (requires secret)', async () => {
+    const { status, body } = await authGet('/override-corpus');
     expect(status).toBe(200);
     expect((body as { ok: boolean }).ok).toBe(true);
+  });
+
+  it('returns 401 without secret', async () => {
+    const { status } = await get('/override-corpus');
+    expect(status).toBe(401);
   });
 });
 
 describe('Rate limiter', () => {
-  it('returns 200 for a normal request', async () => {
-    const { status } = await get('/agent-blunders');
+  it('returns 200 for a normal request (using shadow-report, not auth-gated for GET)', async () => {
+    const { status } = await get('/shadow-report');
     expect(status).toBe(200);
   });
 });

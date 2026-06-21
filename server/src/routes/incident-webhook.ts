@@ -31,39 +31,12 @@
 
 import { Router, type Request, type Response } from 'express';
 import { randomUUID } from 'crypto';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
 import { z } from 'zod';
 import { incidentStore } from '../sensor/incident-store.js';
 import { notify } from '../intelligence/notifications.js';
 import { runIncidentAutopilot } from '../intelligence/incident-autopilot.js';
+import { validateCwd } from '../intelligence/autonomy.js';
 import logger from '../sensor/logger.js';
-
-/**
- * Validate a caller-supplied working directory for use in remediation.
- * Accepts only real, existing directories that are rooted under the
- * server's cwd or the current user's home directory. Rejects path-
- * traversal attempts and any path that does not exist on disk.
- */
-function validateCwd(raw: string | undefined): string | undefined {
-  if (!raw) return undefined;
-  const resolved = path.resolve(raw);
-  const safePrefixes = [process.cwd(), os.homedir()];
-  const isUnderSafeRoot = safePrefixes.some(
-    (p) => resolved === p || resolved.startsWith(p + path.sep),
-  );
-  if (!isUnderSafeRoot) {
-    logger.warn({ cwd: raw, resolved }, 'incident-webhook: rejected cwd outside safe root');
-    return undefined;
-  }
-  try {
-    if (!fs.statSync(resolved).isDirectory()) return undefined;
-  } catch {
-    return undefined;
-  }
-  return resolved;
-}
 
 const IncidentBody = z.object({
   title:       z.string().min(1).max(500),

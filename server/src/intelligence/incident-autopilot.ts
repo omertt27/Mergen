@@ -31,6 +31,7 @@ import { deriveRollback, executeRollback } from './rollback.js';
 import { captureSnapshot } from './incident-replay.js';
 import { computeBlastRadius } from './blast-radius.js';
 import { getExecutionThreshold } from './threshold-optimizer.js';
+import { isAutopilotEnabled, isShadowMode } from './execution-mode.js';
 import { incidentStore } from '../sensor/incident-store.js';
 import { getActiveIncident } from '../datadog/incident-state.js';
 import { fetchErrorCountSince, isConfigured as isDatadogConfigured } from '../datadog/client.js';
@@ -57,6 +58,12 @@ import logger from '../sensor/logger.js';
 approvalEvents.on('approval:expired', (pid: string, text: string) => {
   postThreadReply(pid, text).catch((err) => logger.error({ err, pid }, 'approval:expired: slack reply failed'));
 });
+
+/** Wrapper that logs a warning when a Slack reply fails instead of silently dropping it. */
+async function replyToThread(pid: string, text: string): Promise<void> {
+  const ok = await postThreadReply(pid, text);
+  if (!ok) logger.warn({ pid }, 'incident-autopilot: Slack reply failed — engineer may not see this update');
+}
 
 const ANALYSIS_TIMEOUT_MS = 30_000;
 
@@ -100,9 +107,7 @@ const getAutoExecuteThreshold = () => getExecutionThreshold();
 
 // Read env flags lazily so tests can set process.env in beforeEach without
 // needing vi.hoisted() to front-run module-level evaluation.
-const isAutopilotEnabled = () => process.env.MERGEN_AUTOPILOT === 'true';
-// Shadow mode: run full analysis and Slack reporting but never execute.
-const isShadowMode = () => !isAutopilotEnabled() && process.env.MERGEN_SHADOW_MODE === 'true';
+// isAutopilotEnabled / isShadowMode are imported from execution-mode.ts.
 
 // Base URL for one-click verdict links embedded in shadow mode Slack messages.
 // Defaults to localhost — set MERGEN_BASE_URL for remote/cloud deployments.
@@ -161,7 +166,7 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
     if (lastTriaged && Date.now() - lastTriaged < DEDUP_TTL_MS) {
       _stats.dedupHits++;
       logger.info({ service, pid }, 'incident-autopilot: duplicate fingerprint within 30min — skipping re-analysis');
-      await postThreadReply(pid, '_Mergen: same incident fingerprint already triaged within 30 min — skipping re-analysis._');
+      await replyToThread(pid, '_Mergen: same incident fingerprint already triaged within 30 min — skipping re-analysis._');
       return;
     }
     _recentlyTriaged.set(pid, Date.now());
@@ -178,7 +183,7 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
     if (cached?.corpusBlocked) {
       _stats.corpusFastPathHits++;
       logger.info({ service, pid, tag: cached.incidentTag }, 'incident-autopilot: corpus fast-path — skipping LLM inference');
-      await postThreadReply(
+      await replyToThread(
         pid,
         `⚠️ _Autopilot: corpus fast-path — incident pattern \`${cached.incidentTag}\` was previously blocked by the override corpus for \`${service}\`. Awaiting manual action._`,
       );
@@ -188,7 +193,7 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
       _stats.executedFastPathHits++;
       const agoMin = Math.round((Date.now() - cached.cachedAt) / 60_000);
       logger.info({ service, pid, cmd: cached.executedCommand }, 'incident-autopilot: executed fast-path — fix already applied');
-      await postThreadReply(
+      await replyToThread(
         pid,
         `_Mergen: fix \`${cached.executedCommand}\` was applied for this incident ${agoMin} min ago — skipping re-analysis. If the issue persists, override the cache via POST /overrides._`,
       );
@@ -206,7 +211,7 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
     if (_activeCalls >= MAX_CONCURRENT_AUTOPILOT) {
       _stats.concurrencyBlocked++;
       logger.warn({ service, pid, active: _activeCalls }, 'incident-autopilot: concurrency cap reached — aborting');
-      await postThreadReply(pid, '_Mergen: too many concurrent analyses in progress — retry in a few minutes or investigate manually._');
+      await replyToThread(pid, '_Mergen: too many concurrent analyses in progress — retry in a few minutes or investigate manually._');
       return;
     }
   }
@@ -285,7 +290,7 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
 
   if (!hasAnySignal) {
     logger.info({ service, pid }, 'incident-autopilot: no signals found — skipping');
-    await postThreadReply(pid, '_Mergen autopilot: no errors or infra signals found in buffer — manual investigation required._');
+    await replyToThread(pid, '_Mergen autopilot: no errors or infra signals found in buffer — manual investigation required._');
     return;
   }
 
@@ -294,7 +299,7 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
   // Mergen reasons about the fix.
   if (runtimeFactMarkdown) {
     const ageMin = Math.round((Date.now() - firedAt) / 60_000);
-    await postThreadReply(
+    await replyToThread(
       pid,
       [
         `📡 *Mergen Autopilot — Incident Context* (${ageMin}m after alert)`,
@@ -317,7 +322,7 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
     logger.warn({ err, service, pid }, 'incident-autopilot: causal analysis failed — posting raw telemetry');
     const topErrors   = logs.filter((e) => e.level === 'error').slice(0, 5);
     const topNetFails = network.filter((n) => n.status >= 400 || !!n.error).slice(0, 5);
-    await postThreadReply(pid, [
+    await replyToThread(pid, [
       `⚡ *Mergen — Raw Telemetry Snapshot* (analysis unavailable)`,
       `*${errorCount} console errors, ${netErrors} network failures* in window`,
       topErrors.length > 0
@@ -413,7 +418,7 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
 
   if (!topHyp) {
     logger.info({ service, pid }, 'incident-autopilot: no hypothesis generated');
-    await postThreadReply(pid, `_Mergen autopilot: analyzed ${errorCount} console errors and ${netErrors} network errors — no actionable root cause identified._`);
+    await replyToThread(pid, `_Mergen autopilot: analyzed ${errorCount} console errors and ${netErrors} network errors — no actionable root cause identified._`);
     return;
   }
 
@@ -453,7 +458,7 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
     pipelineLine,
   ].filter(Boolean).join('\n');
 
-  await postThreadReply(pid, diagMsg);
+  await replyToThread(pid, diagMsg);
   logger.info({ service, pid, confidence: pct, hypothesis: topHyp.tag }, 'incident-autopilot: diagnosis posted');
 
   const webhookMsg = `📢 *Triage complete* for *${service}*. Hypothesis: *${topHyp.summary}* (${pct}% confidence). View unified timeline in Cursor/Claude Code.`;
@@ -560,7 +565,7 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
     // In shadow mode, append one-click verdict links so the on-call SRE can
     // annotate the entry directly from Slack without navigating to the dashboard.
     const verdictLinks = (isShadowMode() && shadowEntry) ? buildVerdictLinks(shadowEntry) : '';
-    await postThreadReply(pid, `${icon} _Autopilot: ${slackReason}. Awaiting manual action._${verdictLinks}`);
+    await replyToThread(pid, `${icon} _Autopilot: ${slackReason}. Awaiting manual action._${verdictLinks}`);
     return;
   }
 
@@ -569,7 +574,14 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
   const blastRadius = computeBlastRadius(command, { service });
   if (commandTier !== 'restart' && getAutopilotLevel() !== 'full') {
     logger.info({ service, pid, command, commandTier, blastScope: blastRadius.scope }, 'incident-autopilot: routing through approval gate');
-    await postApprovalRequest(pid, command, commandTier, execConfidence, blastRadius);
+    const approvalPosted = await postApprovalRequest(pid, command, commandTier, execConfidence, blastRadius);
+    if (!approvalPosted) {
+      // Slack is down — we cannot post the approval block, so the engineer has no
+      // way to click Approve. Abort rather than leaving an unresolvable pending approval.
+      logger.error({ service, pid, command }, 'incident-autopilot: aborting approval gate — Slack notification failed, engineer cannot approve');
+      recordBlunder({ blunderType: 'pipeline_block', command, blockReason: 'Slack unavailable — approval block could not be delivered', service, tag: topHyp.tag, actor: 'autopilot', pid: topHyp.pid ?? pid, confidenceScore: execConfidence });
+      return;
+    }
     requestApproval({ pid, command, tier: commandTier, service, remediationConfidence: execConfidence, cwd, blastRadius });
     recordShadow({
       pid: topHyp.pid ?? pid,
@@ -591,7 +603,7 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
 
   if (execResult.blocked) {
     logger.warn({ service, pid, reason: execResult.blockReason }, 'incident-autopilot: fix blocked by safety filter');
-    await postThreadReply(pid, `🚫 *Fix blocked by safety filter*: ${execResult.blockReason}\nApply manually.`);
+    await replyToThread(pid, `🚫 *Fix blocked by safety filter*: ${execResult.blockReason}\nApply manually.`);
     const execBlunderType = typeof execResult.blockReason === 'string' && /inject/i.test(execResult.blockReason) ? 'injection_attempt' : 'allowlist_block';
     recordBlunder({ blunderType: execBlunderType, command, blockReason: execResult.blockReason ?? '', service, tag: topHyp.tag, actor: 'autopilot', pid: topHyp.pid ?? pid, confidenceScore: execConfidence });
     recordShadow({
@@ -610,7 +622,7 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
 
   if (!execResult.ok) {
     logger.warn({ service, pid, exitCode: execResult.exitCode }, 'incident-autopilot: fix command failed');
-    await postThreadReply(pid, `❌ *Fix command failed* (exit ${execResult.exitCode})\n${execResult.stderr.slice(0, 500)}`);
+    await replyToThread(pid, `❌ *Fix command failed* (exit ${execResult.exitCode})\n${execResult.stderr.slice(0, 500)}`);
     recordShadow({
       pid: topHyp.pid ?? pid,
       incidentTag: topHyp.tag,
@@ -625,7 +637,7 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
     return;
   }
 
-  await postThreadReply(pid, `⚙️ \`${command}\` executed (${execResult.durationMs}ms) — validating…`);
+  await replyToThread(pid, `⚙️ \`${command}\` executed (${execResult.durationMs}ms) — validating…`);
 
   recordShadow({
     pid: topHyp.pid ?? pid,
@@ -722,7 +734,7 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
   const statusLabel = afterCount === 0 ? 'RESOLVED' : afterCount < beforeCount ? 'PARTIAL' : afterCount > beforeCount ? 'REGRESSED' : 'UNRESOLVED';
   const statusIcon  = afterCount === 0 ? '✅' : afterCount < beforeCount ? '⚠️' : '❌';
 
-  await postThreadReply(
+  await replyToThread(
     pid,
     `${statusIcon} *${statusLabel}* — ${afterCount} errors after fix (was ${beforeCount})`,
   );
@@ -731,16 +743,16 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
   if (statusLabel === 'REGRESSED') {
     const rollback = deriveRollback(command, execResult.stdout);
     if (rollback.type === 'command') {
-      await postThreadReply(pid, `↩️ _REGRESSED detected — attempting auto-rollback…_`);
+      await replyToThread(pid, `↩️ _REGRESSED detected — attempting auto-rollback…_`);
       const rb = await executeRollback(rollback, { cwd, actor: 'autopilot-rollback' });
-      await postThreadReply(
+      await replyToThread(
         pid,
         rb.ok
           ? `↩️ *Rollback succeeded:* \`${rb.message}\``
           : `🔴 *Rollback failed:* ${rb.message} — manual intervention required`,
       );
     } else {
-      await postThreadReply(pid, `⚠️ _Auto-rollback not available: ${rollback.reason}. Manual revert required._`);
+      await replyToThread(pid, `⚠️ _Auto-rollback not available: ${rollback.reason}. Manual revert required._`);
     }
   }
 

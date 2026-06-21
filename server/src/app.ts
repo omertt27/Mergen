@@ -82,6 +82,10 @@ const MUTATING_PATHS = [
   '/watchers',
   // Billing & account mutations
   '/api-keys', '/onboarding/dismiss',
+  // Shadow report verdict → writes to override corpus (safety gate)
+  '/shadow-report',
+  // Demo injection routes → write directly to the ring buffer
+  '/demo',
 ];
 
 /** Hostnames always valid for local-only mode. */
@@ -129,9 +133,41 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   // CSP and COEP are disabled — the dashboard/setup UI embed third-party scripts.
   app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
 
+  // ── Local-secret endpoint ─────────────────────────────────────────────────
+  // Browser extension popup reads this once to obtain the shared secret.
+  // Only served in local mode (127.0.0.1); in team mode the endpoint is
+  // disabled — clients must read ~/.mergen/secret directly from disk.
+  //
+  // SECURITY: registered BEFORE the CORS middleware below so that this
+  // route can override the CORS header to 'null' (blocks all cross-origin
+  // reads). With CORS *, any HTTP webpage visited by the user could fetch
+  // this endpoint and steal the secret. The 'null' value causes browsers to
+  // reject the response for cross-origin requests while still serving it to
+  // same-origin callers (the extension background service worker).
+  //
+  // Rate-limited to 10 requests/second to prevent brute-force extraction.
+  const _lsBucket = { count: 0, resetAt: 0 };
+  app.get('/local-secret', (_req, res) => {
+    if (bindHost !== '127.0.0.1') {
+      res.status(404).json({ error: 'not available in team mode' });
+      return;
+    }
+    const now = Date.now();
+    if (now > _lsBucket.resetAt) { _lsBucket.count = 0; _lsBucket.resetAt = now + 1000; }
+    if (++_lsBucket.count > 10) {
+      res.status(429).json({ error: 'rate limit exceeded' });
+      return;
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    // Block cross-origin reads — do not inherit the wildcard CORS header.
+    res.setHeader('Access-Control-Allow-Origin', 'null');
+    res.json({ secret: localSecret });
+  });
+
   // ── CORS ──────────────────────────────────────────────────────────────────
-  // Local mode (127.0.0.1): wildcard is safe — only local processes can reach the
-  // server and content scripts run under the page origin, not chrome-extension://.
+  // Local mode (127.0.0.1): wildcard for all routes except /local-secret
+  // (which sets its own header above). Content scripts run under the page
+  // origin, not chrome-extension://, so they need CORS.
   // Team mode (0.0.0.0): restrict to MERGEN_ALLOWED_ORIGINS; warn if unset.
   const allowedOrigins = process.env.MERGEN_ALLOWED_ORIGINS
     ? new Set(process.env.MERGEN_ALLOWED_ORIGINS.split(',').map((s) => s.trim()))
@@ -188,7 +224,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
 
   // ── Global rate limiter (per IP) ──────────────────────────────────────────
   // Protects all endpoints against request floods. High-volume ingest paths
-  // (/ingest, /v1/) are excluded — they receive continuous telemetry streams.
+  // (/ingest exact, /v1/) are excluded — they receive continuous telemetry streams.
   const _ipBuckets = new Map<string, { count: number; resetAt: number }>();
   const RATE_WINDOW_MS = 60_000; // 1 minute
   const RATE_MAX       = 600;   // 600 req/min per IP (~10 req/s)
@@ -200,7 +236,8 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   }, 5 * 60_000).unref(); // prune stale entries every 5 min
 
   app.use((req, res, next) => {
-    if (req.path.startsWith('/ingest') || req.path.startsWith('/v1/')) { next(); return; }
+    // Use exact match for /ingest to avoid accidentally exempting future /ingest-* routes.
+    if (req.path === '/ingest' || req.path.startsWith('/v1/')) { next(); return; }
     const ip = (req.socket.remoteAddress ?? 'unknown').replace(/^::ffff:/, '');
     const now = Date.now();
     let bucket = _ipBuckets.get(ip);
@@ -213,28 +250,6 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
       return;
     }
     next();
-  });
-
-  // ── Local-secret endpoint ─────────────────────────────────────────────────
-  // Browser extension popup reads this once to obtain the shared secret.
-  // Only served in local mode (127.0.0.1); in team mode the endpoint is
-  // disabled — clients must read ~/.mergen/secret directly from disk.
-  // Cache-Control: no-store prevents the browser from caching the secret.
-  // Rate-limited to 10 requests/second to prevent brute-force extraction.
-  const _lsBucket = { count: 0, resetAt: 0 };
-  app.get('/local-secret', (_req, res) => {
-    if (bindHost !== '127.0.0.1') {
-      res.status(404).json({ error: 'not available in team mode' });
-      return;
-    }
-    const now = Date.now();
-    if (now > _lsBucket.resetAt) { _lsBucket.count = 0; _lsBucket.resetAt = now + 1000; }
-    if (++_lsBucket.count > 10) {
-      res.status(429).json({ error: 'rate limit exceeded' });
-      return;
-    }
-    res.setHeader('Cache-Control', 'no-store');
-    res.json({ secret: localSecret });
   });
 
   // ── SSO guard (enterprise) ────────────────────────────────────────────────
@@ -265,7 +280,18 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   // These read endpoints expose operational details that should not be
   // reachable by arbitrary browser scripts (DNS-rebinding or XSS).
   // Require x-mergen-secret when the secret is configured (always in prod).
-  const SENSITIVE_GET_PATHS = ['/api/war-room', '/sessions/history', '/audit'];
+  // Sensitive GET endpoints that expose operational data and require the shared secret.
+  // Any path here that starts with a listed prefix will require x-mergen-secret on GET.
+  const SENSITIVE_GET_PATHS = [
+    '/api/war-room',       // incident attribution + Slack thread history
+    '/sessions/history',   // full session event replay
+    '/audit',              // audit log
+    '/agent-blunders',     // blocked command history — reveals system constraints
+    '/incidents',          // live incident list + MTTR data
+    '/override-corpus',    // team's operational override knowledge
+    '/shadow-report/entries', // shadow log entries with proposed commands
+    '/impact-report',      // autonomous resolution rate + MTTR metrics
+  ];
   if (localSecret) {
     app.use((req, res, next) => {
       if (req.method !== 'GET') { next(); return; }

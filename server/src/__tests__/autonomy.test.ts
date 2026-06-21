@@ -70,8 +70,16 @@ describe('autonomy allowlist', () => {
     expect(await allowed('systemctl restart nginx')).toBe(true);
   });
 
-  it('allows make <target>', async () => {
-    expect(await allowed('make deploy')).toBe(true);
+  it('allows make with safe targets', async () => {
+    expect(await allowed('make build')).toBe(true);
+    expect(await allowed('make test')).toBe(true);
+    expect(await allowed('make clean')).toBe(true);
+  });
+
+  it('blocks make with arbitrary targets (deploy, all, prod, etc.)', async () => {
+    expect(await blocked('make deploy')).toBe(true);
+    expect(await blocked('make all')).toBe(true);
+    expect(await blocked('make prod')).toBe(true);
   });
 
   // ── Blocked commands — classic destructive ────────────────────────────────────

@@ -38,9 +38,16 @@ const BAND_MIDPOINT: Record<string, number> = {
   HIGH: 0.92,
 };
 
-const MIN_SAMPLE_SIZE   = 20;
-const FALLBACK_THRESHOLD = 0.85;
-const CACHE_TTL_MS      = 10 * 60 * 1_000;
+const MIN_SAMPLE_SIZE = 20;
+const CACHE_TTL_MS    = 10 * 60 * 1_000;
+
+/**
+ * The baseline execution confidence threshold.
+ * Used as the ROC fallback (< 20 verdicts) and as the default in planning-gate /
+ * triage_incident. Exported so every execution-path module uses the same value
+ * rather than each defining its own 0.85 constant.
+ */
+export const DEFAULT_EXECUTION_THRESHOLD = 0.85;
 
 let _cachedThreshold: number | null = null;
 let _cacheTime = 0;
@@ -96,9 +103,9 @@ export function getExecutionThreshold(): number {
 
   const curve = computeRocCurve();
   if (curve.length === 0) {
-    _cachedThreshold = FALLBACK_THRESHOLD;
+    _cachedThreshold = DEFAULT_EXECUTION_THRESHOLD;
     _cacheTime = now;
-    return FALLBACK_THRESHOLD;
+    return DEFAULT_EXECUTION_THRESHOLD;
   }
 
   const best = curve.reduce((a, b) => (b.youdensJ > a.youdensJ ? b : a));

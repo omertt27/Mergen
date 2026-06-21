@@ -60,6 +60,10 @@ interface BlunderFile { version: 2; blunders: BlunderEvent[] }
 
 let _blunders: BlunderEvent[] = [];
 let _loaded = false;
+// Set by _resetForTesting() — prevents even forced load() calls from hitting disk.
+// Without this, recordBlunder() calling load(true) would read real on-disk data
+// mid-test, contaminating the test state with production blunders.
+let _testingMode = false;
 
 // ── Hash chain ────────────────────────────────────────────────────────────────
 
@@ -91,6 +95,7 @@ function _computeHash(
 // ── Storage ───────────────────────────────────────────────────────────────────
 
 function load(force = false): void {
+  if (_testingMode) return; // test isolation: never read disk when reset for testing
   if (_loaded && !force) return;
   _loaded = true;
   if (!fs.existsSync(BLUNDER_FILE)) { _blunders = []; return; }
@@ -121,8 +126,9 @@ function persist(): void {
 
 /** Test-only: reset internal state without touching the filesystem. */
 export function _resetForTesting(): void {
-  _blunders = [];
-  _loaded   = true; // prevent load() from reading real disk files in tests
+  _blunders    = [];
+  _loaded      = true;
+  _testingMode = true; // block even forced load() calls from reading disk
 }
 
 /** Test-only: push a raw entry (bypasses hash computation) for injection tests. */
@@ -210,15 +216,22 @@ export function verifyChain(): {
   verified?: number;
   firstInvalidIdx?: number;
   reason?: string;
+  /** Present when verified=0 to distinguish "verified clean" from "nothing to verify". */
+  note?: string;
 } {
   load();
-  if (_blunders.length === 0) return { valid: true, verified: 0 };
+  if (_blunders.length === 0) return { valid: true, verified: 0, note: 'Log is empty — nothing to verify' };
 
   // Find the first v2 entry — v1 entries before it are a legacy preamble.
   const firstV2Idx = _blunders.findIndex((b) => !!b.hash);
   if (firstV2Idx === -1) {
-    // All entries are v1 (pre-migration). Nothing to verify cryptographically.
-    return { valid: true, verified: 0, truncated: false };
+    // All entries are v1 (pre-migration). The log has not been tamper-evidenced yet.
+    return {
+      valid: true,
+      verified: 0,
+      truncated: false,
+      note: 'No cryptographically-verified entries — all entries predate hash-chain migration. Chain integrity cannot be confirmed.',
+    };
   }
 
   // If the first v2 entry's previousHash is GENESIS_HASH the chain is full

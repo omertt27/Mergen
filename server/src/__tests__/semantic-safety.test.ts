@@ -51,7 +51,7 @@ describe('semantic safety gate', () => {
           confidenceScore: 0.9,
           evidence: ['database pool full'],
           causalPath: ['pool full'],
-          fixHint: 'Resize pool: `export DB_POOL_MAX=50`',
+          fixHint: 'Scale pool: `kubectl scale deployment api-db-pool --replicas=20`',
           remediationConfidence: 0.9,
         }
       ],

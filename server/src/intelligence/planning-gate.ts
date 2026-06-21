@@ -33,6 +33,7 @@ import { calibrationClassifier } from './calibration-classifier.js';
 import { getStatsForTag } from './calibration.js';
 import { serviceGraph } from '../sensor/service-graph.js';
 import { postmortemStore } from './postmortem-store.js';
+import { DEFAULT_EXECUTION_THRESHOLD } from './threshold-optimizer.js';
 import type { Hypothesis } from './causal.js';
 
 export interface PlanningSignals {
@@ -57,8 +58,7 @@ export interface PlanningDecision {
   signals: PlanningSignals;
 }
 
-/** Minimum adjusted confidence to approve execution (can be overridden by caller). */
-const DEFAULT_EXECUTION_THRESHOLD = 0.85;
+// DEFAULT_EXECUTION_THRESHOLD is imported from threshold-optimizer.ts — single source of truth.
 
 /**
  * The blast-risk multiplier lowers the effective confidence when many services

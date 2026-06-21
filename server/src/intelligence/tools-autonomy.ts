@@ -28,6 +28,7 @@ import { getRecords, recordVerdict, classifyVerdict, recordRemediationVerdict } 
 import { executeRemediation, extractCommand } from './autonomy.js';
 import { deriveRollback, executeRollback } from './rollback.js';
 import { getAutopilotLevel, autopilotLevelPermits, classifyCommandRisk, autopilotLevelDescription } from './action-risk.js';
+import { hasRecentOverride } from './override-corpus.js';
 import { getStatsForTag } from './calibration.js';
 import { trackCall, withTierGate } from './tools-state.js';
 import { getTierForTool } from './tool-manifest.js';
@@ -37,13 +38,17 @@ import { postThreadReply } from './slack.js';
 import { consumeIncident } from './usage.js';
 import { generatePostmortem } from './postmortem-store.js';
 import { runAgentPipeline, renderPipelineStages } from './agent-pipeline.js';
+import { planningGate } from './planning-gate.js';
+import { isShadowMode, isAutopilotEnabled } from './execution-mode.js';
+import { getExecutionThreshold } from './threshold-optimizer.js';
 import { getActivePlanId } from './license.js';
 import logger from '../sensor/logger.js';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
 
 const TEAM_UPGRADE_INCIDENT_THRESHOLD = 5;
 
-const AUTO_EXECUTE_CONFIDENCE_THRESHOLD = 0.85;
+// Use the same calibrated threshold as incident-autopilot — single source of truth.
+const AUTO_EXECUTE_CONFIDENCE_THRESHOLD = () => getExecutionThreshold();
 
 const tracer = trace.getTracer('mergen-agent');
 
@@ -72,12 +77,14 @@ export function registerAutonomyTools(server: McpServer): void {
           .describe('Working directory for the command. Defaults to process cwd.'),
         actor: z.string().optional()
           .describe('Identity of the engineer executing the fix (email or username). Used for RBAC and audit log.'),
+        service: z.string().optional()
+          .describe('Service name (e.g. "api", "auth"). Used for override corpus lookup. If omitted, corpus check is skipped.'),
       },
     },
-    withTierGate(getTierForTool('execute_fix'), async ({ pid, confirm, since, dry_run, cwd, actor }) => {
+    withTierGate(getTierForTool('execute_fix'), async ({ pid, confirm, since, dry_run, cwd, actor, service }) => {
       trackCall('execute_fix');
       const isDryRun = dry_run === 'true';
-      const isShadow = process.env.MERGEN_SHADOW_MODE === 'true' && process.env.MERGEN_AUTOPILOT !== 'true';
+      const isShadow = isShadowMode();
 
       if (isShadow && !isDryRun) {
         return {
@@ -150,6 +157,42 @@ export function registerAutonomyTools(server: McpServer): void {
             ].join('\n'),
           }],
         };
+      }
+
+      // ── Risk-tier gate ────────────────────────────────────────────────────────
+      // Reject commands whose tier exceeds the configured autopilot level.
+      // The human confirm=true gate covers intent, but the tier check ensures
+      // deploy/full-tier commands cannot bypass the approval model that the
+      // autopilot enforces via Slack.
+      const commandTier = classifyCommandRisk(command);
+      if (!isDryRun && !autopilotLevelPermits(command, getAutopilotLevel())) {
+        return {
+          content: [{
+            type: 'text',
+            text: `⚠️ **Command blocked** — tier \`${commandTier}\` exceeds MERGEN_AUTOPILOT_LEVEL=${getAutopilotLevel()}. Apply manually or raise the autopilot level.`,
+          }],
+          isError: true,
+        };
+      }
+
+      // ── Override corpus check ─────────────────────────────────────────────────
+      // Warn when the corpus has a recent override for this (tag, service, time-window).
+      // The service parameter is required for a meaningful check — skip if absent.
+      if (!isDryRun && service) {
+        const now = new Date();
+        if (hasRecentOverride(prediction.tag, service, now.getUTCDay(), now.getUTCHours())) {
+          return {
+            content: [{
+              type: 'text',
+              text: [
+                `⚠️ **Override corpus match** — \`${prediction.tag}\` for service \`${service}\` has been overridden in a similar time window before.`,
+                '',
+                'Review the override history at `GET /override-corpus` before proceeding.',
+                'If you still want to execute, omit the `service` parameter to bypass this check, or call `execute_fix` again.',
+              ].join('\n'),
+            }],
+          };
+        }
       }
 
       const resolvedActor = actor ?? process.env.MERGEN_MCP_ACTOR ?? 'mcp-client';
@@ -414,7 +457,7 @@ export function registerAutonomyTools(server: McpServer): void {
         // Run multi-agent governance pipeline (Validator → Planner → Critic → Guard)
         const pipeline = runAgentPipeline(causal, {
           service,
-          executionThreshold: AUTO_EXECUTE_CONFIDENCE_THRESHOLD,
+          executionThreshold: AUTO_EXECUTE_CONFIDENCE_THRESHOLD(),
         });
         lines.push('', renderPipelineStages(pipeline.stages), '');
 
@@ -426,8 +469,15 @@ export function registerAutonomyTools(server: McpServer): void {
         const execPct = Math.round(execConfidence * 100);
         const autopilotLevel = getAutopilotLevel();
         const levelPermits = !command || autopilotLevelPermits(command, autopilotLevel);
-        const isShadow = process.env.MERGEN_SHADOW_MODE === 'true' && process.env.MERGEN_AUTOPILOT !== 'true';
-        const canAutoExecute = shouldAutoExecute && !isShadow && command && pipeline.verdict === 'proceed' && levelPermits;
+        const isShadow = isShadowMode();
+        // Require both the agent-pipeline (blast radius, corpus, critic) AND the
+        // planning-gate (classifier blend, blast-risk threshold adjustment) to agree.
+        // This matches the two-gate logic used by incident-autopilot.ts.
+        const gate = planningGate(topHyp, service ?? 'unknown', AUTO_EXECUTE_CONFIDENCE_THRESHOLD());
+        const canAutoExecute = shouldAutoExecute && !isShadow && command
+          && pipeline.verdict === 'proceed'
+          && gate.execute
+          && levelPermits;
 
         span.setAttribute('mergen.pipeline.verdict', pipeline.verdict ?? '');
         if (command) {
@@ -443,10 +493,12 @@ export function registerAutonomyTools(server: McpServer): void {
             lines.push('⚠️ Auto-execute skipped — no executable command found in fixHint.');
           } else if (pipeline.verdict === 'block') {
             lines.push(`⚠️ Auto-execute blocked by governance pipeline: ${pipeline.blockReason ?? 'see pipeline stages above'}`);
+          } else if (!gate.execute) {
+            lines.push(`⚠️ Auto-execute blocked by planning gate: ${gate.reason}`);
           } else if (!levelPermits) {
             const commandTier = classifyCommandRisk(command);
             lines.push(`⚠️ Auto-execute skipped — MERGEN_AUTOPILOT_LEVEL=${autopilotLevel} permits ${autopilotLevelDescription(autopilotLevel)}. This command is \`${commandTier}\` tier. Set MERGEN_AUTOPILOT_LEVEL=full to enable.`);
-          } else if (topHyp.remediationConfidence !== undefined && topHyp.remediationConfidence < AUTO_EXECUTE_CONFIDENCE_THRESHOLD) {
+          } else if (topHyp.remediationConfidence !== undefined && topHyp.remediationConfidence < AUTO_EXECUTE_CONFIDENCE_THRESHOLD()) {
             lines.push(`⚠️ Auto-execute skipped — remediation confidence ${execPct}% is below the 85% threshold (diagnosis: ${pct}%). The root cause is identified with high confidence but the fix has variable reliability — apply manually.`);
           } else {
             lines.push(`⚠️ Auto-execute skipped — confidence ${pct}% is below the 85% threshold for autonomous action.`);

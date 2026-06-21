@@ -37,9 +37,13 @@ if (PD_WEBHOOK_SECRET) {
 
 function verifyPagerDutySignature(rawBody: Buffer, header: string | undefined): boolean {
   if (!PD_WEBHOOK_SECRET) {
-    // In cloud mode, reject all requests when the secret is not configured —
-    // the endpoint can trigger autonomous execution and must not be left open.
-    return !CLOUD_MODE;
+    // When autopilot is enabled, reject all requests without a secret —
+    // this endpoint triggers autonomous command execution and must not be left open.
+    if (process.env.MERGEN_AUTOPILOT === 'true') return false;
+    // In cloud mode, reject unconditionally (validated at boot too).
+    if (CLOUD_MODE) return false;
+    // Diagnosis-only local mode: allow (warning already logged at startup).
+    return true;
   }
   if (!header) return false;
   const expected = 'v1=' + crypto

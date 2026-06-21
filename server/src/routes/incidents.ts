@@ -23,6 +23,7 @@ import { postmortemStore } from '../intelligence/postmortem-store.js';
 import { commitContextStore } from '../sensor/commit-context-store.js';
 import logger from '../sensor/logger.js';
 import { getShadowLog } from '../intelligence/shadow-log.js';
+import { isShadowMode } from '../intelligence/execution-mode.js';
 
 export function createIncidentsRouter(): Router {
   const router = Router();
@@ -169,7 +170,7 @@ export function createIncidentsRouter(): Router {
   // Board-deck metric: how many incidents resolved, how many autonomously, avg MTTR.
   // Designed to be called by any dashboard or reporting tool.
   router.get('/incidents/impact-report', (_req, res) => {
-    const isShadow = process.env.MERGEN_SHADOW_MODE === 'true';
+    const isShadow = isShadowMode();
     const all = incidentStore.list(undefined, 500);
     const resolved = all.filter((i) => i.status === 'resolved' && i.resolvedAt !== null);
 

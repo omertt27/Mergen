@@ -357,16 +357,18 @@ async function _openOverrideModal(triggerId: string, pid: string): Promise<void>
 }
 
 /**
- * Post a reply to an existing Slack thread. Used by the autonomous triage loop
- * to add progress updates to the original incident thread.
+ * Post a reply to an existing Slack thread.
+ * Returns true if posted successfully, false when Slack is unavailable or no thread exists.
+ * Callers in the autopilot loop should log a warning on false and not silently continue.
  */
-export async function postThreadReply(pid: string, text: string): Promise<void> {
+export async function postThreadReply(pid: string, text: string): Promise<boolean> {
   const thread = _threadByPid.get(pid);
   if (!thread) {
     logger.debug({ pid }, 'slack: no thread found for pid — cannot reply');
-    return;
+    return false;
   }
-  await _postWebApi(thread.channel, { text }, thread.ts);
+  const result = await _postWebApi(thread.channel, { text }, thread.ts);
+  return result !== null;
 }
 
 /** Pushes a simple high-signal notification to the Slack webhook URL. */
@@ -387,19 +389,26 @@ export async function postSimpleWebhookNotification(service: string, text: strin
 /**
  * Post a blocks-based message to an existing incident thread.
  * Used by the execution gate to surface Approve/Deny buttons.
+ * Returns true if the post succeeded, false if Slack is unavailable or no thread exists.
  */
-export async function postThreadBlocks(pid: string, blocks: unknown[]): Promise<void> {
+export async function postThreadBlocks(pid: string, blocks: unknown[]): Promise<boolean> {
   const thread = _threadByPid.get(pid);
   if (!thread) {
     logger.debug({ pid }, 'slack: no thread for blocks post');
-    return;
+    return false;
   }
-  await _postWebApi(thread.channel, { blocks }, thread.ts);
+  const result = await _postWebApi(thread.channel, { blocks }, thread.ts);
+  return result !== null;
 }
 
 /**
  * Post a Slack approval request block for a pending fix execution.
  * Called by incident-autopilot before storing the request in execution-gate.
+ */
+/**
+ * Returns true if the approval block was successfully posted to Slack.
+ * Returns false when Slack is unavailable — caller should abort the
+ * approval flow rather than leaving an unresolvable pending request.
  */
 export async function postApprovalRequest(
   pid: string,
@@ -407,7 +416,7 @@ export async function postApprovalRequest(
   tier: string,
   remediationConfidence: number,
   blastRadius?: import('./blast-radius.js').BlastRadius,
-): Promise<void> {
+): Promise<boolean> {
   const pct = Math.round(remediationConfidence * 100);
   const tierBadge = tier === 'restart' ? '🔄 restart' : tier === 'deploy' ? '🚀 deploy' : '⚡ full';
 
@@ -430,7 +439,7 @@ export async function postApprovalRequest(
     );
   }
 
-  await postThreadBlocks(pid, [
+  return postThreadBlocks(pid, [
     {
       type: 'section',
       text: {
