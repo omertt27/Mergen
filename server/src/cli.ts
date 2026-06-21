@@ -117,33 +117,64 @@ async function setupCommand(): Promise<void> {
   await configureIDE(ide);
   success(`${ide} configured`);
 
-  // 4. Extension setup
-  log('\nBrowser extension setup:');
-  console.log('  1. Open chrome://extensions');
-  console.log('  2. Enable Developer Mode');
-  console.log('  3. Click "Load unpacked"');
-  console.log(`  4. Select: ${resolve(__dirname, '../../extension')}`);
-
-  if (!skipExtension) {
-    const installed = await ask('\nHave you installed the extension? (y/n): ');
-    if (installed.toLowerCase() !== 'y') {
-      log('⚠ Extension not installed. You can install it later.', '⚠');
-    }
+  // 4. Extension setup (optional — only relevant for browser-side telemetry)
+  log('\nBrowser extension setup (optional):');
+  // The extension ships in the repo but not in the npm package.
+  // Show the local path when running from source; fall back to the GitHub URL.
+  const localExtPath = resolve(__dirname, '../../extension');
+  const hasLocalExt  = existsSync(localExtPath);
+  if (hasLocalExt) {
+    console.log('  1. Open chrome://extensions');
+    console.log('  2. Enable Developer Mode');
+    console.log('  3. Click "Load unpacked"');
+    console.log(`  4. Select: ${localExtPath}`);
   } else {
-    log('Extension step skipped (--skip-extension / --yes)', 'ℹ');
+    console.log('  Download the .crx from: https://github.com/omertt27/Mergen/releases');
+    console.log('  Or drag the .vsix into VS Code Extensions view.');
+    console.log('  (The extension adds browser console/network telemetry — skip if not needed.)');
   }
 
-  // 5. GitHub intent archive
-  hr();
-  log('\nGitHub intent archive (required for explain_why):');
-  console.log('  Connecting GitHub populates the PR history that powers');
-  console.log('  "why was this changed?" answers and PR context comments.');
+  if (!skipExtension && !yes) {
+    const installed = await ask('\nHave you installed the extension? (y/n, Enter to skip): ');
+    if (installed.toLowerCase() === 'y') {
+      success('Extension installed');
+    } else {
+      log('Extension skipped — you can add it later. Backend-only triage works without it.', 'ℹ');
+    }
+  } else {
+    log('Extension step skipped', 'ℹ');
+  }
 
-  if (!skipGitHub) {
+  // 5. Shadow mode — safe first step that needs no PagerDuty
+  hr();
+  log('\nShadow mode (recommended starting point):');
+  console.log('  Shadow mode runs full diagnosis and posts Slack alerts but never executes fixes.');
+  console.log('  After 30 days you\'ll have a track record: "Mergen would have been correct 89% of the time."');
+  console.log('  That data is what makes enabling autopilot a decision, not a leap of faith.');
+
+  if (!yes) {
+    const enableShadow = await ask('\nEnable shadow mode now? (y/n): ');
+    if (enableShadow.toLowerCase() === 'y') {
+      process.env.MERGEN_SHADOW_MODE = 'true';
+      log('Set MERGEN_SHADOW_MODE=true in your server environment to persist this.', 'ℹ');
+      console.log('  export MERGEN_SHADOW_MODE=true   # add to your .env or shell profile');
+      success('Shadow mode enabled for this session');
+    } else {
+      log('Skipped — enable later with: export MERGEN_SHADOW_MODE=true', 'ℹ');
+    }
+  }
+
+  // 6. GitHub intent archive
+  hr();
+  log('\nGitHub intent archive (optional — powers explain_why):');
+  console.log('  Connecting GitHub populates PR history so Mergen can answer "why was this changed?"');
+  console.log('  Skip this if you just want incident triage — you can add it later.');
+
+  if (!skipGitHub && !yes) {
     const connectGh = await ask('Connect GitHub now? (y/n): ');
     if (connectGh.toLowerCase() === 'y') {
       await connectCommand(['github']);
-      const doBackfill = await ask('\nBackfill historical PRs? Recommended — gives explain_why data on day 1. (y/n): ');
+      const doBackfill = await ask('\nBackfill historical PRs? Gives explain_why data on day 1. (y/n): ');
       if (doBackfill.toLowerCase() === 'y') {
         await backfillCommand(['github']);
       }
@@ -151,23 +182,24 @@ async function setupCommand(): Promise<void> {
       log('Skipped. Run later: mergen-server connect github --repo <owner/repo>', 'ℹ');
     }
   } else {
-    log('GitHub step skipped (--skip-github / --yes)', 'ℹ');
-    log('Run later: mergen-server connect github --repo <owner/repo>', 'ℹ');
+    log('GitHub step skipped. Run later: mergen-server connect github --repo <owner/repo>', 'ℹ');
   }
 
-  // 6. Seed built-in runbooks
+  // 7. Seed built-in runbooks
   await seedBuiltinRunbooks();
 
-  // 7. Summary + start server
+  // 8. Summary + start server
   hr();
   log('\n✨ Setup complete!\n');
   console.log('Next steps:');
-  console.log('  1. Start server: mergen-server start');
-  console.log('  2. Or run in background: mergen-server start &');
-  console.log('  3. Verify setup: mergen-server test\n');
-  console.log('Tips:');
-  console.log('  mergen-server doctor     → check all integrations');
-  console.log('  cp server/.env.example .env  → configure optional integrations\n');
+  console.log('  1. Start server:          mergen-server start');
+  console.log('  2. Verify everything:     mergen-server doctor');
+  console.log('  3. Watch shadow reports:  curl http://127.0.0.1:3000/shadow-report | jq');
+  console.log('  4. When ready for auto:   export MERGEN_AUTOPILOT=true\n');
+  console.log('Integrations (add to .env):');
+  console.log('  PagerDuty:  MERGEN_PAGERDUTY_SECRET=...  (webhook → /webhooks/pagerduty)');
+  console.log('  Slack:      MERGEN_SLACK_BOT_TOKEN=xoxb-...  MERGEN_SLACK_CHANNEL=#incidents');
+  console.log('  Datadog:    DD_API_KEY=...  DD_APP_KEY=...  (trace fetch + validation)\n');
 
   if (yes) {
     log('Skipping "start now?" prompt in --yes mode. Run: mergen-server start', 'ℹ');

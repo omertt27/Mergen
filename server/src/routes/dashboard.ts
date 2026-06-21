@@ -50,6 +50,8 @@ export function createDashboardRouter(serverVersion: string, localSecret: string
 }
 
 function buildDashboardHtml(version: string, nonce: string): string {
+  const isShadow = process.env.MERGEN_SHADOW_MODE === 'true';
+  const shadowBadge = isShadow ? `<span class="badge" style="background:rgba(245,158,11,.15);color:var(--yellow);margin-left:8px">Trial Mode: Shadow (Read-only)</span>` : '';
   return /* html */`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -197,6 +199,7 @@ function buildDashboardHtml(version: string, nonce: string): string {
   <span class="dot" id="dot"></span>
   <span class="logo">⬡ Mergen</span>
   <span style="color:var(--muted);font-size:11px">v${version}</span>
+  ${shadowBadge}
   <div class="header-stats">
     <div>Errors: <span id="h-errors" class="badge badge-muted">—</span></div>
     <div>Warnings: <span id="h-warns" class="badge badge-muted">—</span></div>
@@ -886,6 +889,11 @@ async function pollMttr() {
       return;
     }
 
+    const isShadow = d.isShadowMode;
+    const rateLabel = isShadow ? 'Autonomous rate (would execute)' : 'Autonomous rate';
+    const autoLabel = isShadow ? 'Autonomous (Would Execute)' : 'Autonomous';
+    const mttrAutoLabel = isShadow ? 'MTTR autonomous (would execute)' : 'MTTR autonomous';
+
     const autoRate = d.autonomousRate ?? 0;
     const barColor = autoRate >= 50 ? 'var(--green)' : autoRate >= 25 ? 'var(--yellow)' : 'var(--muted)';
 
@@ -900,7 +908,7 @@ async function pollMttr() {
     // Autonomous rate bar
     html += '<div style="margin-bottom:10px">'
       + '<div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px">'
-      + '<span style="color:var(--muted)">Autonomous rate</span>'
+      + '<span style="color:var(--muted)">' + rateLabel + '</span>'
       + '<span style="font-weight:700;color:' + barColor + '">' + autoRate + '%</span>'
       + '</div>'
       + '<div style="background:rgba(255,255,255,.06);border-radius:3px;height:6px;overflow:hidden">'
@@ -910,12 +918,12 @@ async function pollMttr() {
 
     // MTTR comparison
     html += '<div class="stat"><span class="stat-label">Resolved total</span><span class="stat-val">' + d.totalResolved + '</span></div>';
-    html += '<div class="stat"><span class="stat-label">Autonomous</span><span class="stat-val" style="color:var(--green)">' + d.autonomousResolutions + '</span></div>';
+    html += '<div class="stat"><span class="stat-label">' + autoLabel + '</span><span class="stat-val" style="color:var(--green)">' + d.autonomousResolutions + '</span></div>';
     html += '<div class="stat"><span class="stat-label">Manual</span><span class="stat-val" style="color:var(--muted)">' + d.manualResolutions + '</span></div>';
 
     if (d.mttr) {
       if (d.mttr.overallMs)    html += '<div class="stat"><span class="stat-label">MTTR overall</span><span class="stat-val">' + fmtMs(d.mttr.overallMs) + '</span></div>';
-      if (d.mttr.autonomousMs) html += '<div class="stat"><span class="stat-label">MTTR autonomous</span><span class="stat-val" style="color:var(--green)">' + fmtMs(d.mttr.autonomousMs) + '</span></div>';
+      if (d.mttr.autonomousMs) html += '<div class="stat"><span class="stat-label">' + mttrAutoLabel + '</span><span class="stat-val" style="color:var(--green)">' + fmtMs(d.mttr.autonomousMs) + '</span></div>';
       if (d.mttr.manualMs)     html += '<div class="stat"><span class="stat-label">MTTR manual</span><span class="stat-val" style="color:var(--muted)">' + fmtMs(d.mttr.manualMs) + '</span></div>';
     }
 

@@ -15,6 +15,7 @@ import type { Hypothesis } from './causal.js';
 import { calibrationClassifier } from '../intelligence/calibration-classifier.js';
 import { invalidateThresholdCache } from '../intelligence/threshold-optimizer.js';
 import { CALIBRATION_FILE, DATA_DIR, zeroRetentionMode } from '../sensor/paths.js';
+import { gitSyncCalibration } from '../intelligence/calibration-git-sync.js';
 import logger from '../sensor/logger.js';
 
 const MIN_SAMPLES        = 5;
@@ -315,6 +316,7 @@ export function recordVerdict(
   }
 
   schedulePersist();
+  gitSyncCalibration(rec.tag, verdict, pid);
   return { found: true, persisted: true };
 }
 

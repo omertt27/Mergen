@@ -22,6 +22,7 @@ import { replayIncident, listSnapshotPids } from '../intelligence/incident-repla
 import { postmortemStore } from '../intelligence/postmortem-store.js';
 import { commitContextStore } from '../sensor/commit-context-store.js';
 import logger from '../sensor/logger.js';
+import { getShadowLog } from '../intelligence/shadow-log.js';
 
 export function createIncidentsRouter(): Router {
   const router = Router();
@@ -168,16 +169,35 @@ export function createIncidentsRouter(): Router {
   // Board-deck metric: how many incidents resolved, how many autonomously, avg MTTR.
   // Designed to be called by any dashboard or reporting tool.
   router.get('/incidents/impact-report', (_req, res) => {
+    const isShadow = process.env.MERGEN_SHADOW_MODE === 'true';
     const all = incidentStore.list(undefined, 500);
     const resolved = all.filter((i) => i.status === 'resolved' && i.resolvedAt !== null);
 
-    const autonomousCount = resolved.filter((i) => i.resolvedAutonomously).length;
-    const manualCount     = resolved.length - autonomousCount;
+    let autonomousCount = 0;
+    let manualCount = resolved.length;
+    let causallyCorrectCount = 0;
+    const wouldResolvePids = new Set<string>();
+    const approvedPids = new Set<string>();
 
-    // Causal correctness: autonomous resolutions where the root-cause diagnosis
-    // was confirmed correct (error rate dropped AND calibration verdict = 'correct').
-    // This is the LeCun metric — not just speed, but whether the reasoning was right.
-    const causallyCorrectCount = resolved.filter((i) => i.causallyCorrect).length;
+    if (isShadow) {
+      const shadowLog = getShadowLog();
+      for (const e of shadowLog) {
+        if (e.wouldHaveExecuted) {
+          wouldResolvePids.add(e.pid);
+        }
+        if (e.humanVerdict === 'would-approve') {
+          approvedPids.add(e.pid);
+        }
+      }
+      autonomousCount = resolved.filter((i) => wouldResolvePids.has(i.pid)).length;
+      manualCount     = resolved.length - autonomousCount;
+      causallyCorrectCount = resolved.filter((i) => approvedPids.has(i.pid)).length;
+    } else {
+      autonomousCount = resolved.filter((i) => i.resolvedAutonomously).length;
+      manualCount     = resolved.length - autonomousCount;
+      causallyCorrectCount = resolved.filter((i) => i.causallyCorrect).length;
+    }
+
     const causallyCorrectRate  = autonomousCount > 0
       ? Math.round((causallyCorrectCount / autonomousCount) * 100)
       : 0;
@@ -190,11 +210,20 @@ export function createIncidentsRouter(): Router {
       return Math.round(total / valid.length);
     };
 
-    const autonomousIncidents = resolved.filter((i) => i.resolvedAutonomously);
-    const manualIncidents     = resolved.filter((i) => !i.resolvedAutonomously);
+    let autonomousIncidents: typeof resolved = [];
+    let manualIncidents: typeof resolved = [];
+
+    if (isShadow) {
+      autonomousIncidents = resolved.filter((i) => wouldResolvePids.has(i.pid));
+      manualIncidents     = resolved.filter((i) => !wouldResolvePids.has(i.pid));
+    } else {
+      autonomousIncidents = resolved.filter((i) => i.resolvedAutonomously);
+      manualIncidents     = resolved.filter((i) => !i.resolvedAutonomously);
+    }
 
     res.json({
       ok: true,
+      isShadowMode: isShadow,
       totalResolved: resolved.length,
       autonomousResolutions: autonomousCount,
       manualResolutions: manualCount,
@@ -215,8 +244,8 @@ export function createIncidentsRouter(): Router {
           pid: i.pid,
           tag: i.tag,
           resolvedAt: i.resolvedAt,
-          resolvedAutonomously: i.resolvedAutonomously,
-          causallyCorrect: i.causallyCorrect,
+          resolvedAutonomously: isShadow ? wouldResolvePids.has(i.pid) : i.resolvedAutonomously,
+          causallyCorrect: isShadow ? approvedPids.has(i.pid) : i.causallyCorrect,
           mttrMs: i.resolvedAt && i.createdAt ? i.resolvedAt - i.createdAt : null,
         })),
     });

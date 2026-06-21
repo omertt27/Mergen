@@ -23,6 +23,7 @@
  */
 
 import fs from 'fs';
+import { lockAndExecute } from '../sensor/file-lock.js';
 import { randomUUID } from 'crypto';
 import { SHADOW_LOG_FILE, DATA_DIR } from '../sensor/paths.js';
 import { recordOverride } from './override-corpus.js';
@@ -84,14 +85,16 @@ const MAX_ENTRIES = 500;
 let _entries: ShadowEntry[] = [];
 let _loaded = false;
 
-function load(): void {
-  if (_loaded) return;
-  if (!fs.existsSync(SHADOW_LOG_FILE)) { _loaded = true; return; }
+function load(force = false): void {
+  if (_loaded && !force) return;
+  if (!fs.existsSync(SHADOW_LOG_FILE)) { _entries = []; _loaded = true; return; }
   try {
     const raw = fs.readFileSync(SHADOW_LOG_FILE, 'utf8');
     const parsed = JSON.parse(raw) as ShadowFile;
     if (parsed?.version === 1 && Array.isArray(parsed.entries)) {
       _entries = parsed.entries.slice(-MAX_ENTRIES);
+    } else {
+      _entries = [];
     }
     _loaded = true;
   } catch (err) {
@@ -119,20 +122,23 @@ function persist(): void {
 // ── Public API ───────────────────────────────────────────────────────────────
 
 export function recordShadow(input: Omit<ShadowEntry, 'id' | 'recordedAt'>): ShadowEntry {
-  load();
   const entry: ShadowEntry = {
     ...input,
     id: randomUUID(),
     recordedAt: Date.now(),
   };
-  _entries.push(entry);
-  if (_entries.length > MAX_ENTRIES) _entries = _entries.slice(-MAX_ENTRIES);
-  persist();
-  logger.info(
-    { id: entry.id, tag: entry.incidentTag, skip: entry.skipReason, wouldRun: entry.wouldHaveExecuted },
-    'shadow-log: entry recorded',
-  );
-  return entry;
+
+  return lockAndExecute(`${SHADOW_LOG_FILE}.lock`, () => {
+    load(true);
+    _entries.push(entry);
+    if (_entries.length > MAX_ENTRIES) _entries = _entries.slice(-MAX_ENTRIES);
+    persist();
+    logger.info(
+      { id: entry.id, tag: entry.incidentTag, skip: entry.skipReason, wouldRun: entry.wouldHaveExecuted },
+      'shadow-log: entry recorded',
+    );
+    return entry;
+  });
 }
 
 /**
@@ -150,49 +156,52 @@ export function recordShadowVerdict(
     actor?: string;
   } = {},
 ): { found: false } | { found: true; entry: ShadowEntry; overrideId?: string } {
-  load();
-  const entry = _entries.find((e) => e.id === id);
-  if (!entry) return { found: false };
+  return lockAndExecute(`${SHADOW_LOG_FILE}.lock`, () => {
+    load(true);
+    const entry = _entries.find((e) => e.id === id);
+    if (!entry) return { found: false };
 
-  entry.humanVerdict = verdict;
-  entry.verdictAt = Date.now();
-  if (opts.note) entry.humanNote = opts.note.slice(0, 200);
+    entry.humanVerdict = verdict;
+    entry.verdictAt = Date.now();
+    if (opts.note) entry.humanNote = opts.note.slice(0, 200);
 
-  let overrideId: string | undefined;
-  if (verdict === 'would-override' && entry.command) {
-    const ov = recordOverride({
-      incidentTag: entry.incidentTag,
-      proposedCommand: entry.command,
-      overrideReason: opts.overrideReason ?? 'on-call-discretion',
-      note: opts.note,
-      service: entry.service,
-      environment: 'production',
-      manualAction: opts.manualAction,
-      actor: opts.actor ?? 'shadow-review',
-    });
-    overrideId = ov.id;
-    entry.overrideId = ov.id;
-  }
+    let overrideId: string | undefined;
+    if (verdict === 'would-override' && entry.command) {
+      const ov = recordOverride({
+        incidentTag: entry.incidentTag,
+        proposedCommand: entry.command,
+        overrideReason: opts.overrideReason ?? 'on-call-discretion',
+        note: opts.note,
+        service: entry.service,
+        environment: 'production',
+        manualAction: opts.manualAction,
+        actor: opts.actor ?? 'shadow-review',
+      });
+      overrideId = ov.id;
+      entry.overrideId = ov.id;
+    }
 
-  persist();
-  return { found: true, entry, overrideId };
+    persist();
+    return { found: true, entry, overrideId };
+  });
 }
 
 /** Update the skipReason of an existing shadow entry by its PID. */
 export function updateShadowReasonByPid(pid: string, skipReason: ShadowSkipReason): void {
-  load();
-  const entry = _entries.find((e) => e.pid === pid);
-  if (entry) {
-    entry.skipReason = skipReason;
-    persist();
-    logger.info({ pid, skipReason }, 'shadow-log: entry updated by pid');
-  }
+  lockAndExecute(`${SHADOW_LOG_FILE}.lock`, () => {
+    load(true);
+    const entry = _entries.find((e) => e.pid === pid);
+    if (entry) {
+      entry.skipReason = skipReason;
+      persist();
+      logger.info({ pid, skipReason }, 'shadow-log: entry updated by pid');
+    }
+  });
 }
-
 
 /** All shadow entries, oldest first. */
 export function getShadowLog(): readonly ShadowEntry[] {
-  load();
+  load(true);
   return _entries;
 }
 

@@ -10,8 +10,23 @@ import { existsSync, writeFileSync, mkdirSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { homedir } from 'os';
 
+import logger from '../sensor/logger.js';
+
 export function createSetupRouter(): Router {
   const router = Router();
+
+  // Restrict setup endpoints to localhost loopback to prevent Remote Code Execution
+  router.use((req, res, next) => {
+    const remoteIp = (req.socket.remoteAddress ?? '').replace(/^::ffff:/, '');
+    const isLocalhost = remoteIp === '127.0.0.1' || remoteIp === '::1' || remoteIp === '';
+
+    if (!isLocalhost && process.env.NODE_ENV !== 'test') {
+      logger.warn({ remoteIp, path: req.path }, 'setup-ui: blocked remote attempt to access setup wizard');
+      res.status(403).send('Forbidden — setup wizard is only accessible via localhost loopback interface (127.0.0.1) for security.');
+      return;
+    }
+    next();
+  });
 
   // ── GET /setup — Setup wizard UI ─────────────────────────────────────────────
   // Accepts ?server=<url>&token=<secret> from mergen invite URLs to pre-fill fields.

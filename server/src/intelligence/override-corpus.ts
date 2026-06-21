@@ -24,6 +24,7 @@
  */
 
 import fs from 'fs';
+import { lockAndExecute } from '../sensor/file-lock.js';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { OVERRIDE_CORPUS_FILE, DATA_DIR } from '../sensor/paths.js';
@@ -97,28 +98,16 @@ let _loaded = false;
 let _compactedRules: CompactedRule[] | null = null;
 let _corpusDirty = true; // starts dirty so the first call always computes
 
-// ── Debounced persist ─────────────────────────────────────────────────────────
-// Writing the full JSON on every recordOverride() blocks the event loop under
-// noisy incident conditions. We coalesce writes: the file is flushed 500ms after
-// the last mutation, not on every mutation.
-let _persistTimer: ReturnType<typeof setTimeout> | null = null;
-
-function schedulePersist(): void {
-  if (_persistTimer) clearTimeout(_persistTimer);
-  _persistTimer = setTimeout(() => {
-    _persistTimer = null;
-    persist();
-  }, 500);
-}
-
-function load(): void {
-  if (_loaded) return;
-  if (!fs.existsSync(OVERRIDE_CORPUS_FILE)) { _loaded = true; return; }
+function load(force = false): void {
+  if (_loaded && !force) return;
+  if (!fs.existsSync(OVERRIDE_CORPUS_FILE)) { _events = []; _loaded = true; return; }
   try {
     const raw = fs.readFileSync(OVERRIDE_CORPUS_FILE, 'utf8');
     const parsed = JSON.parse(raw) as CorpusFile;
     if (parsed?.version === 1 && Array.isArray(parsed.events)) {
       _events = parsed.events.slice(-MAX_EVENTS);
+    } else {
+      _events = [];
     }
     _loaded = true;
   } catch (err) {
@@ -147,7 +136,6 @@ function persist(): void {
 
 /** Record an engineer override. Returns the saved event with its assigned id. */
 export function recordOverride(input: Omit<OverrideEvent, 'id' | 'dayOfWeek' | 'hourOfDay' | 'recordedAt'>): OverrideEvent {
-  load();
   const now = new Date();
   const event: OverrideEvent = {
     ...input,
@@ -159,22 +147,29 @@ export function recordOverride(input: Omit<OverrideEvent, 'id' | 'dayOfWeek' | '
     hourOfDay: now.getUTCHours(),
     recordedAt: now.getTime(),
   };
-  _events.push(event);
-  if (_events.length > MAX_EVENTS) _events = _events.slice(-MAX_EVENTS);
-  _corpusDirty = true;
-  schedulePersist();
-  logger.info({ id: event.id, tag: event.incidentTag, reason: event.overrideReason, service: event.service }, 'override-corpus: override recorded');
-  return event;
+
+  return lockAndExecute(`${OVERRIDE_CORPUS_FILE}.lock`, () => {
+    load(true);
+    _events.push(event);
+    if (_events.length > MAX_EVENTS) _events = _events.slice(-MAX_EVENTS);
+    _corpusDirty = true;
+    persist();
+    logger.info({ id: event.id, tag: event.incidentTag, reason: event.overrideReason, service: event.service }, 'override-corpus: override recorded');
+    return event;
+  });
 }
 
 /** Update the outcome of a previously recorded override. */
 export function updateOutcome(id: string, outcome: OverrideOutcome): boolean {
-  load();
-  const ev = _events.find((e) => e.id === id);
-  if (!ev) return false;
-  ev.outcome = outcome;
-  schedulePersist();
-  return true;
+  return lockAndExecute(`${OVERRIDE_CORPUS_FILE}.lock`, () => {
+    load(true);
+    const ev = _events.find((e) => e.id === id);
+    if (!ev) return false;
+    ev.outcome = outcome;
+    _corpusDirty = true;
+    persist();
+    return true;
+  });
 }
 
 /**
@@ -190,7 +185,7 @@ export function hasRecentOverride(
   dayOfWeek: number,
   hourOfDay: number,
 ): boolean {
-  load();
+  load(true);
   const cutoff = Date.now() - 90 * 24 * 60 * 60 * 1000;
   return _events.some((e) => {
     if (e.incidentTag !== incidentTag) return false;
@@ -207,7 +202,7 @@ export function dominantOverrideReason(
   incidentTag: string,
   service: string,
 ): OverrideReason | null {
-  load();
+  load(true);
   const counts = new Map<OverrideReason, number>();
   for (const e of _events) {
     if (e.incidentTag !== incidentTag || e.service !== service) continue;
@@ -224,19 +219,19 @@ export function dominantOverrideReason(
 
 /** Raw override history for a specific detector tag. */
 export function getOverridesForTag(tag: string): OverrideEvent[] {
-  load();
+  load(true);
   return _events.filter((e) => e.incidentTag === tag);
 }
 
 /** Look up a single override by its id. */
 export function getOverrideById(id: string): OverrideEvent | null {
-  load();
+  load(true);
   return _events.find((e) => e.id === id) ?? null;
 }
 
 /** All override events (read-only snapshot). */
 export function getAllOverrides(): readonly OverrideEvent[] {
-  load();
+  load(true);
   return _events;
 }
 

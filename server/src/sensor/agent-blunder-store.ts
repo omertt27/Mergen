@@ -20,6 +20,7 @@ import path from 'path';
 import { createHash, randomUUID } from 'crypto';
 import { DATA_DIR, zeroRetentionMode } from './paths.js';
 import logger from './logger.js';
+import { lockAndExecute } from './file-lock.js';
 
 const BLUNDER_FILE = path.join(DATA_DIR, 'agent-blunders.json');
 // Configurable cap — default 5,000. At 10 blocks/day this covers ~1.4 years;
@@ -89,17 +90,19 @@ function _computeHash(
 
 // ── Storage ───────────────────────────────────────────────────────────────────
 
-function load(): void {
-  if (_loaded) return;
+function load(force = false): void {
+  if (_loaded && !force) return;
   _loaded = true;
-  if (!fs.existsSync(BLUNDER_FILE)) return;
+  if (!fs.existsSync(BLUNDER_FILE)) { _blunders = []; return; }
   try {
     const raw = JSON.parse(fs.readFileSync(BLUNDER_FILE, 'utf8'));
     // Support reading v1 files (no hash fields) — migrate forward on next write
     if ((raw?.version === 2 || raw?.version === 1) && Array.isArray(raw.blunders)) {
       _blunders = raw.blunders;
+    } else {
+      _blunders = [];
     }
-  } catch { /* start fresh on parse error */ }
+  } catch { _blunders = []; }
 }
 
 function persist(): void {
@@ -132,27 +135,29 @@ export function _injectRawForTesting(entry: Partial<BlunderEvent> & Pick<Blunder
 }
 
 export function recordBlunder(event: Omit<BlunderEvent, 'id' | 'recordedAt' | 'hash' | 'previousHash'>): void {
-  load();
-  const base = { id: randomUUID(), recordedAt: Date.now(), ...event };
-  // Use || not ?? — v1 legacy entries have hash='' (empty string), which is
-  // falsy but not nullish. ?? would leave previousHash as '' and corrupt the
-  // chain when a v2 entry immediately follows a v1 preamble entry.
-  const previousHash = _blunders.length > 0
-    ? (_blunders[_blunders.length - 1].hash || GENESIS_HASH)
-    : GENESIS_HASH;
-  const hash = _computeHash(base, previousHash);
+  return lockAndExecute(`${BLUNDER_FILE}.lock`, () => {
+    load(true);
+    const base = { id: randomUUID(), recordedAt: Date.now(), ...event };
+    // Use || not ?? — v1 legacy entries have hash='' (empty string), which is
+    // falsy but not nullish. ?? would leave previousHash as '' and corrupt the
+    // chain when a v2 entry immediately follows a v1 preamble entry.
+    const previousHash = _blunders.length > 0
+      ? (_blunders[_blunders.length - 1].hash || GENESIS_HASH)
+      : GENESIS_HASH;
+    const hash = _computeHash(base, previousHash);
 
-  _blunders.push({ ...base, previousHash, hash });
-  if (_blunders.length > MAX_BLUNDERS) _blunders = _blunders.slice(-MAX_BLUNDERS);
-  persist();
-  logger.info(
-    { blunderType: event.blunderType, cmd: event.command?.slice(0, 80), service: event.service },
-    'agent-blunder: intercepted',
-  );
+    _blunders.push({ ...base, previousHash, hash });
+    if (_blunders.length > MAX_BLUNDERS) _blunders = _blunders.slice(-MAX_BLUNDERS);
+    persist();
+    logger.info(
+      { blunderType: event.blunderType, cmd: event.command?.slice(0, 80), service: event.service },
+      'agent-blunder: intercepted',
+    );
+  });
 }
 
 export function getBlunders(): BlunderEvent[] {
-  load();
+  load(true);
   return [..._blunders];
 }
 
@@ -162,7 +167,7 @@ export function getBlunderStats(): {
   last7Days: number;
   last30Days: number;
 } {
-  load();
+  load(true);
   const now  = Date.now();
   const ms7  =  7 * 24 * 60 * 60 * 1_000;
   const ms30 = 30 * 24 * 60 * 60 * 1_000;

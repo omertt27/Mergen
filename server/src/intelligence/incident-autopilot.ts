@@ -38,7 +38,7 @@ import { normalizeRuntimeFactMarkdown, normalizeProcessExits, normalizeSlackCont
 import { getK8sEvents } from '../sensor/k8s-events.js';
 import { hasRecentOverride, dominantOverrideReason } from './override-corpus.js';
 import { cacheIncidentResult, getCachedIncidentResult } from './incident-result-cache.js';
-import { recordShadow } from './shadow-log.js';
+import { recordShadow, type ShadowEntry } from './shadow-log.js';
 import { getAutopilotLevel, autopilotLevelPermits, classifyCommandRisk, autopilotLevelDescription } from './action-risk.js';
 import { recordBlunder } from '../sensor/agent-blunder-store.js';
 import { getStatsForTag } from './calibration.js';
@@ -103,6 +103,17 @@ const getAutoExecuteThreshold = () => getExecutionThreshold();
 const isAutopilotEnabled = () => process.env.MERGEN_AUTOPILOT === 'true';
 // Shadow mode: run full analysis and Slack reporting but never execute.
 const isShadowMode = () => !isAutopilotEnabled() && process.env.MERGEN_SHADOW_MODE === 'true';
+
+// Base URL for one-click verdict links embedded in shadow mode Slack messages.
+// Defaults to localhost — set MERGEN_BASE_URL for remote/cloud deployments.
+const getBaseUrl = () => (process.env.MERGEN_BASE_URL ?? 'http://127.0.0.1:3000').replace(/\/$/, '');
+
+function buildVerdictLinks(entry: ShadowEntry): string {
+  const base = getBaseUrl();
+  const approve  = `${base}/shadow-report/${entry.id}/verdict?v=approve`;
+  const override = `${base}/shadow-report/${entry.id}/verdict?v=override&reason=on-call-discretion`;
+  return `\n<${approve}|✅ Approve>  ·  <${override}|✋ Override>`;
+}
 
 // Wait for telemetry to arrive after a PagerDuty trigger.
 // Polls the buffer at 250ms intervals — returns as soon as MIN_EVENTS arrive,
@@ -517,8 +528,9 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
     }
 
     // Log a shadow entry so the track record is visible in /shadow-report
+    let shadowEntry: ShadowEntry | undefined;
     if (topHyp.pid) {
-      recordShadow({
+      shadowEntry = recordShadow({
         pid: topHyp.pid,
         incidentTag: topHyp.tag,
         service,
@@ -545,7 +557,10 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
     }
 
     const icon = isShadowMode() ? '👁️' : '⚠️';
-    await postThreadReply(pid, `${icon} _Autopilot: ${slackReason}. Awaiting manual action._`);
+    // In shadow mode, append one-click verdict links so the on-call SRE can
+    // annotate the entry directly from Slack without navigating to the dashboard.
+    const verdictLinks = (isShadowMode() && shadowEntry) ? buildVerdictLinks(shadowEntry) : '';
+    await postThreadReply(pid, `${icon} _Autopilot: ${slackReason}. Awaiting manual action._${verdictLinks}`);
     return;
   }
 

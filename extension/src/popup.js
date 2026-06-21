@@ -312,7 +312,9 @@ async function refresh(port) {
     planBadge.className   = `plan-label plan-${planId}`;
 
     const atLimit = usage.included !== null && usage.used / usage.included >= 0.8;
-    upgradeLink.style.display = (planId === 'free' || atLimit) ? '' : 'none';
+    if (upgradeLink) {
+      upgradeLink.style.display = 'none';
+    }
 
     if (usage.included !== null && usage.included > 0 &&
         (usage.used / usage.included >= 0.70 || usage.overage > 0)) {
@@ -485,20 +487,26 @@ btnClear.addEventListener('click', async () => {
 
 // ── Nav links ─────────────────────────────────────────────────────────────────
 
-welcomeLink.addEventListener('click', (e) => {
-  e.preventDefault();
-  chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html') });
-});
+if (welcomeLink) {
+  welcomeLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html') });
+  });
+}
 
-pricingLink.addEventListener('click', (e) => {
-  e.preventDefault();
-  chrome.tabs.create({ url: chrome.runtime.getURL('pricing.html') });
-});
+if (pricingLink) {
+  pricingLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    chrome.tabs.create({ url: chrome.runtime.getURL('pricing.html') });
+  });
+}
 
-upgradeLink.addEventListener('click', (e) => {
-  e.preventDefault();
-  chrome.tabs.create({ url: chrome.runtime.getURL('pricing.html') });
-});
+if (upgradeLink) {
+  upgradeLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    chrome.tabs.create({ url: chrome.runtime.getURL('pricing.html') });
+  });
+}
 
 // ── Content-script ping ───────────────────────────────────────────────────────
 // If the tab was open before the extension was installed/reloaded, the content

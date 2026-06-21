@@ -32,6 +32,12 @@ const VerdictSchema = z.object({
   actor:          z.string().max(200).optional(),
 });
 
+// Short aliases used by the one-click GET links embedded in Slack messages.
+const VERDICT_ALIAS: Record<string, 'would-approve' | 'would-override'> = {
+  approve:  'would-approve',
+  override: 'would-override',
+};
+
 export function createShadowReportRouter(): Router {
   const router = Router();
 
@@ -54,6 +60,54 @@ export function createShadowReportRouter(): Router {
   router.get('/shadow-report/slack-digest', (req, res) => {
     const windowDays = Math.min(30, Math.max(1, Number(req.query.days ?? 7)));
     res.json(getShadowSlackDigest(windowDays));
+  });
+
+  // ── One-click verdict link (GET) — embedded in shadow mode Slack messages ──
+  // ?v=approve|override  &reason=<OverrideReason>  &actor=<string>
+  // Returns HTML so clicking the link in Slack gives instant visual feedback.
+  router.get('/shadow-report/:id/verdict', (req, res) => {
+    const alias = String(req.query.v ?? '');
+    const verdict = VERDICT_ALIAS[alias];
+    if (!verdict) {
+      res.status(400).send('<h2>❌ Unknown verdict. Use ?v=approve or ?v=override</h2>');
+      return;
+    }
+    const overrideReason = (req.query.reason as OverrideReason | undefined) ?? 'on-call-discretion';
+    if (verdict === 'would-override' && !OVERRIDE_REASONS.includes(overrideReason)) {
+      res.status(400).send(`<h2>❌ Unknown override reason: ${overrideReason}</h2>`);
+      return;
+    }
+
+    const result = recordShadowVerdict(req.params.id, verdict, {
+      overrideReason: verdict === 'would-override' ? overrideReason : undefined,
+      actor:          String(req.query.actor ?? 'slack-link'),
+    });
+
+    if (!result.found) {
+      res.status(404).send('<h2>❌ Shadow entry not found — it may have expired.</h2>');
+      return;
+    }
+
+    logger.info(
+      { id: req.params.id, verdict, overrideId: result.overrideId },
+      'shadow verdict recorded via one-click link',
+    );
+
+    const icon    = verdict === 'would-approve' ? '✅' : '✋';
+    const label   = verdict === 'would-approve' ? 'Approved' : 'Override recorded';
+    const corpusNote = result.overrideId
+      ? `<p style="color:#666">Override corpus entry created — Mergen won't auto-execute this pattern again without review.</p>`
+      : '';
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>body{font-family:system-ui,sans-serif;max-width:480px;margin:80px auto;text-align:center}
+h1{font-size:2.5rem;margin-bottom:.5rem}p{color:#555;margin:.25rem 0}</style></head>
+<body><h1>${icon}</h1><h2>${label}</h2>
+<p>Shadow entry <code>${req.params.id.slice(0, 8)}</code> annotated.</p>
+${corpusNote}
+<p style="margin-top:2rem;font-size:.85rem"><a href="/shadow-report">View full shadow report →</a></p>
+</body></html>`);
   });
 
   // ── Raw entries ────────────────────────────────────────────────────────────
