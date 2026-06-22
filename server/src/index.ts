@@ -55,6 +55,7 @@ import { SYSTEM_PROMPT } from './intelligence/prompts.js';
 import { registerTeamBroadcaster } from './sensor/ingest.js';
 
 import { startShadowDigestCron } from './intelligence/shadow-digest-cron.js';
+import { startDegradationWatcher } from './intelligence/degradation-watcher.js';
 import { startHeartbeatMonitor, setHeartbeatAlertFn } from './sensor/heartbeat-monitor.js';
 import { startK8sEventsPoller } from './sensor/k8s-events.js';
 import { loadPlugins } from './intelligence/detector-plugins.js';
@@ -373,6 +374,9 @@ async function main(): Promise<void> {
 
   // ── Shadow mode weekly Slack digest (Monday 09:00 UTC) ────────────────────
   startShadowDigestCron();
+
+  // ── Graduated urgency — local desktop notification on sustained degradation ─
+  startDegradationWatcher();
 
   // ── Continuous watcher ────────────────────────────────────────────────────
   startWatcher();

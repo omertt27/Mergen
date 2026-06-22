@@ -25,6 +25,7 @@ import { toolCallCounts, lastMcpCallAt, firstAnalyzeAt, lastTimeToFirstAnalysisM
 import { listActiveSessions } from '../intelligence/debug-sessions.js';
 import { getTeamState, isTeamEnabled } from '../intelligence/team.js';
 import { getStats } from '../intelligence/calibration.js';
+import { getDegradationState } from '../intelligence/degradation-watcher.js';
 
 export function createSensorRouter(serverVersion: string): Router {
   const router = Router();
@@ -63,6 +64,7 @@ export function createSensorRouter(serverVersion: string): Router {
         ? { enabled: true, memberName: teamState?.memberName, connectedPeers: 0 }
         : { enabled: false },
       costGuard: getCostGuardStats(),
+      degradation: getDegradationState(),
     });
   });
 
