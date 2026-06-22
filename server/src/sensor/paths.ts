@@ -85,6 +85,9 @@ export const USER_RUNBOOKS_DIR = path.join(DATA_DIR, 'runbooks');
 /** Pending Slack approval records — survives server restarts within the 15-min window. */
 export const APPROVALS_FILE = path.join(DATA_DIR, 'approval-pending.json');
 
+/** Safety policy configuration file — Layer 3 Safety Policies. */
+export const SAFETY_POLICY_FILE = path.join(DATA_DIR, 'safety-policy.json');
+
 export function zeroRetentionMode(): boolean {
   return process.env.MERGEN_ZERO_RETENTION === 'true';
 }

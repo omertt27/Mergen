@@ -138,3 +138,22 @@ describe('autonomy allowlist', () => {
     expect(ALLOWED_COMMAND_DESCRIPTIONS.every((d) => typeof d === 'string')).toBe(true);
   });
 });
+
+describe('autonomy Layer 3 safety policy', () => {
+  it('blocks commands targeting safety-policy blocked services, even if allowlisted', async () => {
+    // "database" is in default blockedServices. "docker restart <service>" passes allowlist.
+    expect(await blocked('docker restart database')).toBe(true);
+    expect(await blocked('kubectl rollout restart deployment/auth-service')).toBe(true);
+  });
+
+  it('blocks commands containing safety-policy blocked keywords, even if allowlisted', async () => {
+    // "postgres" is in default blockedKeywords. "docker restart <service>" passes allowlist.
+    expect(await blocked('docker restart postgres-container')).toBe(true);
+    expect(await blocked('kubectl rollout restart deployment/mysql-deployment')).toBe(true);
+  });
+
+  it('allows safe allowlisted commands that do not violate safety policies', async () => {
+    expect(await allowed('docker restart api-server')).toBe(true);
+    expect(await allowed('kubectl rollout restart deployment/frontend-web')).toBe(true);
+  });
+});

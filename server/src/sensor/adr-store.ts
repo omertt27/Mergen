@@ -166,6 +166,11 @@ class AdrStore {
     logger.info({ id }, 'adr-store: new ADR recorded');
     return adr;
   }
+
+  upsert(record: AdrRecord): void {
+    this.records.set(record.id.toUpperCase(), record);
+    this._saveToDisk();
+  }
 }
 
 export const adrStore = new AdrStore();

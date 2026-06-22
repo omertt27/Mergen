@@ -49,6 +49,8 @@ vi.mock('../__stubs__/calibration.js', () => ({
   recordRemediationVerdict: vi.fn(),
   classifyVerdict:          vi.fn().mockReturnValue('correct'),
   getStatsForTag:           vi.fn().mockReturnValue(null),
+  isCorpusSeeded:           vi.fn().mockReturnValue(false),
+  getRealVerdictCount:      vi.fn().mockReturnValue(20),
 }));
 
 vi.mock('../intelligence/slack.js', () => ({

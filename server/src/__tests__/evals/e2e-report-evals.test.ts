@@ -19,6 +19,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { formatValidatedFactsForLLM } from '../../intelligence/llm-spokesperson.js';
 import { planningGate } from '../../intelligence/planning-gate.js';
 import type { Hypothesis } from '../../intelligence/causal.js';
+import { _resetForTesting } from '../../__stubs__/calibration.js';
+
+beforeEach(() => {
+  _resetForTesting();
+});
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 

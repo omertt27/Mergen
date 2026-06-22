@@ -769,9 +769,10 @@ export async function postIncidentAlert(opts: {
     });
   }
 
+  const briefLink = opts.pid ? `  ·  <${dashboardUrl ?? 'http://127.0.0.1:3000'}/incidents/${opts.pid}/brief|View brief>` : '';
   blocks.push({
     type: 'context',
-    elements: [{ type: 'mrkdwn', text: `Mergen · ${service} · <${dashboardUrl ?? 'http://127.0.0.1:3000'}/dashboard|Dashboard>` }],
+    elements: [{ type: 'mrkdwn', text: `Mergen · ${service} · <${dashboardUrl ?? 'http://127.0.0.1:3000'}/dashboard|Dashboard>${briefLink}` }],
   });
 
   const color = blame?.confidenceLabel === 'HIGH' ? '#d32f2f' :
@@ -837,7 +838,7 @@ export function verifySlackSignature(req: Request): boolean {
 }
 
 export async function handleSlackActions(req: Request, res: Response): Promise<void> {
-  if (isInteractive && !verifySlackSignature(req)) {
+  if (BOT_TOKEN && !verifySlackSignature(req)) {
     res.status(401).send('Unauthorized');
     return;
   }
@@ -971,13 +972,13 @@ export async function handleSlackActions(req: Request, res: Response): Promise<v
       // Execution gate — approve
       if (action.action_id.startsWith('execute_fix_')) {
         try {
-          const { pid, command } = JSON.parse(action.value) as { pid: string; command: string };
+          const { pid } = JSON.parse(action.value) as { pid: string };
           const userId = (payload as Record<string, unknown> & { user?: { id?: string } }).user?.id ?? 'slack-user';
           const record = approveExecution(pid);
           if (record) {
-            logger.info({ pid, command, userId }, 'slack: fix execution approved');
-            void postThreadReply(pid, `⚙️ _Fix approved by <@${userId}> — executing…_\n\`${command}\``);
-            void executeRemediation(command, { cwd: record.cwd, actor: userId }).then((result) => {
+            logger.info({ pid, command: record.command, userId }, 'slack: fix execution approved');
+            void postThreadReply(pid, `⚙️ _Fix approved by <@${userId}> — executing…_\n\`${record.command}\``);
+            void executeRemediation(record.command, { cwd: record.cwd, actor: userId }).then((result) => {
               if (result.blocked) {
                 void postThreadReply(pid, `🚫 *Fix blocked by safety filter:* ${result.blockReason}`);
                 updateShadowReasonByPid(pid, 'blocked-by-safety-filter');

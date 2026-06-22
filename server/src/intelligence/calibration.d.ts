@@ -54,3 +54,5 @@ export declare function _resetForTesting(): void;
 export declare function isCorpusSeeded(): boolean;
 export declare function classifyVerdict(beforeCount: number, afterCount: number): 'correct' | 'partial' | 'wrong';
 export declare function recordRemediationVerdict(pid: string, verdict: 'correct' | 'wrong' | 'partial'): { found: boolean; persisted: boolean };
+export declare function updateCalibrationNote(pid: string, note: string): boolean;
+export declare function getRealVerdictCount(): number;

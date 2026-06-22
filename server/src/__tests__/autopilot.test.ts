@@ -50,9 +50,13 @@ function registerMocks(skip: string[] = []): void {
     fixActionToCommand: vi.fn().mockReturnValue(null),
   }));
   vi.doMock('../__stubs__/calibration.js', () => ({
-    getRecords:     vi.fn().mockReturnValue([]),
-    recordVerdict:  vi.fn(),
-    getStatsForTag: vi.fn().mockReturnValue(null),
+    getRecords:          vi.fn().mockReturnValue([]),
+    recordVerdict:       vi.fn(),
+    getStatsForTag:      vi.fn().mockReturnValue(null),
+    classifyVerdict:     vi.fn().mockReturnValue('correct'),
+    recordRemediationVerdict: vi.fn(),
+    isCorpusSeeded:      vi.fn().mockReturnValue(false),
+    getRealVerdictCount: vi.fn().mockReturnValue(20),
   }));
 
   vi.doMock('../intelligence/slack.js', () => ({

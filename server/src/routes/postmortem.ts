@@ -4,6 +4,7 @@ import { fetchSlackThread } from '../intelligence/slack.js';
 import { draftPostmortemDoc } from '../intelligence/tools-runbook.js';
 import { generatePostmortem } from '../intelligence/postmortem-store.js';
 import { updateRunbookFromPostmortem } from '../intelligence/runbook-updater.js';
+import { compileOverrideFromSlackThread } from '../intelligence/override-corpus.js';
 
 const BodySchema = z.object({
   thread_url:       z.string().url(),
@@ -33,7 +34,7 @@ export function createPostmortemRouter(): express.Router {
    *   affected_users   — who was impacted (optional)
    *
    * Returns:
-   *   { markdown: string }   — blameless post-mortem draft
+   *   { markdown: string, overrideCompiled: boolean, overrideId?: string } — blameless post-mortem draft and override compilation state
    *   { error: string }      — if thread fetch fails or body is invalid
    */
   router.post('/postmortem/from-slack', async (req, res) => {
@@ -62,7 +63,17 @@ export function createPostmortemRouter(): express.Router {
       slack_thread: slackThread,
     });
 
-    res.json({ markdown });
+    const overrideEvent = compileOverrideFromSlackThread(slackThread, service);
+
+    const responsePayload: any = { markdown };
+    if (overrideEvent) {
+      responsePayload.overrideCompiled = true;
+      responsePayload.overrideId = overrideEvent.id;
+    } else {
+      responsePayload.overrideCompiled = false;
+    }
+
+    res.json(responsePayload);
   });
 
   /**

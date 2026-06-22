@@ -33,6 +33,93 @@ import { recordExecutionAudit } from '../sensor/audit-log.js';
 import { hasPermission } from '../sensor/rbac.js';
 import { recordBlunder } from '../sensor/agent-blunder-store.js';
 import logger from '../sensor/logger.js';
+import { SAFETY_POLICY_FILE } from '../sensor/paths.js';
+
+// ── Layer 3: Safety Policy (Immutable Guardrails) ───────────────────────────
+export interface SafetyPolicy {
+  version: number;
+  blockedKeywords: string[];
+  blockedServices: string[];
+}
+
+const DEFAULT_SAFETY_POLICY: SafetyPolicy = {
+  version: 1,
+  blockedKeywords: [
+    'rm -rf',
+    'drop table',
+    'truncate',
+    'delete',
+    'production-db',
+    'postgres',
+    'mysql',
+    'redis',
+    'mongo'
+  ],
+  blockedServices: [
+    'payments',
+    'auth-service',
+    'database'
+  ]
+};
+
+let _safetyPolicy: SafetyPolicy | null = null;
+
+export function loadSafetyPolicy(force = false): SafetyPolicy {
+  if (_safetyPolicy && !force) return _safetyPolicy;
+  
+  if (!fs.existsSync(SAFETY_POLICY_FILE)) {
+    try {
+      fs.mkdirSync(path.dirname(SAFETY_POLICY_FILE), { recursive: true });
+      fs.writeFileSync(SAFETY_POLICY_FILE, JSON.stringify(DEFAULT_SAFETY_POLICY, null, 2), 'utf8');
+      logger.info({ path: SAFETY_POLICY_FILE }, 'autonomy: created default safety-policy.json');
+    } catch (err) {
+      logger.warn({ err }, 'autonomy: failed to write default safety policy');
+    }
+    _safetyPolicy = DEFAULT_SAFETY_POLICY;
+    return _safetyPolicy;
+  }
+
+  try {
+    const raw = fs.readFileSync(SAFETY_POLICY_FILE, 'utf8');
+    const parsed = JSON.parse(raw) as SafetyPolicy;
+    if (parsed && Array.isArray(parsed.blockedKeywords) && Array.isArray(parsed.blockedServices)) {
+      _safetyPolicy = parsed;
+    } else {
+      _safetyPolicy = DEFAULT_SAFETY_POLICY;
+    }
+  } catch (err) {
+    logger.warn({ err }, 'autonomy: failed to load safety policy — using defaults');
+    _safetyPolicy = DEFAULT_SAFETY_POLICY;
+  }
+  return _safetyPolicy;
+}
+
+export function checkSafetyPolicy(command: string): { allowed: boolean; blockReason?: string } {
+  const policy = loadSafetyPolicy();
+  const normalized = normalizeWhitespace(command).toLowerCase();
+
+  // Check blocked keywords
+  for (const keyword of policy.blockedKeywords) {
+    if (normalized.includes(keyword.toLowerCase())) {
+      return {
+        allowed: false,
+        blockReason: `Command matches safety-policy blocked keyword/pattern: '${keyword}'`
+      };
+    }
+  }
+
+  // Check targeted blocked services
+  for (const service of policy.blockedServices) {
+    if (normalized.includes(service.toLowerCase())) {
+      return {
+        allowed: false,
+        blockReason: `Command targets safety-policy blocked service: '${service}'`
+      };
+    }
+  }
+
+  return { allowed: true };
+}
 
 // ── Allowlist (primary gate) ──────────────────────────────────────────────────
 // Only commands matching one of these forms are executed. Everything else is
@@ -198,6 +285,30 @@ export async function executeRemediation(
     recordBlunder({ blunderType, command, blockReason: blockReason ?? '', service: null, tag: null, actor, pid: null, confidenceScore: null });
     return result;
   }
+
+  // ── Layer 3: Safety Policy Check ─────────────────────────────────────────────
+  const safetyCheck = checkSafetyPolicy(command);
+  if (!safetyCheck.allowed) {
+    const result: RemediationResult = {
+      ok: false, exitCode: null, stdout: '', stderr: '',
+      durationMs: Date.now() - start, timedOut: false, blocked: true,
+      blockReason: safetyCheck.blockReason,
+    };
+    _auditExecution(command, result, actor);
+    logger.warn({ command, blockReason: safetyCheck.blockReason }, 'autonomy: command blocked by safety policy');
+    recordBlunder({
+      blunderType: 'pipeline_block',
+      command,
+      blockReason: safetyCheck.blockReason ?? '',
+      service: null,
+      tag: null,
+      actor,
+      pid: null,
+      confidenceScore: null
+    });
+    return result;
+  }
+
   logger.debug({ command, matchedRule }, 'autonomy: command passed allowlist');
 
   if (opts.dryRun) {

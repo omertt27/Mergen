@@ -345,6 +345,16 @@ function buildDashboardHtml(version: string, nonce: string): string {
         <div id="sm-incidents" style="font-size:11px;margin-top:8px"></div>
       </div>
 
+      <div class="card" id="recent-incidents-card">
+        <div class="card-title">Recent Incidents</div>
+        <div id="recent-incidents-list"><div style="font-size:11px;color:var(--muted)">Loading…</div></div>
+      </div>
+
+      <div class="card" id="runbooks-card">
+        <div class="card-title">Runbook Library</div>
+        <div id="runbooks-list"><div style="font-size:11px;color:var(--muted)">Loading…</div></div>
+      </div>
+
       <div class="card">
         <div class="card-title">Connect more signals</div>
         <div style="font-size:11px;color:var(--muted);line-height:1.8">
@@ -749,6 +759,20 @@ async function pollCalibrationHealth() {
     }
     html += '<div class="stat"><span class="stat-label">Trusted detectors</span><span class="stat-val">' + (cal.trustedDetectors || 0) + ' / ' + (cal.totalDetectors || 0) + '</span></div>';
 
+    // Calibration warm-up progress
+    if (cal.corpusSeeded) {
+      const realN = cal.realVerdictCount || 0;
+      const warmPct = Math.min(100, Math.round((realN / 10) * 100));
+      html += '<div style="margin-top:10px;padding:8px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:4px">'
+        + '<div style="font-size:10px;font-weight:700;color:var(--yellow);margin-bottom:6px;letter-spacing:.05em;text-transform:uppercase">⚠ Warm-up Phase</div>'
+        + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'
+        + '<div style="flex:1;background:rgba(255,255,255,.06);border-radius:3px;height:5px;overflow:hidden">'
+        + '<div style="height:5px;border-radius:3px;background:var(--yellow);width:' + warmPct + '%;transition:width .4s"></div></div>'
+        + '<span style="font-size:11px;font-weight:600;color:var(--yellow);white-space:nowrap">' + realN + ' / 10</span></div>'
+        + '<div style="font-size:10px;color:var(--muted)">Real verdicts recorded · confidence uses synthetic priors until 10</div>'
+        + '</div>';
+    }
+
     // Unclassified clusters
     if (unc.total > 0) {
       html += '<div class="stat"><span class="stat-label" style="color:var(--yellow)">Unclassified patterns</span><span class="stat-val" style="color:var(--yellow)">' + unc.total + '</span></div>';
@@ -1071,6 +1095,62 @@ async function pollServiceMemory() {
   } catch {}
 }
 
+async function pollRecentIncidents() {
+  try {
+    const d = await fetch('/incidents').then(r => r.json());
+    const el = document.getElementById('recent-incidents-list');
+    if (!el) return;
+    const items = (d.incidents || []).slice(0, 10);
+    if (items.length === 0) { el.innerHTML = '<div style="font-size:11px;color:var(--muted)">No incidents recorded yet</div>'; return; }
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:11px">'
+      + '<thead><tr style="color:var(--muted);font-size:10px;text-align:left">'
+      + '<th style="padding:2px 6px 4px 0">Service</th><th style="padding:2px 6px 4px 0">Status</th>'
+      + '<th style="padding:2px 6px 4px 0">MTTR</th><th style="padding:2px 0 4px 0">Fired</th></tr></thead><tbody>';
+    for (const inc of items) {
+      const statusColor = inc.status === 'resolved' ? 'var(--green)' : inc.status === 'acknowledged' ? 'var(--yellow)' : 'var(--red)';
+      const mttrMin = inc.resolvedAt && inc.createdAt ? Math.round((inc.resolvedAt - inc.createdAt) / 60000) : null;
+      const firedAgo = inc.createdAt ? fmtRelTime(inc.createdAt) : '—';
+      const briefUrl = '/incidents/' + encodeURIComponent(inc.pid || inc.id || '') + '/brief';
+      html += '<tr style="border-bottom:1px solid rgba(255,255,255,.04)">'
+        + '<td style="padding:4px 6px 4px 0;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
+        + '<a href="' + briefUrl + '" target="_blank" style="color:var(--blue);text-decoration:none">' + esc(inc.service || '—') + '</a></td>'
+        + '<td style="padding:4px 6px 4px 0"><span style="color:' + statusColor + '">' + esc(inc.status || '—') + '</span>'
+        + (inc.resolvedAutonomously ? ' <span style="font-size:9px;color:var(--muted)">(auto)</span>' : '') + '</td>'
+        + '<td style="padding:4px 6px 4px 0;color:var(--muted)">' + (mttrMin != null ? mttrMin + 'm' : '—') + '</td>'
+        + '<td style="padding:4px 0;color:var(--muted)">' + firedAgo + '</td>'
+        + '</tr>';
+    }
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  } catch(e) {}
+}
+
+async function pollRunbooks() {
+  try {
+    const d = await fetch('/runbooks').then(r => r.json());
+    const el = document.getElementById('runbooks-list');
+    if (!el) return;
+    const items = d.runbooks || [];
+    if (items.length === 0) {
+      el.innerHTML = '<div style="font-size:11px;color:var(--muted)">No runbooks yet. Create one:<br><code style="font-size:10px">POST /runbooks { name, incidentTag, steps[], riskTier, requiredApprovers }</code></div>';
+      return;
+    }
+    let html = '';
+    for (const rb of items) {
+      const approvedColor = rb.approved ? 'var(--green)' : 'var(--yellow)';
+      const approvedLabel = rb.approved ? '✅ Approved' : rb.approvals.length + '/' + rb.requiredApprovers + ' approvals';
+      html += '<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)">'
+        + '<div style="display:flex;justify-content:space-between;align-items:baseline">'
+        + '<span style="font-size:11px;font-weight:600;color:var(--text)">' + esc(rb.name) + '</span>'
+        + '<span style="font-size:10px;color:' + approvedColor + '">' + approvedLabel + '</span>'
+        + '</div>'
+        + '<div style="font-size:10px;color:var(--muted);margin-top:2px">Tag: <code>' + esc(rb.incidentTag) + '</code> · Risk: ' + esc(rb.riskTier) + ' · ' + (rb.steps.length) + ' step(s)</div>'
+        + '</div>';
+    }
+    el.innerHTML = html;
+  } catch(e) {}
+}
+
 poll();
 pollSdkStatus();
 pollValidateState();
@@ -1080,6 +1160,8 @@ pollCorpusProgress();
 pollMttr();
 pollBlunders();
 pollServiceMemory();
+pollRecentIncidents();
+pollRunbooks();
 setInterval(poll,5000);
 setInterval(pollSdkStatus,10000);
 setInterval(pollValidateState,5000);
@@ -1089,6 +1171,8 @@ setInterval(pollCorpusProgress,30000);
 setInterval(pollMttr,30000);
 setInterval(pollBlunders,30000);
 setInterval(pollServiceMemory,30000);
+setInterval(pollRecentIncidents,30000);
+setInterval(pollRunbooks,30000);
 </script>
 </body></html>`;
 }

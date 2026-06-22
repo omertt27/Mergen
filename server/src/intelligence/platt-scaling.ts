@@ -105,27 +105,33 @@ function fitPlatt(samples: Array<{ score: number; isCorrect: boolean }>): PlattP
   return { A, B, n: samples.length, accuracy: correct / samples.length };
 }
 
+type ScoredRecord = PredictionRecord & { numericScore?: number; confidenceScore?: number };
+
+function scoreOfRecord(r: ScoredRecord): number {
+  return r.numericScore ?? r.confidenceScore ?? 0;
+}
+
 /** Return cached or freshly fit Platt params for a given tag (or 'global'). */
 function getParams(tag: string): PlattParams | null {
   const now = Date.now();
   const cached = _cache.get(tag);
   if (cached && now - cached.fittedAt < CACHE_TTL_MS) return cached.params;
 
-  const records = getRecords().filter(
-    (r) => r.verdict !== null && r.numericScore !== undefined,
+  const records = (getRecords() as ScoredRecord[]).filter(
+    (r) => r.verdict !== null && (r.numericScore !== undefined || r.confidenceScore !== undefined),
   );
 
   let samples: Array<{ score: number; isCorrect: boolean }>;
   if (tag === 'global') {
     samples = records.map((r) => ({
-      score: r.numericScore!,
+      score: scoreOfRecord(r),
       isCorrect: r.verdict === 'correct' || r.verdict === 'partial',
     }));
   } else {
     samples = records
       .filter((r) => r.tag === tag)
       .map((r) => ({
-        score: r.numericScore!,
+        score: scoreOfRecord(r),
         isCorrect: r.verdict === 'correct' || r.verdict === 'partial',
       }));
   }

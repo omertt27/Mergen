@@ -9,6 +9,7 @@
 
 import { Router } from 'express';
 import { getRules, upsertRule, deleteRule, type SlackRoutingRule } from '../intelligence/slack-routing.js';
+import { postDailyDigest } from '../intelligence/slack-digest.js';
 import logger from '../sensor/logger.js';
 
 export function createSlackRoutingRouter(): Router {
@@ -59,6 +60,17 @@ export function createSlackRoutingRouter(): Router {
     const deleted = deleteRule(id);
     if (!deleted) { res.status(404).json({ ok: false, error: `no rule with id: ${id}` }); return; }
     res.json({ ok: true });
+  });
+
+  // ── POST /slack/digest/test — fire the daily digest immediately ──────────
+  router.post('/slack/digest/test', async (_req, res) => {
+    try {
+      await postDailyDigest();
+      res.json({ ok: true, message: 'Digest posted to Slack channel' });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'unknown error';
+      res.status(500).json({ ok: false, error: msg });
+    }
   });
 
   // ── POST /slack/test ──────────────────────────────────────────────────────

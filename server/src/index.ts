@@ -41,6 +41,7 @@ import { stopAllProcessWatchers } from './sensor/process-watcher.js';
 import { stopFileWatch } from './sensor/fs-watcher.js';
 import { saveSession, loadSession } from './sensor/session-persist.js';
 import { saveSessionToHistory } from './sensor/session-history.js';
+import { syncMarkdownFilesFromDisk } from './intelligence/postmortem-parser.js';
 
 import { initLicense, getActivePlanId } from './intelligence/license.js';
 import { initUsage, flushOverageOnShutdown } from './intelligence/usage.js';
@@ -54,6 +55,8 @@ import { registerPrompts } from './intelligence/mcp-prompts.js';
 import { SYSTEM_PROMPT } from './intelligence/prompts.js';
 import { registerTeamBroadcaster } from './sensor/ingest.js';
 
+import { isCorpusSeeded, getRealVerdictCount } from './__stubs__/calibration.js';
+import { startSlackDailyDigest } from './intelligence/slack-digest.js';
 import { startShadowDigestCron } from './intelligence/shadow-digest-cron.js';
 import { startDegradationWatcher } from './intelligence/degradation-watcher.js';
 import { startHeartbeatMonitor, setHeartbeatAlertFn } from './sensor/heartbeat-monitor.js';
@@ -127,6 +130,13 @@ function validateConfig(): void {
     logger.warn(
       'startup: MERGEN_SLACK_BOT_TOKEN not set — incident Slack alerts and thread replies are disabled. ' +
       'Set it to your Slack bot token (xoxb-...) to enable autonomous incident notifications.',
+    );
+  }
+  if (process.env.MERGEN_SLACK_BOT_TOKEN && !process.env.MERGEN_SLACK_SIGNING_SECRET) {
+    logger.warn(
+      'startup: MERGEN_SLACK_BOT_TOKEN is set but MERGEN_SLACK_SIGNING_SECRET is missing — ' +
+      'the /slack/actions endpoint will reject all requests until the signing secret is configured. ' +
+      'Set MERGEN_SLACK_SIGNING_SECRET to the HMAC secret from your Slack app configuration.',
     );
   }
   if (CLOUD_MODE && !process.env.MERGEN_PAGERDUTY_SECRET) {
@@ -207,6 +217,7 @@ async function main(): Promise<void> {
   await historyStore.init();
   await incidentStore.init();
   await postmortemStore.init();
+  void syncMarkdownFilesFromDisk().catch((err) => logger.warn({ err }, 'startup: markdown sync failed'));
   await complianceLedgerStore.init();
 
   // Diagnostic: warn when the corpus contains autonomous resolutions without
@@ -372,8 +383,24 @@ async function main(): Promise<void> {
   setTimeout(telemetryTick, 60_000).unref();
   setInterval(telemetryTick, 60 * 60 * 1000).unref();
 
+  // ── Cold-start calibration warning ───────────────────────────────────────
+  // isCorpusSeeded() is true when only synthetic priors exist (no real verdicts
+  // from this environment). Surface this prominently so the operator knows that
+  // confidence scores are not yet proven against their production traffic.
+  if (isCorpusSeeded()) {
+    const realCount = getRealVerdictCount();
+    console.error(
+      `\n⚠  CALIBRATION WARM-UP — Running on synthetic priors (${realCount} real verdicts recorded).\n` +
+      `   Confidence scores will reflect your production environment after 10 real verdicts.\n` +
+      `   Record verdicts via POST /feedback or the Slack verdict buttons.\n`,
+    );
+  }
+
   // ── Shadow mode weekly Slack digest (Monday 09:00 UTC) ────────────────────
   startShadowDigestCron();
+
+  // ── Daily operational digest (09:00 UTC, opt-in MERGEN_SLACK_DIGEST=true) ──
+  if (process.env.MERGEN_SLACK_DIGEST === 'true') startSlackDailyDigest();
 
   // ── Graduated urgency — local desktop notification on sustained degradation ─
   startDegradationWatcher();

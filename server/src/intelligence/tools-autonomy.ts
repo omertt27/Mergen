@@ -24,7 +24,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { store } from '../sensor/buffer.js';
 import { buildCausalChain, fixActionToCommand } from './causal.js';
-import { getRecords, recordVerdict, classifyVerdict, recordRemediationVerdict } from './calibration.js';
+import { getRecords, recordVerdict, classifyVerdict, recordRemediationVerdict, isCorpusSeeded, getRealVerdictCount } from './calibration.js';
 import { executeRemediation, extractCommand } from './autonomy.js';
 import { deriveRollback, executeRollback } from './rollback.js';
 import { getAutopilotLevel, autopilotLevelPermits, classifyCommandRisk, autopilotLevelDescription } from './action-risk.js';
@@ -47,8 +47,13 @@ import { trace, SpanStatusCode } from '@opentelemetry/api';
 
 const TEAM_UPGRADE_INCIDENT_THRESHOLD = 5;
 
-// Use the same calibrated threshold as incident-autopilot — single source of truth.
-const AUTO_EXECUTE_CONFIDENCE_THRESHOLD = () => getExecutionThreshold();
+// Same threshold logic as incident-autopilot — provisional bump when local
+// verdict count is low (see incident-autopilot.ts for rationale).
+const AUTO_EXECUTE_CONFIDENCE_THRESHOLD = () => {
+  const base = getExecutionThreshold();
+  const provisional = isCorpusSeeded() || getRealVerdictCount() < 10;
+  return provisional ? Math.min(0.95, base + 0.05) : base;
+};
 
 const tracer = trace.getTracer('mergen-agent');
 

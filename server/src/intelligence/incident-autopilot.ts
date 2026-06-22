@@ -20,9 +20,10 @@
  */
 
 import { store } from '../sensor/buffer.js';
+import { getRunbookForTag } from '../routes/runbooks.js';
 import { buildCausalChain, fixActionToCommand } from './causal.js';
 import type { CausalChain, Hypothesis } from './causal.js';
-import { getRecords, recordVerdict, classifyVerdict, recordRemediationVerdict } from './calibration.js';
+import { getRecords, recordVerdict, classifyVerdict, recordRemediationVerdict, isCorpusSeeded, getRealVerdictCount } from './calibration.js';
 import { executeRemediation, extractCommand } from './autonomy.js';
 import { postThreadReply, postApprovalRequest, fetchIncidentChannelContext, postSimpleWebhookNotification } from './slack.js';
 import { requestApproval } from './execution-gate.js';
@@ -103,7 +104,14 @@ export function _resetTriagedForTesting(): void { _recentlyTriaged.clear(); }
 
 // Threshold is derived from the calibration corpus at runtime (ROC analysis).
 // Falls back to 0.85 if fewer than 20 verdicts exist. Recomputed every 10 min.
-const getAutoExecuteThreshold = () => getExecutionThreshold();
+// Provisional bump (+5pp) when the local corpus has <10 real verdicts: the
+// published accuracy is from built-in priors, not from this environment's history.
+// Composes with planning-gate blast-risk adjustments (independent, additive).
+const getAutoExecuteThreshold = () => {
+  const base = getExecutionThreshold();
+  const provisional = isCorpusSeeded() || getRealVerdictCount() < 10;
+  return provisional ? Math.min(0.95, base + 0.05) : base;
+};
 
 // Read env flags lazily so tests can set process.env in beforeEach without
 // needing vi.hoisted() to front-run module-level evaluation.
@@ -336,8 +344,6 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
     return;
   }
 
-  const topHyp  = causal.hypotheses[0];
-
   // ── Topology hard filter ────────────────────────────────────────────────────
   // If the service graph has been populated from real OTLP spans, use it as a
   // structural prior. Hypotheses whose implied service has no topological
@@ -395,6 +401,10 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
     const bScore = plattAdjusted.get(b) ?? b.confidenceScore;
     return bScore - aScore;
   });
+
+  // topHyp must be read AFTER the Platt sort so the planning gate, Slack messages,
+  // and verdict recording all operate on the calibrated top hypothesis.
+  const topHyp = causal.hypotheses[0];
 
   // Persist telemetry snapshot for deterministic replay and regression testing.
   captureSnapshot({
@@ -464,8 +474,17 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
   const webhookMsg = `📢 *Triage complete* for *${service}*. Hypothesis: *${topHyp.summary}* (${pct}% confidence). View unified timeline in Cursor/Claude Code.`;
   void postSimpleWebhookNotification(service, webhookMsg);
 
-  // Prefer pipeline-derived plan over direct fixAction extraction
-  const command = pipeline.plan?.command
+  // Check for a pre-approved runbook matching this incident tag before
+  // falling back to LLM-generated commands — runbooks are human-reviewed.
+  const approvedRunbook = getRunbookForTag(topHyp.tag);
+  const runbookCommand = approvedRunbook ? approvedRunbook.steps.join(' && ') : null;
+  if (approvedRunbook) {
+    logger.info({ id: approvedRunbook.id, name: approvedRunbook.name, tag: topHyp.tag }, 'incident-autopilot: using pre-approved runbook');
+  }
+
+  // Prefer pre-approved runbook, then pipeline plan, then direct fixAction extraction
+  const command = runbookCommand
+    ?? pipeline.plan?.command
     ?? (topHyp.fixAction ? fixActionToCommand(topHyp.fixAction) : null)
     ?? (topHyp.fixHint ? extractCommand(topHyp.fixHint) : null);
   const execConfidence = topHyp.remediationConfidence ?? topHyp.confidenceScore ?? 0;
@@ -529,7 +548,7 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
       slackReason = `remediation confidence ${execPct}% below 85% threshold (diagnosis: ${pct}%)`;
     } else {
       skipReason = 'confidence-below-threshold';
-      slackReason = `confidence ${pct}% below 85% threshold`;
+      slackReason = `confidence ${execPct}% below 85% threshold`;
     }
 
     // Log a shadow entry so the track record is visible in /shadow-report
@@ -637,6 +656,11 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
     return;
   }
 
+  // Record the moment the fix was applied so post-fix validation only counts
+  // errors that arrived AFTER the fix, not the historical errors from during
+  // the incident (which remain in the ring buffer with timestamps >= firedAt).
+  const fixAppliedAt = Date.now();
+
   await replyToThread(pid, `⚙️ \`${command}\` executed (${execResult.durationMs}ms) — validating…`);
 
   recordShadow({
@@ -649,6 +673,7 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
     wouldHaveExecuted: true,
     skipReason: 'executed',
     firedAt,
+    ...(approvedRunbook ? { runbookId: approvedRunbook.id } : {}),
   });
 
   // Cache successful execution so re-triggers within 1hr fast-path without LLM.
@@ -670,8 +695,11 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
     afterCount = ddErrorCount;
     logger.info({ service, pid, ddErrorCount }, 'incident-autopilot: validation via Datadog');
   } else {
-    const logsAfter = store.getLogs(200, 'error', firedAt, tenantId);
-    const netAfter  = store.getNetwork(200, undefined, firedAt, tenantId).filter((n) => n.status >= 400 || !!n.error);
+    // Use fixAppliedAt (not firedAt) so we count only errors that arrived after
+    // the fix was applied. Using firedAt would include the original incident errors
+    // still sitting in the ring buffer, making every successful fix look UNRESOLVED.
+    const logsAfter = store.getLogs(200, 'error', fixAppliedAt, tenantId);
+    const netAfter  = store.getNetwork(200, undefined, fixAppliedAt, tenantId).filter((n) => n.status >= 400 || !!n.error);
     afterCount = logsAfter.length + netAfter.length;
   }
 

@@ -90,6 +90,11 @@ const MAX_EVENTS = 2_000;
 
 let _events: OverrideEvent[] = [];
 let _loaded = false;
+// Short TTL cache so repeated reads within the same autopilot run avoid disk I/O.
+// Write operations (recordOverride, updateOutcome) always force-reload inside the
+// file lock so in-memory state stays consistent with the file.
+const READ_CACHE_TTL_MS = 500;
+let _lastForcedLoadAt = 0;
 
 // ── Compaction cache (dirty flag) ─────────────────────────────────────────────
 // compactCorpus() is O(n) over _events. We memoize the result and only
@@ -110,10 +115,18 @@ function load(force = false): void {
       _events = [];
     }
     _loaded = true;
+    _lastForcedLoadAt = Date.now();
   } catch (err) {
     logger.warn({ err }, 'override-corpus: failed to load — starting fresh');
     _events = [];
     _loaded = true;
+  }
+}
+
+/** Load for read paths: re-read from disk at most once per READ_CACHE_TTL_MS. */
+function loadForRead(): void {
+  if (!_loaded || Date.now() - _lastForcedLoadAt > READ_CACHE_TTL_MS) {
+    load(true);
   }
 }
 
@@ -185,7 +198,7 @@ export function hasRecentOverride(
   dayOfWeek: number,
   hourOfDay: number,
 ): boolean {
-  load(true);
+  loadForRead();
   const cutoff = Date.now() - 90 * 24 * 60 * 60 * 1000;
   return _events.some((e) => {
     if (e.incidentTag !== incidentTag) return false;
@@ -202,7 +215,7 @@ export function dominantOverrideReason(
   incidentTag: string,
   service: string,
 ): OverrideReason | null {
-  load(true);
+  loadForRead();
   const counts = new Map<OverrideReason, number>();
   for (const e of _events) {
     if (e.incidentTag !== incidentTag || e.service !== service) continue;
@@ -219,19 +232,19 @@ export function dominantOverrideReason(
 
 /** Raw override history for a specific detector tag. */
 export function getOverridesForTag(tag: string): OverrideEvent[] {
-  load(true);
+  loadForRead();
   return _events.filter((e) => e.incidentTag === tag);
 }
 
 /** Look up a single override by its id. */
 export function getOverrideById(id: string): OverrideEvent | null {
-  load(true);
+  loadForRead();
   return _events.find((e) => e.id === id) ?? null;
 }
 
 /** All override events (read-only snapshot). */
 export function getAllOverrides(): readonly OverrideEvent[] {
-  load(true);
+  loadForRead();
   return _events;
 }
 
@@ -383,7 +396,7 @@ export interface OverrideSummary {
 }
 
 export function getOverrideSummary(): OverrideSummary[] {
-  load();
+  loadForRead();
   const byTag = new Map<string, OverrideEvent[]>();
   for (const e of _events) {
     const list = byTag.get(e.incidentTag) ?? [];
@@ -446,4 +459,113 @@ export function getOverrideSummary(): OverrideSummary[] {
 
   out.sort((a, b) => b.total - a.total);
   return out;
+}
+
+/**
+ * Automatically parses a Slack thread to extract override decisions.
+ * Maps keywords to explicit OverrideReasons, parses commands/actions,
+ * and records the override directly into the Override Corpus.
+ *
+ * This implements the core logic of Phase 4: Organizational Learning,
+ * turning human Slack discussions into structured machine policies.
+ */
+export function compileOverrideFromSlackThread(
+  slackThread: string,
+  service: string = 'unknown'
+): OverrideEvent | null {
+  if (!slackThread) return null;
+
+  // Extract commands inside backticks. e.g. `kubectl rollout restart deployment/api`
+  const backtickCommands = [...slackThread.matchAll(/`([^`]{4,200})`/g)].map(m => m[1].trim());
+
+  // 1. Identify proposed command and manual action taken
+  // Often the team discusses a proposed action that they rejected, and a manual action they ran instead.
+  let proposedCommand = '';
+  let manualAction = '';
+
+  for (const cmd of backtickCommands) {
+    if (/^(kubectl|docker|systemctl|service|npm|yarn|pnpm|make)\s/i.test(cmd)) {
+      if (/restart|stop|scale|revert|rollback|install/i.test(cmd)) {
+        if (!proposedCommand) {
+          proposedCommand = cmd;
+        } else if (!manualAction && cmd !== proposedCommand) {
+          manualAction = cmd;
+        }
+      }
+    }
+  }
+
+  // Fallbacks if no backticked commands are found
+  if (!proposedCommand) {
+    const lines = slackThread.split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (/^(kubectl|docker|systemctl|service|npm|yarn|pnpm|make)\s/i.test(trimmed)) {
+        proposedCommand = trimmed;
+        break;
+      }
+    }
+  }
+
+  // If we can't find a proposed command, we cannot establish an override pattern
+  if (!proposedCommand) {
+    return null;
+  }
+
+  // 2. Identify the OverrideReason
+  let reason: OverrideReason = 'on-call-discretion';
+  let note = 'Extracted from Slack thread discussion';
+
+  const lowerThread = slackThread.toLowerCase();
+
+  if (lowerThread.includes('window') || lowerThread.includes('settlement') || lowerThread.includes('friday') || lowerThread.includes('batch')) {
+    reason = 'batch-window';
+    note = 'Override reason mapping: batch-window context discussed';
+  } else if (lowerThread.includes('cost') || lowerThread.includes('budget') || lowerThread.includes('scale') || lowerThread.includes('expensive')) {
+    reason = 'cost-constraint';
+    note = 'Override reason mapping: cost constraints discussed';
+  } else if (lowerThread.includes('cab') || lowerThread.includes('freeze') || lowerThread.includes('compliance') || lowerThread.includes('security')) {
+    reason = 'compliance-hold';
+    note = 'Override reason mapping: compliance hold or change freeze discussed';
+  } else if (lowerThread.includes('replica') || lowerThread.includes('read') || lowerThread.includes('primary')) {
+    reason = 'prefer-read-replica';
+    note = 'Override reason mapping: read-replica routing preference discussed';
+  } else if (lowerThread.includes('maintenance') || lowerThread.includes('scheduled')) {
+    reason = 'maintenance-window';
+    note = 'Override reason mapping: maintenance window discussed';
+  } else if (lowerThread.includes('wrong diagnosis') || lowerThread.includes('misidentified') || lowerThread.includes('incorrect root')) {
+    reason = 'wrong-diagnosis';
+    note = 'Override reason mapping: wrong root-cause diagnosis discussed';
+  } else if (lowerThread.includes('wrong fix') || lowerThread.includes('bad command') || lowerThread.includes('incorrect fix')) {
+    reason = 'wrong-fix';
+    note = 'Override reason mapping: wrong remediation command discussed';
+  }
+
+  // 3. Identify failure mode tag from text or keywords
+  let incidentTag = 'infra_db_connection_pool'; // default fallback
+  if (lowerThread.includes('oom') || lowerThread.includes('memory') || lowerThread.includes('limit')) {
+    incidentTag = 'infra_oom_kill';
+  } else if (lowerThread.includes('rate') || lowerThread.includes('limit') || lowerThread.includes('throttl')) {
+    incidentTag = 'infra_rate_limit_cascade';
+  } else if (lowerThread.includes('cert') || lowerThread.includes('tls') || lowerThread.includes('expiry') || lowerThread.includes('ssl')) {
+    incidentTag = 'infra_certificate_expiry';
+  } else if (lowerThread.includes('disk') || lowerThread.includes('space') || lowerThread.includes('full')) {
+    incidentTag = 'infra_disk_pressure';
+  } else if (lowerThread.includes('slow') || lowerThread.includes('query') || lowerThread.includes('latency')) {
+    incidentTag = 'infra_slow_query';
+  }
+
+  // 4. Record into Override Corpus
+  const event = recordOverride({
+    incidentTag,
+    proposedCommand,
+    overrideReason: reason,
+    note,
+    service,
+    environment: 'production',
+    manualAction: manualAction || undefined,
+    actor: 'Slack NLP Parser',
+  });
+
+  return event;
 }

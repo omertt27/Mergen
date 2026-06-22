@@ -53,13 +53,12 @@ let _cachedThreshold: number | null = null;
 let _cacheTime = 0;
 
 function scoreOf(r: PredictionRecord): number {
-  return (r as PredictionRecord & { numericScore?: number }).numericScore
-    ?? BAND_MIDPOINT[r.confidence]
-    ?? 0.72;
+  const extended = r as PredictionRecord & { numericScore?: number; confidenceScore?: number };
+  return extended.numericScore ?? extended.confidenceScore ?? BAND_MIDPOINT[r.confidence] ?? 0.72;
 }
 
 export function computeRocCurve(): RocPoint[] {
-  const verdicted = getRecords().filter((r) => r.verdict !== undefined);
+  const verdicted = getRecords().filter((r) => r.verdict !== null);
   if (verdicted.length < MIN_SAMPLE_SIZE) return [];
 
   const samples = verdicted.map((r) => ({

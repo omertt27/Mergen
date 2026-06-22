@@ -20,6 +20,8 @@ import {
   exportCsv,
   getPendingFeedback,
   getGlobalStats,
+  isCorpusSeeded,
+  getRealVerdictCount,
   CALIBRATION_CONFIG,
   type VerdictDimension,
 } from '../intelligence/calibration.js';
@@ -92,12 +94,17 @@ export function createCalibrationRouter(): Router {
       ? trusted.reduce((sum, s) => sum + s.accuracy * s.verdicts, 0) / totalVerdicts
       : null;
     const anyInterruptsAllowed = stats.some((s) => s.shouldInterrupt);
+    const corpusSeeded = isCorpusSeeded();
+    const realVerdictCount = getRealVerdictCount();
     res.json({
       ok: true,
       overallAccuracy: overall,
       trustedDetectors: trusted.length,
       totalDetectors: stats.length,
       anyInterruptsAllowed,
+      corpusSeeded,
+      realVerdictCount,
+      warmUpComplete: realVerdictCount >= 10,
       pendingFeedback: getPendingFeedback(),
       config: CALIBRATION_CONFIG,
       perDetector: stats,

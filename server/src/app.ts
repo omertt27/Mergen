@@ -63,6 +63,7 @@ import { createHabituationRouter } from './routes/habituation.js';
 import { createAdrRouter } from './routes/adr.js';
 import { createConfidenceRouter } from './routes/confidence.js';
 import { createArchRouter } from './routes/arch.js';
+import { createRunbooksRouter } from './routes/runbooks.js';
 import { cloudAuthMiddleware, CLOUD_MODE } from './sensor/cloud-auth.js';
 import { handleSlackActions, handleFeedbackLink } from './intelligence/slack.js';
 import { getPrometheusMetrics } from './sensor/otel-exporter.js';
@@ -77,7 +78,7 @@ const MUTATING_PATHS = [
   // Incident pipeline — triggers autonomous command execution
   '/incident',
   // Infrastructure mutations
-  '/ci', '/overrides', '/rbac', '/heartbeats', '/slack/routing', '/slack/test',
+  '/ci', '/overrides', '/rbac', '/heartbeats', '/slack/routing', '/slack/test', '/runbooks',
   // Process / container watchers
   '/watchers',
   // Billing & account mutations
@@ -355,6 +356,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createAdrRouter());           // Architectural Decision Records
   app.use(createConfidenceRouter());    // Pre-implementation confidence reports
   app.use(createArchRouter());          // Arch boundary enforcement, risk scoring, graph, critic
+  app.use(createRunbooksRouter());      // Pre-approved runbook library
 
   // GET /service-graph — in cloud mode, require API key (exposes internal topology)
   app.get('/service-graph', ...(CLOUD_MODE ? [cloudAuthMiddleware] : []), (_req, res) => {

@@ -1,16 +1,22 @@
-# Mergen — System Understanding Infrastructure for High-Change Software Environments
+# Mergen — Operational Memory for Engineering Teams
 
-As AI makes writing code cheap, understanding software systems becomes the bottleneck. GitHub stores what changed. Not why the Friday settlement window makes connection pool resizing unsafe. Not which fix your on-call reaches for at 3am. Engineers and AI agents make changes blind to those constraints.
+Every incident teaches your team something. Mergen ensures that knowledge is never lost.
 
-Mergen is the real-time system understanding layer: an MCP server that surfaces hidden constraints, historical decisions, and operational context so engineers and AI agents can make changes safely. It compresses raw production telemetry into structured machine context and encodes your team's override decisions as queryable policy. When a change is about to be made, Mergen answers the question: *is it safe to make this change here, now, given what this system has done before?*
+When an engineer overrides an automated fix — "don't restart during the Friday settlement window" — Mergen encodes that as queryable policy. The next time a similar incident fires, Mergen knows. When your best on-call engineer leaves, their instincts stay. When the same issue surfaces six months later, Mergen surfaces what was tried before and why it worked.
+
+Mergen is the memory layer between your observability stack and the people who act on it: an MCP server that compresses raw production telemetry into structured context, encodes override decisions as policy, and gets faster at triage with every incident your team resolves.
 
 All data stays on your infrastructure. No cloud. No copy-paste.
 
+## Who it's for
+
+2–5 person SRE teams who own PagerDuty and Slack but not a dedicated incident management platform. You already have observability — you don't need another dashboard. You need the system to know what your team has learned, and to act on it without waking someone up.
+
 ---
 
-## Why Mergen vs. existing observability tools?
+## Why Mergen vs. point tools (Datadog + PagerDuty + Grafana)?
 
-| | Datadog / PagerDuty / Grafana | **Mergen** |
+| | Point tools (Datadog + PagerDuty + Grafana) | **Mergen** |
 | :--- | :--- | :--- |
 | **Action** | Alert → page engineer | ✅ **Alert → diagnose → fix → validate** |
 | **AI integration** | Dashboard with AI summaries | ✅ **MCP tools your AI IDE calls directly** |
@@ -99,6 +105,7 @@ MERGEN_SECRET=mysecret             # shared secret for mutating API endpoints (x
 MERGEN_SLACK_BOT_TOKEN=xoxb-...    # Slack Web API token (threads + replies)
 MERGEN_SLACK_CHANNEL=#incidents    # default incident channel
 MERGEN_SLACK_SIGNING_SECRET=...    # HMAC secret to verify inbound Slack events
+MERGEN_SLACK_DIGEST=true           # post daily operational digest at 09:00 UTC (incidents, calibration, overrides, runbooks)
 MERGEN_PR_COMMENTS=true            # post AI code review comments on PRs (enables habituation tracking)
 
 # ── PagerDuty ─────────────────────────────────────────────────────────────────

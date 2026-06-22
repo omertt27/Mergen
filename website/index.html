@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Mergen — Debugging is the New Bottleneck</title>
-  <meta name="description" content="AI coding agents made writing code free. Mergen makes debugging it automatic. Structured production triage and autonomous remediation for every AI IDE." />
+  <title>Mergen — The Operational Intelligence Layer for AI-Native Engineering</title>
+  <meta name="description" content="Mergen gives AI agents and engineers the operational context, historical decisions, and infrastructure memory needed to make safer changes." />
   
   <!-- Geist + Geist Mono -->
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
@@ -16,8 +16,8 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html { scroll-behavior: smooth; font-size: 16px; background: #050505; }
     body {
-      background: #050505; /* Softened from #000 */
-      color: #f0f0f0; /* Softened from #fff */
+      background: #050505;
+      color: #f0f0f0;
       font-family: 'Geist', sans-serif;
       line-height: 1.4;
       -webkit-font-smoothing: antialiased;
@@ -131,25 +131,25 @@
       display: block;
     }
     h1 {
-      font-size: clamp(3rem, 10vw, 8rem);
+      font-size: clamp(2.5rem, 7vw, 5rem);
       font-weight: 900;
-      line-height: 0.9;
-      letter-spacing: -0.05em;
+      line-height: 1.05;
+      letter-spacing: -0.04em;
       text-transform: uppercase;
       margin-left: -0.05em;
       max-width: 95%;
       color: var(--white);
     }
     .hero-sub {
-      margin-top: 3rem;
-      max-width: 650px;
+      margin-top: 2.5rem;
+      max-width: 700px;
       font-size: 1.25rem;
       color: var(--gray-400);
       font-weight: 400;
       line-height: 1.6;
     }
     .hero-actions {
-      margin-top: 4.5rem;
+      margin-top: 4rem;
       display: flex;
       gap: 1.5rem;
     }
@@ -184,16 +184,95 @@
     }
     
     h2 {
-      font-size: clamp(2rem, 5vw, 4rem);
+      font-size: clamp(2rem, 5vw, 3.5rem);
       font-weight: 800;
       letter-spacing: -0.03em;
       text-transform: uppercase;
       line-height: 1.1;
-      margin-bottom: 5rem;
+      margin-bottom: 4rem;
       color: var(--white);
     }
 
-    /* ─── FEATURE GRID ────────────────────────────────────────────────────── */
+    /* ─── THE DILEMMA SECTION ─────────────────────────────────────────────── */
+    .dilemma-block {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 3rem;
+      margin-bottom: 4rem;
+    }
+    .dilemma-text {
+      grid-column: span 7;
+      font-size: 1.15rem;
+      line-height: 1.7;
+      color: var(--gray-400);
+    }
+    .dilemma-stat {
+      grid-column: 9 / span 4;
+      border: 1px solid var(--gray-800);
+      background: #080808;
+      padding: 2.5rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      border-radius: var(--radius);
+    }
+    .dilemma-stat-num {
+      font-size: 3.5rem;
+      font-weight: 900;
+      color: var(--accent-text);
+      line-height: 1;
+      margin-bottom: 0.5rem;
+    }
+    .dilemma-stat-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      color: var(--gray-400);
+    }
+
+    /* ─── ROADMAP MATRIX ─────────────────────────────────────────────────── */
+    .roadmap-timeline {
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+      margin-top: 3rem;
+    }
+    .roadmap-node {
+      display: grid;
+      grid-template-columns: 80px 1fr;
+      gap: 2.5rem;
+      border-bottom: 1px solid var(--gray-800);
+      padding-bottom: 2.5rem;
+    }
+    .roadmap-node:last-child {
+      border-bottom: none;
+    }
+    .roadmap-phase {
+      font-family: 'Geist Mono', monospace;
+      font-size: 0.8rem;
+      color: var(--accent-text);
+      font-weight: 800;
+      text-align: right;
+      padding-top: 0.25rem;
+    }
+    .roadmap-details {
+      display: grid;
+      grid-template-columns: 1fr 2fr;
+      gap: 3rem;
+    }
+    .roadmap-title {
+      font-size: 1.5rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: var(--white);
+    }
+    .roadmap-desc {
+      color: var(--gray-400);
+      font-size: 0.95rem;
+      line-height: 1.6;
+    }
+
+    /* ─── MOAT FEATURE GRID ──────────────────────────────────────────────── */
     .feature-grid {
       display: grid;
       grid-template-columns: repeat(12, 1fr);
@@ -206,7 +285,7 @@
       transition: border-color 0.4s;
     }
     .feature-card:hover { border-color: var(--accent); }
-    .feature-card:nth-child(2) { grid-column: 8 / span 5; margin-top: 5rem; }
+    .feature-card:nth-child(2) { grid-column: 8 / span 5; margin-top: 4rem; }
     .feature-card:nth-child(3) { grid-column: 2 / span 5; }
     .feature-card:nth-child(4) { grid-column: 8 / span 4; margin-top: -1rem; }
 
@@ -358,12 +437,17 @@
     .mt-lg { margin-top: var(--space-lg); }
 
     @media (max-width: 1000px) {
+      .feature-grid, .roadmap-node { grid-template-columns: 1fr; gap: 2rem; }
+      .roadmap-phase { text-align: left; }
+      .roadmap-details { grid-template-columns: 1fr; gap: 1.5rem; }
       .feature-card, .feature-card:nth-child(n) { grid-column: span 12; margin: 0; }
       .arch-content { flex-direction: column; gap: 4rem; }
       .arch-connector { height: 80px; width: 1px; margin: 0; }
       .arch-connector::after { bottom: 0; top: auto; right: -3px; }
       .price-row { flex-direction: column; }
       .price-col { border-right: none; border-bottom: 1px solid var(--gray-800); }
+      .dilemma-block { grid-template-columns: 1fr; gap: 2rem; }
+      .dilemma-text, .dilemma-stat { grid-column: span 12; }
     }
   </style>
 </head>
@@ -376,8 +460,9 @@
     <div class="nav-inner">
       <a href="/" class="logo">Mergen</a>
       <ul class="nav-links">
-        <li><a href="#how">Engine</a></li>
-        <li><a href="#schematic">Schematic</a></li>
+        <li><a href="#dilemma">The Problem</a></li>
+        <li><a href="#roadmap">Maturity Plan</a></li>
+        <li><a href="#moat">The Moat</a></li>
         <li><a href="#access">Access</a></li>
         <li><a href="https://github.com/omertt27/Mergen">Source</a></li>
       </ul>
@@ -386,109 +471,201 @@
 </nav>
 
 <main class="wrap">
+  <!-- HERO SECTION -->
   <section class="hero">
-    <span class="hero-eyebrow">The Debugging Layer · Agent-Native · Zero Data Exfiltration</span>
-    <h1>Writing code is free.<br>Debugging it isn't.</h1>
+    <span class="hero-eyebrow">The Operational Memory Layer · Agent-Native · Zero Data Exfiltration</span>
+    <h1>AI agents don't know<br>how your systems actually work.</h1>
     <p class="hero-sub">
-      AI coding agents accelerated code production to zero marginal cost. They did not accelerate debugging. Mergen is the Debugging, Compliance, and Safety Layer that closes that gap — compressing raw production telemetry into a structured causal chain and executing the fix at ≥85% confidence.
+      Mergen gives AI agents and engineers the operational context, historical decisions, and infrastructure memory needed to make safer changes. Stop technical debt and recurring incident loops at the moment of change.
     </p>
     <div class="hero-actions">
-      <a href="https://github.com/omertt27/Mergen/blob/main/INSTALL.md" class="btn btn-white">Get Started — 60s</a>
-      <a href="#how" class="btn btn-outline">Explore Engine</a>
+      <a href="https://github.com/omertt27/Mergen/blob/main/INSTALL.md" class="btn btn-white">Get Started Free</a>
+      <a href="#dilemma" class="btn btn-outline">Explore Core Moat</a>
     </div>
   </section>
 
-  <section id="how">
-    <span class="section-label">01 // The Shift</span>
-    <h2>Code generation is free.<br>Comprehension is the bottleneck.</h2>
+  <!-- THE DILEMMA SECTION -->
+  <section id="dilemma">
+    <span class="section-label">01 // The Dilemma</span>
+    <h2>The Agent Outage Tax</h2>
+    <div class="dilemma-block">
+      <div class="dilemma-text">
+        <p style="margin-bottom: 1.5rem;">
+          AI assistants write code at machine speed, but they operate blind to runtime operations. 
+          When a human spent three days writing a routing loop, the architectural context, production constraints, and database quirks lived in their head. When an agent generates the same block in four seconds, nobody knows why it exists.
+        </p>
+        <p>
+          The result is instant legacy code and cascading production failures. Traditional APM tools like Datadog notify humans *after* the crash. Mergen bridges this gap by continuously converting developer overrides, postmortems, and system metrics into a machine-readable knowledge layer.
+        </p>
+      </div>
+      <div class="dilemma-stat">
+        <span class="dilemma-stat-num">94%</span>
+        <span class="dilemma-stat-label">Causal accuracy across 10 failure classes</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- THE ROADMAP SECTION -->
+  <section id="roadmap">
+    <span class="section-label">02 // The Maturity Plan</span>
+    <h2>The 5-Phase Operational Intelligence Model</h2>
+    
+    <div class="roadmap-timeline">
+      <!-- PHASE 1 -->
+      <div class="roadmap-node">
+        <div class="roadmap-phase">Phase 01</div>
+        <div class="roadmap-details">
+          <div class="roadmap-title">Operational Memory</div>
+          <div class="roadmap-desc">
+            Continuous background telemetry capture (Docker logs, OTel traces, local console exceptions) streaming into a local-first ring buffer.
+          </div>
+        </div>
+      </div>
+      <!-- PHASE 2 -->
+      <div class="roadmap-node">
+        <div class="roadmap-phase">Phase 02</div>
+        <div class="roadmap-details">
+          <div class="roadmap-title">Operational Intelligence</div>
+          <div class="roadmap-desc">
+            Direct integration with Cursor and Claude Code. Serves formatted causal <strong>Context Packs</strong> to your AI assistant, eliminating the "copy-paste shuttle" and making tools runtime-aware.
+          </div>
+        </div>
+      </div>
+      <!-- PHASE 3 -->
+      <div class="roadmap-node">
+        <div class="roadmap-phase">Phase 03</div>
+        <div class="roadmap-details">
+          <div class="roadmap-title">Agent Safety & Governance</div>
+          <div class="roadmap-desc">
+            An inline deployment gate in CI/CD. Automatically intercepts agent-generated PRs, evaluates modifications against the Override Corpus, and blocks dangerous configurations before they merge.
+          </div>
+        </div>
+      </div>
+      <!-- PHASE 4 -->
+      <div class="roadmap-node">
+        <div class="roadmap-phase">Phase 04</div>
+        <div class="roadmap-details">
+          <div class="roadmap-title">Organizational Learning</div>
+          <div class="roadmap-desc">
+            The ultimate feedback loop. Watches Slack threads and postmortems to automatically parse human incident resolutions into machine-readable constraints. Future agents instantly inherit this memory.
+          </div>
+        </div>
+      </div>
+      <!-- PHASE 5 -->
+      <div class="roadmap-node">
+        <div class="roadmap-phase">Phase 05</div>
+        <div class="roadmap-details">
+          <div class="roadmap-title">Autonomous Operations</div>
+          <div class="roadmap-desc">
+            Closed-loop, self-healing remediation. Safe restarts and rollbacks executed under Layer 3 Safety Policies (hard safety blocklists that cannot be overridden by model confidence).
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- THE MOAT SECTION -->
+  <section id="moat">
+    <span class="section-label">03 // The Moat</span>
+    <h2>Compounding Infrastructure DNA</h2>
     
     <div class="feature-grid">
       <div class="feature-card">
-        <span class="feature-num">01.01</span>
-        <h3 class="feature-title">Semantic Compactor</h3>
-        <p class="feature-desc">Strips 99% of telemetry noise. <span class="highlight">500KB of raw traces → 1KB of runtime fact.</span> Your AI gets the exact service, the exact failure signature, and the exact fix command — not a log dump.</p>
+        <span class="feature-num">03.01</span>
+        <h3 class="feature-title">The Override Corpus</h3>
+        <p class="feature-desc">
+          Every time your team overrides a diagnosis or sets a constraint, it is encoded as policy. Mergen learns context-dependent rules—like your Friday settlement windows or pool resize locks—creating a proprietary operational DNA of your system.
+        </p>
       </div>
       <div class="feature-card">
-        <span class="feature-num">01.02</span>
-        <h3 class="feature-title">Override Corpus</h3>
-        <p class="feature-desc">Every time your team overrides Mergen's recommendation, that decision is <span class="highlight">encoded as policy</span>. Mergen consults it before every autonomous action — your Friday settlement windows, your compliance holds, your on-call's preferred fixes, enforced automatically.</p>
-      </div>
-      <div class="feature-card">
-        <span class="feature-num">01.03</span>
+        <span class="feature-num">03.02</span>
         <h3 class="feature-title">Agent Blunder Log</h3>
-        <p class="feature-desc">Every time Mergen's safety layer blocks an autonomous action, the event is recorded. <span class="highlight"><code>prevented: 23</code></span> means your on-call did not handle 23 potentially unsafe agent actions. The answer to "why trust an AI agent with prod?" is an audit trail.</p>
+        <p class="feature-desc">
+          An audit ledger tracking every time Mergen's safety gates blocked an unsafe agent change. Visual proof of ROI and a core defense mechanism that tracks prevented incidents over time.
+        </p>
       </div>
       <div class="feature-card">
-        <span class="feature-num">01.04</span>
+        <span class="feature-num">03.03</span>
+        <h3 class="feature-title">The 3-Layer Trust Model</h3>
+        <p class="feature-desc">
+          Combines a community Global Prior (Layer 1) with local Customer Calibration (Layer 2) and immutable Safety Policies (Layer 3). Restrict high-risk actions unconditionally, building ironclad enterprise trust.
+        </p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-num">03.04</span>
         <h3 class="feature-title">Zero Data Exfiltration</h3>
-        <p class="feature-desc">All telemetry stays on your loopback. <span class="highlight">127.0.0.1</span> is the only destination. PII shield always on. Immutable JSONL audit log. Enterprise security teams can audit every autonomous action before approving <code>MERGEN_AUTOPILOT=true</code>.</p>
+        <p class="feature-desc">
+          127.0.0.1 by default. Sensitive logs, PEM keys, and auth headers are redacted on-write locally. Enterprise security teams can audit every line of source code before enabling autopilot.
+        </p>
       </div>
     </div>
   </section>
 
+  <!-- SCHEMATIC SECTION -->
   <section id="schematic">
-    <span class="section-label">02 // The Schematic</span>
-    <h2>Verified Causal Chain.</h2>
+    <span class="section-label">04 // The Schematic</span>
+    <h2>Deterministic Causal Chain</h2>
     
     <div class="arch-view mt-lg">
       <div class="arch-grid"></div>
       <div class="arch-content">
         <div class="arch-box">
-          <span class="tag">BROWSER</span>
-          <h4>Frontend Event</h4>
+          <span class="tag">SENSOR</span>
+          <h4>Developer Client</h4>
           <code style="font-size:0.6rem; color:var(--gray-400)">POST /api/checkout</code>
         </div>
         <div class="arch-connector"></div>
         <div class="arch-box" style="border-color: var(--accent); box-shadow: 0 0 20px rgba(165, 243, 252, 0.1);">
           <span class="tag" style="background:var(--accent); color:#000;">NEXUS</span>
-          <h4>Causal Engine</h4>
-          <code style="font-size:0.6rem; color:var(--accent-text)">TRACE_ID: 8a2f...</code>
+          <h4>Operational Graph</h4>
+          <code style="font-size:0.6rem; color:var(--accent-text)">COMPILING OVERRIDES...</code>
         </div>
         <div class="arch-connector"></div>
         <div class="arch-box">
-          <span class="tag">BACKEND</span>
-          <h4>Service Signal</h4>
-          <code style="font-size:0.6rem; color:var(--gray-400)">500 Internal Error</code>
+          <span class="tag">CI/CD GATE</span>
+          <h4>Agent Deployment</h4>
+          <code style="font-size:0.6rem; color:var(--gray-400)">PR Safety Audited</code>
         </div>
       </div>
     </div>
   </section>
 
+  <!-- ACCESS/PRICING SECTION -->
   <section id="access">
-    <span class="section-label">03 // The Access</span>
-    <h2>Machine Reasoning Credits.</h2>
+    <span class="section-label">05 // The Access</span>
+    <h2>Get Started</h2>
     
     <div class="price-row mt-lg">
       <div class="price-col">
-        <span class="price-name">Developer</span>
-        <div class="price-val">$0<span>/mo</span></div>
+        <span class="price-name">Developer CLI (mergen-open)</span>
+        <div class="price-val">$0<span>/forever</span></div>
         <ul class="price-list">
-          <li>25 incidents / month</li>
-          <li>Full local ring buffer</li>
-          <li>Agent-native extension</li>
-          <li>Standard MCP tools</li>
+          <li>Full Chrome extension logger</li>
+          <li>Local-first stdio MCP server</li>
+          <li>Basic causal timeline graphs</li>
+          <li>Community heuristics prior</li>
         </ul>
-        <a href="#" class="btn btn-outline" style="display:block; text-align:center;">Join Waitlist</a>
+        <a href="https://github.com/omertt27/Mergen/blob/main/INSTALL.md" class="btn btn-outline" style="display:block; text-align:center;">Install via npm</a>
       </div>
       <div class="price-col" style="background: #080808; border-color: var(--accent); box-shadow: inset 0 0 50px rgba(165, 243, 252, 0.05);">
-        <span class="price-name" style="color:var(--accent-text)">Solo Pro</span>
-        <div class="price-val">$29<span>/mo</span></div>
+        <span class="price-name" style="color:var(--accent-text)">Mergen Sentinel (Paid Platform)</span>
+        <div class="price-val">$39<span>/seat/mo</span></div>
         <ul class="price-list">
-          <li style="color:var(--white)">200 incidents / month</li>
-          <li>Microservice fleet tracing</li>
-          <li>Native Source Map resolution</li>
-          <li>OTel-compliant telemetry</li>
+          <li style="color:var(--white)">Shared Override Corpus knowledge graph</li>
+          <li>CI/CD Deployment Safety Gates</li>
+          <li>Slack loop resolution updates</li>
+          <li>Hard safety policy override controls</li>
         </ul>
         <a href="#" class="btn btn-white" style="display:block; text-align:center;">Start Free Trial</a>
       </div>
       <div class="price-col">
-        <span class="price-name">Enterprise</span>
+        <span class="price-name">Enterprise Cloud / VPC</span>
         <div class="price-val">Custom</div>
         <ul class="price-list">
-          <li>Air-gapped deployment</li>
-          <li>Team-wide causal graph</li>
-          <li>Custom security policies</li>
-          <li>DLP-compliant redaction</li>
+          <li>Air-gapped Kubernetes sidecar</li>
+          <li>LDAP/SSO integration</li>
+          <li>Full SLA execution guarantees</li>
+          <li>DLP-compliant log scrubbing</li>
         </ul>
         <a href="#" class="btn btn-outline" style="display:block; text-align:center;">Contact Sales</a>
       </div>
@@ -498,7 +675,7 @@
 
 <footer class="wrap">
   <div class="foot-inner">
-    <div>© 2026 Mergen · Agent-Native Telemetry</div>
+    <div>© 2026 Mergen · Compounding Infrastructure DNA</div>
     <div style="display:flex; gap: 3rem;">
       <a href="https://github.com/omertt27/Mergen">GitHub</a>
       <a href="https://github.com/omertt27/Mergen/blob/main/docs/ENTERPRISE_SECURITY.md">Security</a>

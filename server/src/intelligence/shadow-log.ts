@@ -71,6 +71,8 @@ export interface ShadowEntry {
   verdictAt?: number;
   /** Set when humanVerdict is 'would-override' — links to the created corpus entry. */
   overrideId?: string;
+  /** ID of the pre-approved runbook used instead of an LLM-generated command, if any. */
+  runbookId?: string;
 }
 
 interface ShadowFile {

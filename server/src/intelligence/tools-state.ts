@@ -42,6 +42,8 @@ export const KNOWN_TOOLS = new Set([
   'search_adrs', 'discover_repo_context', 'report_confidence', 'plan_rollback', 'get_buffer_schema',
   // Architectural governance
   'check_arch_violations', 'score_change_risk', 'query_arch_graph', 'critique_implementation',
+  // Discovery and environment
+  'get_system_status', 'get_env_snapshot', 'get_diff_from_baseline',
 ]);
 
 export const toolCallCounts: Record<string, number> = {};

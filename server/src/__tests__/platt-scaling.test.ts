@@ -2,6 +2,14 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 const fsState: { content: string | null } = { content: null };
 
+vi.mock('../intelligence/calibration.js', () => {
+  return {
+    getRecords: () => [],
+    getStats: () => [],
+    _resetForTesting: () => {},
+  };
+});
+
 vi.mock('fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs')>();
   
@@ -32,9 +40,14 @@ vi.mock('fs', async (importOriginal) => {
   };
 });
 
+import { _resetForTesting } from '../__stubs__/calibration.js';
+import { invalidatePlattCache } from '../intelligence/platt-scaling.js';
+
 describe('platt-scaling federated calibration', () => {
   beforeEach(() => {
     vi.resetModules();
+    _resetForTesting();
+    invalidatePlattCache();
     fsState.content = null;
   });
 
