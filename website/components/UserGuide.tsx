@@ -39,13 +39,18 @@ claude mcp add mergen --transport stdio -- node "$(pwd)/server/dist/index.js"`,
   },
   {
     num: '04',
-    title: 'Enable Autopilot',
-    tag: 'optional · ≥85% confidence gate',
-    body: 'Set MERGEN_AUTOPILOT=true to let Mergen execute fixes autonomously. Starts in shadow mode for 30 days — builds a track record before it acts.',
-    code: `MERGEN_AUTOPILOT=true mergen-server start
-# Shadow mode (observe only, no execution):
-# omit MERGEN_AUTOPILOT — triage_incident still available on demand`,
-    note: 'Every blocked action is recorded in the Agent Blunder Log. Audit trail at ~/.mergen/audit.log.',
+    title: 'Build the Override Corpus',
+    tag: 'shadow mode · knowledge compounding',
+    body: 'Run in shadow mode to start building your team\'s Override Corpus — the record of every override, constraint, and postmortem that makes Mergen specific to your infrastructure. Enable autopilot only after the corpus has established a track record.',
+    code: `# Start with shadow mode (builds corpus, no execution)
+MERGEN_SHADOW_MODE=true mergen-server start
+
+# Enable auto-learning from Slack postmortems
+MERGEN_SLACK_OVERRIDE_LOOP=true mergen-server start
+
+# When ready: opt-in to autonomous resolution
+# MERGEN_AUTOPILOT=true mergen-server start`,
+    note: 'Every blocked action is recorded in the Agent Blunder Log at GET /agent-blunders. Hard Safety Policies at ~/.mergen/safety-policy.json always apply first.',
   },
 ]
 

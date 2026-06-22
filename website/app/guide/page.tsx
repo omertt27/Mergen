@@ -7,10 +7,11 @@ import CodeBlock from '@/components/CodeBlock'
 
 const sections = [
   { id: 'quickstart', label: 'Quick Start' },
-  { id: 'causaljoin', label: 'How it Works' },
+  { id: 'causaljoin', label: 'How It Works' },
   { id: 'integrations', label: 'Stack Integrations' },
+  { id: 'corpus', label: 'Override Corpus' },
   { id: 'ide', label: 'AI IDE Setup' },
-  { id: 'autopilot', label: 'Autopilot & Shadow' },
+  { id: 'autopilot', label: 'Trust Architecture' },
   { id: 'cli', label: 'CLI Reference' },
   { id: 'troubleshoot', label: 'Troubleshooting' },
 ]
@@ -66,7 +67,7 @@ export default function GuidePage() {
             Mergen<br />Developer Guide
           </h1>
           <p style={{ maxWidth: 700, color: 'var(--gray-400)', fontSize: '1.15rem', lineHeight: 1.7 }}>
-            Learn how Mergen correlates browser telemetry, indexes git repositories, integrates with IDE plugins, and safely guides autonomous coding agents.
+            Learn how Mergen converts engineering activity — incidents resolved, overrides made, Slack postmortems written — into machine-readable operational memory that compounds in value with every resolution.
           </p>
         </div>
 
@@ -174,81 +175,66 @@ export default function GuidePage() {
               </div>
             )}
 
-            {/* ── CAUSAL JOIN / HOW IT WORKS ── */}
+            {/* ── HOW IT WORKS ── */}
             {activeSection === 'causaljoin' && (
               <div>
-                <h2 style={{ fontSize: '2rem', marginBottom: '1.5rem', color: 'var(--white)' }}>How Causal Telemetry Join Works</h2>
+                <h2 style={{ fontSize: '2rem', marginBottom: '1.5rem', color: 'var(--white)' }}>How Operational Memory Works</h2>
                 <p style={{ color: 'var(--gray-400)', lineHeight: 1.7, marginBottom: '2rem' }}>
-                  Traditional monitoring platforms present raw logs and require engineers to connect the dots manually. 
-                  Mergen utilizes W3C header propagation to perform deterministic joins between browser logs, microservice spans, and active deployments.
+                  Traditional observability tools notify humans after a crash. Mergen compounds the knowledge of how your team resolves crashes, feeding it directly into the developer loop to prevent repetition. Every incident, override, and postmortem makes the system smarter about your specific infrastructure.
                 </p>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem', marginBottom: '3rem' }}>
+                <h3 style={{ color: 'var(--white)', fontSize: '1.1rem', marginBottom: '1.25rem', fontWeight: 600 }}>Three input sources build the knowledge graph</h3>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1.5rem', marginBottom: '3rem' }}>
                   <div style={{ border: '1px solid var(--gray-800)', borderRadius: '4px', padding: '1.5rem', background: 'var(--surface)' }}>
-                    <div style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>🌐</div>
-                    <h4 style={{ color: 'var(--white)', marginBottom: '0.5rem' }}>1. Browser Interception</h4>
+                    <div style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>⚡</div>
+                    <h4 style={{ color: 'var(--white)', marginBottom: '0.5rem' }}>Production Telemetry</h4>
                     <p style={{ color: 'var(--gray-400)', fontSize: '0.85rem', lineHeight: 1.5 }}>
-                      The browser SDK intercepts HTTP requests, generating a traceparent header carrying a unique 32-character <code>traceId</code>.
+                      OTel traces, Docker logs, PagerDuty webhooks, and CI results stream into the ring buffer. Every event is tagged, fingerprinted, and made queryable by your AI IDE.
                     </p>
                   </div>
                   <div style={{ border: '1px solid var(--gray-800)', borderRadius: '4px', padding: '1.5rem', background: 'var(--surface)' }}>
-                    <div style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>⚙️</div>
-                    <h4 style={{ color: 'var(--white)', marginBottom: '0.5rem' }}>2. Backend Correlation</h4>
+                    <div style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>💬</div>
+                    <h4 style={{ color: 'var(--white)', marginBottom: '0.5rem' }}>Slack Postmortems</h4>
                     <p style={{ color: 'var(--gray-400)', fontSize: '0.85rem', lineHeight: 1.5 }}>
-                      As the request passes through your endpoints, the backend structured logger embeds this trace identifier directly into active database or execution spans.
+                      The Slack override loop scans your incident channel every 6 hours, extracting operational constraints from postmortem threads and converting them into Override Corpus entries automatically.
                     </p>
                   </div>
                   <div style={{ border: '1px solid var(--gray-800)', borderRadius: '4px', padding: '1.5rem', background: 'var(--surface)' }}>
-                    <div style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>📦</div>
-                    <h4 style={{ color: 'var(--white)', marginBottom: '0.5rem' }}>3. Deployment Context</h4>
+                    <div style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>🗂️</div>
+                    <h4 style={{ color: 'var(--white)', marginBottom: '0.5rem' }}>Git History & ADRs</h4>
                     <p style={{ color: 'var(--gray-400)', fontSize: '0.85rem', lineHeight: 1.5 }}>
-                      Deployment systems pass git hash hashes via webhooks, mapping source code commits with the client bundle executing in the user session.
+                      The git ADR sync scans commit history and Architecture Decision Records daily, materialising operational constraints as durable override policies without engineers doing extra work.
                     </p>
                   </div>
                 </div>
 
-                <h3 style={{ color: 'var(--white)', fontSize: '1.25rem', marginBottom: '1rem' }}>Causal Confidence Ratings</h3>
+                <h3 style={{ color: 'var(--white)', fontSize: '1.1rem', marginBottom: '1.25rem', fontWeight: 600 }}>The Three-Layer Trust Architecture</h3>
                 <p style={{ color: 'var(--gray-400)', lineHeight: 1.6, marginBottom: '1.5rem' }}>
-                  When your coding agents request telemetry details, Mergen annotates each event stream with confidence scores:
+                  Before any autonomous action executes, Mergen applies three layers in order. Human policy always wins over model confidence.
                 </p>
 
-                <div style={{ overflowX: 'auto', marginBottom: '2rem' }}>
-                  <table className="compare-table">
-                    <thead>
-                      <tr>
-                        <th>Rating</th>
-                        <th>Connection Type</th>
-                        <th>Accuracy Factor</th>
-                        <th>Example Scenario</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td style={{ color: 'var(--accent-text)', fontFamily: 'var(--font-geist-mono)', fontWeight: 'bold' }}>EXACT</td>
-                        <td>Trace ID Correlation</td>
-                        <td>Deterministic (100%)</td>
-                        <td>A console log trace matches a backend SQL span.</td>
-                      </tr>
-                      <tr>
-                        <td style={{ color: '#4ade80', fontFamily: 'var(--font-geist-mono)', fontWeight: 'bold' }}>LINKED</td>
-                        <td>Build Commit Matching</td>
-                        <td>Structural (95%)</td>
-                        <td>A deploy script hook points to the bundle commit.</td>
-                      </tr>
-                      <tr>
-                        <td style={{ color: '#f59e0b', fontFamily: 'var(--font-geist-mono)', fontWeight: 'bold' }}>~CORR</td>
-                        <td>Temporal Proximity</td>
-                        <td>Probabilistic (80%)</td>
-                        <td>Spans grouped within a 2-second timestamp range.</td>
-                      </tr>
-                      <tr>
-                        <td style={{ color: 'var(--gray-600)', fontFamily: 'var(--font-geist-mono)' }}>OBS</td>
-                        <td>Singular Observation</td>
-                        <td>None</td>
-                        <td>Isolated log warning containing no trace markers.</td>
-                      </tr>
-                    </tbody>
-                  </table>
+                <div style={{ display: 'flex', flexDirection: 'column', border: '1px solid var(--gray-800)', borderRadius: '4px', overflow: 'hidden', marginBottom: '2rem' }}>
+                  {[
+                    { layer: 'Layer 3', label: 'Hard Safety Policies', desc: 'Unconditional, immutable guardrails defined by your platform team — "never restart the database automatically, regardless of confidence." These override any model-derived decision. No amount of high confidence bypasses them.', color: '#ef4444' },
+                    { layer: 'Layer 2', label: 'Customer Calibration', desc: 'Platt scaling trained on your team\'s specific incident history. As engineers tag diagnoses (correct / wrong / partial) via the IDE panel, confidence scores calibrate to your infrastructure within 20–50 events.', color: '#f59e0b' },
+                    { layer: 'Layer 1', label: 'Global Prior', desc: 'Out-of-the-box heuristic detectors for common failure patterns. Provides immediate value on Day 1 with no historical data required.', color: '#4ade80' },
+                  ].map((l, i) => (
+                    <div key={i} style={{ padding: '1.5rem', borderBottom: i < 2 ? '1px solid var(--gray-800)' : 'none', background: 'var(--surface)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.5rem' }}>
+                        <span style={{ fontFamily: 'var(--font-geist-mono)', fontSize: '0.7rem', color: l.color, fontWeight: 700, whiteSpace: 'nowrap' }}>{l.layer}</span>
+                        <strong style={{ color: 'var(--white)', fontSize: '0.95rem' }}>{l.label}</strong>
+                      </div>
+                      <p style={{ color: 'var(--gray-400)', fontSize: '0.85rem', lineHeight: 1.6, margin: 0 }}>{l.desc}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ background: 'rgba(255, 85, 0, 0.03)', border: '1px solid rgba(255, 85, 0, 0.15)', borderRadius: '4px', padding: '1.5rem' }}>
+                  <h4 style={{ color: 'var(--accent-text)', fontSize: '0.95rem', marginBottom: '0.5rem', fontWeight: 600 }}>The Disappear Test</h4>
+                  <p style={{ color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 1.6 }}>
+                    When we ask design partners "If Mergen disappeared tomorrow, what would stop working?", the answer we're aiming for: <strong style={{ color: 'var(--white)' }}>"Our AI agents and engineers would lose access to years of operational knowledge."</strong>
+                  </p>
                 </div>
               </div>
             )}
@@ -304,6 +290,110 @@ export default function GuidePage() {
                     </ol>
                   </div>
 
+                  {/* Slack Override Loop */}
+                  <div style={{ border: '1px solid var(--gray-800)', padding: '2rem', borderRadius: '4px', background: 'var(--surface)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                      <h3 style={{ color: 'var(--white)', margin: 0 }}>💬 Slack Postmortem Loop</h3>
+                      <span className="install-tag">Knowledge Compounding</span>
+                    </div>
+                    <p style={{ color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 1.6, marginBottom: '1.25rem' }}>
+                      Auto-scan your incident channel every 6 hours. Mergen extracts operational constraints from postmortem threads and adds them to the Override Corpus automatically — no extra work from engineers.
+                    </p>
+                    <CodeBlock
+                      code={`MERGEN_SLACK_BOT_TOKEN=xoxb-...\nMERGEN_SLACK_CHANNEL=#incidents\nMERGEN_SLACK_OVERRIDE_LOOP=true mergen-server start`}
+                      label="Environment variables"
+                    />
+                  </div>
+
+                  {/* Git ADR Sync */}
+                  <div style={{ border: '1px solid var(--gray-800)', padding: '2rem', borderRadius: '4px', background: 'var(--surface)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                      <h3 style={{ color: 'var(--white)', margin: 0 }}>🗂️ Git History & ADR Sync</h3>
+                      <span className="install-tag">Knowledge Compounding</span>
+                    </div>
+                    <p style={{ color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 1.6, marginBottom: '1.25rem' }}>
+                      Scan git commit history and Architecture Decision Records daily. Your historical engineering decisions become machine-readable policy in the Override Corpus.
+                    </p>
+                    <CodeBlock
+                      code="MERGEN_GIT_ADR_SYNC=true mergen-server start"
+                      label="Environment variable"
+                    />
+                  </div>
+
+                </div>
+              </div>
+            )}
+
+            {/* ── OVERRIDE CORPUS ── */}
+            {activeSection === 'corpus' && (
+              <div>
+                <h2 style={{ fontSize: '2rem', marginBottom: '1.5rem', color: 'var(--white)' }}>Override Corpus</h2>
+                <p style={{ color: 'var(--gray-400)', lineHeight: 1.7, marginBottom: '2rem' }}>
+                  The Override Corpus is your infrastructure's operational DNA — a queryable record of every human override, context-dependent constraint, and system quirk your team has ever encoded. It builds automatically from incidents, Slack postmortems, and git history. After six months: your Friday settlement windows, compliance holds, on-call preferences — structured, queryable, and impossible to replicate from a standing start.
+                </p>
+
+                <div className="install-card" style={{ marginBottom: '2rem' }}>
+                  <div className="install-card-header">
+                    <div>
+                      <span className="install-num">Query</span>
+                      <h3 className="install-title">Inspect What Mergen Has Learned</h3>
+                      <p style={{ color: 'var(--gray-400)', fontSize: '0.85rem', marginTop: '0.25rem' }}>The corpus grows automatically — no manual entry required.</p>
+                    </div>
+                  </div>
+                  <div className="install-card-body">
+                    <CodeBlock
+                      code="curl http://127.0.0.1:3000/override-corpus"
+                      label="Returns all accumulated override patterns"
+                    />
+                  </div>
+                </div>
+
+                <h3 style={{ color: 'var(--white)', fontSize: '1.1rem', marginBottom: '1.25rem', fontWeight: 600 }}>How the corpus builds</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '2.5rem' }}>
+                  {[
+                    { src: 'Human override at incident time', detail: "When an engineer changes the suggested fix or adds a constraint (\"don't restart during settlement window\"), it's encoded as policy immediately." },
+                    { src: 'Slack postmortem scan (every 6 hours)', detail: 'MERGEN_SLACK_OVERRIDE_LOOP extracts operational constraints from incident channel threads automatically.' },
+                    { src: 'Git history + ADR commits (daily)', detail: 'MERGEN_GIT_ADR_SYNC scans commit messages and ADR documents for operational decisions.' },
+                    { src: 'CI/CD pipeline results', detail: 'Failed builds and blocked PRs feed back into the corpus as risk signals for future similar changes.' },
+                  ].map((item, i) => (
+                    <div key={i} style={{ display: 'flex', gap: '1rem', padding: '1rem 1.5rem', border: '1px solid var(--gray-800)', borderRadius: '4px', background: 'var(--surface)' }}>
+                      <span style={{ color: 'var(--accent-text)', fontFamily: 'var(--font-geist-mono)', fontSize: '0.75rem', fontWeight: 700, minWidth: '1rem', paddingTop: '0.1rem' }}>{i + 1}</span>
+                      <div>
+                        <strong style={{ color: 'var(--white)', fontSize: '0.9rem', display: 'block', marginBottom: '0.25rem' }}>{item.src}</strong>
+                        <p style={{ color: 'var(--gray-400)', fontSize: '0.85rem', lineHeight: 1.5, margin: 0 }}>{item.detail}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="install-card" style={{ marginBottom: '2rem' }}>
+                  <div className="install-card-header">
+                    <div>
+                      <span className="install-num">CI Gate</span>
+                      <h3 className="install-title">Block Dangerous PRs Before Merge</h3>
+                      <p style={{ color: 'var(--gray-400)', fontSize: '0.85rem', marginTop: '0.25rem' }}>The GitHub Action checks every PR against the corpus and blocks corpus conflicts before merge.</p>
+                    </div>
+                  </div>
+                  <div className="install-card-body">
+                    <pre className="code-block" style={{ fontSize: '0.75rem', overflowX: 'auto', whiteSpace: 'pre-wrap' }}>
+{`# .github/workflows/mergen-gate.yml
+- uses: mergenapp/mergen-server@v1
+  with:
+    mergen-url: \${{ secrets.MERGEN_URL }}
+    mergen-secret: \${{ secrets.MERGEN_SECRET }}
+    fail-on-block: 'true'`}
+                    </pre>
+                    <p style={{ color: 'var(--gray-400)', fontSize: '0.9rem', marginTop: '1rem', lineHeight: 1.6 }}>
+                      Outputs: <code>verdict</code> (pass / warn / block), <code>risk-score</code> (0–100), and <code>reasons</code> — a JSON array of corpus conflicts found in the changed files.
+                    </p>
+                  </div>
+                </div>
+
+                <div style={{ background: 'rgba(255, 85, 0, 0.03)', border: '1px solid rgba(255, 85, 0, 0.15)', borderRadius: '4px', padding: '1.5rem' }}>
+                  <h4 style={{ color: 'var(--accent-text)', fontSize: '0.95rem', marginBottom: '0.5rem', fontWeight: 600 }}>Agent Blunder Log</h4>
+                  <p style={{ color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 1.6 }}>
+                    Every time the corpus blocks an autonomous action, the event is recorded. <code>GET /agent-blunders</code> shows the full intercept history — types: <code>allowlist_block</code>, <code>override_corpus_block</code>, <code>planning_gate_block</code>, and more. This is the audit trail that answers "why would you trust an AI agent with prod?"
+                  </p>
                 </div>
               </div>
             )}
@@ -321,9 +411,9 @@ export default function GuidePage() {
                     <h3 className="install-title">Anthropic Claude Code</h3>
                   </div>
                   <div className="install-card-body">
-                    <CodeBlock 
-                      code="claude mcp add mergen-local -- npx @mergen/mcp index ./docs" 
-                      label="Add Command"
+                    <CodeBlock
+                      code={`# Guided setup — auto-detects your IDE\nmergen-server setup\n\n# Or manually:\nclaude mcp add mergen --transport stdio -- node "$(pwd)/server/dist/index.js"`}
+                      label="Add MCP server"
                     />
                   </div>
                 </div>
@@ -356,9 +446,12 @@ export default function GuidePage() {
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                   {[
-                    { name: 'triage_incident', desc: 'Queries unified telemetry matching active incident logs, determining exact causal chains.' },
-                    { name: 'analyze_runtime', desc: 'Inspects CPU load, memory utilization, and active logs of docker container endpoints.' },
-                    { name: 'validate_fix', desc: 'Re-runs tests, verifies health endpoints, and checks error status rates to prove the bug is squashed.' },
+                    { name: 'triage_incident', desc: 'Full autonomous loop on demand — diagnosis, optional fix, validation, and Slack thread reply.' },
+                    { name: 'analyze_runtime', desc: 'Causal analysis against the Override Corpus — root cause and fix hint, no execution.' },
+                    { name: 'validate_fix', desc: 'Compare error counts before and after a fix. Records verdict to the calibration corpus.' },
+                    { name: 'execute_fix', desc: 'Execute a specific hypothesis fix (requires confirm: true and passes Layer 3 safety check).' },
+                    { name: 'get_recent_logs', desc: 'Console events from the ring buffer, filterable by severity and service.' },
+                    { name: 'get_unified_timeline', desc: 'Browser request joined to backend span — exact causal join across the full stack.' },
                   ].map((tool) => (
                     <div key={tool.name} style={{ border: '1px solid var(--gray-800)', borderRadius: '2px', padding: '1rem 1.5rem', background: '#0a0a0a' }}>
                       <span style={{ fontFamily: 'var(--font-geist-mono)', color: 'var(--accent-text)', fontWeight: 600 }}>{tool.name}()</span>
@@ -369,55 +462,59 @@ export default function GuidePage() {
               </div>
             )}
 
-            {/* ── AUTOPILOT & SHADOW MODE ── */}
+            {/* ── TRUST ARCHITECTURE ── */}
             {activeSection === 'autopilot' && (
               <div>
-                <h2 style={{ fontSize: '2rem', marginBottom: '1.5rem', color: 'var(--white)' }}>Autopilot & Shadow Mode</h2>
+                <h2 style={{ fontSize: '2rem', marginBottom: '1.5rem', color: 'var(--white)' }}>Trust Architecture</h2>
                 <p style={{ color: 'var(--gray-400)', lineHeight: 1.7, marginBottom: '2rem' }}>
-                  Mergen can operate either as an advisory helper, or actively execute code remediations on your production infrastructure using confidence gates.
+                  Start in Shadow Mode. It diagnoses incidents, posts recommendations to Slack, and builds the Override Corpus — all without touching production. Autopilot is opt-in once the corpus has established a track record and your Hard Safety Policies are configured.
                 </p>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', marginBottom: '3rem' }}>
                   <div style={{ border: '1px solid var(--gray-800)', padding: '2rem', borderRadius: '4px', background: 'var(--surface)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-                      <span style={{ color: '#f59e0b', fontSize: '1.2rem' }}>🕵️‍♂️</span>
+                      <span style={{ color: '#4ade80', fontSize: '1.2rem' }}>🕵️</span>
                       <h3 style={{ color: 'var(--white)', margin: 0, fontSize: '1.1rem' }}>Shadow Mode</h3>
                     </div>
                     <p style={{ color: 'var(--gray-400)', fontSize: '0.85rem', lineHeight: 1.6, marginBottom: '1rem' }}>
-                      Advises decisions on active incidents, logs recommendations, and posts outcomes directly to your Slack channel—without applying fixes.
+                      Diagnoses incidents, logs recommendations, and posts outcomes to Slack — without applying fixes. Builds the Override Corpus and calibration history while your team stays in control.
                     </p>
-                    <CodeBlock 
-                      code="MERGEN_SHADOW_MODE=true mergen-server start" 
-                      label="Command"
+                    <CodeBlock
+                      code="MERGEN_SHADOW_MODE=true mergen-server start"
+                      label="Recommended starting point"
                     />
                   </div>
 
                   <div style={{ border: '1px solid var(--gray-800)', padding: '2rem', borderRadius: '4px', background: 'var(--surface)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-                      <span style={{ color: '#ef4444', fontSize: '1.2rem' }}>🤖</span>
+                      <span style={{ color: '#f59e0b', fontSize: '1.2rem' }}>⚡</span>
                       <h3 style={{ color: 'var(--white)', margin: 0, fontSize: '1.1rem' }}>Autopilot</h3>
                     </div>
                     <p style={{ color: 'var(--gray-400)', fontSize: '0.85rem', lineHeight: 1.6, marginBottom: '1rem' }}>
-                      Enables autonomous incident resolution. If confidence levels match or exceed the safety threshold, fixes are applied instantly.
+                      Opt-in autonomous resolution. Hard Safety Policies are checked first — unconditionally. Then confidence must reach ≥85% against the calibrated corpus before any fix executes.
                     </p>
-                    <CodeBlock 
-                      code="MERGEN_AUTOPILOT=true mergen-server start" 
-                      label="Command"
+                    <CodeBlock
+                      code="MERGEN_AUTOPILOT=true mergen-server start"
+                      label="Enable after corpus is established"
                     />
                   </div>
                 </div>
 
-                <div style={{ border: '1px solid var(--gray-800)', padding: '2rem', borderRadius: '4px', background: 'var(--surface)' }}>
-                  <h3 style={{ color: 'var(--white)', marginBottom: '1rem' }}>Confidence Gate Protection</h3>
-                  <p style={{ color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 1.6 }}>
-                    Before Autopilot modifies any service settings or applies hotfixes:
-                  </p>
+                <div style={{ border: '1px solid var(--gray-800)', padding: '2rem', borderRadius: '4px', background: 'var(--surface)', marginBottom: '1.5rem' }}>
+                  <h3 style={{ color: 'var(--white)', marginBottom: '1rem' }}>Before any autonomous action runs</h3>
                   <ul style={{ paddingLeft: '1.25rem', color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 2, marginTop: '0.75rem' }}>
-                    <li>It calculates a probability score using a <strong>Platt-scaled classification model</strong>.</li>
-                    <li>The action is allowed only if confidence is <strong>&ge;85%</strong>.</li>
-                    <li>If lower, it triggers a warning fallback and alerts a human reviewer.</li>
-                    <li>An audit trail is recorded in <code>~/.mergen/audit.log</code> for compliance.</li>
+                    <li><strong style={{ color: 'var(--white)' }}>Layer 3 check:</strong> Hard Safety Policies are evaluated first. If the action matches a policy block, it stops — no confidence score overrides this.</li>
+                    <li><strong style={{ color: 'var(--white)' }}>Override Corpus check:</strong> If a similar action was overridden by a human in the same context, Mergen pauses and surfaces the prior decision.</li>
+                    <li><strong style={{ color: 'var(--white)' }}>Confidence gate:</strong> Platt-scaled score must be ≥85%. Below that, a human reviewer is alerted instead.</li>
+                    <li><strong style={{ color: 'var(--white)' }}>Audit trail:</strong> Every decision — executed or blocked — is recorded in <code>~/.mergen/audit.log</code>.</li>
                   </ul>
+                </div>
+
+                <div style={{ background: 'rgba(255, 85, 0, 0.03)', border: '1px solid rgba(255, 85, 0, 0.15)', borderRadius: '4px', padding: '1.5rem' }}>
+                  <h4 style={{ color: 'var(--accent-text)', fontSize: '0.95rem', marginBottom: '0.5rem', fontWeight: 600 }}>Configure Hard Safety Policies</h4>
+                  <p style={{ color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 1.6 }}>
+                    On first start, Mergen writes a default policy file at <code>~/.mergen/safety-policy.json</code>. Edit it to add unconditional blocks specific to your infrastructure — services that must never be restarted automatically, deployment windows, compliance holds. These are checked before any model output.
+                  </p>
                 </div>
               </div>
             )}
