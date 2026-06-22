@@ -43,6 +43,21 @@ const IconServer = () => (
   </svg>
 )
 
+const IconGitCommit = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="3"/>
+    <line x1="3" y1="12" x2="9" y2="12"/>
+    <line x1="15" y1="12" x2="21" y2="12"/>
+  </svg>
+)
+
+const IconEye = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+    <circle cx="12" cy="12" r="3"/>
+  </svg>
+)
+
 const SlackAuditTrail = () => (
   <div style={{
     marginTop: '2rem',
@@ -177,6 +192,30 @@ const features = [
       </>
     ),
   },
+  {
+    num: '07',
+    icon: <IconGitCommit />,
+    title: 'Pre-commit Incident Guard',
+    desc: (
+      <>
+        Before you ship, Mergen cross-references every staged file against your incident history.{' '}
+        <span className="highlight">"This file was in 3 incidents last month"</span>
+        {' '}is the question a code reviewer would ask — encoded as a git hook, available to everyone. No reviewer required.
+      </>
+    ),
+  },
+  {
+    num: '08',
+    icon: <IconEye />,
+    title: 'Passive Status Surface',
+    desc: (
+      <>
+        Mergen tracks what happened while you weren't looking.{' '}
+        <span className="highlight">Next time you check: "this started failing 6 hours ago."</span>
+        {' '}Not a push notification interrupting your focus — context waiting when you return. The on-call teammate who works in silence.
+      </>
+    ),
+  },
 ]
 
 export default function Features() {
@@ -184,9 +223,9 @@ export default function Features() {
     <section id="why">
       <span className="section-label">04 // Core Systems</span>
       <h2>
-        Memory that compounds
+        Memory that compounds.
         <br />
-        with every incident.
+        Safety that doesn't require a team.
       </h2>
       <div className="feature-grid">
         {features.map((f, i) => (

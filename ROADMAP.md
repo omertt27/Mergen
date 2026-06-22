@@ -206,6 +206,32 @@ Make AI assistants **natively runtime-aware** by streaming live browser telemetr
 
 ---
 
+## 🚀 Solo Developer Safety Layer (Planned)
+
+**Context:** Solo devs face three structural absences that teams don't: no code reviewer, no one watching while they're away, no shared institutional memory. These features compensate for each — not as convenience, but as structural substitutes.
+
+### Feature A: Pre-commit Incident Cross-Reference
+**The gap:** A team has code review. A solo dev has nothing between "I wrote this" and "it's in production."
+- At commit time, cross-reference staged file paths against incident ring buffer
+- Output: `auth_middleware.ts was modified in Incident #388 (OOM Kill) — constraint: do not increase stack depth > 4`
+- Hooks into `guard` pre-commit flow; requires `file`/`service` tags on buffer events
+- This is not a lint check — it's the teammate instinct: "didn't this break before?"
+
+### Feature B: Passive Status Surface (doctor enhancement)
+**The gap:** No one watching while you sleep.
+- When `/health` or `/doctor` is queried, surface first-error-timestamp: "this started failing 6h ago"
+- Not a push notification — context waiting when you return, not an interrupt while you're working
+- Requires: `firstSeenAt` timestamp on error records in ring buffer (one-field addition)
+
+### Feature C: Rationale Field on Override Records
+**The gap:** You're the only source of institutional memory. If you forget why a workaround exists, no one else knows.
+- Add optional `reason` field to override corpus records
+- Surface at query time: "3 weeks ago you overrode restart-during-window — reason: Friday settlement window"
+- The override corpus already stores *policy* (don't do X). This stores *rationale* (here's why past-you decided that)
+- Schema addition only; exposed in `/override-corpus` response and MCP tool output
+
+---
+
 ## 📅 Future Sprints (July–December 2026)
 
 ### Q3 2026: Enterprise Hardening

@@ -4,6 +4,27 @@
 
 ---
 
+## Solo Developers: The Sharpest Case
+
+Teams have structural redundancy that solo devs lack entirely: a reviewer who reads the code before it merges, someone watching the system while you sleep, and shared institutional memory when a workaround needs explaining. These aren't conveniences — they're safety nets. When they're absent, every failure hits harder and takes longer to recover from.
+
+Mergen addresses all three structural absences:
+
+**No reviewer → Pre-commit Incident Guard**
+Before you commit, Mergen cross-references your changed files against incident history. "This file was in 3 incidents last month" is exactly what a code reviewer would flag — asked automatically at commit time instead.
+
+**No one watching → Passive Status Surface**
+`doctor` surfaces time-since-failure: "this started failing 6 hours ago." Not a push notification — context waiting when you return, not an interrupt while you're focused. The on-call teammate who works in silence.
+
+**No shared memory → Override Rationale**
+The override corpus already encodes *what* you decided. The rationale field adds *why*: "3 weeks ago you blocked restart-during-window — Friday settlement window." If you forget, Mergen remembers. For a solo dev, that's the difference between institutional knowledge and tribal knowledge that disappears when you're tired.
+
+The distinguishing bar isn't "useful" — it's "compensates for the structural absence of other people." Speed improvements don't pass that bar. These three do.
+
+---
+
+---
+
 ## The Problem: AI Assistants Are Blind to Runtime
 
 When you ask Claude, Cursor, or Copilot "Why did my login fail?", the AI can't see:

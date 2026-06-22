@@ -38,8 +38,8 @@ export default function Hero() {
       <h1>Mergen shows you why<br />your production broke.</h1>
       <p className="hero-sub">
         And remembers it forever. AI made writing code cheap — understanding production failures became the bottleneck.
-        Mergen turns incidents and human overrides into <b>queryable operational memory</b>
-        that prevents repeat failures.
+        Mergen turns incidents, overrides, and patterns into <b>queryable operational memory</b>.
+        Solo or team: you ship safer when Mergen remembers what you can't.
       </p>
       <div className="hero-actions">
         <a href="/install" className="btn btn-white">See it in 60 seconds →</a>
@@ -62,10 +62,11 @@ export default function Hero() {
       <div className="hero-badges">
         {[
           'No configuration required',
-          '50 sample incidents pre-loaded',
+          'Pre-commit incident guard',
           'Override-based learning',
           'Semantic safety & blast-radius check',
           'Platt-calibrated probability model',
+          'Passive status surface',
         ].map((b) => (
           <span key={b} className="hero-badge">✓ {b}</span>
         ))}

@@ -85,6 +85,53 @@ export default function MacroThesis() {
       </div>
 
       <div style={{
+        border: '1px solid var(--gray-800)',
+        borderTop: 'none',
+        borderLeft: '4px solid var(--accent)',
+        background: 'rgba(255, 85, 0, 0.02)',
+        display: 'grid',
+        gridTemplateColumns: '1fr 2fr',
+        gap: '4rem',
+        alignItems: 'flex-start',
+        padding: '3rem',
+      }}>
+        <div>
+          <span style={{
+            fontFamily: 'var(--font-geist-mono), monospace',
+            fontSize: '0.65rem',
+            color: 'var(--accent-text)',
+            letterSpacing: '0.1em',
+            display: 'block',
+            marginBottom: '1.5rem',
+          }}>
+            04
+          </span>
+          <h3 style={{
+            fontSize: '1.1rem',
+            fontWeight: 700,
+            letterSpacing: '-0.02em',
+            color: 'var(--white)',
+            marginBottom: '0.5rem',
+            lineHeight: 1.3,
+          }}>
+            Solo devs have no reviewer
+          </h3>
+          <p style={{
+            fontSize: '0.75rem',
+            fontFamily: 'var(--font-geist-mono), monospace',
+            color: 'var(--accent-text)',
+            letterSpacing: '0.03em',
+          }}>
+            Nothing between "I wrote this" and "it's in production"
+          </p>
+        </div>
+        <p style={{ color: 'var(--gray-400)', fontSize: '0.95rem', lineHeight: 1.7, paddingTop: '2.5rem' }}>
+          A team has code review as a safety net — someone else reads the change before it merges. A solo dev has nothing. Mergen's guard cross-references every commit against your incident history,
+          asking the question your missing teammate would: <em style={{ color: 'var(--gray-300)' }}>"didn't this file cause the outage last month?"</em> Not a lint check. Encoded institutional memory at commit time.
+        </p>
+      </div>
+
+      <div style={{
         marginTop: '4rem',
         padding: '3rem',
         border: '1px solid var(--gray-800)',
@@ -96,8 +143,8 @@ export default function MacroThesis() {
         gap: '4rem',
       }}>
         <p style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--white)', lineHeight: 1.4, maxWidth: '600px' }}>
-          The missing layer is not code generation.
-          It is operational memory — for systems that now evolve faster than humans can track.
+          The missing layer is not more code.
+          It is operational memory — so the engineer who built it, the agent who touched it, and the solo dev who shipped it at midnight all see the same constraints before they act.
         </p>
         <a href="mailto:hello@mergen.dev" className="btn btn-white" style={{ flexShrink: 0 }}>
           Talk to us
