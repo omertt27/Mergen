@@ -506,6 +506,38 @@ export function applyCalibration(
   return { active, suppressed };
 }
 
+// ── updateCalibrationNote ─────────────────────────────────────────────────────
+
+/**
+ * Add or replace the free-text note on an existing calibration record without
+ * re-triggering the classifier update or changing the verdict timestamp.
+ *
+ * Used by `record_fix_rationale` when a dev adds "why" context after
+ * validate_fix has already been called. Calling recordVerdict() again would
+ * double-count the sample in the classifier — this avoids that.
+ */
+export function updateCalibrationNote(pid: string, note: string): boolean {
+  load();
+  const rec = _records.find((r) => r.pid === pid);
+  if (!rec) return false;
+  rec.note = note.slice(0, 500);
+  schedulePersist();
+  return true;
+}
+
+// ── getRealVerdictCount ───────────────────────────────────────────────────────
+
+/**
+ * Count of non-seed verdicts recorded in this environment.
+ * Used to distinguish "94% corpus accuracy" (built-in priors) from
+ * "proven in this environment" (real production verdicts).
+ * Low count → treat confidence as provisional.
+ */
+export function getRealVerdictCount(): number {
+  load();
+  return _records.filter((r) => !r.isBuiltinSeed && r.verdict !== null).length;
+}
+
 // ── getPendingFeedback ────────────────────────────────────────────────────────
 
 export function getPendingFeedback(): Array<{ pid: string; expiresAt: number }> {

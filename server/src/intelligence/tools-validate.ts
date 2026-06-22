@@ -1,12 +1,14 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { store } from '../sensor/buffer.js';
-import { getRecords, recordVerdict } from './calibration.js';
+import type { ConsoleEvent, NetworkEvent } from '../sensor/buffer-schemas.js';
+import { getRecords, recordVerdict, updateCalibrationNote, getRealVerdictCount, isCorpusSeeded, classifyVerdict } from './calibration.js';
 import { layer4Store } from '../sensor/layer4-store.js';
 import { closeSession } from './session-metrics.js';
 import { trackCall } from './tools-state.js';
 
 function _registerValidateFix(server: McpServer): void {
+  // @ts-ignore — TS2589: MCP SDK's deep generic inference hits the recursion limit
   server.registerTool(
     'validate_fix',
     {
@@ -33,27 +35,23 @@ function _registerValidateFix(server: McpServer): void {
       const records = getRecords();
       const prediction = records.find((r) => r.pid === pid);
 
-      const logsBefore = store.getLogs(200, 'error', windowStart).filter((e) => e.timestamp < since);
-      const netBefore  = store.getNetwork(200, undefined, windowStart).filter(
+      const logsBefore: ConsoleEvent[] = store.getLogs(200, 'error', windowStart).filter((e) => e.timestamp < since);
+      const netBefore: NetworkEvent[]  = store.getNetwork(200, undefined, windowStart).filter(
         (e) => e.timestamp < since && (e.status >= 400 || !!e.error),
       );
-      const logsAfter = store.getLogs(200, 'error', since);
-      const netAfter  = store.getNetwork(200, undefined, since).filter((e) => e.status >= 400 || !!e.error);
+      const logsAfter: ConsoleEvent[] = store.getLogs(200, 'error', since);
+      const netAfter: NetworkEvent[]  = store.getNetwork(200, undefined, since).filter((e) => e.status >= 400 || !!e.error);
 
       const errsBefore = logsBefore.length + netBefore.length;
       const errsAfter  = logsAfter.length  + netAfter.length;
 
-      let verdict: 'correct' | 'partial' | 'wrong';
+      const verdict = classifyVerdict(errsBefore, errsAfter);
       let status: string;
-
-      if (errsAfter === 0 && errsBefore > 0) {
-        verdict = 'correct'; status = 'RESOLVED';
-      } else if (errsAfter === 0 && errsBefore === 0) {
-        verdict = 'correct'; status = 'CLEAN — no errors before or after';
-      } else if (errsBefore > 0 && errsAfter < errsBefore * 0.5) {
-        verdict = 'partial'; status = 'PARTIAL';
+      if (verdict === 'correct') {
+        status = errsBefore === 0 ? 'CLEAN — no errors before or after' : 'RESOLVED';
+      } else if (verdict === 'partial') {
+        status = 'PARTIAL';
       } else {
-        verdict = 'wrong';
         status = errsAfter > errsBefore ? 'REGRESSED' : 'UNRESOLVED';
       }
 
@@ -68,8 +66,26 @@ function _registerValidateFix(server: McpServer): void {
         closeSession(pid, outcome);
       }
 
-      // Surface the verdict meaning explicitly, especially on wrong/partial — a solo dev
-      // shouldn't have to infer what "UNRESOLVED" means for their next action.
+      // tag and lines must be declared before the verdict-specific push blocks below
+      const tag = prediction?.tag ?? 'unknown';
+      const verdictEmoji = verdict === 'correct' ? '✅' : verdict === 'partial' ? '⚠️' : '❌';
+      const lines = [
+        `## Fix Validation — \`${tag}\``,
+        '',
+        `**Status: ${verdictEmoji} ${status}**`,
+        '',
+        `| | Before fix | After fix |`,
+        `|---|---|---|`,
+        `| Console errors | ${logsBefore.length} | ${logsAfter.length} |`,
+        `| Network errors | ${netBefore.length}  | ${netAfter.length}  |`,
+        `| **Total** | **${errsBefore}** | **${errsAfter}** |`,
+        '',
+        prediction
+          ? `Verdict \`${verdict}\` recorded for detector \`${prediction.tag}\`.`
+          : `No prediction record found for pid \`${pid}\` — calibration not updated.`,
+      ];
+
+      // Surface verdict meaning explicitly, especially on wrong/partial
       if (verdict === 'wrong') {
         lines.push(
           '',
@@ -93,24 +109,6 @@ function _registerValidateFix(server: McpServer): void {
         );
       }
 
-      const tag = prediction?.tag ?? 'unknown';
-      const verdictEmoji = verdict === 'correct' ? '✅' : verdict === 'partial' ? '⚠️' : '❌';
-      const lines = [
-        `## Fix Validation — \`${tag}\``,
-        '',
-        `**Status: ${verdictEmoji} ${status}**`,
-        '',
-        `| | Before fix | After fix |`,
-        `|---|---|---|`,
-        `| Console errors | ${logsBefore.length} | ${logsAfter.length} |`,
-        `| Network errors | ${netBefore.length}  | ${netAfter.length}  |`,
-        `| **Total** | **${errsBefore}** | **${errsAfter}** |`,
-        '',
-        prediction
-          ? `Verdict \`${verdict}\` recorded for detector \`${prediction.tag}\`.`
-          : `No prediction record found for pid \`${pid}\` — calibration not updated.`,
-      ];
-
       if (logsAfter.length > 0) {
         lines.push('', '### Remaining console errors:');
         for (const e of logsAfter.slice(0, 5)) {
@@ -125,6 +123,47 @@ function _registerValidateFix(server: McpServer): void {
         }
       }
 
+      // ── Combined feedback moment (Items 3 + 4) ────────────────────────────
+      // One interaction, not two — stacking prompts back-to-back feels naggy.
+      //
+      // Item 3 (implicit rationale): invite the dev to note why, skippable.
+      // Item 4 (verdict count): surface local verdict count so the dev knows
+      //   whether the 94% accuracy figure is proven in their environment yet.
+      const realVerdicts = getRealVerdictCount();
+      const provisional  = isCorpusSeeded() || realVerdicts < 10;
+
+      if (prediction && verdict !== 'wrong') {
+        lines.push(
+          '',
+          '---',
+          '',
+          '### 📝 Optional: record why (for future reference)',
+          '',
+          `Root cause \`${tag}\` is recorded. If you know *why* this pattern occurred — a constraint, a workaround, or context that would help future-you — call:`,
+          '',
+          `\`\`\``,
+          `record_fix_rationale(pid: "${pid}", rationale: "your note here")`,
+          `\`\`\``,
+          '',
+          'This is skippable at zero cost — ignore it and nothing breaks. If answered, the note surfaces wherever past incidents for this detector are shown.',
+        );
+      }
+
+      if (provisional) {
+        const countLabel = realVerdicts === 0
+          ? 'no local verdicts yet'
+          : `${realVerdicts} local verdict${realVerdicts !== 1 ? 's' : ''} recorded`;
+        lines.push(
+          '',
+          `> ⚠️ **Provisional accuracy** — ${countLabel} in this environment. The published 94% figure is from built-in priors, not measurements on your stack. Treat confidence scores as estimates until you have 10+ real verdicts. Autopilot applies a more conservative effective threshold during this period (the untrained classifier holds blended confidence below the execution gate).`,
+        );
+      } else {
+        lines.push(
+          '',
+          `> ✅ **${realVerdicts} local verdicts recorded** — confidence estimates are calibrated from your environment's actual incident history.`,
+        );
+      }
+
       return { content: [{ type: 'text', text: lines.join('\n') }] };
     },
   );
@@ -137,6 +176,38 @@ export function registerValidateFix(server: McpServer): void {
 
 export function registerValidateTools(server: McpServer): void {
   _registerValidateFix(server);
+
+  // ── record_fix_rationale ─────────────────────────────────────────────────
+  // Item 3: implicit rationale capture — called at the moment the dev is already
+  // in context (right after validate_fix), so friction is minimal.
+  server.registerTool(
+    'record_fix_rationale',
+    {
+      description:
+        'Record WHY a root cause was correct — the constraint, workaround, or context that would help future-you. ' +
+        'Call this immediately after validate_fix returns RESOLVED or PARTIAL. ' +
+        'The note is stored on the calibration record and surfaced wherever past incidents for this detector are shown. ' +
+        'Completely optional — if skipped, nothing breaks and you will not be reminded again for this incident.',
+      inputSchema: {
+        pid: z.string()
+          .describe('Prediction id (pid) from reconstruct_context / validate_fix'),
+        rationale: z.string().min(1).max(500)
+          .describe('Free-text note: why did this root cause occur? What constraint or context is worth remembering?'),
+      },
+    },
+    async ({ pid, rationale }) => {
+      trackCall('record_fix_rationale');
+      const saved = updateCalibrationNote(pid, rationale);
+      return {
+        content: [{
+          type: 'text',
+          text: saved
+            ? `✅ Rationale recorded for prediction \`${pid}\`. It will appear in \`get_detector_calibration\` output for future incidents of the same type.`
+            : `❌ Prediction \`${pid}\` not found — rationale not saved. Check that the pid is from a recent \`reconstruct_context\` call.`,
+        }],
+      };
+    },
+  );
 
   // ── watch_for_fix ────────────────────────────────────────────────────────────
   server.registerTool(

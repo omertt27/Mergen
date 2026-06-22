@@ -97,14 +97,18 @@ export function registerMemoryTools(server: McpServer): void {
       if (fingerprint) {
         similar = memoryStore.findSimilar(fingerprint, limit);
       } else {
-        // Service filter: return recent records for that service regardless of fingerprint
-        similar = memoryStore.listOpen()
-          .filter((r) => r.service === service)
-          .slice(0, limit);
-        if (similar.length < limit) {
-          // Also fetch resolved ones
-          const fp = similar[0]?.fingerprint;
-          if (fp) similar = memoryStore.findSimilar(fp, limit);
+        // Service filter: search open incidents first, then all incidents (open + resolved).
+        // listOpen() alone misses services where all incidents are already resolved.
+        const byService = memoryStore.listAll(500).filter((r) => r.service === service);
+        similar = byService.slice(0, limit);
+        // If we got matches via service filter, also surface related fingerprints so the
+        // benchmark stats section (which uses similar[0].fingerprint) is populated.
+        if (similar.length > 0 && similar.length < limit) {
+          const fp = similar[0].fingerprint;
+          const extra = memoryStore.findSimilar(fp, limit).filter(
+            (r) => !similar.some((s) => s.id === r.id),
+          );
+          similar = [...similar, ...extra].slice(0, limit);
         }
       }
 
@@ -350,16 +354,15 @@ export function registerMemoryTools(server: McpServer): void {
             return `| ${date} | ${e.service} | ${e.overrideReason} | ${time} | ${outcome} |`;
           }),
           '',
-          events.length > 0
-            ? `_Dominant pattern: \`${events.reduce((best, e, _, arr) => {
-                const counts = new Map<OverrideReason, number>();
-                for (const ev of arr) counts.set(ev.overrideReason, (counts.get(ev.overrideReason) ?? 0) + 1);
-                let topReason: OverrideReason = best;
-                let topCount  = 0;
-                for (const [r, c] of counts) if (c > topCount) { topReason = r; topCount = c; }
-                return topReason;
-              }, events[0].overrideReason)}\` — check time pattern before proposing a fix._`
-            : '',
+          (() => {
+            if (events.length === 0) return '';
+            const counts = new Map<OverrideReason, number>();
+            for (const ev of events) counts.set(ev.overrideReason, (counts.get(ev.overrideReason) ?? 0) + 1);
+            let topReason = events[0].overrideReason;
+            let topCount = 0;
+            for (const [r, c] of counts) if (c > topCount) { topReason = r; topCount = c; }
+            return `_Dominant pattern: \`${topReason}\` — check time pattern before proposing a fix._`;
+          })(),
         ];
 
         return { content: [{ type: 'text' as const, text: lines.filter(Boolean).join('\n') }] };
@@ -493,6 +496,21 @@ export function registerMemoryTools(server: McpServer): void {
               ].join('\n')
             : '',
         ].filter(Boolean);
+
+        // Surface fix rationale notes from correct/partial verdicts so "why this
+        // broke before" is visible alongside accuracy stats.
+        const rationaleNotes = tagRecs
+          .filter((r) => !r.isBuiltinSeed && r.note && (r.verdict === 'correct' || r.verdict === 'partial'))
+          .map((r) => r.note as string)
+          .slice(-5); // last 5 recorded rationale notes
+
+        if (rationaleNotes.length > 0) {
+          lines.push(
+            '',
+            '**Recorded fix rationale (why past fixes worked):**',
+            ...rationaleNotes.map((n) => `- "${n}"`),
+          );
+        }
 
         return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
       }
