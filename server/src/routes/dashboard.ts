@@ -38,6 +38,92 @@ export function createDashboardRouter(serverVersion: string, localSecret: string
     res.send(buildDashboardHtml(serverVersion, nonce));
   });
 
+  // GET /dashboard/incidents/:pid — post-mortem detail view for managers + stakeholders
+  router.get('/dashboard/incidents/:pid', (req, res) => {
+    if (!checkAuth(req, res)) return;
+    const { pid } = req.params;
+    const inc = incidentStore.get(pid);
+    if (!inc) { res.status(404).send('<h1>Incident not found</h1>'); return; }
+
+    // Find matching postmortem by pid
+    const pms = postmortemStore.list(200);
+    const pm = pms.find((p) => p.pid === pid) ?? null;
+
+    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const fmtMs = (ms: number) => ms < 60_000 ? `${Math.round(ms / 1000)}s` : ms < 3_600_000 ? `${Math.round(ms / 60_000)}m` : `${(ms / 3_600_000).toFixed(1)}h`;
+    const mttrMs = inc.resolvedAt ? inc.resolvedAt - inc.createdAt : null;
+    const pct = inc.confidence != null ? Math.round(inc.confidence * 100) : null;
+    const statusColor = inc.status === 'resolved' ? '#22c55e' : inc.status === 'acknowledged' ? '#f59e0b' : '#ef4444';
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Incident · ${esc(inc.service ?? 'unknown')} · Mergen</title>
+<style>
+  :root{--bg:#0f1117;--surface:#1a1d26;--border:#2a2d3a;--text:#e2e8f0;--muted:#64748b;
+    --green:#22c55e;--yellow:#f59e0b;--red:#ef4444;--blue:#3b82f6;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;font-size:13px;line-height:1.6;padding:32px 24px;max-width:800px;margin:0 auto}
+  h1{font-size:20px;font-weight:700;margin-bottom:4px}
+  .badge{display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600;color:#fff;background:${statusColor};margin-left:8px;vertical-align:middle}
+  .meta{color:var(--muted);font-size:12px;margin:6px 0 24px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:20px;margin-bottom:20px}
+  .card-title{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:14px}
+  table{width:100%;border-collapse:collapse}
+  td{padding:7px 0;border-bottom:1px solid var(--border);font-size:12px;vertical-align:top}
+  td:first-child{font-weight:600;width:180px;color:var(--muted)}
+  tr:last-child td{border-bottom:none}
+  pre{background:rgba(255,255,255,.04);border-radius:4px;padding:12px;font-size:11px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;margin-top:8px;border:1px solid var(--border)}
+  .back{font-size:12px;color:var(--blue);text-decoration:none;display:inline-block;margin-bottom:20px}
+  .green{color:var(--green)} .yellow{color:var(--yellow)} .red{color:var(--red)} .muted{color:var(--muted)}
+  .verdict-pass{color:var(--green)} .verdict-partial{color:var(--yellow)} .verdict-fail{color:var(--red)}
+</style>
+</head>
+<body>
+<a href="/dashboard" class="back">← Dashboard</a>
+<h1>${esc(inc.service ?? 'Unknown')} <span class="badge">${inc.status}</span></h1>
+<div class="meta">PID: ${esc(pid)} &nbsp;·&nbsp; ${new Date(inc.createdAt).toUTCString()}</div>
+
+<div class="card">
+  <div class="card-title">Incident Summary</div>
+  <table>
+    ${inc.hypothesis ? `<tr><td>Root cause</td><td>${esc(inc.hypothesis)}</td></tr>` : ''}
+    ${inc.tag ? `<tr><td>Pattern tag</td><td><code>${esc(inc.tag)}</code></td></tr>` : ''}
+    ${pct != null ? `<tr><td>Confidence</td><td class="${pct >= 85 ? 'green' : pct >= 70 ? 'yellow' : 'red'}">${pct}%</td></tr>` : ''}
+    ${inc.environment ? `<tr><td>Environment</td><td>${esc(inc.environment)}</td></tr>` : ''}
+    ${inc.sha ? `<tr><td>Blamed commit</td><td><code>${esc(inc.sha.slice(0, 8))}</code></td></tr>` : ''}
+    ${mttrMs != null ? `<tr><td>MTTR</td><td class="${mttrMs < 300_000 ? 'green' : mttrMs < 1_800_000 ? 'yellow' : 'red'}">${fmtMs(mttrMs)}</td></tr>` : ''}
+    <tr><td>Resolution</td><td>${inc.resolvedAutonomously ? '<span class="green">Autonomous (Mergen)</span>' : inc.assignee ? esc(inc.assignee) : '<span class="muted">Manual</span>'}</td></tr>
+    ${inc.acknowledgedBy ? `<tr><td>Acknowledged by</td><td>${esc(inc.acknowledgedBy)}</td></tr>` : ''}
+    ${inc.notes.length > 0 ? `<tr><td>Notes</td><td>${inc.notes.map(esc).join('<br>')}</td></tr>` : ''}
+  </table>
+</div>
+
+${pm ? `
+<div class="card">
+  <div class="card-title">Postmortem</div>
+  <table>
+    ${pm.rootCause ? `<tr><td>Root cause</td><td>${esc(pm.rootCause)}</td></tr>` : ''}
+    ${pm.fixCommand ? `<tr><td>Fix applied</td><td><code>${esc(pm.fixCommand)}</code></td></tr>` : ''}
+    ${pm.mttrMs != null ? `<tr><td>MTTR</td><td>${fmtMs(pm.mttrMs)}</td></tr>` : ''}
+    <tr><td>Causally verified</td><td class="${pm.causallyCorrect ? 'green' : 'muted'}">${pm.causallyCorrect ? 'Yes' : 'No'}</td></tr>
+  </table>
+  ${pm.body ? `<pre>${esc(pm.body.slice(0, 3000))}${pm.body.length > 3000 ? '\n…[truncated]' : ''}</pre>` : ''}
+</div>` : ''}
+
+<div style="margin-top:8px;font-size:11px;color:var(--muted)">
+  <a href="/incidents/${esc(pid)}/brief" style="color:var(--blue)">Shareable brief</a> &nbsp;·&nbsp;
+  <a href="/incidents/impact-report?format=html" style="color:var(--blue)">Impact report</a> &nbsp;·&nbsp;
+  Generated ${new Date().toUTCString()}
+</div>
+</body>
+</html>`;
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  });
+
   // Also serve at root for team instances where /dashboard is the primary UI
   router.get('/', (req, res) => {
     if (!checkAuth(req, res)) return;
@@ -1128,7 +1214,7 @@ async function pollRecentIncidents() {
       const statusColor = inc.status === 'resolved' ? 'var(--green)' : inc.status === 'acknowledged' ? 'var(--yellow)' : 'var(--red)';
       const mttrMin = inc.resolvedAt && inc.createdAt ? Math.round((inc.resolvedAt - inc.createdAt) / 60000) : null;
       const firedAgo = inc.createdAt ? fmtRelTime(inc.createdAt) : '—';
-      const briefUrl = '/incidents/' + encodeURIComponent(inc.pid || inc.id || '') + '/brief';
+      const briefUrl = '/dashboard/incidents/' + encodeURIComponent(inc.pid || inc.id || '');
       html += '<tr style="border-bottom:1px solid rgba(255,255,255,.04)">'
         + '<td style="padding:4px 6px 4px 0;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
         + '<a href="' + briefUrl + '" target="_blank" style="color:var(--blue);text-decoration:none">' + esc(inc.service || '—') + '</a></td>'
