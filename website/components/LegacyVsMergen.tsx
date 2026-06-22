@@ -43,46 +43,58 @@ export default function LegacyVsMergen() {
       </h2>
 
       {/* Solo dev scenario */}
-      <p style={{ color: 'var(--gray-600)', fontSize: '0.75rem', fontFamily: 'var(--font-geist-mono), monospace', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '1rem' }}>
+      <p style={{ color: 'var(--gray-600)', fontSize: '0.8rem', fontFamily: 'var(--font-geist-sans), sans-serif', fontWeight: 600, letterSpacing: '-0.01em', marginBottom: '1.25rem' }}>
         Scenario A — Solo developer, no code reviewer
       </p>
       <div style={{
         display: 'grid',
         gridTemplateColumns: '1fr 1fr',
-        gap: '4px',
+        gap: '1px',
         background: 'var(--gray-800)',
         border: '1px solid var(--gray-800)',
-        marginBottom: '4px',
+        borderRadius: 'var(--radius)',
+        overflow: 'hidden',
+        marginBottom: '2.5rem',
       }}>
-        <div style={{ background: 'var(--bg)', padding: '2rem 3rem' }}>
-          <h3 style={{ marginBottom: '2rem', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '1rem', color: 'var(--gray-600)' }}>Without Mergen</h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <div style={{ background: 'var(--surface)', padding: '2.5rem' }}>
+          <h3 style={{ marginBottom: '1.5rem', letterSpacing: '-0.01em', fontSize: '0.95rem', fontWeight: 700, color: 'var(--gray-600)' }}>Without Mergen</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             {soloManualSteps.map((s, i) => (
-              <div key={i} style={{ display: 'flex', gap: '1.5rem', opacity: 0.5 }}>
-                <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '40px' }}>{s.time}</span>
+              <div key={i} style={{ display: 'flex', gap: '1.25rem', opacity: 0.5 }}>
+                <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '35px', color: 'var(--gray-600)' }}>{s.time}</span>
                 <div>
-                  <div style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '0.25rem' }}>{s.action}</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}>{s.detail}</div>
+                  <div style={{ fontSize: '0.88rem', fontWeight: 700, marginBottom: '0.2rem', color: 'var(--white)' }}>{s.action}</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--gray-600)' }}>{s.detail}</div>
                 </div>
               </div>
             ))}
           </div>
         </div>
-        <div style={{ background: 'rgba(255, 85, 0, 0.02)', padding: '2rem 3rem', borderLeft: '1px solid var(--gray-800)' }}>
-          <h3 style={{ marginBottom: '2rem', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '1rem', color: 'var(--accent)' }}>With Mergen</h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <div style={{ background: 'rgba(46, 125, 50, 0.02)', padding: '2.5rem', borderLeft: '1px solid var(--gray-800)' }}>
+          <h3 style={{ marginBottom: '1.5rem', letterSpacing: '-0.01em', fontSize: '0.95rem', fontWeight: 700, color: '#2e7d32' }}>With Mergen</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             {soloMergenSteps.map((s, i) => (
-              <div key={i} style={{ display: 'flex', gap: '1.5rem' }}>
-                <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '40px', color: 'var(--accent)' }}>{s.time}</span>
+              <div key={i} style={{ display: 'flex', gap: '1.25rem' }}>
+                <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '35px', color: '#2e7d32', fontWeight: 700 }}>{s.time}</span>
                 <div>
-                  <div style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '0.25rem', color: 'var(--white)' }}>{s.action}</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)' }}>{s.detail}</div>
+                  <div style={{ fontSize: '0.88rem', fontWeight: 700, marginBottom: '0.2rem', color: 'var(--white)' }}>{s.action}</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--gray-400)' }}>{s.detail}</div>
                 </div>
               </div>
             ))}
           </div>
-          <div style={{ marginTop: '2rem', padding: '1.5rem', background: 'rgba(255, 85, 0, 0.06)', border: '1px solid var(--accent)', borderRadius: '4px' }}>
-            <p style={{ fontSize: '0.8rem', color: 'var(--accent-text)', lineHeight: 1.6 }}>
+          <div style={{
+            marginTop: '2rem',
+            padding: '1rem 1.25rem',
+            background: '#edf6ec',
+            borderLeft: '4px solid #2e7d32',
+            borderRadius: '6px',
+            display: 'flex',
+            gap: '10px',
+            alignItems: 'flex-start'
+          }}>
+            <span style={{ fontSize: '1.1rem', lineHeight: '1' }}>✅</span>
+            <p style={{ fontSize: '0.8rem', color: '#2e7d32', lineHeight: 1.5, margin: 0 }}>
               <strong>Result:</strong> The bug never ships. Incident history is your reviewer — working silently at commit time.
             </p>
           </div>
@@ -90,57 +102,64 @@ export default function LegacyVsMergen() {
       </div>
 
       {/* Team incident response scenario */}
-      <p style={{ color: 'var(--gray-600)', fontSize: '0.75rem', fontFamily: 'var(--font-geist-mono), monospace', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '1rem', marginTop: '3rem' }}>
+      <p style={{ color: 'var(--gray-600)', fontSize: '0.8rem', fontFamily: 'var(--font-geist-sans), sans-serif', fontWeight: 600, letterSpacing: '-0.01em', marginBottom: '1.25rem', marginTop: '2.5rem' }}>
         Scenario B — Team, production incident at 3am
       </p>
       <div className="compare-grid mt-lg" style={{
         display: 'grid',
         gridTemplateColumns: '1fr 1fr',
-        gap: '4px',
+        gap: '1px',
         background: 'var(--gray-800)',
         border: '1px solid var(--gray-800)',
+        borderRadius: 'var(--radius)',
+        overflow: 'hidden',
+        marginBottom: '2.5rem',
       }}>
-        <div style={{ background: 'var(--bg)', padding: '3rem' }}>
-          <h3 style={{ marginBottom: '2rem', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '1rem', color: 'var(--gray-600)' }}>
+        <div style={{ background: 'var(--surface)', padding: '2.5rem' }}>
+          <h3 style={{ marginBottom: '1.5rem', letterSpacing: '-0.01em', fontSize: '0.95rem', fontWeight: 700, color: 'var(--gray-600)' }}>
             Without Mergen
           </h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             {manualSteps.map((s, i) => (
-              <div key={i} style={{ display: 'flex', gap: '1.5rem', opacity: 0.5 }}>
-                <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '40px' }}>{s.time}</span>
+              <div key={i} style={{ display: 'flex', gap: '1.25rem', opacity: 0.5 }}>
+                <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '35px', color: 'var(--gray-600)' }}>{s.time}</span>
                 <div>
-                  <div style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '0.25rem' }}>{s.action}</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}>{s.detail}</div>
+                  <div style={{ fontSize: '0.88rem', fontWeight: 700, marginBottom: '0.2rem', color: 'var(--white)' }}>{s.action}</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--gray-600)' }}>{s.detail}</div>
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        <div style={{ background: 'rgba(255, 85, 0, 0.02)', padding: '3rem', borderLeft: '1px solid var(--gray-800)' }}>
-          <h3 style={{ marginBottom: '2rem', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '1rem', color: 'var(--accent)' }}>
+        <div style={{ background: 'rgba(46, 125, 50, 0.02)', padding: '2.5rem', borderLeft: '1px solid var(--gray-800)' }}>
+          <h3 style={{ marginBottom: '1.5rem', letterSpacing: '-0.01em', fontSize: '0.95rem', fontWeight: 700, color: '#2e7d32' }}>
             With Mergen
           </h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             {mergenSteps.map((s, i) => (
-              <div key={i} style={{ display: 'flex', gap: '1.5rem' }}>
-                <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '40px', color: 'var(--accent)' }}>{s.time}</span>
+              <div key={i} style={{ display: 'flex', gap: '1.25rem' }}>
+                <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '35px', color: '#2e7d32', fontWeight: 700 }}>{s.time}</span>
                 <div>
-                  <div style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '0.25rem', color: 'var(--white)' }}>{s.action}</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)' }}>{s.detail}</div>
+                  <div style={{ fontSize: '0.88rem', fontWeight: 700, marginBottom: '0.2rem', color: 'var(--white)' }}>{s.action}</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--gray-400)' }}>{s.detail}</div>
                 </div>
               </div>
             ))}
           </div>
           
           <div style={{
-            marginTop: '3rem',
-            padding: '1.5rem',
-            background: 'rgba(255, 85, 0, 0.06)',
-            border: '1px solid var(--accent)',
-            borderRadius: '4px',
+            marginTop: '2rem',
+            padding: '1rem 1.25rem',
+            background: '#edf6ec',
+            borderLeft: '4px solid #2e7d32',
+            borderRadius: '6px',
+            display: 'flex',
+            gap: '10px',
+            alignItems: 'flex-start'
           }}>
-            <p style={{ fontSize: '0.8rem', color: 'var(--accent-text)', lineHeight: 1.6 }}>
+            <span style={{ fontSize: '1.1rem', lineHeight: '1' }}>✅</span>
+            <p style={{ fontSize: '0.8rem', color: '#2e7d32', lineHeight: 1.5, margin: 0 }}>
               <strong>Result:</strong> The engineer wakes up to a resolved incident and a full audit trail — not a 3am fire drill.
               Every action is logged and reversible.
             </p>
@@ -149,55 +168,67 @@ export default function LegacyVsMergen() {
       </div>
 
       {/* Knowledge compounding scenario */}
-      <p style={{ color: 'var(--gray-600)', fontSize: '0.75rem', fontFamily: 'var(--font-geist-mono), monospace', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '1rem', marginTop: '3rem' }}>
+      <p style={{ color: 'var(--gray-600)', fontSize: '0.8rem', fontFamily: 'var(--font-geist-sans), sans-serif', fontWeight: 600, letterSpacing: '-0.01em', marginBottom: '1.25rem', marginTop: '2.5rem' }}>
         Scenario C — Postmortem that compounds into policy
       </p>
       <div style={{
         display: 'grid',
         gridTemplateColumns: '1fr 1fr',
-        gap: '4px',
+        gap: '1px',
         background: 'var(--gray-800)',
         border: '1px solid var(--gray-800)',
+        borderRadius: 'var(--radius)',
+        overflow: 'hidden',
       }}>
-        <div style={{ background: 'var(--bg)', padding: '2rem 3rem' }}>
-          <h3 style={{ marginBottom: '2rem', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '1rem', color: 'var(--gray-600)' }}>Without Mergen</h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <div style={{ background: 'var(--surface)', padding: '2.5rem' }}>
+          <h3 style={{ marginBottom: '1.5rem', letterSpacing: '-0.01em', fontSize: '0.95rem', fontWeight: 700, color: 'var(--gray-600)' }}>Without Mergen</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             {[
               { time: '0m',  action: 'Incident resolved',    detail: 'Engineer writes a postmortem in Notion. Team reads it once.' },
               { time: '2wk', action: 'Postmortem is stale',  detail: 'Nobody updates it. The constraint lives in one person\'s head.' },
               { time: '3mo', action: 'Engineer leaves',      detail: 'The constraint — "never resize pool on Friday" — is gone.' },
               { time: '3mo', action: 'Same incident',        detail: 'New on-call rebuilds the understanding from scratch.' },
             ].map((s, i) => (
-              <div key={i} style={{ display: 'flex', gap: '1.5rem', opacity: 0.5 }}>
-                <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '40px' }}>{s.time}</span>
+              <div key={i} style={{ display: 'flex', gap: '1.25rem', opacity: 0.5 }}>
+                <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '35px', color: 'var(--gray-600)' }}>{s.time}</span>
                 <div>
-                  <div style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '0.25rem' }}>{s.action}</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}>{s.detail}</div>
+                  <div style={{ fontSize: '0.88rem', fontWeight: 700, marginBottom: '0.2rem', color: 'var(--white)' }}>{s.action}</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--gray-600)' }}>{s.detail}</div>
                 </div>
               </div>
             ))}
           </div>
         </div>
-        <div style={{ background: 'rgba(255, 85, 0, 0.02)', padding: '2rem 3rem', borderLeft: '1px solid var(--gray-800)' }}>
-          <h3 style={{ marginBottom: '2rem', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '1rem', color: 'var(--accent)' }}>With Mergen</h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <div style={{ background: 'rgba(46, 125, 50, 0.02)', padding: '2.5rem', borderLeft: '1px solid var(--gray-800)' }}>
+          <h3 style={{ marginBottom: '1.5rem', letterSpacing: '-0.01em', fontSize: '0.95rem', fontWeight: 700, color: '#2e7d32' }}>With Mergen</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             {[
               { time: '0m',  action: 'Incident resolved',      detail: 'Mergen records the override: "skip pool resize — Friday batch window."' },
               { time: '1s',  action: 'Policy encoded',          detail: 'Override corpus entry created. Applies to all future incidents of this type.' },
               { time: '3mo', action: 'Engineer leaves',         detail: 'The constraint stays — in the corpus, queryable, enforceable.' },
               { time: '3mo', action: 'Similar incident fires',  detail: 'Mergen surfaces: "This pattern was overridden 6× — reason: batch-window." Autopilot pauses.' },
             ].map((s, i) => (
-              <div key={i} style={{ display: 'flex', gap: '1.5rem' }}>
-                <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '40px', color: 'var(--accent)' }}>{s.time}</span>
+              <div key={i} style={{ display: 'flex', gap: '1.25rem' }}>
+                <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '35px', color: '#2e7d32', fontWeight: 700 }}>{s.time}</span>
                 <div>
-                  <div style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '0.25rem', color: 'var(--white)' }}>{s.action}</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)' }}>{s.detail}</div>
+                  <div style={{ fontSize: '0.88rem', fontWeight: 700, marginBottom: '0.2rem', color: 'var(--white)' }}>{s.action}</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--gray-400)' }}>{s.detail}</div>
                 </div>
               </div>
             ))}
           </div>
-          <div style={{ marginTop: '2rem', padding: '1.5rem', background: 'rgba(255, 85, 0, 0.06)', border: '1px solid var(--accent)', borderRadius: '4px' }}>
-            <p style={{ fontSize: '0.8rem', color: 'var(--accent-text)', lineHeight: 1.6 }}>
+          <div style={{
+            marginTop: '2rem',
+            padding: '1rem 1.25rem',
+            background: '#edf6ec',
+            borderLeft: '4px solid #2e7d32',
+            borderRadius: '6px',
+            display: 'flex',
+            gap: '10px',
+            alignItems: 'flex-start'
+          }}>
+            <span style={{ fontSize: '1.1rem', lineHeight: '1' }}>✅</span>
+            <p style={{ fontSize: '0.8rem', color: '#2e7d32', lineHeight: 1.5, margin: 0 }}>
               <strong>Result:</strong> The knowledge compounds. Every incident makes the next one faster to resolve — for any engineer, any agent, forever.
             </p>
           </div>

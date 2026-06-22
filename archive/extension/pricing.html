@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mergen — Pricing</title>
+
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+  <link href="https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-sans/style.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-mono/style.css" rel="stylesheet" />
+
+  <style>
+    :root {
+      --bg: #050505;
+      --surface: #0a0a0a;
+      --surface2: #141414;
+      --border: #1a1a1a;
+      --text: #f0f0f0;
+      --text-muted: #808080;
+      --text-dim: #404040;
+      --accent: #a5f3fc;
+      --font: 'Geist', sans-serif;
+      --mono: 'Geist Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 15px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .page { max-width: 1000px; margin: 0 auto; padding: 60px 40px; }
+
+    .hero { margin-bottom: 60px; }
+    .hero-eyebrow {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.4em;
+      color: var(--accent);
+      margin-bottom: 1.25rem;
+      display: block;
+    }
+    h1 {
+      font-size: 2.8rem;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: -0.04em;
+      line-height: 1;
+      margin-bottom: 1.5rem;
+    }
+    .hero-sub { font-size: 1rem; color: var(--text-muted); max-width: 560px; }
+
+    /* ── Current plan banner ── */
+    #current-plan-banner {
+      display: none;
+      align-items: center;
+      gap: 16px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      padding: 16px 20px;
+      margin-bottom: 40px;
+      font-size: 0.85rem;
+    }
+    #current-plan-banner strong { color: var(--accent); }
+    .meter-wrap { flex: 1; max-width: 200px; }
+    .meter-bar { height: 4px; background: var(--border); margin-top: 6px; }
+    .meter-fill { height: 100%; background: linear-gradient(90deg,#a78bfa,#7c3aed); transition: width 0.4s; }
+    .banner-overage { font-size: 0.75rem; color: #f87171; display: none; }
+    .deactivate-link { margin-left: auto; font-size: 0.75rem; color: var(--text-dim); cursor: pointer; text-decoration: underline; }
+    .deactivate-link:hover { color: #f87171; }
+
+    /* ── Plan grid ── */
+    .plans-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      margin-bottom: 80px;
+    }
+    .plan-card {
+      background: var(--bg);
+      padding: 36px 32px;
+      display: flex;
+      flex-direction: column;
+    }
+    .plan-card.popular {
+      background: #080808;
+      border: 1px solid var(--accent);
+      z-index: 1;
+      margin: -1px;
+      box-shadow: 0 0 30px rgba(165, 243, 252, 0.05);
+    }
+    .plan-name {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: var(--accent);
+      margin-bottom: 1.5rem;
+      display: block;
+    }
+    .plan-price {
+      font-size: 2.5rem;
+      font-weight: 900;
+      line-height: 1;
+      margin-bottom: 1.5rem;
+      color: var(--text);
+    }
+    .plan-price span { font-size: 0.8rem; color: var(--text-dim); font-weight: 400; }
+    .features {
+      list-style: none;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 2.5rem;
+      flex: 1;
+    }
+    .features li {
+      margin-bottom: 0.85rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.85rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .features li::before { content: "—"; color: var(--accent); font-weight: 900; flex-shrink: 0; }
+    .features li:last-child { border-bottom: none; }
+
+    .cta-btn {
+      display: block;
+      padding: 1rem;
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      text-align: center;
+      border: 1px solid rgba(255,255,255,0.1);
+      color: var(--text);
+      background: transparent;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-decoration: none;
+    }
+    .cta-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .cta-paid { border-color: var(--accent); color: var(--accent); }
+    .cta-current { border-color: var(--accent); color: var(--accent); opacity: 0.6; cursor: default; }
+    .cta-free { opacity: 0.5; }
+
+    /* ── License activation ── */
+    .section-split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 80px;
+      border-top: 1px solid var(--border);
+      padding-top: 60px;
+      margin-bottom: 80px;
+    }
+    .section-label {
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      text-transform: uppercase;
+      letter-spacing: 0.3em;
+      color: var(--text-dim);
+      display: block;
+      margin-bottom: 1.5rem;
+    }
+    .form-group { margin-bottom: 2rem; }
+    .form-label {
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      color: var(--text-dim);
+      margin-bottom: 0.6rem;
+      display: block;
+    }
+    .form-input {
+      width: 100%;
+      background: #080808;
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      padding: 0.9rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .form-input:focus { border-color: var(--accent); }
+    .btn-action {
+      width: 100%;
+      padding: 1rem;
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      background: transparent;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-action:hover { background: var(--accent); color: var(--bg); }
+    .key-result, .team-result {
+      margin-top: 1rem;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      display: none;
+      padding: 0.75rem;
+    }
+    .key-result.ok, .team-result.ok { background: rgba(165,243,252,0.08); color: var(--accent); }
+    .key-result.fail, .team-result.fail { background: rgba(248,113,113,0.08); color: #f87171; }
+
+    /* ── Team section ── */
+    #team-section { display: none; }
+    .team-status { display: flex; align-items: center; gap: 10px; margin-bottom: 1.5rem; font-size: 0.85rem; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); flex-shrink: 0; }
+    .status-dot.active { background: #4ade80; box-shadow: 0 0 8px rgba(74,222,128,0.5); }
+
+    footer {
+      padding: 40px 0;
+      border-top: 1px solid var(--border);
+      text-align: center;
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      text-transform: uppercase;
+      letter-spacing: 0.3em;
+      color: var(--text-dim);
+    }
+
+    @media (max-width: 800px) {
+      .plans-grid { grid-template-columns: 1fr; }
+      .section-split { grid-template-columns: 1fr; gap: 40px; }
+      h1 { font-size: 2rem; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <div class="hero">
+    <span class="hero-eyebrow">Access // Pricing</span>
+    <h1>Reasoning credits.</h1>
+    <p class="hero-sub">The telemetry layer is MIT open source. You pay for the <span style="color:var(--accent)">causal intelligence</span> — analyze_runtime, WebSocket inspection, and component tree.</p>
+  </div>
+
+  <!-- Current plan banner (shown when logged in) -->
+  <div id="current-plan-banner">
+    <div>
+      Active plan: <strong id="banner-plan">—</strong>
+    </div>
+    <div class="meter-wrap" id="banner-meter" style="display:none">
+      <span id="banner-meter-count" style="font-size:0.75rem; color:var(--text-muted)"></span>
+      <div class="meter-bar"><div class="meter-fill" id="banner-usage-fill" style="width:0%"></div></div>
+    </div>
+    <div class="banner-overage" id="banner-overage"></div>
+    <span class="deactivate-link" id="deactivate-btn">Deactivate</span>
+  </div>
+
+  <!-- Plan cards -->
+  <div class="plans-grid">
+
+    <div class="plan-card">
+      <span class="plan-name">Free</span>
+      <div class="plan-price">$0<span>/mo</span></div>
+      <ul class="features">
+        <li>25 incidents / month</li>
+        <li>10 calls / hour burst cap</li>
+        <li>Full 200-event ring buffer</li>
+        <li>Console, network &amp; DOM capture</li>
+        <li>Source map de-minification</li>
+      </ul>
+      <a href="#" class="cta-btn cta-free" id="cta-free">Current plan</a>
+    </div>
+
+    <div class="plan-card popular">
+      <span class="plan-name">Pro // Nexus</span>
+      <div class="plan-price">$29<span>/mo</span></div>
+      <ul class="features">
+        <li>200 incidents / month</li>
+        <li>$0.02 / call · no burst cap</li>
+        <li>WebSocket &amp; SSE inspection</li>
+        <li>React / Vue component tree</li>
+        <li>OTLP export to any OTel collector</li>
+        <li>Backend spans + trace correlation</li>
+      </ul>
+      <a href="#" class="cta-btn cta-paid" data-plan="solo_pro" id="cta-solo_pro">Get Pro →</a>
+    </div>
+
+    <div class="plan-card">
+      <span class="plan-name">Enterprise</span>
+      <div class="plan-price" style="font-size:1.8rem; padding-top:0.6rem">Contact us</div>
+      <ul class="features">
+        <li>Everything in Pro, per seat</li>
+        <li>Pooled credits across the team</li>
+        <li>Team sync — shared debug context</li>
+        <li>Priority support</li>
+      </ul>
+      <a href="mailto:hello@mergen.dev" class="cta-btn">Contact Sales →</a>
+    </div>
+
+  </div>
+
+  <!-- License activation + Team sync -->
+  <div class="section-split">
+    <div>
+      <span class="section-label">Activation</span>
+      <h4 style="font-size:1rem; text-transform:uppercase; margin-bottom:0.75rem;">License Key</h4>
+      <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:2rem;">Enter your key to unlock Pro features.</p>
+      <div class="form-group">
+        <label class="form-label">License Key</label>
+        <input class="form-input" id="key-input" type="text" placeholder="XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX" />
+      </div>
+      <button class="btn-action" id="key-btn">Activate</button>
+      <div id="key-result"></div>
+    </div>
+
+    <div id="team-section">
+      <span class="section-label">Team Sync</span>
+      <h4 style="font-size:1rem; text-transform:uppercase; margin-bottom:0.75rem;">Share Context</h4>
+      <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:2rem;">Share runtime signals with teammates on the same project.</p>
+      <div class="team-status">
+        <div class="status-dot" id="team-status-dot"></div>
+        <span id="team-status-text">Not configured</span>
+        <span id="team-peers" style="font-size:0.75rem; color:var(--text-dim); margin-left:auto"></span>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Shared Secret</label>
+        <input class="form-input" id="team-token" type="password" placeholder="Shared secret (min 8 chars)" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Your Name</label>
+        <input class="form-input" id="team-member" type="text" placeholder="e.g. alice" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Relay URL <span style="color:var(--text-dim)">(optional)</span></label>
+        <input class="form-input" id="team-relay" type="text" placeholder="https://relay.example.com" />
+      </div>
+      <button class="btn-action" id="team-join-btn">Join / Update</button>
+      <button class="btn-action" id="team-leave-btn" style="display:none; margin-top:8px; border-color:#f87171; color:#f87171;">Leave Team</button>
+      <div id="team-result"></div>
+    </div>
+  </div>
+
+  <footer>MERGEN // © 2026</footer>
+
+</div>
+<script src="src/pricing.js"></script>
+</body>
+</html>

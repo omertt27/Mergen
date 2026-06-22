@@ -144,54 +144,6 @@ export default function InstallPage() {
           ))}
         </div>
 
-        {/* ── Browser Extension ── */}
-        <div style={{ marginBottom: '8rem' }}>
-          <span className="section-label">Browser Extension</span>
-          <h2 style={{ marginBottom: '3rem' }}>After Installing<br />the Server</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem' }}>
-            <div className="install-card">
-              <div className="install-card-header">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                  <span style={{ fontSize: '1.3rem' }}>🏪</span>
-                  <div>
-                    <h3 className="install-title" style={{ marginBottom: '0.2rem' }}>Chrome Web Store</h3>
-                    <p style={{ color: 'var(--accent-text)', fontSize: '0.8rem' }}>Recommended</p>
-                  </div>
-                </div>
-              </div>
-              <div className="install-card-body">
-                <a
-                  href="https://chrome.google.com/webstore/detail/mergen/xxx"
-                  className="btn btn-white"
-                  style={{ display: 'inline-block', marginBottom: '0.5rem' }}
-                >
-                  Add to Chrome
-                </a>
-              </div>
-            </div>
-
-            <div className="install-card">
-              <div className="install-card-header">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                  <span style={{ fontSize: '1.3rem' }}>🔧</span>
-                  <div>
-                    <h3 className="install-title" style={{ marginBottom: '0.2rem' }}>Manual Install</h3>
-                    <p style={{ color: 'var(--gray-400)', fontSize: '0.8rem' }}>Developer mode required</p>
-                  </div>
-                </div>
-              </div>
-              <div className="install-card-body">
-                <ol style={{ paddingLeft: '1.25rem', color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 2 }}>
-                  <li>Open <code>chrome://extensions</code></li>
-                  <li>Enable <strong style={{ color: 'var(--white)' }}>Developer mode</strong> (top right)</li>
-                  <li>Click <strong style={{ color: 'var(--white)' }}>Load unpacked</strong></li>
-                  <li>Select the <code>extension/</code> folder</li>
-                </ol>
-              </div>
-            </div>
-          </div>
-        </div>
-
         {/* ── Verify ── */}
         <div style={{ marginBottom: '8rem' }}>
           <span className="section-label">Verify</span>

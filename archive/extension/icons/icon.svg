@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <!-- Dark-blue background. Subtle top-down gradient gives the tile depth
+         on light Marketplace backgrounds without looking gimmicky. -->
+    <linearGradient id="bg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%"  style="stop-color:#0d1b2a"/>
+      <stop offset="100%" style="stop-color:#0a1422"/>
+    </linearGradient>
+    <!-- Soft inner highlight on the "M" — keeps the mark from feeling flat
+         at small sizes while staying legible at 16px. -->
+    <linearGradient id="m" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%"  style="stop-color:#ffffff"/>
+      <stop offset="100%" style="stop-color:#dbeafe"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded-square tile. 22% corner radius matches modern OS app-icon
+       conventions (macOS 11+, Windows 11) so it composites cleanly into
+       Marketplace grids and dock-style launchers. -->
+  <rect x="0" y="0" width="128" height="128" rx="28" ry="28" fill="url(#bg)"/>
+
+  <!-- Wordmark "M".
+       Drawn as a single filled path (not a font glyph) so it renders
+       identically on every platform regardless of installed fonts. The
+       three peaks are intentionally sharp — a soft "m" reads as a
+       generic mountain logo at 16px; sharp peaks read as a wordmark. -->
+  <path
+    fill="url(#m)"
+    d="M 30 96
+       L 30 32
+       L 44 32
+       L 64 64
+       L 84 32
+       L 98 32
+       L 98 96
+       L 86 96
+       L 86 54
+       L 68 82
+       L 60 82
+       L 42 54
+       L 42 96
+       Z"/>
+</svg>

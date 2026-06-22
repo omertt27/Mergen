@@ -48,7 +48,7 @@ npx mergen-server@latest setup --yes
 npx mergen-server@latest setup --ide cursor
 
 # Skip optional steps
-npx mergen-server@latest setup --skip-github --skip-extension
+npx mergen-server@latest setup --skip-github
 ```
 
 Then start the server:
@@ -142,21 +142,6 @@ cp server/.env.example .env
 # Edit .env — divided into "MINIMUM" and "FULL INTEGRATIONS" sections
 ```
 
----
-
-## Browser extension (for full-stack debugging)
-
-The Chrome extension adds browser-side telemetry (console errors, fetch failures, localStorage) to Mergen's context. Useful for correlating frontend errors with backend spans.
-
-**Install:**
-```bash
-# Load the extension from the repo (Developer mode)
-# 1. Open chrome://extensions
-# 2. Enable Developer mode
-# 3. Click "Load unpacked" → select the extension/ folder in this repo
-```
-
-This is optional. Mergen's core value is backend/infra incident triage — the extension adds frontend correlation on top.
 
 ---
 

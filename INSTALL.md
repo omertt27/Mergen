@@ -115,22 +115,6 @@ curl -fsSL https://raw.githubusercontent.com/omertt27/Mergen/main/install.sh | b
 
 **Time:** ~2 minutes
 
----
-
-## 📱 Browser Extension
-
-After installing the server, install the browser extension:
-
-### Option A: Chrome Web Store (Recommended)
-1. Visit: [chrome.google.com/webstore/detail/mergen/xxx](https://chrome.google.com/webstore/detail/mergen/xxx)
-2. Click "Add to Chrome"
-3. Done!
-
-### Option B: Manual Install
-1. Open `chrome://extensions`
-2. Enable "Developer mode" (top right)
-3. Click "Load unpacked"
-4. Select the `extension/` folder from your Mergen installation
 
 ---
 

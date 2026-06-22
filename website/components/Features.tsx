@@ -104,10 +104,23 @@ const IDEHint = () => (
     </div>
     <div style={{ padding: '12px', fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.72rem', color: '#24292f' }}>
       <div style={{ color: '#8e8e93' }}>// Mergen: Historical Context found</div>
-      <div style={{ color: '#ea580c', background: 'rgba(234, 88, 12, 0.04)', padding: '6px 10px', margin: '8px 0', borderLeft: '2px solid #ea580c', borderRadius: '2px', lineHeight: 1.5 }}>
-        ⚠️ This file was modified in <b>Incident #388</b> (OOM Kill).
-        <br/>Reason: Recursive token validation on nested JWTs.
-        <br/>Constraint: Do not increase stack depth &gt; 4.
+      <div style={{
+        display: 'flex',
+        gap: '10px',
+        color: '#37352f',
+        background: '#fef3d6',
+        padding: '10px 14px',
+        margin: '8px 0',
+        borderRadius: '6px',
+        lineHeight: 1.5,
+        borderLeft: '4px solid #ea580c'
+      }}>
+        <span style={{ fontSize: '1rem' }}>⚠️</span>
+        <div>
+          This file was modified in <b>Incident #388</b> (OOM Kill).
+          <br/>Reason: Recursive token validation on nested JWTs.
+          <br/>Constraint: Do not increase stack depth &gt; 4.
+        </div>
       </div>
       <div style={{ opacity: 0.6 }}>
         <span style={{ color: '#0550ae' }}>export const</span> <span style={{ color: '#8250df' }}>validateToken</span> = (token: <span style={{ color: '#953800' }}>string</span>) =&gt; &#123;
@@ -120,24 +133,24 @@ const IDEHint = () => (
 const features = [
   {
     num: '01',
-    icon: <IconDatabase />,
+    icon: '🧬',
     title: 'Override Corpus — Infrastructure DNA',
     desc: (
       <>
         Every human override becomes machine-readable policy. After six months: your Friday settlement windows,
         compliance holds, and on-call preferences form your specific
-        <span className="highlight"> operational DNA — enforcing invariants before any autonomous action triggers.</span>
+        <span className="highlight-yellow"> operational DNA — enforcing invariants before any autonomous action triggers.</span>
         {' '}The algorithm is reproducible. This corpus is not.
       </>
     ),
   },
   {
     num: '02',
-    icon: <IconLoop />,
+    icon: '⚙️',
     title: 'Per-Environment Calibration',
     desc: (
       <>
-        Mergen uses <span className="highlight">Platt scaling</span> calibrated to your specific infrastructure —
+        Mergen uses <span className="highlight-blue">Platt scaling</span> calibrated to your specific infrastructure —
         not a global benchmark. As your team tags diagnoses (correct / partial / wrong), the confidence model
         updates. After 20–50 incidents, accuracy numbers reflect your systems, not ours.
         <SlackAuditTrail />
@@ -146,25 +159,25 @@ const features = [
   },
   {
     num: '03',
-    icon: <IconShield />,
+    icon: '🛡️',
     title: 'Agent Blunder Log — CISO Insurance',
     desc: (
       <>
         Every blocked autonomous action is recorded: allowlist blocks, corpus halts, planning gates, semantic blocks.
         The total prevented count is the board-deck answer to{' '}
-        <span className="highlight">"why would you trust an AI agent with production?"</span>
+        <span className="highlight-red">"why would you trust an AI agent with production?"</span>
         {' '}Wired automatically — no setup required.
       </>
     ),
   },
   {
     num: '04',
-    icon: <IconArchive />,
+    icon: '🚦',
     title: 'Semantic Safety Gates',
     desc: (
       <>
         Before any autonomous execution, Mergen red-teams the proposed command using a
-        <span className="highlight"> local semantic safety engine</span>: action risk, blast radius,
+        <span className="highlight-green"> local semantic safety engine</span>: action risk, blast radius,
         and corpus-policy check — not regex allowlists.
         <IDEHint />
       </>
@@ -172,50 +185,50 @@ const features = [
   },
   {
     num: '05',
-    icon: <IconClock />,
+    icon: '📊',
     title: 'Measurable MTTR — Board-Ready ROI',
     desc: (
       <>
         The impact report isolates Mergen's context-assisted value:
         autonomous vs. manual MTTR, resolution rate, and time saved.
-        <span className="highlight"> "We saved 47 engineer-hours last month"</span>
+        <span className="highlight-blue"> "We saved 47 engineer-hours last month"</span>
         {' '}is a sentence. The report generates it automatically.
       </>
     ),
   },
   {
     num: '06',
-    icon: <IconServer />,
+    icon: '👤',
     title: 'Shadow Mode — 30-Day Trust Track Record',
     desc: (
       <>
         Before autonomous execution, Mergen runs in shadow mode: diagnoses every incident, records what it would have done,
         and lets your team annotate verdicts.
-        <span className="highlight"> The shadow report is your CISO's 30-day evidence package</span>
+        <span className="highlight-yellow"> The shadow report is your CISO's 30-day evidence package</span>
         {' '}before you flip the autopilot switch.
       </>
     ),
   },
   {
     num: '07',
-    icon: <IconGitCommit />,
+    icon: '🚨',
     title: 'Pre-commit Incident Guard',
     desc: (
       <>
         Before you ship, Mergen cross-references every staged file against your incident history.{' '}
-        <span className="highlight">"This file was in 3 incidents last month"</span>
+        <span className="highlight-red">"This file was in 3 incidents last month"</span>
         {' '}— the question a code reviewer would ask, encoded as a git hook. The corpus working before the incident happens.
       </>
     ),
   },
   {
     num: '08',
-    icon: <IconEye />,
+    icon: '👁️',
     title: 'Passive Status Surface',
     desc: (
       <>
         Mergen tracks what happened while you weren't looking.{' '}
-        <span className="highlight">Next time you check: "this started failing 6 hours ago."</span>
+        <span className="highlight-green">Next time you check: "this started failing 6 hours ago."</span>
         {' '}Not a push notification — context waiting when you return. The on-call teammate who works in silence.
       </>
     ),

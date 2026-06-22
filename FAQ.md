@@ -175,7 +175,7 @@ curl -X POST $MERGEN_URL/ci \
   -d '{"sha":"${{ github.sha }}","branch":"${{ github.ref_name }}","status":"failed"}'
 ```
 
-CI events are joined to browser errors and backend spans via commit SHA — so when an error fires in production, Mergen shows which CI run built the code and whether it had failing tests.
+CI events are joined to error logs and backend spans via commit SHA — so when an error fires in production, Mergen shows which CI run built the code and whether it had failing tests.
 
 ---
 
