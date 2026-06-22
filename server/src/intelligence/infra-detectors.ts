@@ -56,10 +56,10 @@ export function detectDbConnectionPool(events: InfraEvent[]): Hypothesis | null 
     // depends on the specific failure mode and cannot be determined from telemetry alone.
     remediationConfidence: 0.60,
     evidence: [
+      `Triggering signal: "${p.message.slice(0, 200)}"`,
       `Service: \`${p.service}\``,
       `Endpoint: \`${p.attributes.endpoint || 'unknown'}\``,
       `Trace: \`${p.attributes.traceId || 'none'}\``,
-      `Source: ${p.source} telemetry`,
     ],
     causalPath: [
       'Request volume exceeded connection pool capacity',
@@ -96,10 +96,10 @@ export function detectOomKill(events: InfraEvent[]): Hypothesis | null {
     // Remediation confidence is lower: the hint is directionally correct but rarely complete.
     remediationConfidence: isHard ? 0.55 : 0.50,
     evidence: [
+      `Triggering signal: "${p.message.slice(0, 200)}"`,
       `Service: \`${p.service}\``,
       ...(isHard ? [`Exit code ${exitCode} (SIGKILL — kernel OOM killer fired)`] : []),
       ...(memMb ? [`Memory limit: ${memMb} MB`] : []),
-      `Source: ${p.source} telemetry`,
     ],
     causalPath: [
       'RSS / heap grew past the container memory limit',
@@ -143,9 +143,9 @@ export function detectRateLimitCascade(events: InfraEvent[]): Hypothesis | null 
     // that the hint cannot be auto-applied without human involvement.
     remediationConfidence: 0.65,
     evidence: [
+      `Triggering signal: "${p.message.slice(0, 200)}"`,
       `Service: \`${p.service}\``,
       `Endpoint: \`${p.attributes.endpoint || 'unknown'}\``,
-      `Source: ${p.source} telemetry`,
     ],
     causalPath: [
       'Upstream API / gateway returned 429 Too Many Requests',
@@ -178,9 +178,9 @@ export function detectDownstreamLatency(events: InfraEvent[]): Hypothesis | null
     confidence: scoreToConfidence(score),
     confidenceScore: score,
     evidence: [
+      `Triggering signal: "${p.message.slice(0, 200)}"`,
       `Service: \`${p.service}\``,
       `Endpoint: \`${p.attributes.endpoint || 'unknown'}\``,
-      `Source: ${p.source} telemetry`,
     ],
     causalPath: isQuery
       ? [
@@ -218,9 +218,9 @@ export function detectCertificateExpiry(events: InfraEvent[]): Hypothesis | null
     // but certificate expiry is the dominant failure mode by volume.
     remediationConfidence: 0.90,
     evidence: [
+      `Triggering signal: "${p.message.slice(0, 200)}"`,
       `Service: \`${p.service}\``,
       'Error pattern: TLS handshake failure / certificate validation error',
-      `Source: ${p.source} telemetry`,
     ],
     causalPath: [
       'TLS handshake rejected — certificate expired, untrusted, or hostname mismatch',
@@ -250,9 +250,9 @@ export function detectDiskPressure(events: InfraEvent[]): Hypothesis | null {
     confidence: scoreToConfidence(score),
     confidenceScore: score,
     evidence: [
+      `Triggering signal: "${p.message.slice(0, 200)}"`,
       `Service: \`${p.service}\``,
       'Error pattern: no space left / disk full',
-      `Source: ${p.source} telemetry`,
     ],
     causalPath: [
       'Filesystem reached 100% capacity',
@@ -285,9 +285,9 @@ export function detectQueueBacklog(events: InfraEvent[]): Hypothesis | null {
     // slow handler logic or a poison message may require different intervention.
     remediationConfidence: 0.60,
     evidence: [
+      `Triggering signal: "${p.message.slice(0, 200)}"`,
       `Service: \`${p.service}\``,
       'Error pattern: consumer lag / queue depth / backlog',
-      `Source: ${p.source} telemetry`,
     ],
     causalPath: [
       'Producer rate exceeded consumer throughput',
@@ -317,10 +317,10 @@ export function detectServiceUnavailable(events: InfraEvent[]): Hypothesis | nul
     confidence: scoreToConfidence(score),
     confidenceScore: score,
     evidence: [
+      `Triggering signal: "${p.message.slice(0, 200)}"`,
       `Service: \`${p.service}\``,
       `Endpoint: \`${p.attributes.endpoint || 'unknown'}\``,
       'Error pattern: 503 / upstream connect error / no healthy upstream',
-      `Source: ${p.source} telemetry`,
     ],
     causalPath: [
       'Upstream service is down or all instances are unhealthy',

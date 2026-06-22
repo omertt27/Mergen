@@ -23,6 +23,9 @@ export const ALL_TOOLS: readonly ToolEntry[] = [
   { name: 'quick_check',              module: 'tools-analysis',       tier: 'free' },
   { name: 'explain_warning',          module: 'tools-analysis',       tier: 'free' },
   { name: 'session_summary',          module: 'tools-analysis',       tier: 'free' },
+  { name: 'get_system_status',       module: 'tools-analysis',       tier: 'free' },
+  { name: 'get_env_snapshot',        module: 'tools-analysis',       tier: 'free' },
+  { name: 'get_diff_from_baseline',  module: 'tools-analysis',       tier: 'free' },
   { name: 'explain_why',              module: 'tools-intent',         tier: 'free' },
   { name: 'get_causal_graph',         module: 'tools-analysis',       tier: 'all'  },
 

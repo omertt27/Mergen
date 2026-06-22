@@ -11,6 +11,7 @@ import { computeAnomaly, getAnomalousPatterns } from './baseline.js';
 import { generateReproSteps } from './repro-steps.js';
 import { trackCall, buildCreditBar, getLastClearAt, setFirstAnalyzeAt, setLastTimeToFirstAnalysisMs } from './tools-state.js';
 import { startSession } from './session-metrics.js';
+import { getStatsForTag } from './calibration.js';
 import logger from '../sensor/logger.js';
 
 const PLAN_TIER_DESCRIPTION = 'Free: up to 25 incidents/month (shadow mode). Pro ($29/mo): 200 incidents/month, $50 overage ceiling.';
@@ -124,7 +125,82 @@ function _registerAnalyzeRuntime(server: McpServer): void {
           ` · resets ${new Date(usage.resetsAt).toUTCString()}*`;
 
       const noticeBlock = credit.notice ? `\n\n> ${credit.notice}` : '';
-      const fullText    = causal.contextPack + noticeBlock + usageFooter;
+
+      // Surface the causal conclusion so the AI IDE gets a diagnosis, not a log dump.
+      let hypothesisSection = '';
+      if (causal.hypotheses.length > 0) {
+        const top = causal.hypotheses[0];
+        const pct = Math.round((top.confidenceScore ?? 0) * 100);
+        const totalEvents = logs.length + network.length;
+        const isThin    = totalEvents < 5;
+        const isLowConf = (top.confidenceScore ?? 1) < 0.60 || top.confidence === 'LOW';
+
+        const h: string[] = [''];
+
+        // Item 2: honest framing when evidence is sparse or confidence is low.
+        // A flagged tentative answer is more useful than silence or false certainty.
+        if (isThin || isLowConf) {
+          const why = isThin
+            ? `only ${totalEvents} event(s) in buffer — reproduce the error for a stronger signal`
+            : `${pct}% confidence — more context needed`;
+          h.push(`> ⚠️ **Tentative diagnosis** (${why}). Treat as a starting hypothesis, not a verdict.`, '');
+        }
+
+        // Item 2: calibration visibility — show whether confidence is empirical or estimated.
+        const calStats = getStatsForTag(top.tag);
+        const calNote  = calStats?.isEmpirical
+          ? `_Confidence calibrated from ${calStats.verdicts} verdict(s) on this system — empirical._`
+          : `_Confidence is estimated (no local verdicts yet). Call \`validate_fix\` after applying a fix to calibrate._`;
+
+        h.push(
+          `## Root Cause — ${top.confidence} (${pct}%)`,
+          calNote,
+          '',
+          top.summary,
+          '',
+        );
+        if (top.causalPath?.length) {
+          h.push('**Causal chain:**');
+          top.causalPath.forEach((step, i) => h.push(`${i + 1}. ${step}`));
+          h.push('');
+        }
+        if (top.evidence?.length) {
+          h.push('**Evidence:**');
+          top.evidence.slice(0, 3).forEach((e) => h.push(`- ${e}`));
+          h.push('');
+        }
+        if (top.fixHint) {
+          h.push(`**Fix:** ${top.fixHint}`);
+          h.push('');
+        }
+        if (causal.hypotheses.length > 1) {
+          h.push(`_${causal.hypotheses.length - 1} alternative hypothesis(es) considered and ranked lower._`);
+          h.push('');
+        }
+
+        // Item 3: cross-incident "seen before" — conservative: only surface when
+        // we have ≥1 prior resolved incident older than 60 s (avoids false positives).
+        try {
+          const { postmortemStore } = await import('./postmortem-store.js');
+          const prior = postmortemStore.getByTag(top.tag, 5)
+            .filter((pm) => pm.generatedAt < Date.now() - 60_000);
+          if (prior.length > 0) {
+            const latest  = prior[0];
+            const daysAgo = Math.round((Date.now() - latest.generatedAt) / 86_400_000);
+            const ageStr  = daysAgo === 0 ? 'today' : `${daysAgo}d ago`;
+            const mttrStr = latest.mttrMs ? `, resolved in ${Math.round(latest.mttrMs / 60_000)}m` : '';
+            h.push(
+              `> 🔁 **Seen before** — ${prior.length} prior incident(s) with this pattern` +
+              ` (most recent: ${ageStr}${mttrStr}). Call \`get_incident_history\` for past fixes.`,
+              '',
+            );
+          }
+        } catch { /* postmortem store unavailable — non-fatal */ }
+
+        hypothesisSection = h.join('\n');
+      }
+
+      const fullText = causal.contextPack + hypothesisSection + noticeBlock + usageFooter;
 
       const { result, truncated, omitted, estimatedTokens } = truncateToTokenBudget(fullText.split('\n'), max_tokens, '\n');
       if (truncated) logger.info({ tool: 'reconstruct_context', omitted, estimatedTokens }, 'response truncated');
@@ -165,6 +241,25 @@ export function registerAnalysisTools(server: McpServer): void {
       lines.push(`| Network failures | ${netLabel} |`);
       lines.push(`| Buffer total     | ${store.size()} |`);
 
+      // Show how long errors have been present — "first error 45m ago" tells the dev
+      // whether this is a new issue or something that's been silently broken.
+      if (errors.length > 0) {
+        const oldest = errors.reduce((a, b) => (a.timestamp < b.timestamp ? a : b));
+        const newest = errors.reduce((a, b) => (a.timestamp > b.timestamp ? a : b));
+        const fmt = (ms: number): string => {
+          const s = Math.round(ms / 1000);
+          if (s < 60) return `${s}s ago`;
+          if (s < 3600) return `${Math.round(s / 60)}m ago`;
+          return `${Math.round(s / 3600)}h ago`;
+        };
+        const oldestStr = fmt(Date.now() - oldest.timestamp);
+        const newestStr = fmt(Date.now() - newest.timestamp);
+        const timing = oldest.timestamp === newest.timestamp
+          ? `first (and only) occurrence ${oldestStr}`
+          : `first ${oldestStr} · most recent ${newestStr}`;
+        lines.push(`| Error window     | ${timing} |`);
+      }
+
       if (signals.length > 0) {
         lines.push('', '### 🔍 Detected patterns', '');
         for (const s of signals) {
@@ -193,8 +288,8 @@ export function registerAnalysisTools(server: McpServer): void {
       description:
         '⚡ FREE · No credit cost. Explains the most recent console warning — ' +
         'what it means, why it might cause a crash later, and what to do about it. ' +
-        'Use this immediately when you see a warning you don\'t understand, ' +
-        'before it cascades into a harder-to-debug error. No credit cost.',
+        'Call this proactively whenever quick_check shows warnings, without waiting for an error — ' +
+        'warnings are cheaper to fix before they cascade. No credit cost.',
       inputSchema: {
         since: z.number().int().optional()
           .describe('Only look at warnings after this Unix timestamp in ms'),
@@ -333,6 +428,307 @@ export function registerAnalysisTools(server: McpServer): void {
     },
   );
 
+  // ── get_system_status ──────────────────────────────────────────────────────
+  // Zero-parameter "what's happening with my system?" — combines current buffer
+  // with persisted postmortems. Distinct from get_status (billing info),
+  // session_summary (buffer-only), and get_incident_history (needs fingerprint).
+  server.registerTool(
+    'get_system_status',
+    {
+      description:
+        '⚡ FREE · No credit cost. Zero-parameter snapshot of system health across sessions. ' +
+        'Answers "what is happening right now and what has happened recently?" by combining ' +
+        'the live buffer (current errors, warnings, network failures) with the persistent ' +
+        'incident history (past resolved incidents from SQLite, survives server restarts). ' +
+        'Call this when picking up work after a break, or as the first check when something feels off. ' +
+        'Use session_summary for a deeper buffer-only view; use get_incident_history for past ' +
+        'incidents by fingerprint or service. For billing/plan status use get_status.',
+    },
+    async () => {
+      trackCall('get_status');
+
+      const errors   = store.getLogs(200, 'error');
+      const warns    = store.getLogs(200, 'warn');
+      const network  = store.getNetwork(200);
+      const netFails = network.filter((n) => n.status >= 400 || n.status === 0 || n.error);
+      const signals  = store.getSignals();
+
+      const lines: string[] = ['## ⬡ Mergen Status', ''];
+
+      // Current buffer state
+      if (errors.length === 0 && warns.length === 0 && netFails.length === 0) {
+        lines.push('**Buffer:** ✅ Clean — no errors, warnings, or network failures.');
+      } else {
+        lines.push('**Buffer:**');
+        if (errors.length > 0) {
+          const oldest = errors.reduce((a, b) => (a.timestamp < b.timestamp ? a : b));
+          const ageMin = Math.round((Date.now() - oldest.timestamp) / 60_000);
+          const ageStr = ageMin < 60 ? `${ageMin}m` : `${Math.round(ageMin / 60)}h`;
+          lines.push(`- ❌ ${errors.length} error(s) — first appeared ${ageStr} ago`);
+        }
+        if (warns.length > 0) lines.push(`- ⚠️ ${warns.length} warning(s)`);
+        if (netFails.length > 0) lines.push(`- 🌐 ${netFails.length} network failure(s)`);
+      }
+
+      if (signals.length > 0) {
+        lines.push('');
+        lines.push('**Detected patterns:**');
+        for (const s of signals.slice(0, 3)) {
+          lines.push(`- ${s.message}`);
+        }
+        lines.push('> Call `reconstruct_context` for root cause + fix.');
+      }
+
+      // Recent incident history from persistent store (cross-session)
+      lines.push('');
+      try {
+        const { postmortemStore } = await import('./postmortem-store.js');
+        const recent = postmortemStore.list(5);
+        if (recent.length > 0) {
+          lines.push('**Recent incidents (persistent, survives restarts):**');
+          for (const pm of recent) {
+            const daysAgo = Math.round((Date.now() - pm.generatedAt) / 86_400_000);
+            const ageStr  = daysAgo === 0 ? 'today' : `${daysAgo}d ago`;
+            const mttr    = pm.mttrMs ? ` · ${Math.round(pm.mttrMs / 60_000)}m MTTR` : '';
+            const how     = pm.resolvedAutonomously ? '🤖' : '👤';
+            lines.push(`- ${how} **${pm.tag.replace(/^infra_/, '')}** on \`${pm.service}\` — ${ageStr}${mttr}`);
+          }
+          lines.push('');
+          lines.push('> Call `get_incident_history` with a service name for full history and past fixes.');
+        } else {
+          lines.push('**Recent incidents:** none recorded yet — incidents appear here after resolution.');
+        }
+      } catch {
+        lines.push('**Recent incidents:** history store unavailable.');
+      }
+
+      return { content: [{ type: 'text', text: lines.join('\n') }] };
+    },
+  );
+
+  // ── get_env_snapshot ───────────────────────────────────────────────────────
+  // Captures current env vars and diffs against the last saved snapshot.
+  // Solo-dev target: "someone changed an env var" is a huge share of real incidents.
+  server.registerTool(
+    'get_env_snapshot',
+    {
+      description:
+        '⚡ FREE · No credit cost. Captures the current environment variables and compares against ' +
+        'the last saved snapshot in ~/.mergen/env-snapshot.json. Surfaces any additions, removals, ' +
+        'or value changes since the snapshot was taken. ' +
+        'Call this when something broke after a config change, or to correlate "env changed" with ' +
+        'the timing of an incident. Automatically redacts secrets (keys matching ' +
+        'SECRET, TOKEN, PASSWORD, KEY, CREDENTIAL). Saves a new snapshot on every call.',
+    },
+    async () => {
+      trackCall('get_env_snapshot');
+
+      const { readFileSync, writeFileSync, mkdirSync } = await import('fs');
+      const { join } = await import('path');
+      const { homedir } = await import('os');
+
+      const REDACT_RE = /secret|token|password|passwd|key|credential|api_key|auth|private/i;
+      const sanitise = (k: string, v: string): string =>
+        REDACT_RE.test(k) ? '[REDACTED]' : v.slice(0, 200);
+
+      const currentEnv: Record<string, string> = {};
+      for (const [k, v] of Object.entries(process.env)) {
+        if (v !== undefined) currentEnv[k] = sanitise(k, v);
+      }
+
+      const snapshotDir  = join(homedir(), '.mergen');
+      const snapshotPath = join(snapshotDir, 'env-snapshot.json');
+
+      let prior: Record<string, string> | null = null;
+      try {
+        prior = JSON.parse(readFileSync(snapshotPath, 'utf8')) as Record<string, string>;
+      } catch { /* no prior snapshot — first call */ }
+
+      // Save current as new snapshot
+      try {
+        mkdirSync(snapshotDir, { recursive: true });
+        writeFileSync(snapshotPath, JSON.stringify({ ...currentEnv, _savedAt: new Date().toISOString() }, null, 2), 'utf8');
+      } catch { /* non-fatal */ }
+
+      const lines: string[] = ['## Environment Snapshot', ''];
+
+      if (!prior) {
+        lines.push('_First snapshot saved — no prior baseline to diff against._');
+        lines.push(`**Variables captured:** ${Object.keys(currentEnv).length}`);
+        lines.push('');
+        lines.push('Call this tool again after a config change to see the diff.');
+        return { content: [{ type: 'text', text: lines.join('\n') }] };
+      }
+
+      // Compute diff
+      const added:   string[] = [];
+      const removed: string[] = [];
+      const changed: Array<{ key: string; was: string; now: string }> = [];
+
+      for (const k of Object.keys(currentEnv)) {
+        if (k === '_savedAt') continue;
+        if (!(k in prior)) { added.push(k); }
+        else if (prior[k] !== currentEnv[k]) { changed.push({ key: k, was: prior[k], now: currentEnv[k] }); }
+      }
+      for (const k of Object.keys(prior)) {
+        if (k === '_savedAt') continue;
+        if (!(k in currentEnv)) removed.push(k);
+      }
+
+      const savedAt = prior['_savedAt'] ? ` (snapshot from ${prior['_savedAt']})` : '';
+      lines.push(`**Baseline:**${savedAt}`);
+      lines.push('');
+
+      if (added.length === 0 && removed.length === 0 && changed.length === 0) {
+        lines.push('✅ **No changes** — environment is identical to the last snapshot.');
+      } else {
+        if (added.length > 0) {
+          lines.push('### Added');
+          for (const k of added.slice(0, 10)) lines.push(`- \`${k}\` = ${currentEnv[k]}`);
+          if (added.length > 10) lines.push(`_...and ${added.length - 10} more_`);
+          lines.push('');
+        }
+        if (removed.length > 0) {
+          lines.push('### Removed');
+          for (const k of removed.slice(0, 10)) lines.push(`- \`${k}\``);
+          lines.push('');
+        }
+        if (changed.length > 0) {
+          lines.push('### Changed');
+          for (const { key, was, now } of changed.slice(0, 10)) {
+            lines.push(`- \`${key}\`: \`${was}\` → \`${now}\``);
+          }
+          if (changed.length > 10) lines.push(`_...and ${changed.length - 10} more_`);
+          lines.push('');
+        }
+        lines.push('> If any of these changes correlate with when errors started, use `get_regression_start` to confirm timing.');
+      }
+
+      return { content: [{ type: 'text', text: lines.join('\n') }] };
+    },
+  );
+
+  // ── get_diff_from_baseline ─────────────────────────────────────────────────
+  // Answers "what's different from when it last worked?" — a different question
+  // from "what's wrong now?" and a different computation from root-cause analysis.
+  server.registerTool(
+    'get_diff_from_baseline',
+    {
+      description:
+        '⚡ FREE · No credit cost. Answers "what changed since it last worked?" by splitting ' +
+        'the error history into two windows and showing what is NEW in the recent window. ' +
+        'Use this when a user says "this used to work" or "something changed" — it surfaces ' +
+        'new error fingerprints, newly failing endpoints, and the timing of when they appeared. ' +
+        'Queries persistent SQLite history so it works across server restarts. ' +
+        'Different from reconstruct_context (which identifies root cause) and session_summary ' +
+        '(which describes the current buffer) — this is the delta view.',
+      inputSchema: {
+        lookback_minutes: z.number().int().min(5).max(1440).optional()
+          .describe('How far back to look (default 60). The baseline is the equal-length window before that.'),
+      },
+    },
+    async ({ lookback_minutes = 60 }) => {
+      trackCall('get_diff_from_baseline');
+
+      const { historyStore } = await import('../sensor/sqlite-store.js');
+      const { normaliseMessage } = await import('./error-fingerprint.js');
+
+      const now         = Date.now();
+      const windowMs    = lookback_minutes * 60_000;
+      const recentStart = now - windowMs;
+      const baseStart   = now - windowMs * 2;
+
+      // Query both windows from persistent store
+      const baseErrors   = (historyStore.query({ since: baseStart, limit: 5000, type: 'console', level: 'error' }) as import('../sensor/buffer.js').ConsoleEvent[])
+        .filter((e) => e.timestamp < recentStart);
+      const recentErrors = (historyStore.query({ since: recentStart, limit: 5000, type: 'console', level: 'error' }) as import('../sensor/buffer.js').ConsoleEvent[]);
+
+      const baseNetwork   = store.getNetwork(500, undefined, baseStart).filter((n) => n.timestamp < recentStart && (n.status >= 400 || !!n.error));
+      const recentNetwork = store.getNetwork(500, undefined, recentStart).filter((n) => n.status >= 400 || !!n.error);
+
+      // Fingerprint the base errors so we can diff
+      const baseFingerprints = new Set(
+        baseErrors.map((e) => normaliseMessage(e.args.map((a) => typeof a === 'string' ? a : JSON.stringify(a)).join(' '))),
+      );
+      const baseEndpoints = new Set(baseNetwork.map((n) => `${n.method} ${n.url}`));
+
+      // New error patterns: in recent but NOT in baseline
+      const newErrors = recentErrors.filter((e) => {
+        const fp = normaliseMessage(e.args.map((a) => typeof a === 'string' ? a : JSON.stringify(a)).join(' '));
+        return !baseFingerprints.has(fp);
+      });
+      const newEndpoints = recentNetwork.filter((n) => !baseEndpoints.has(`${n.method} ${n.url}`));
+
+      // Deduplicate new errors for display
+      const seen = new Set<string>();
+      const uniqueNewErrors: Array<{ fp: string; sample: string; count: number; firstSeen: number }> = [];
+      for (const e of newErrors) {
+        const msg = e.args.map((a) => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
+        const fp  = normaliseMessage(msg);
+        if (!seen.has(fp)) {
+          seen.add(fp);
+          const count = newErrors.filter((x) => {
+            const xmsg = x.args.map((a) => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
+            return normaliseMessage(xmsg) === fp;
+          }).length;
+          uniqueNewErrors.push({ fp, sample: msg.slice(0, 120), count, firstSeen: e.timestamp });
+        }
+      }
+
+      const seenEp = new Set<string>();
+      const uniqueNewEp: Array<{ key: string; status: number; count: number }> = [];
+      for (const n of newEndpoints) {
+        const key = `${n.method} ${n.url}`;
+        if (!seenEp.has(key)) {
+          seenEp.add(key);
+          uniqueNewEp.push({ key, status: n.status, count: newEndpoints.filter((x) => `${x.method} ${x.url}` === key).length });
+        }
+      }
+
+      const fmtAgo = (ts: number) => {
+        const min = Math.round((now - ts) / 60_000);
+        return min < 60 ? `${min}m ago` : `${Math.round(min / 60)}h ago`;
+      };
+
+      const lines: string[] = [
+        `## Diff from Baseline — last ${lookback_minutes}m vs. ${lookback_minutes}m before that`,
+        '',
+        `**Baseline:** ${baseErrors.length} error(s), ${baseNetwork.length} network failure(s)`,
+        `**Recent:**   ${recentErrors.length} error(s), ${recentNetwork.length} network failure(s)`,
+        '',
+      ];
+
+      if (uniqueNewErrors.length === 0 && uniqueNewEp.length === 0) {
+        if (recentErrors.length === 0) {
+          lines.push('✅ **No change detected** — no errors in either window.');
+        } else {
+          lines.push('✅ **No new patterns** — errors present but same fingerprints as baseline (not a regression, likely ongoing).');
+        }
+      } else {
+        if (uniqueNewErrors.length > 0) {
+          lines.push('### New error patterns (not in baseline)');
+          lines.push('');
+          for (const e of uniqueNewErrors.slice(0, 5)) {
+            lines.push(`- **×${e.count}** — "${e.sample}" _(first seen ${fmtAgo(e.firstSeen)})_`);
+          }
+          lines.push('');
+        }
+        if (uniqueNewEp.length > 0) {
+          lines.push('### Newly failing endpoints');
+          lines.push('');
+          for (const ep of uniqueNewEp.slice(0, 5)) {
+            lines.push(`- **×${ep.count}** \`${ep.key}\` → ${ep.status || 'ERR'}`);
+          }
+          lines.push('');
+        }
+        lines.push('> 🔬 Call `reconstruct_context` for root cause + fix hint on these new patterns.');
+        lines.push('> Call `get_regression_start` to find the exact timestamp when each pattern first appeared.');
+      }
+
+      return { content: [{ type: 'text', text: lines.join('\n') }] };
+    },
+  );
+
   // ── get_error_frequency ────────────────────────────────────────────────────
   server.registerTool(
     'get_error_frequency',
@@ -422,9 +818,11 @@ export function registerAnalysisTools(server: McpServer): void {
     'get_regression_start',
     {
       description:
-        'Finds when an error pattern FIRST appeared, then correlates with the most recent deployment or CI event before that timestamp. ' +
-        'Answers "when did this regression start and what change introduced it?" ' +
-        'Works best when CI and deployment events are being sent to Mergen.',
+        'Finds when an error pattern FIRST appeared and correlates it with the closest deploy or CI event before that timestamp. ' +
+        'Call this FIRST when the user says "something broke" or "this stopped working" — it answers ' +
+        '"when did this start and what change introduced it?" without requiring any parameters. ' +
+        'Queries full SQLite history across server restarts, so it remembers errors from previous sessions. ' +
+        'Works even without deploy/CI integration — always returns the first-seen timestamp and occurrence count.',
       inputSchema: {
         fingerprint: z.string().optional()
           .describe('Error pattern fingerprint from get_error_frequency. If omitted, uses the most frequent current error.'),
@@ -478,8 +876,24 @@ export function registerAnalysisTools(server: McpServer): void {
         lines.push(`**CI run before first occurrence:** ${triggerCI.job} — ${triggerCI.status}${triggerCI.failedTests?.length ? ` (${triggerCI.failedTests.length} failing tests)` : ''}`);
       }
       if (!triggerDeploy && !triggerCI) {
-        lines.push('No deployment or CI events found before first occurrence.');
-        lines.push('Connect CI and deployments to Mergen for automatic regression attribution.');
+        const ageMs  = Date.now() - first.timestamp;
+        const ageMin = Math.round(ageMs / 60_000);
+        const ageStr = ageMin < 60 ? `${ageMin} minutes ago` : `${Math.round(ageMin / 60)} hours ago`;
+        lines.push(`**No deploy or CI signal found** — can't attribute this to a specific change.`);
+        lines.push(`What I know: this error first appeared **${ageStr}** and has fired **${matching.length} time(s)** since.`);
+        lines.push('');
+        lines.push('**To enable deploy correlation (pick one):**');
+        lines.push('  `mergen-server watch npm start` — captures process restarts as deploy events automatically');
+        lines.push('  `POST /ci {"status":"success","sha":"abc123"}` — from any CI step or deploy script');
+      }
+
+      // Item 1: cross-tool pointer — only when errors are currently active.
+      // reconstruct_context doesn't point back here, so no loop.
+      const activeErrors = store.getLogs(5, 'error');
+      if (activeErrors.length > 0 && matching.length > 0) {
+        lines.push('');
+        lines.push('> 🔬 **For the causal chain and fix hint:** call `reconstruct_context`.');
+        lines.push('> Regression start tells you *when* — reconstruct_context tells you *why* and what to do.');
       }
 
       return { content: [{ type: 'text', text: lines.join('\n') }] };

@@ -824,17 +824,44 @@ async function watchCommand(args: string[]): Promise<void> {
   const cmdArgs = rest.slice(1);
   const processName = name || command;
 
-  // Discover the server port
+  // Item 4: Discover server — auto-start if not running so `watch` is truly one command.
+  const mergenHost = process.env.MERGEN_HOST ?? '127.0.0.1';
   let serverPort = port;
+  let serverFound = false;
   for (let p = 3000; p <= 3010; p++) {
     try {
-      const r = await fetch(`http://127.0.0.1:${p}/health`, { signal: AbortSignal.timeout(500) });
-      if (r.ok) { serverPort = p; break; }
+      const r = await fetch(`http://${mergenHost}:${p}/health`, { signal: AbortSignal.timeout(500) });
+      if (r.ok) { serverPort = p; serverFound = true; break; }
     } catch {}
   }
 
-  const mergenHost = process.env.MERGEN_HOST ?? '127.0.0.1';
-  const ingestUrl  = `http://${mergenHost}:${serverPort}/ingest`;
+  if (!serverFound) {
+    const serverPath = resolve(__dirname, 'index.js');
+    if (existsSync(serverPath)) {
+      process.stdout.write('ℹ Starting Mergen server...');
+      const { spawn: spawnSrv } = await import('child_process');
+      const srv = spawnSrv('node', [serverPath], {
+        stdio:    'ignore',
+        detached: true,
+        env:      { ...process.env as Record<string, string>, NODE_ENV: 'production' },
+      });
+      srv.unref();
+      for (let attempt = 0; attempt < 16 && !serverFound; attempt++) {
+        await sleep(500);
+        for (let p = 3000; p <= 3010; p++) {
+          try {
+            const r = await fetch(`http://${mergenHost}:${p}/health`, { signal: AbortSignal.timeout(300) });
+            if (r.ok) { serverPort = p; serverFound = true; break; }
+          } catch {}
+        }
+      }
+      console.log(serverFound ? ` ✓  :${serverPort}` : ' ✗ (proceeding without server)');
+    } else {
+      log('Server not found — run: mergen-server setup', '⚠');
+    }
+  }
+
+  const ingestUrl = `http://${mergenHost}:${serverPort}/ingest`;
   log(`Watching: ${[command, ...cmdArgs].join(' ')}`);
   log(`Streaming to Mergen on ${mergenHost}:${serverPort} as process "${processName}"\n`);
 
@@ -842,18 +869,53 @@ async function watchCommand(args: string[]): Promise<void> {
 
   const child = spawnChild(command, cmdArgs, {
     stdio: ['inherit', 'pipe', 'pipe'],
-    env: process.env as Record<string, string>,
+    env:   process.env as Record<string, string>,
     shell: process.platform === 'win32',
   });
 
-  let lineCount = 0;
+  let lineCount  = 0;
   let windowStart = Date.now();
+
+  // Item 1: inline analysis — debounce 2s after the last error line then surface
+  // the top signal from /health directly in the terminal. No AI IDE required.
+  let analysisTimer: ReturnType<typeof setTimeout> | null = null;
+  let firstInsightShown = false;
+
+  function scheduleInlineAnalysis(): void {
+    if (analysisTimer) clearTimeout(analysisTimer);
+    analysisTimer = setTimeout(async () => {
+      analysisTimer = null;
+      try {
+        const r = await fetch(`http://${mergenHost}:${serverPort}/health`, { signal: AbortSignal.timeout(3000) });
+        if (!r.ok) return;
+        const h = await r.json() as { signals?: Array<{ message: string; confidence: number; action: string }> };
+        const sigs = h.signals ?? [];
+        if (sigs.length === 0) return;
+        const top = sigs[0];
+        const pct = Math.round(top.confidence * 100);
+        const div = '─'.repeat(58);
+        process.stdout.write(`\n${div}\n`);
+        process.stdout.write(`⬡ Mergen  ${top.message}  [${pct}%]\n`);
+        process.stdout.write(`  → ${top.action}\n`);
+        if (!firstInsightShown) {
+          firstInsightShown = true;
+          process.stdout.write(`  ✦ First insight. Run reconstruct_context in your AI IDE for root cause + fix.\n`);
+          process.stdout.write(`    Or: mergen-server explain < your-error.log\n`);
+        }
+        process.stdout.write(`${div}\n\n`);
+      } catch { /* non-fatal — never interrupt the process stream */ }
+    }, 2000);
+  }
+
+  const ERROR_LINE_RE = /\berror\b|exception|fatal|panic|segfault|ETIMEDOUT|ECONNREFUSED|ENOSPC|unhandled/i;
 
   function postLine(data: string, isErr: boolean): void {
     const now = Date.now();
     if (now - windowStart > 1000) { lineCount = 0; windowStart = now; }
     if (lineCount >= 30) return;
     lineCount++;
+
+    if (ERROR_LINE_RE.test(data)) scheduleInlineAnalysis();
 
     const payload = JSON.stringify({
       type: 'terminal',
@@ -866,7 +928,7 @@ async function watchCommand(args: string[]): Promise<void> {
       const url = new URL(ingestUrl);
       const req = require('http').request({
         hostname: url.hostname, port: parseInt(url.port || '3000'),
-        path: url.pathname, method: 'POST',
+        path:     url.pathname, method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
       });
       req.on('error', () => {});
@@ -918,6 +980,91 @@ async function watchCommand(args: string[]): Promise<void> {
 
   process.on('SIGINT', () => { child.kill('SIGINT'); });
   process.on('SIGTERM', () => { child.kill('SIGTERM'); });
+}
+
+// ── Explain command ────────────────────────────────────────────────────────────
+// Standalone analysis: cat error.log | mergen-server explain
+// No server required. Runs the causal detector locally on piped or file input.
+
+async function explainCommand(args: string[]): Promise<void> {
+  const filePath = args[0] && args[0] !== '-' ? args[0] : null;
+
+  let text = '';
+  if (filePath) {
+    if (!existsSync(filePath)) { error(`File not found: ${filePath}`); process.exit(1); }
+    text = readFileSync(filePath, 'utf8');
+  } else {
+    if (process.stdin.isTTY) {
+      error('No input. Usage:');
+      console.log('  cat error.log | mergen-server explain');
+      console.log('  mergen-server explain error.log');
+      process.exit(1);
+    }
+    const chunks: Buffer[] = [];
+    process.stdin.resume();
+    for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
+    text = Buffer.concat(chunks).toString('utf8');
+  }
+
+  const rawLines = text.split('\n').filter((l) => l.trim());
+  if (rawLines.length === 0) { error('Empty input.'); process.exit(1); }
+
+  // Parse lines into ConsoleEvents — classify by keyword
+  const now = Date.now();
+  const logs = rawLines.map((line, i) => ({
+    type:      'console' as const,
+    level:     (/\berror\b|exception|fatal|panic|traceback|segfault|ETIMEDOUT|ECONNREFUSED|ENOSPC/i.test(line)
+                  ? 'error'
+                  : /\bwarn/i.test(line) ? 'warn' : 'log') as 'error' | 'warn' | 'log',
+    args:      [line],
+    url:       filePath ?? 'stdin',
+    timestamp: now - (rawLines.length - i) * 500,
+  }));
+
+  const errorCount = logs.filter((l) => l.level === 'error').length;
+  if (errorCount === 0) {
+    log(`${rawLines.length} lines read — no error-level patterns detected.`);
+    log('Lines matching: error, exception, fatal, panic, ETIMEDOUT, ECONNREFUSED are classified as errors.');
+    process.exit(0);
+  }
+
+  process.stdout.write(`Analyzing ${rawLines.length} lines (${errorCount} error(s))...`);
+
+  try {
+    const { buildCausalChain } = await import('./intelligence/causal.js');
+    const causal = await buildCausalChain(logs, [], [], undefined, [], [], [], []);
+    console.log(' ✓\n');
+
+    if (causal.hypotheses.length === 0) {
+      log('No hypothesis matched — patterns did not align with known failure modes.');
+      log('For richer analysis with network context: mergen-server watch <your-command>');
+      process.exit(0);
+    }
+
+    const top = causal.hypotheses[0];
+    const pct = Math.round((top.confidenceScore ?? 0) * 100);
+
+    hr();
+    console.log(`Root cause  ${top.confidence} [${pct}%]\n`);
+    console.log(`  ${top.summary}\n`);
+    if (top.causalPath?.length) {
+      console.log('Causal chain:');
+      top.causalPath.forEach((step, i) => console.log(`  ${i + 1}. ${step}`));
+      console.log('');
+    }
+    if (top.fixHint) {
+      console.log(`Fix:  ${top.fixHint.split('.')[0]}.\n`);
+    }
+    hr();
+    if (causal.hypotheses.length > 1) {
+      log(`${causal.hypotheses.length - 1} alternative hypothesis(es) considered.`, 'ℹ');
+    }
+    log('For real-time analysis with network context: mergen-server watch <your-command>', 'ℹ');
+  } catch (err) {
+    console.log(' ✗');
+    error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
 }
 
 // ── Status command ─────────────────────────────────────────────────────────────
@@ -1209,6 +1356,27 @@ async function doctorCommand(): Promise<void> {
     const url = process.env.MERGEN_REDIS_URL;
     if (!url) return { ok: false, warn: true, detail: 'MERGEN_REDIS_URL not set — ring buffer lost on restart', fix: 'export MERGEN_REDIS_URL=redis://localhost:6379  # optional but recommended for production' };
     return { ok: true, detail: `MERGEN_REDIS_URL set — buffer persisted at ${url}` };
+  });
+
+  // Docker — detect running containers and surface the watcher endpoint.
+  // Listed last because it is optional, not a failure if absent.
+  await runCheck('Docker containers', async () => {
+    try {
+      const { execSync: exec2 } = await import('child_process');
+      const raw = exec2('docker ps --format "{{.Names}}" 2>/dev/null', { encoding: 'utf8', timeout: 3000 });
+      const names = raw.split('\n').map((s) => s.trim()).filter(Boolean);
+      if (names.length === 0) {
+        return { ok: false, warn: true, detail: 'Docker running but no containers found', fix: 'Start your app containers, then stream logs: curl -X POST http://127.0.0.1:3000/watchers/docker' };
+      }
+      const label = names.slice(0, 3).join(', ') + (names.length > 3 ? ` +${names.length - 3} more` : '');
+      return {
+        ok: false, warn: true,
+        detail: `${names.length} container(s) running (${label}) — not yet streaming to Mergen`,
+        fix:    `Activate log streaming: curl -X POST http://127.0.0.1:3000/watchers/docker`,
+      };
+    } catch {
+      return { ok: false, warn: true, detail: 'Docker not detected (not installed or not running)', fix: 'Install Docker if you use containers — streaming logs gives Mergen live backend context' };
+    }
   });
 
   hr();
@@ -1752,18 +1920,41 @@ async function demoCommand(): Promise<void> {
       const result = await replayIncident(pid);
       if (result) {
         const conf = Math.round((result.replayedHypothesis.confidenceScore ?? 0) * 100);
-        const tag  = (result.replayedHypothesis.tag ?? 'unknown').replace(/infra_/g, '').replace(/_/g, ' ');
-        const fix  = result.replayedHypothesis.fixHint ?? '';
+        // Format tag into a readable label: infra_db_connection_pool → DB connection pool
+        const rawTag  = (result.replayedHypothesis.tag ?? 'unknown').replace(/^infra_/, '');
+        const label   = rawTag.split('_').map((w, i) => (i === 0 ? w.toUpperCase() : w)).join(' ');
+        const fix     = result.replayedHypothesis.fixHint ?? '';
         console.log(` ✓`);
         console.log('');
-        console.log(`  Detected: ${tag}  [${conf}% confidence]`);
-        console.log(`  Fix:      ${fix.split('.')[0]}.`);
+        console.log(`  Detected:   ${label}  [${conf}% confidence]`);
+        if (fix) {
+          console.log(`  Fix:        ${fix.split('.')[0]}.`);
+        }
         console.log('');
       }
     }
   } catch { /* non-fatal — skip instant analysis if replay not available */ }
 
-  const port = 3000;
+  // Scan for an available port — port 3000 is often taken by dev servers.
+  const { createServer: createNetServer } = await import('net');
+  let port = 3000;
+  for (let p = 3000; p <= 3010; p++) {
+    const available = await new Promise<boolean>((res) => {
+      const probe = createNetServer();
+      probe.once('error', () => res(false));
+      probe.once('listening', () => { probe.close(() => res(true)); });
+      probe.listen(p, '127.0.0.1');
+    });
+    if (available) { port = p; break; }
+    if (p === 3010) {
+      error('Ports 3000–3010 are all in use.');
+      console.log('  Free one with: lsof -ti:3000 | xargs kill');
+      process.exit(1);
+    }
+    log(`Port ${p} in use — trying ${p + 1}`, '↩');
+  }
+
+  process.stdout.write('Starting server...');
   const app = createApp({
     serverVersion: VERSION,
     localSecret: 'demo',
@@ -1780,14 +1971,13 @@ async function demoCommand(): Promise<void> {
 
   const url = `http://localhost:${port}/demo`;
 
-  console.log(`✓ Server running at http://localhost:${port}`);
-  console.log(`→ Opening ${url}\n`);
+  console.log(` ✓`);
+  console.log(`  http://localhost:${port}\n`);
   console.log('────────────────────────────────────────');
-  console.log('Connect production when ready (all optional):');
-  console.log('  PagerDuty  →  1 webhook → /webhooks/pagerduty');
-  console.log('  OTLP       →  OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:3000 node app.js');
-  console.log('  Docker     →  curl -X POST http://127.0.0.1:3000/watchers/docker');
-  console.log('  IDE        →  mergen-server setup');
+  console.log('Connect your stack when ready (all optional):');
+  console.log('  Watch any process:  mergen-server watch npm start');
+  console.log('  Docker containers:  curl -X POST http://127.0.0.1:3000/watchers/docker');
+  console.log('  Add to your IDE:    mergen-server setup');
   console.log('────────────────────────────────────────\n');
 
   // Open browser — try platform-specific commands.
@@ -2542,6 +2732,82 @@ async function connectCommand(args: string[]): Promise<void> {
   console.log('  mergen-server connect github --repo acme/api');
 }
 
+// ── Quickstart command ─────────────────────────────────────────────────────────
+// Guided wizard: from zero to first real insight in under 2 minutes.
+// Asks for the app command, starts the server, watches the process, and surfaces
+// the first analysis inline — no AI IDE or prior knowledge required.
+
+async function quickstartCommand(): Promise<void> {
+  console.log('\n⬡ Mergen — Quick Start\n');
+  hr();
+  log('From zero to your first real insight. Under 2 minutes.');
+  console.log('');
+
+  // 1. Ask for the app command
+  const cmd = (await ask('What command starts your app? (e.g. npm start, python app.py): ')).trim();
+  if (!cmd) { error('No command provided.'); process.exit(1); }
+
+  // 2. Start server if not already running
+  const mergenHost = process.env.MERGEN_HOST ?? '127.0.0.1';
+  let serverPort = 3000;
+  let serverFound = false;
+  for (let p = 3000; p <= 3010; p++) {
+    try {
+      const r = await fetch(`http://${mergenHost}:${p}/health`, { signal: AbortSignal.timeout(500) });
+      if (r.ok) { serverPort = p; serverFound = true; break; }
+    } catch {}
+  }
+
+  if (!serverFound) {
+    const serverPath = resolve(__dirname, 'index.js');
+    if (existsSync(serverPath)) {
+      process.stdout.write('\nStarting Mergen server...');
+      const { spawn: spawnSrv } = await import('child_process');
+      const srv = spawnSrv('node', [serverPath], {
+        stdio: 'ignore', detached: true,
+        env: { ...process.env as Record<string, string>, NODE_ENV: 'production' },
+      });
+      srv.unref();
+      for (let attempt = 0; attempt < 16 && !serverFound; attempt++) {
+        await sleep(500);
+        for (let p = 3000; p <= 3010; p++) {
+          try {
+            const r = await fetch(`http://${mergenHost}:${p}/health`, { signal: AbortSignal.timeout(300) });
+            if (r.ok) { serverPort = p; serverFound = true; break; }
+          } catch {}
+        }
+      }
+      console.log(serverFound ? ` ✓  :${serverPort}` : ' ✗');
+    }
+  } else {
+    success(`Server already running on :${serverPort}`);
+  }
+
+  // 3. Offer to configure the detected IDE (non-blocking)
+  const ide = await detectIDE().catch(() => null);
+  if (ide) {
+    console.log('');
+    const doIde = await ask(`Add Mergen to ${ide}? Your AI IDE will see live errors without copy-paste. (y/n): `);
+    if (doIde.toLowerCase() === 'y') {
+      await configureIDE(ide).catch(() => {});
+      success(`${ide} configured — restart your IDE for the MCP tools to appear`);
+    }
+  }
+
+  // 4. Start watching with inline analysis — reuse watchCommand which handles everything
+  hr();
+  console.log(`\nStarting: ${cmd}`);
+  const div = '─'.repeat(58);
+  console.log(div);
+  log('Mergen is watching. Trigger an error in your app.');
+  log('When it appears, Mergen will analyze it inline — no IDE needed.');
+  log('Press Ctrl+C when done.\n');
+
+  // Pass as watch args: watchCommand expects args[0] = 'watch'
+  const parts = cmd.split(/\s+/);
+  await watchCommand(['watch', ...parts]);
+}
+
 // ── Main ───────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -2617,6 +2883,14 @@ async function main(): Promise<void> {
       await watchCommand(args);
       break;
 
+    case 'explain':
+      await explainCommand(args.slice(1));
+      break;
+
+    case 'quickstart':
+      await quickstartCommand();
+      break;
+
     case 'status':
       await statusCommand();
       break;
@@ -2670,7 +2944,9 @@ Usage:
   mergen-server init               Connect Datadog (guided setup)
   mergen-server pr                 Generate a PR description from your debug session
   mergen-server pr --copy          Same, but copies to clipboard
-  mergen-server watch <cmd>        Stream any process into Mergen (e.g. watch npm start)
+  mergen-server quickstart         Guided wizard — from zero to first real insight in 2 min
+  mergen-server watch <cmd>        Stream any process into Mergen (auto-starts server if needed)
+  mergen-server explain [file]     Analyze a log file or piped input — no server required
   mergen-server invite             Generate a team invite URL
   mergen-server join <url>         Join a team Mergen instance
   mergen-server postmortem [h]     Generate a postmortem document (default: last 1 hour)

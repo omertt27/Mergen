@@ -68,11 +68,37 @@ function _registerValidateFix(server: McpServer): void {
         closeSession(pid, outcome);
       }
 
+      // Surface the verdict meaning explicitly, especially on wrong/partial — a solo dev
+      // shouldn't have to infer what "UNRESOLVED" means for their next action.
+      if (verdict === 'wrong') {
+        lines.push(
+          '',
+          '### ❌ Diagnosis was incorrect',
+          '',
+          `The fix did not reduce errors — the \`${tag}\` hypothesis appears to have been wrong.`,
+          '',
+          '**What this means:**',
+          '- This verdict has been recorded. Future diagnoses for this pattern will be recalibrated downward.',
+          '- The causal chain may have been incomplete — only the first hypothesis was tested.',
+          '',
+          '**Next steps:**',
+          '1. Call `reconstruct_context` again — the wrong-verdict feedback improves the next analysis.',
+          '2. Check if errors changed in character (new error type appearing post-fix may reveal the real cause).',
+          '3. If you know what the actual root cause was, the calibration record is already saved — no additional action needed.',
+        );
+      } else if (verdict === 'partial') {
+        lines.push(
+          '',
+          '> ⚠️ **Partial resolution** — errors reduced but not eliminated. The hypothesis may be correct but the fix incomplete, or there are multiple overlapping causes. Call `reconstruct_context` to check remaining signals.',
+        );
+      }
+
       const tag = prediction?.tag ?? 'unknown';
+      const verdictEmoji = verdict === 'correct' ? '✅' : verdict === 'partial' ? '⚠️' : '❌';
       const lines = [
         `## Fix Validation — \`${tag}\``,
         '',
-        `**Status: ${status}**`,
+        `**Status: ${verdictEmoji} ${status}**`,
         '',
         `| | Before fix | After fix |`,
         `|---|---|---|`,

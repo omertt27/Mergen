@@ -61,6 +61,48 @@ export function createDemoRouter(): Router {
     res.json({ ok: true, injected: events.length, analysis });
   });
 
+  // ── GET /demo/connect-status — live buffer state for the Connect tab ────────────
+  router.get('/demo/connect-status', (_req, res) => {
+    res.json({
+      ok:         true,
+      realEvents: store.size(),
+      hasErrors:  store.getLogs(1, 'error').length > 0,
+    });
+  });
+
+  // ── GET /demo/live-analysis — run causal analysis on real buffer for live demo UI ─
+  router.get('/demo/live-analysis', async (_req, res) => {
+    const logs    = store.getLogs(50, 'error');
+    const network = store.getNetwork(50).filter((n) => n.status >= 400 || !!n.error);
+
+    if (logs.length === 0 && network.length === 0) {
+      res.json({ ok: true, hasAnalysis: false, errorCount: 0 });
+      return;
+    }
+
+    try {
+      const { buildCausalChain } = await import('../intelligence/causal.js');
+      const causal = await buildCausalChain(logs, network, [], undefined, [], [], [], []);
+      const top    = causal.hypotheses[0];
+      if (!top) {
+        res.json({ ok: true, hasAnalysis: false, errorCount: logs.length });
+        return;
+      }
+      res.json({
+        ok:          true,
+        hasAnalysis: true,
+        errorCount:  logs.length,
+        hypothesis:  top.summary,
+        confidence:  Math.round((top.confidenceScore ?? 0) * 100),
+        tag:         top.tag,
+        fixHint:     top.fixHint ?? null,
+        causalPath:  top.causalPath ?? [],
+      });
+    } catch {
+      res.json({ ok: true, hasAnalysis: false, errorCount: logs.length });
+    }
+  });
+
   // ── GET /demo/corpus-status — seed corpus stats ───────────────────────────────
   router.get('/demo/corpus-status', (_req, res) => {
     const pids = listSnapshotPids();
@@ -209,6 +251,30 @@ export function createDemoRouter(): Router {
       return;
     }
 
+    if (/next|after|now what|done|finished|what do i do|get started|real app|connect|my app|my project/i.test(q)) {
+      res.json({
+        answer: [
+          'The demo used sample incidents. Here is what to do next:',
+          '',
+          '1. Connect your actual app (pick one):',
+          '   Docker:  curl -X POST http://127.0.0.1:3000/watchers/docker',
+          '   Process: mergen-server watch npm start',
+          '',
+          '2. Add to your AI IDE — no more copy-pasting logs:',
+          '   mergen-server setup',
+          '',
+          '3. Trigger an error in your app. Ask your AI IDE:',
+          '   "What is wrong?" or "Triage the latest incident"',
+          '   Mergen answers from your live logs — no pasting.',
+          '',
+          'Bringing this to your team?',
+          '   mergen-server invite',
+          '   → generates a one-click teammate onboarding URL.',
+        ].join('\n'),
+      });
+      return;
+    }
+
     // Default: guide to useful questions
     res.json({
       answer: [
@@ -295,6 +361,7 @@ const DEMO_HTML = `<!DOCTYPE html>
     <div class="tab active" onclick="showTab('backend')">Backend P1 Incident</div>
     <div class="tab" onclick="showTab('frontend')">Frontend Trace Join</div>
     <div class="tab" onclick="showTab('corpus')">Incident Corpus</div>
+    <div class="tab" onclick="showTab('connect')" id="tab-connect-btn">Connect Your App</div>
     <div class="tab" onclick="showTab('chat')">Ask Mergen</div>
   </div>
 
@@ -333,10 +400,14 @@ const DEMO_HTML = `<!DOCTYPE html>
       </div>
 
       <div class="hint" id="p1-hint" style="display:none">
-        In your AI IDE, ask: <code>triage_incident</code> — Mergen calls it automatically and returns the full causal chain.<br>
+        <strong style="color:#e6edf3">This just ran on 50 sample incidents.</strong> Connect your real app and ask your AI IDE the same questions — it gets live answers instead of asking you to paste logs.
         <div class="btn-row" style="margin-top:12px">
-          <a href="/impact-report?format=html" target="_blank" class="btn btn-secondary" style="text-decoration:none;font-size:0.8rem">View Impact Report →</a>
-          <a href="/override-corpus" target="_blank" class="btn btn-secondary" style="text-decoration:none;font-size:0.8rem">View Override Corpus →</a>
+          <button class="btn" onclick="showTab('connect')" style="font-size:0.8rem">Connect Your App →</button>
+          <a href="/impact-report?format=html" target="_blank" class="btn btn-secondary" style="text-decoration:none;font-size:0.8rem">Impact Report</a>
+          <a href="/override-corpus" target="_blank" class="btn btn-secondary" style="text-decoration:none;font-size:0.8rem">Override Corpus</a>
+        </div>
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid #30363d;font-size:0.78rem;color:#6e7681">
+          Bringing this to your team? &nbsp;<code>mergen-server invite</code>&nbsp; generates a one-click onboarding URL.
         </div>
       </div>
     </div>
@@ -370,6 +441,47 @@ const DEMO_HTML = `<!DOCTYPE html>
         <h2>Replay result <span class="badge badge-info" id="replay-pid">—</span></h2>
         <div class="terminal" id="replay-terminal"></div>
       </div>
+    </div>
+  </div>
+
+  <!-- ── Connect Your App tab ── -->
+  <div class="panel" id="tab-connect">
+    <div class="card">
+      <h2>Step 1 — Connect your app</h2>
+      <p>The demo above uses sample incidents. Point Mergen at your actual Docker containers or any running process — the same analysis runs on your real errors.</p>
+      <div style="margin:18px 0 0">
+        <div style="font-size:0.8rem;color:#8b949e;margin-bottom:6px;font-weight:600">Docker containers (zero config)</div>
+        <div class="terminal" style="min-height:auto;padding:11px 14px"><span class="t-ok">curl</span> -X POST http://127.0.0.1:3000/watchers/docker</div>
+        <div style="font-size:0.74rem;color:#6e7681;margin-top:5px">Streams stdout/stderr from every running container. Works immediately.</div>
+      </div>
+      <div style="margin:16px 0 0">
+        <div style="font-size:0.8rem;color:#8b949e;margin-bottom:6px;font-weight:600">Any process</div>
+        <div class="terminal" style="min-height:auto;padding:11px 14px"><span class="t-ok">mergen-server</span> watch npm start</div>
+        <div style="font-size:0.74rem;color:#6e7681;margin-top:5px">Works with any command — Node, Python, Go, Ruby. Wraps it and streams output to Mergen.</div>
+      </div>
+      <div id="connect-status" style="margin-top:18px"></div>
+    </div>
+
+    <div class="card" id="live-analysis-card" style="display:none">
+      <h2>Live analysis <span class="badge badge-ok" id="live-badge">WATCHING</span></h2>
+      <p>Your errors — analyzed in real time. The same engine that runs on the sample incidents, now on your actual app.</p>
+      <div class="terminal" id="live-terminal" style="min-height:160px"><span class="t-info">Waiting for errors from your app...</span>
+</div>
+    </div>
+
+    <div class="card">
+      <h2>Step 2 — Add to your AI IDE</h2>
+      <p>Once connected, your AI IDE calls Mergen's tools directly. No more copy-pasting logs into a chat window.</p>
+      <div class="terminal" style="min-height:auto;padding:11px 14px"><span class="t-ok">mergen-server</span> setup</div>
+      <div style="font-size:0.74rem;color:#6e7681;margin-top:5px">Auto-detects Claude Code, Cursor, VS Code, Windsurf. Writes the MCP config in 30 seconds.</div>
+      <div class="hint" style="margin-top:14px">Then ask your AI: <code>get_recent_logs</code> or <code>reconstruct_context</code> — Mergen answers from your live buffer. No pasting.</div>
+    </div>
+
+    <div class="card" style="border-color:#1f6feb44;background:#1f6feb08">
+      <h2>Invite your team</h2>
+      <p>One command generates a teammate onboarding URL. They open it, click install, and they're connected to your Mergen instance — no manual config.</p>
+      <div class="terminal" style="min-height:auto;padding:11px 14px"><span class="t-ok">mergen-server</span> invite</div>
+      <div style="font-size:0.74rem;color:#6e7681;margin-top:5px">They run: <code>npx mergen-server join &lt;url&gt;</code> — done.</div>
     </div>
   </div>
 
@@ -422,9 +534,78 @@ const DEMO_HTML = `<!DOCTYPE html>
 
 <script>
 // ── Tab switching ──────────────────────────────────────────────────────────────
+const TAB_NAMES = ['backend','frontend','corpus','connect','chat'];
 function showTab(name) {
-  document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', ['backend','frontend','corpus','chat'][i] === name));
-  document.querySelectorAll('.panel').forEach((p, i) => p.classList.toggle('active', ['tab-backend','tab-frontend','tab-corpus','tab-chat'][i] === 'tab-' + name));
+  document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', TAB_NAMES[i] === name));
+  document.querySelectorAll('.panel').forEach((p, i) => p.classList.toggle('active', TAB_NAMES[i] === name));
+  if (name === 'connect') loadConnectStatus();
+}
+
+async function loadConnectStatus() {
+  const el = document.getElementById('connect-status');
+  if (!el) return;
+  try {
+    const r = await fetch('/demo/connect-status');
+    const d = await r.json();
+    if (d.realEvents > 0) {
+      el.innerHTML = '<div class="hint" style="border-color:#2ea04355;background:#2ea04311"><span class="t-ok">✓ Live data flowing</span> — ' + d.realEvents + ' event(s) in buffer. Trigger an error in your app, then ask your AI IDE what happened.</div>';
+      startLiveAnalysisPolling();
+    } else {
+      el.innerHTML = '<div class="hint" style="border-color:#e3b34155;background:#e3b34111">⏳ <strong style="color:#e6edf3">Buffer is empty.</strong> Run one of the commands above, then trigger an error in your app — Mergen will catch it.</div>';
+    }
+  } catch {
+    el.innerHTML = '';
+  }
+}
+
+let _livePoller = null;
+let _lastAnalysisTag = null;
+
+function startLiveAnalysisPolling() {
+  if (_livePoller) return; // already polling
+  _livePoller = setInterval(async () => {
+    try {
+      const r = await fetch('/demo/live-analysis');
+      const d = await r.json();
+      const card = document.getElementById('live-analysis-card');
+      const term = document.getElementById('live-terminal');
+      if (!card || !term) return;
+
+      if (!d.hasAnalysis) {
+        card.style.display = 'block';
+        return;
+      }
+
+      // Only re-render when tag changes to avoid flicker
+      if (d.tag === _lastAnalysisTag) return;
+      _lastAnalysisTag = d.tag;
+
+      card.style.display = 'block';
+      const ts = new Date().toISOString().slice(11, 19);
+      const label = (d.tag || '').replace(/^infra_/, '').replace(/_/g, ' ');
+      term.innerHTML = '';
+      function addLine(cls, txt) {
+        term.innerHTML += '<span class="' + cls + '">' + txt + '</span>\\n';
+        term.scrollTop = term.scrollHeight;
+      }
+      addLine('t-info', ts + '  [buffer] ' + d.errorCount + ' error(s) · running causal analysis...');
+      addLine('t-bold', '');
+      addLine('t-bold', '  Root Cause — ' + d.confidence + '%');
+      addLine('t-hi',   '  ' + d.hypothesis);
+      if (d.causalPath && d.causalPath.length) {
+        addLine('t-bold', '');
+        addLine('t-bold', '  Causal chain:');
+        d.causalPath.forEach((step, i) => addLine('t-info', '  ' + (i+1) + '. ' + step));
+      }
+      if (d.fixHint) {
+        addLine('t-bold', '');
+        addLine('t-ok', '  Fix: ' + d.fixHint.split('.')[0] + '.');
+      }
+      addLine('t-bold', '');
+      addLine('t-info', '  In your AI IDE: reconstruct_context — for evidence + calibration note.');
+      document.getElementById('live-badge').textContent = 'LIVE · ' + label.toUpperCase();
+    } catch {}
+  }, 3000);
 }
 
 // ── Corpus tab ─────────────────────────────────────────────────────────────────
