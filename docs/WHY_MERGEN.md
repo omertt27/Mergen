@@ -1,6 +1,6 @@
 # Why Mergen? Competitive Analysis
 
-> **TL;DR:** Mergen is the only runtime observability tool that runs in your **real browser** with **real auth** and captures state on **every save**, not just crashes.
+> **TL;DR:** Mergen is the operational intelligence layer that converts human engineering activity into compounding machine-readable policy — the knowledge layer that point tools (Datadog, PagerDuty, Notion) cannot be, by design.
 
 ---
 
@@ -22,6 +22,36 @@ The override corpus already encodes *what* you decided. The rationale field adds
 The distinguishing bar isn't "useful" — it's "compensates for the structural absence of other people." Speed improvements don't pass that bar. These three do.
 
 ---
+
+---
+
+## Why Each Competitor Category Falls Short
+
+### Observability & APM (Datadog, Sentry)
+**What they do:** Capture and surface telemetry. Alert humans after something breaks.
+
+**The gap:** Observability tools are stateless. Every incident, a human reads the same dashboards from scratch, applies the same tribal knowledge, resolves the problem, and the knowledge evaporates. Mergen is not an observability tool — it is the memory layer above observability, converting each resolution into queryable policy.
+
+**Counter to "Does Mergen replace Sentry?":** *No. Sentry catches the crash. Mergen remembers every crash like this one, what your team tried, and what actually worked — and surfaces that to the next person (or agent) who touches the same code.*
+
+### Incident Management (PagerDuty, Incident.io, FireHydrant)
+**What they do:** Orchestrate human workflows — who gets paged, how escalation works, post-mortem templates.
+
+**The gap:** They have no memory of what happened in the last 47 similar incidents. Each incident starts from zero. Mergen adds operational memory to the workflow: when an incident fires, the context brief includes what was tried before, override constraints, and confidence scores calibrated to this infrastructure specifically.
+
+### Runbook Automation (Shoreline.io)
+**What they do:** Execute pre-written runbooks.
+
+**The gap:** Runbooks are static and rot. Mergen builds the Override Corpus dynamically as your team works — every resolution, every human override, every decision becomes policy automatically. No runbook maintenance required.
+
+### Knowledge Bases (Notion, Confluence, Slack)
+**What they do:** Store what humans wrote down manually.
+
+**The gap:** Your wiki was stale when you wrote it. Slack threads are unsearchable at 3am under pressure. Mergen converts human conversations into machine-readable policy without requiring any deliberate documentation effort. The corpus builds itself.
+
+### The Key Differentiation
+
+Every competitor above addresses one moment in the incident lifecycle (the crash, the alert, the fix, the postmortem). Mergen is the **longitudinal memory layer** across all of them — the thing that makes each future incident faster to resolve because of everything that happened in every past incident.
 
 ---
 

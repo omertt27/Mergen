@@ -1,8 +1,25 @@
-/**
- * adr.test.ts — Tests for the ADR store and REST route.
- */
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 
-import { describe, it, expect, beforeEach } from 'vitest';
+vi.mock('../sensor/paths.js', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('../sensor/paths.js')>();
+  const fsMod = await import('fs');
+  const osMod = await import('os');
+  const pathMod = await import('path');
+  
+  if (!(globalThis as any).__adrTempDir) {
+    const tmp = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), 'mergen-adr-test-'));
+    (globalThis as any).__adrTempDir = tmp;
+  }
+  
+  return {
+    ...orig,
+    DATA_DIR: (globalThis as any).__adrTempDir,
+  };
+});
+
 import { adrStore } from '../sensor/adr-store.js';
 
 describe('adrStore', () => {

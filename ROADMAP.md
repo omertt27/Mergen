@@ -1,11 +1,46 @@
 # Mergen Product Roadmap
-**Last Updated:** 2026-05-25  
+**Last Updated:** 2026-06-22  
 **Strategic Context:** See [IMPROVEMENT_PLAN.md](./IMPROVEMENT_PLAN.md)
 
 ---
 
 ## 🎯 Mission
-Make AI assistants **natively runtime-aware** by streaming live browser telemetry into every IDE with zero copy-pasting.
+
+Build the **operational intelligence infrastructure** that allows AI agents and engineering teams to learn from how a company's infrastructure actually behaves — compounding that knowledge with every incident, override, and resolution.
+
+**The Disappear Test:** When we ask design partners, "If Mergen disappeared tomorrow, what would stop working?", we are aiming for: *"Our AI agents and engineers would lose access to years of operational knowledge."*
+
+---
+
+## 📐 The Five-Phase Model
+
+Knowledge compounding is the organizing principle. Phases build sequentially — each unlocks the next.
+
+```
+Phase 1: Operational Memory (Sensor Ingest) ✅ SHIPPED
+   └── Capture telemetry, browser logs, console traces, Docker streams.
+
+Phase 2: Operational Intelligence (IDE Integration) ✅ SHIPPED
+   └── Compress telemetry into Context Packs for Cursor & Claude Code.
+       MCP tools: triage_incident, reconstruct_context, validate_fix, etc.
+
+Phase 3: Agent Safety & Governance (CI/CD Deployment Gate) 🔄 IN PROGRESS
+   └── Intercept proposed commits in CI/CD; evaluate against Override Corpus.
+       GitHub Action: check PR changes against operational memory before merge.
+
+Phase 4: Organizational Learning (Continuous Flywheel) ← PRIORITY
+   └── Index Slack discussions, git history, and postmortems into Override Corpus.
+       Convert unstructured human conversations into machine-readable policy.
+       [Formerly Phase 5 — moved forward. This is the moat.]
+
+Phase 5: Autonomous Operations (Self-Healing) ← DEPRIORITIZED FOR GTM
+   └── Safely execute automated remediation under Hard Safety Policies.
+       [Creates security friction with buyers. Ship Phase 4 first.]
+```
+
+**Why Phase 4 before Phase 5:** VPs of Engineering are eager to buy tools that help engineers and agents "make safer changes." They are not yet ready to buy tools that autonomously restart production services. Phase 4 (knowledge compounding) builds the trust corpus that makes Phase 5 (autonomous ops) credible.
+
+---
 
 ---
 
@@ -232,20 +267,54 @@ Make AI assistants **natively runtime-aware** by streaming live browser telemetr
 
 ---
 
-## 📅 Future Sprints (July–December 2026)
+## 📅 6-Month Action Plan (Knowledge Compounding Focus)
+
+Sequenced around the Phase 4 priority shift: knowledge collection and compounding before autonomous execution.
+
+### Days 1–30: Distribution & Frictionless Onboarding
+- Publish browser extension to Chrome Web Store (`mergen-open` branding)
+- Publish local server to npm — remove manual `git clone` onboarding
+- `npx mergen-setup` auto-discovers local topology (Docker, ports, CI hooks)
+- **Why:** The beachhead (mid-market 20–150 dev teams) will not install a tool that requires manual configuration. Free distribution drives the organic acquisition that makes the paid platform credible.
+
+### Days 30–60: ROI Dashboard & Time-Saved Tracker
+- Add time-to-resolution tracking across incidents
+- `GET /impact-report` shows hours saved vs. manual triage baseline
+- VP of Engineering dashboard: autonomous resolution rate, MTTR delta, false positive breakdown
+- **Why:** Enterprise sales requires a measurable ROI story. "We saved 47 engineer-hours last month" closes deals that "we triage incidents faster" cannot.
+
+### Days 60–90: Slack-to-Override Memory Loop (Phase 4 MVP)
+- Ingestion path watching postmortem channels in Slack and git ADR commits
+- Convert human post-mortems into machine-readable override corpus entries automatically
+- **Why:** This is the compounding flywheel. Every postmortem discussion becomes durable policy without engineers doing extra work. After 90 days, Mergen knows things about the customer's system that no competitor can replicate.
+
+### Days 90–150: Agent Safety CI Gate (Phase 3 MVP)
+- GitHub Action intercepting PRs from autonomous coding agents
+- Match proposed changes against Override Corpus and action-risk.ts
+- Block dangerous code before merge; post structured reason to PR review
+- **Why:** This moves Mergen from "developer utility" to "CISO-approved governance layer." Without this, Mergen cannot command enterprise ACV. With it, the pitch becomes: "Mergen is how you let AI agents touch production safely."
+
+### Days 150–180: Enterprise Pipeline
+- Target 5 mid-market engineering teams adopting agentic coding
+- Convert from free CLI to paid Operational Intelligence platform
+- Focus on teams with public postmortems in last 12 months, 10–50 person eng orgs, on PagerDuty
+- **Why:** Proof of commercial viability before Series A conversation.
+
+---
+
+## 📅 Future Sprints (Q3–Q4 2026)
 
 ### Q3 2026: Enterprise Hardening
-- OpenTelemetry export (week of July 7)
-- MCP permission system (week of July 14)
-- Audit logging (week of July 21)
-- Sentry integration (week of July 28)
-- Playwright trace analyzer (week of August 4)
+- OpenTelemetry export
+- MCP permission system
+- Sentry integration
+- Audit logging for compliance teams
 
 ### Q4 2026: Scale & Monetization
-- Team buffer sharing (September)
-- Managed Cloud SaaS (October)
-- VS Code native extension (November)
-- Public beta launch (December)
+- Team buffer sharing
+- Managed Cloud SaaS
+- VS Code native extension
+- Public beta launch
 
 ---
 

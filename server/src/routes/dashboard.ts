@@ -11,6 +11,8 @@
 
 import { randomUUID } from 'crypto';
 import { Router } from 'express';
+import { incidentStore } from '../sensor/incident-store.js';
+import { postmortemStore } from '../intelligence/postmortem-store.js';
 
 export function createDashboardRouter(serverVersion: string, localSecret: string): Router {
   const router = Router();
@@ -362,8 +364,15 @@ function buildDashboardHtml(version: string, nonce: string): string {
           Python: <code style="color:var(--text)">pip install mergen-python</code><br>
           Stream backend: <code style="color:var(--text)">mergen-server watch npm start</code><br>
           CI results: <code style="color:var(--text)">POST /ci/github</code><br>
-          Docker logs: <code style="color:var(--text)">MERGEN_DOCKER_LOGS=true</code>
+          Docker logs: <code style="color:var(--text)">MERGEN_DOCKER_LOGS=true</code><br>
+          Auto-learn from Slack: <code style="color:var(--text)">MERGEN_SLACK_OVERRIDE_LOOP=true</code>
         </div>
+        <div style="margin-top:12px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">GitHub Actions — Corpus Gate</div>
+        <pre style="font-size:9px;color:var(--text);background:rgba(255,255,255,.04);border-radius:4px;padding:8px;overflow-x:auto;margin:0;line-height:1.5"># .github/workflows/ci.yml
+- uses: mergen-server/mergen@v1
+  with:
+    mergen-url: http://your-mergen-server:3000
+    mergen-secret: $&#123;&#123; secrets.MERGEN_SECRET &#125;&#125;</pre>
       </div>
     </div>
   </div>
@@ -929,6 +938,15 @@ async function pollMttr() {
     }
 
     let html = '';
+
+    // Hero stat: time saved — the board-deck number
+    if (d.report && d.report.timeSavedLabel) {
+      html += '<div style="text-align:center;padding:10px 0 14px">'
+        + '<div style="font-size:22px;font-weight:700;color:var(--green);line-height:1">' + esc(d.report.timeSavedLabel) + '</div>'
+        + (d.report.hoursPerIncident ? '<div style="font-size:10px;color:var(--muted);margin-top:4px">' + d.report.hoursPerIncident + 'h per incident on average</div>' : '')
+        + '</div>';
+    }
+
     // Autonomous rate bar
     html += '<div style="margin-bottom:10px">'
       + '<div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px">'

@@ -151,6 +151,10 @@ interface ImpactData {
   // Y5: outcome-based billing evidence
   estimatedRevenuePreservedUsd: number | null;
   corpusPostmortems: number;
+  // Human-readable ROI — "4.2h saved across 11 incidents"
+  timeSavedHours: number | null;
+  hoursPerIncident: number | null;
+  timeSavedLabel: string | null;
 }
 
 function fmtMs(ms: number): string {
@@ -306,6 +310,22 @@ function computeImpactData(windowDays: number): ImpactData {
   // Corpus size
   const corpusPostmortems = postmortemStore.count();
 
+  // Time saved — human-readable ROI metric for design-partner reports and deck slides.
+  // Uses actual MTTR when available; falls back to conservative estimates.
+  const savedPerIncidentMs = Math.max(
+    0,
+    (manualBenchmarkForRevenue ?? 0) - (autonomousBenchmarkForRevenue),
+  );
+  const timeSavedHours = savedPerIncidentMs > 0 && wouldResolve.length > 0
+    ? Math.round((savedPerIncidentMs * wouldResolve.length) / 3_600_000 * 10) / 10
+    : null;
+  const hoursPerIncident = savedPerIncidentMs > 0
+    ? Math.round(savedPerIncidentMs / 3_600_000 * 10) / 10
+    : null;
+  const timeSavedLabel = timeSavedHours != null && wouldResolve.length > 0
+    ? `${timeSavedHours}h saved across ${wouldResolve.length} incident${wouldResolve.length !== 1 ? 's' : ''}`
+    : null;
+
   // Deck summary — the one sentence that goes on a slide, with n= so YC partners
   // can't ask "but what's the sample size?" without already having the answer.
   const rate = entries.length > 0
@@ -328,11 +348,13 @@ function computeImpactData(windowDays: number): ImpactData {
     contextAssistedLine = ` Context-assisted manual MTTR: ${fmtMs(avgContextAssistedMttrMs)} (n=${contextAssistedMttrSamples.length}) vs. ${fmtMs(avgUnassistedMttrMs)} without (n=${unassistedMttrSamples.length}).`;
   }
 
+  const timeSavedSentence = timeSavedLabel ? ` ${timeSavedLabel} of engineer time.` : '';
   const deckSummary =
     `Mergen processed ${entries.length} incident${entries.length !== 1 ? 's' : ''} (n=${entries.length}).${tagLine} ` +
     `Autonomous resolution would have applied correctly ${wouldResolve.length} time${wouldResolve.length !== 1 ? 's' : ''} (${rate}%).` +
     mttrLine +
-    contextAssistedLine;
+    contextAssistedLine +
+    timeSavedSentence;
 
   // CISO comparison table — one row per incident with side-by-side actions
   const comparisonRows: ComparisonRow[] = entries
@@ -434,6 +456,9 @@ function computeImpactData(windowDays: number): ImpactData {
     deckSummary,
     estimatedRevenuePreservedUsd,
     corpusPostmortems,
+    timeSavedHours,
+    hoursPerIncident,
+    timeSavedLabel,
   };
 }
 
@@ -588,6 +613,11 @@ function buildHtml(d: ImpactData): string {
     <div class="big-number">${num(d.totalIncidents)}</div>
     <div class="big-label">Incidents processed</div>
   </div>
+  ${d.timeSavedHours !== null ? `
+  <div class="hero-item">
+    <div class="big-number green">${d.timeSavedHours}h</div>
+    <div class="big-label">Engineer time saved${d.hoursPerIncident !== null ? ` · ${d.hoursPerIncident}h per incident` : ''}</div>
+  </div>` : ''}
   <div class="hero-item">
     <div class="big-number green">${fmtMs(d.avgAutonomousMttrMs ?? d.estimatedAutonomousMttrMs)}</div>
     <div class="big-label">${d.avgAutonomousMttrMs !== null ? `Autonomous MTTR (n=${d.autonomousMttrSampleSize})` : 'Est. autonomous MTTR'}</div>

@@ -120,38 +120,40 @@ const IDEHint = () => (
 const features = [
   {
     num: '01',
-    icon: <IconLoop />,
-    title: 'Operational Memory & Calibration',
+    icon: <IconDatabase />,
+    title: 'Override Corpus — Infrastructure DNA',
     desc: (
       <>
-        Every resolved incident generates a structured record. To resolve AI overconfidence, Mergen uses{' '}
-        <span className="highlight">Platt scaling calibration</span> to convert raw heuristics into empirical probabilities
-        based on your system's verdict corpus—ensuring autonomous actions run only at calibrated safety levels.
-        <SlackAuditTrail />
+        Every human override becomes machine-readable policy. After six months: your Friday settlement windows,
+        compliance holds, and on-call preferences form your specific
+        <span className="highlight"> operational DNA — enforcing invariants before any autonomous action triggers.</span>
+        {' '}The algorithm is reproducible. This corpus is not.
       </>
     ),
   },
   {
     num: '02',
-    icon: <IconDatabase />,
-    title: 'Override-Based Policy',
+    icon: <IconLoop />,
+    title: 'Per-Environment Calibration',
     desc: (
       <>
-        Every time your team overrides Mergen's recommendation, that decision becomes machine-readable policy.
-        After six months: your Friday settlement windows, compliance holds, and on-call preferences form your specific
-        <span className="highlight"> operational DNA—enforcing invariants before autopilot triggers.</span>
+        Mergen uses <span className="highlight">Platt scaling</span> calibrated to your specific infrastructure —
+        not a global benchmark. As your team tags diagnoses (correct / partial / wrong), the confidence model
+        updates. After 20–50 incidents, accuracy numbers reflect your systems, not ours.
+        <SlackAuditTrail />
       </>
     ),
   },
   {
     num: '03',
     icon: <IconShield />,
-    title: 'Agent Blunder Log (CISO Insurance)',
+    title: 'Agent Blunder Log — CISO Insurance',
     desc: (
       <>
-        Your audit trail for AI-driven operations and your financial insurance policy against the Agent Outage Tax.
-        Mergen records every blocked action—allowlist blocks, corpus halts, planning gates, and semantic blocks—so
-        <span className="highlight"> security teams can quantify prevented downtime.</span>
+        Every blocked autonomous action is recorded: allowlist blocks, corpus halts, planning gates, semantic blocks.
+        The total prevented count is the board-deck answer to{' '}
+        <span className="highlight">"why would you trust an AI agent with production?"</span>
+        {' '}Wired automatically — no setup required.
       </>
     ),
   },
@@ -161,9 +163,9 @@ const features = [
     title: 'Semantic Safety Gates',
     desc: (
       <>
-        AI agents generate code in seconds but create silent risks. Mergen red-teams commands using a
-        <span className="highlight"> local semantic safety engine</span>, assessing action risk, blast radius,
-        and context limits instead of relying on simple string/regex allowlists.
+        Before any autonomous execution, Mergen red-teams the proposed command using a
+        <span className="highlight"> local semantic safety engine</span>: action risk, blast radius,
+        and corpus-policy check — not regex allowlists.
         <IDEHint />
       </>
     ),
@@ -171,24 +173,26 @@ const features = [
   {
     num: '05',
     icon: <IconClock />,
-    title: 'Measurable MTTR & Progress',
+    title: 'Measurable MTTR — Board-Ready ROI',
     desc: (
       <>
-        Show the before/after in a board deck. The impact report isolates Mergen's context-assisted value,
-        contrasting autonomous vs. manual MTTR and tracking developer engagement rates to demonstrate
-        <span className="highlight"> organic workflow integration.</span>
+        The impact report isolates Mergen's context-assisted value:
+        autonomous vs. manual MTTR, resolution rate, and time saved.
+        <span className="highlight"> "We saved 47 engineer-hours last month"</span>
+        {' '}is a sentence. The report generates it automatically.
       </>
     ),
   },
   {
     num: '06',
     icon: <IconServer />,
-    title: 'Staged Trust Progression',
+    title: 'Shadow Mode — 30-Day Trust Track Record',
     desc: (
       <>
-        De-risk automation step-by-step. Run in shadow mode for 30 days to build a track record, then gradually promote
-        execution permission tiers from
-        <span className="highlight"> service restarts, to rollbacks/pins, to full autonomous action.</span>
+        Before autonomous execution, Mergen runs in shadow mode: diagnoses every incident, records what it would have done,
+        and lets your team annotate verdicts.
+        <span className="highlight"> The shadow report is your CISO's 30-day evidence package</span>
+        {' '}before you flip the autopilot switch.
       </>
     ),
   },
@@ -200,7 +204,7 @@ const features = [
       <>
         Before you ship, Mergen cross-references every staged file against your incident history.{' '}
         <span className="highlight">"This file was in 3 incidents last month"</span>
-        {' '}is the question a code reviewer would ask — encoded as a git hook, available to everyone. No reviewer required.
+        {' '}— the question a code reviewer would ask, encoded as a git hook. The corpus working before the incident happens.
       </>
     ),
   },
@@ -212,7 +216,7 @@ const features = [
       <>
         Mergen tracks what happened while you weren't looking.{' '}
         <span className="highlight">Next time you check: "this started failing 6 hours ago."</span>
-        {' '}Not a push notification interrupting your focus — context waiting when you return. The on-call teammate who works in silence.
+        {' '}Not a push notification — context waiting when you return. The on-call teammate who works in silence.
       </>
     ),
   },
@@ -223,9 +227,9 @@ export default function Features() {
     <section id="why">
       <span className="section-label">04 // Core Systems</span>
       <h2>
-        Memory that compounds.
+        Knowledge that compounds.
         <br />
-        Safety that doesn't require a team.
+        Safety that enforces it.
       </h2>
       <div className="feature-grid">
         {features.map((f, i) => (

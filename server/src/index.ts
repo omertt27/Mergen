@@ -57,6 +57,8 @@ import { registerTeamBroadcaster } from './sensor/ingest.js';
 
 import { isCorpusSeeded, getRealVerdictCount } from './__stubs__/calibration.js';
 import { startSlackDailyDigest } from './intelligence/slack-digest.js';
+import { startSlackOverrideLoop } from './intelligence/slack-override-loop.js';
+import { startGitAdrSync } from './intelligence/git-adr-sync.js';
 import { startShadowDigestCron } from './intelligence/shadow-digest-cron.js';
 import { startDegradationWatcher } from './intelligence/degradation-watcher.js';
 import { startHeartbeatMonitor, setHeartbeatAlertFn } from './sensor/heartbeat-monitor.js';
@@ -401,6 +403,17 @@ async function main(): Promise<void> {
 
   // ── Daily operational digest (09:00 UTC, opt-in MERGEN_SLACK_DIGEST=true) ──
   if (process.env.MERGEN_SLACK_DIGEST === 'true') startSlackDailyDigest();
+
+  // ── Git ADR → corpus sync (once at startup + every 24h) ─────────────────
+  // Reads git commit history and accepted ADR records, extracts operational
+  // constraints ("never resize pool on Friday settlement window"), and
+  // materialises them as Override Corpus entries automatically.
+  if (process.env.MERGEN_GIT_ADR_SYNC === 'true') startGitAdrSync();
+
+  // ── Slack-to-Override Memory Loop (every 6h, auto-builds the corpus) ─────
+  // Scans the incident channel for postmortem threads and extracts override
+  // patterns automatically — no manual POST /postmortem/from-slack required.
+  if (process.env.MERGEN_SLACK_OVERRIDE_LOOP === 'true') startSlackOverrideLoop();
 
   // ── Graduated urgency — local desktop notification on sustained degradation ─
   startDegradationWatcher();

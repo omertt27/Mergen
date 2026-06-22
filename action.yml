@@ -1,0 +1,129 @@
+name: 'Mergen Corpus Gate'
+description: >
+  Check PR changes against your team's operational knowledge corpus.
+  Blocks or warns when changed files match patterns your team has historically overridden.
+
+branding:
+  icon: 'shield'
+  color: 'red'
+
+inputs:
+  mergen-url:
+    description: 'URL of your Mergen server (e.g. https://mergen.internal:3000)'
+    required: true
+    default: 'http://127.0.0.1:3000'
+  mergen-secret:
+    description: 'Mergen shared secret (x-mergen-secret header). Read from ~/.mergen/secret on your server.'
+    required: false
+    default: ''
+  service:
+    description: >
+      Service name to scope corpus lookups (e.g. "api", "worker").
+      If omitted, Mergen infers it from the changed file paths.
+    required: false
+    default: ''
+  fail-on-block:
+    description: 'Fail the workflow step when verdict is "block". Set to "false" to warn-only.'
+    required: false
+    default: 'true'
+
+outputs:
+  verdict:
+    description: '"pass", "warn", or "block"'
+    value: ${{ steps.gate.outputs.verdict }}
+  risk-score:
+    description: 'Risk score 0–100'
+    value: ${{ steps.gate.outputs.risk-score }}
+  reasons:
+    description: 'JSON array of reasons for the verdict'
+    value: ${{ steps.gate.outputs.reasons }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Get changed files
+      id: changed-files
+      uses: actions/github-script@v7
+      with:
+        result-encoding: json
+        script: |
+          if (!context.payload.pull_request) {
+            core.warning('Mergen corpus gate: not a pull_request event — skipping');
+            return [];
+          }
+          const { data: files } = await github.rest.pulls.listFiles({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            pull_number: context.payload.pull_request.number,
+            per_page: 100,
+          });
+          return files.map(f => f.filename);
+
+    - name: Check Mergen corpus gate
+      id: gate
+      uses: actions/github-script@v7
+      env:
+        MERGEN_URL: ${{ inputs.mergen-url }}
+        MERGEN_SECRET: ${{ inputs.mergen-secret }}
+        MERGEN_SERVICE: ${{ inputs.service }}
+        FAIL_ON_BLOCK: ${{ inputs.fail-on-block }}
+      with:
+        script: |
+          const files = ${{ steps.changed-files.outputs.result }};
+          if (!files || files.length === 0) {
+            core.setOutput('verdict', 'pass');
+            core.setOutput('risk-score', '0');
+            core.setOutput('reasons', '[]');
+            return;
+          }
+
+          const url = process.env.MERGEN_URL;
+          const secret = process.env.MERGEN_SECRET;
+          const service = process.env.MERGEN_SERVICE;
+          const pr = context.payload.pull_request;
+
+          let result;
+          try {
+            const resp = await fetch(`${url}/ci/gate`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(secret ? { 'x-mergen-secret': secret } : {}),
+              },
+              body: JSON.stringify({
+                files,
+                prTitle: pr?.title ?? '',
+                service: service || undefined,
+                actor: pr?.user?.login ?? 'unknown',
+              }),
+              signal: AbortSignal.timeout(10_000),
+            });
+            result = await resp.json();
+          } catch (err) {
+            core.warning(`Mergen corpus gate: could not reach server at ${url} — ${err.message}. Skipping gate.`);
+            core.setOutput('verdict', 'pass');
+            core.setOutput('risk-score', '0');
+            core.setOutput('reasons', '[]');
+            return;
+          }
+
+          const verdict = result.verdict ?? 'pass';
+          const riskScore = result.riskScore ?? 0;
+          const reasons = result.reasons ?? [];
+
+          core.setOutput('verdict', verdict);
+          core.setOutput('risk-score', String(riskScore));
+          core.setOutput('reasons', JSON.stringify(reasons));
+
+          const icon = verdict === 'block' ? '🚫' : verdict === 'warn' ? '⚠️' : '✅';
+          const summary = `${icon} **Mergen Corpus Gate: ${verdict.toUpperCase()}** (risk score: ${riskScore}/100)\n\n` +
+            (reasons.length > 0 ? reasons.map(r => `- ${r}`).join('\n') : '_No corpus conflicts found._') +
+            `\n\n${result.recommendation ?? ''}`;
+
+          await core.summary.addRaw(summary).write();
+
+          if (verdict === 'block' && process.env.FAIL_ON_BLOCK !== 'false') {
+            core.setFailed(`Mergen corpus gate blocked this PR.\n${reasons.join('\n')}`);
+          } else if (verdict === 'warn') {
+            for (const reason of reasons) core.warning(reason);
+          }

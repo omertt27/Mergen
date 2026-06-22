@@ -3,7 +3,7 @@ const plans = [
     name: 'Solo / Open Source',
     price: '$0',
     period: '/forever',
-    pitch: 'Full autonomous loop on a single machine. No Datadog, no cloud, no card.',
+    pitch: 'Full operational intelligence loop on a single machine. Override corpus, calibration, pre-commit guard. No cloud, no card.',
     pilotCondition: null,
     cta: 'Get Started',
     ctaClass: 'btn btn-outline',
@@ -11,21 +11,21 @@ const plans = [
     featured: false,
   },
   {
-    name: 'Team',
+    name: 'Growth',
     price: '$299',
     period: '/mo',
-    pitch: 'Shared operational memory, incident replay, and Slack ownership routing across up to 10 services.',
-    pilotCondition: 'Pilot succeeds when Mergen correctly analyzes 1 real incident in your environment.',
-    cta: 'Start Team Pilot →',
+    pitch: 'Shared operational memory across your engineering team. Incident replay, Slack-to-corpus learning loop, ROI dashboard. Up to 10 services.',
+    pilotCondition: 'Pilot succeeds when Mergen correctly analyzes 1 real incident in your environment within 7 days.',
+    cta: 'Start Growth Pilot →',
     ctaClass: 'btn btn-outline',
-    href: 'mailto:hello@mergen.dev?subject=Team%20Pilot%20Request',
+    href: 'mailto:hello@mergen.dev?subject=Growth%20Pilot%20Request',
     featured: false,
   },
   {
     name: 'Enterprise',
     price: 'Custom',
     period: '',
-    pitch: 'Policy-enforced autonomous remediation, compliance controls, VPC deployment, and audit exports — with a 30-day shadow pilot before any commitment.',
+    pitch: 'Policy-enforced autonomous remediation, CI/CD agent safety gate, compliance controls, VPC deployment — with a 30-day shadow pilot before any commitment.',
     pilotCondition: null,
     cta: 'Schedule a Pilot Call →',
     ctaClass: 'btn btn-white',
@@ -37,17 +37,21 @@ const plans = [
 type Cell = boolean | string
 
 const matrix: { name: string; solo: Cell; team: Cell; enterprise: Cell }[] = [
-  { name: 'Autonomous incident triage + fix',           solo: true,     team: true,     enterprise: true },
-  { name: 'Operational memory (override corpus)',       solo: 'Local',  team: 'Shared', enterprise: 'Shared' },
+  { name: 'Incident triage + causal analysis',          solo: true,     team: true,     enterprise: true },
+  { name: 'Override corpus (local operational DNA)',    solo: 'Local',  team: 'Shared', enterprise: 'Shared' },
+  { name: 'Per-environment Platt calibration',         solo: true,     team: true,     enterprise: true },
+  { name: 'Pre-commit incident guard (git hook)',       solo: true,     team: true,     enterprise: true },
   { name: 'Agent Blunder Log + audit trail',            solo: true,     team: true,     enterprise: true },
-  { name: 'Shadow mode (30-day safety track record)',   solo: true,     team: true,     enterprise: true },
+  { name: 'Shadow mode (30-day trust track record)',    solo: true,     team: true,     enterprise: true },
   { name: 'Incident replay + MTTR analytics',          solo: false,    team: true,     enterprise: true },
-  { name: 'Slack ownership routing (up to 10 services)', solo: false,  team: true,     enterprise: true },
-  { name: 'Shadow mode analytics PDF',                  solo: false,    team: true,     enterprise: true },
+  { name: 'Slack-to-corpus learning loop',              solo: false,    team: true,     enterprise: true },
+  { name: 'ROI dashboard (time saved)',                 solo: false,    team: true,     enterprise: true },
+  { name: 'Slack ownership routing (10 services)',      solo: false,    team: true,     enterprise: true },
+  { name: 'CI/CD agent safety gate (GitHub Action)',    solo: false,    team: false,    enterprise: true },
   { name: 'Policy-enforced autonomous remediation',     solo: false,    team: false,    enterprise: true },
   { name: 'VPC deployment + TLS',                      solo: false,    team: false,    enterprise: true },
   { name: 'SSO + RBAC + compliance controls',          solo: false,    team: false,    enterprise: true },
-  { name: 'Audit exports (SOC 2)',                      solo: false,    team: false,    enterprise: true },
+  { name: 'Audit exports (SOC 2 ready)',                solo: false,    team: false,    enterprise: true },
   { name: 'Dedicated onboarding + SLA',                 solo: false,    team: false,    enterprise: true },
 ]
 
@@ -61,7 +65,7 @@ export default function Pricing() {
   return (
     <section id="access">
       <span className="section-label">07 // Pricing</span>
-      <h2>Start free.<br />Prove value before you pay.</h2>
+      <h2>Start free.<br />The corpus pays for itself.</h2>
 
       {/* ── Price cards ── */}
       <div className="price-row mt-lg" style={{ maxWidth: '1100px', margin: '8rem auto 0' }}>
@@ -97,7 +101,7 @@ export default function Pricing() {
             <tr>
               <th style={{ width: '48%' }}>Feature</th>
               <th>Solo</th>
-              <th>Team</th>
+              <th>Growth</th>
               <th>Enterprise</th>
             </tr>
           </thead>

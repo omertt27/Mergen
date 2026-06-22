@@ -147,6 +147,62 @@ export default function LegacyVsMergen() {
           </div>
         </div>
       </div>
+
+      {/* Knowledge compounding scenario */}
+      <p style={{ color: 'var(--gray-600)', fontSize: '0.75rem', fontFamily: 'var(--font-geist-mono), monospace', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '1rem', marginTop: '3rem' }}>
+        Scenario C — Postmortem that compounds into policy
+      </p>
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: '4px',
+        background: 'var(--gray-800)',
+        border: '1px solid var(--gray-800)',
+      }}>
+        <div style={{ background: 'var(--bg)', padding: '2rem 3rem' }}>
+          <h3 style={{ marginBottom: '2rem', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '1rem', color: 'var(--gray-600)' }}>Without Mergen</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            {[
+              { time: '0m',  action: 'Incident resolved',    detail: 'Engineer writes a postmortem in Notion. Team reads it once.' },
+              { time: '2wk', action: 'Postmortem is stale',  detail: 'Nobody updates it. The constraint lives in one person\'s head.' },
+              { time: '3mo', action: 'Engineer leaves',      detail: 'The constraint — "never resize pool on Friday" — is gone.' },
+              { time: '3mo', action: 'Same incident',        detail: 'New on-call rebuilds the understanding from scratch.' },
+            ].map((s, i) => (
+              <div key={i} style={{ display: 'flex', gap: '1.5rem', opacity: 0.5 }}>
+                <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '40px' }}>{s.time}</span>
+                <div>
+                  <div style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '0.25rem' }}>{s.action}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}>{s.detail}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ background: 'rgba(255, 85, 0, 0.02)', padding: '2rem 3rem', borderLeft: '1px solid var(--gray-800)' }}>
+          <h3 style={{ marginBottom: '2rem', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '1rem', color: 'var(--accent)' }}>With Mergen</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            {[
+              { time: '0m',  action: 'Incident resolved',      detail: 'Mergen records the override: "skip pool resize — Friday batch window."' },
+              { time: '1s',  action: 'Policy encoded',          detail: 'Override corpus entry created. Applies to all future incidents of this type.' },
+              { time: '3mo', action: 'Engineer leaves',         detail: 'The constraint stays — in the corpus, queryable, enforceable.' },
+              { time: '3mo', action: 'Similar incident fires',  detail: 'Mergen surfaces: "This pattern was overridden 6× — reason: batch-window." Autopilot pauses.' },
+            ].map((s, i) => (
+              <div key={i} style={{ display: 'flex', gap: '1.5rem' }}>
+                <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '40px', color: 'var(--accent)' }}>{s.time}</span>
+                <div>
+                  <div style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '0.25rem', color: 'var(--white)' }}>{s.action}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)' }}>{s.detail}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: '2rem', padding: '1.5rem', background: 'rgba(255, 85, 0, 0.06)', border: '1px solid var(--accent)', borderRadius: '4px' }}>
+            <p style={{ fontSize: '0.8rem', color: 'var(--accent-text)', lineHeight: 1.6 }}>
+              <strong>Result:</strong> The knowledge compounds. Every incident makes the next one faster to resolve — for any engineer, any agent, forever.
+            </p>
+          </div>
+        </div>
+      </div>
     </section>
   )
 }

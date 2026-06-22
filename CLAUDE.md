@@ -1,33 +1,49 @@
-# Mergen — Operational Memory for Engineering Teams
+# Mergen — Operational Intelligence Infrastructure for AI-Native Engineering
 
-Every incident teaches your team something. Mergen ensures that knowledge is never lost.
+**AI agents don't know how your systems actually work.** Mergen gives AI agents and engineers the operational context, historical decisions, and infrastructure memory needed to make safer changes.
 
-When an engineer overrides an automated fix — "don't restart during the Friday settlement window" — Mergen encodes that as queryable policy. The next time a similar incident fires, Mergen knows. When your best on-call engineer leaves, their instincts stay. When the same issue surfaces six months later, Mergen surfaces what was tried before and why it worked.
+Every incident teaches your team something. Most of that knowledge evaporates — into engineers' heads, stale runbooks, Slack threads nobody re-reads. Mergen ensures it compounds instead.
 
-Mergen is the memory layer between your observability stack and the people who act on it: an MCP server that compresses raw production telemetry into structured context, encodes override decisions as policy, and gets faster at triage with every incident your team resolves.
+When an engineer overrides an automated fix — "don't restart during the Friday settlement window" — Mergen encodes that as queryable policy. The next time a similar incident fires, Mergen knows. When your best on-call engineer leaves, their instincts stay. When the same issue surfaces six months later, Mergen surfaces what was tried before and why it worked. When an AI agent proposes a change, Mergen checks it against everything your team has ever learned about that system.
+
+Mergen is a **Knowledge Compounding System**: an MCP server that compresses raw production telemetry into structured context, converts human engineering activity (overrides, Slack postmortems, git decisions) into machine-readable policy, and gets faster and safer with every incident your team resolves.
 
 All data stays on your infrastructure. No cloud. No copy-paste.
 
 ## Who it's for
 
-2–5 person SRE teams who own PagerDuty and Slack but not a dedicated incident management platform. You already have observability — you don't need another dashboard. You need the system to know what your team has learned, and to act on it without waking someone up.
+**Mid-market engineering teams (20–150 developers)** adopting AI coding assistants but without a dedicated platform engineering team. You're deploying code faster than ever, your AI agents are generating bugs faster than your humans can catch them, and on-call fatigue is compounding. You need the system to know what your team has learned — not just what happened, but why it happened and what not to do next time.
+
+The beachhead: teams that already have observability (Datadog, Sentry, PagerDuty) but lack the memory layer that converts incident resolution into durable, queryable policy.
 
 ---
 
 ## Why Mergen vs. point tools (Datadog + PagerDuty + Grafana)?
 
+Observability tools notify humans after a crash. Mergen compounds the knowledge of how your team resolves crashes, feeding it directly into the developer loop to prevent repetition.
+
 | | Point tools (Datadog + PagerDuty + Grafana) | **Mergen** |
 | :--- | :--- | :--- |
-| **Action** | Alert → page engineer | ✅ **Alert → diagnose → fix → validate** |
-| **AI integration** | Dashboard with AI summaries | ✅ **MCP tools your AI IDE calls directly** |
-| **Execution** | Human runs the fix | ✅ **Autonomous execution at ≥85% confidence** |
-| **System understanding** | None — stateless alerting | ✅ **Override corpus + calibration corpus — system context and safety accuracy improve with every incident** |
-| **Agent safety** | None | ✅ **Agent Blunder Log — every blocked action recorded; corpus-enforced override policy** |
+| **Action** | Alert → page engineer | ✅ **Alert → diagnose → fix → validate → remember** |
+| **AI integration** | Dashboard with AI summaries | ✅ **MCP tools your AI IDE calls directly — with full operational context** |
+| **Knowledge** | Static runbooks that rot | ✅ **Override corpus: every human decision becomes machine-readable policy** |
+| **Agent safety** | None | ✅ **Agent Blunder Log + CI gate — autonomous changes checked against operational memory** |
+| **System context** | None — stateless alerting | ✅ **Calibration corpus compounds with every incident — specific to your infrastructure** |
 | **Slack** | One-way webhook | ✅ **Owns the thread — posts progress through resolution** |
 
 ---
 
-## Defensibility: two primitives that compound with use
+## The three-layer trust architecture
+
+Before autonomous execution, Mergen applies three layers in order:
+
+1. **Global Prior (heuristics):** Out-of-the-box detectors for common failure patterns. Immediate value on Day 1 with no historical data.
+2. **Customer Calibration (Platt scaling):** As engineers tag diagnoses (correct/wrong/partial) via the IDE panel, the engine calibrates to the team's specific infrastructure within 20–50 events. Confidence numbers reflect *this system's* history, not a global benchmark.
+3. **Hard Safety Policies (immutable guardrails):** Explicit, unconditional constraints defined by platform leads — "never restart the database automatically regardless of confidence." These override any model-derived decision. No amount of high confidence can bypass them.
+
+---
+
+## Defensibility: three primitives that compound with use
 
 ### Agent Blunder Log — `GET /agent-blunders`
 
@@ -106,6 +122,8 @@ MERGEN_SLACK_BOT_TOKEN=xoxb-...    # Slack Web API token (threads + replies)
 MERGEN_SLACK_CHANNEL=#incidents    # default incident channel
 MERGEN_SLACK_SIGNING_SECRET=...    # HMAC secret to verify inbound Slack events
 MERGEN_SLACK_DIGEST=true           # post daily operational digest at 09:00 UTC (incidents, calibration, overrides, runbooks)
+MERGEN_SLACK_OVERRIDE_LOOP=true    # auto-scan incident channel every 6h for postmortem threads → build override corpus automatically
+MERGEN_GIT_ADR_SYNC=true           # scan git history + ADR records for operational constraints → materialise as override corpus entries (daily)
 MERGEN_PR_COMMENTS=true            # post AI code review comments on PRs (enables habituation tracking)
 
 # ── PagerDuty ─────────────────────────────────────────────────────────────────

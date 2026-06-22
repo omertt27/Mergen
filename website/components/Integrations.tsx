@@ -1,12 +1,12 @@
 const sources = [
+  { name: 'PagerDuty',     type: 'Alerting',      tag: 'Incident trigger' },
   { name: 'Datadog',       type: 'Observability', tag: 'Traces + Logs' },
-  { name: 'PagerDuty',     type: 'Alerting',      tag: 'Webhook' },
-  { name: 'Terraform',     type: 'Infra',         tag: 'Topology' },
-  { name: 'Git',           type: 'Code',          tag: 'Postmortems' },
-  { name: 'Slack',         type: 'Chat',          tag: 'Timeline' },
-  { name: 'Kubernetes',     type: 'Infra',         tag: 'Manifests' },
+  { name: 'Slack',         type: 'Knowledge',     tag: 'Postmortem → corpus' },
+  { name: 'Git',           type: 'Code',          tag: 'ADR → policy' },
+  { name: 'Kubernetes',    type: 'Infra',         tag: 'Events + Manifests' },
   { name: 'Prometheus',    type: 'Metrics',       tag: 'OpenTelemetry' },
-  { name: 'AWS/GCP',       type: 'Cloud',         tag: 'Config' },
+  { name: 'GitHub',        type: 'CI/CD',         tag: 'PR safety gate' },
+  { name: 'AWS/GCP',       type: 'Cloud',         tag: 'Config + Topology' },
 ]
 
 const ides = [
@@ -21,9 +21,9 @@ export default function Integrations() {
     <section id="integrations">
       <span className="section-label">04 // Integrations</span>
       <h2>
-        Connect your stack.
+        Every source is a lesson.
         <br />
-        Route your context.
+        Mergen keeps the receipt.
       </h2>
 
       <div className="integ-grid mt-lg">
@@ -42,7 +42,7 @@ export default function Integrations() {
         <div className="integ-divider">
           <div className="integ-arrow">→</div>
           <span style={{ fontSize: '0.55rem', color: 'var(--gray-600)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-            Infrastructure<br />Layer
+            Knowledge<br />Corpus
           </span>
           <div className="integ-arrow">→</div>
         </div>
