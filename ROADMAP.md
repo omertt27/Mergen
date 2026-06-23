@@ -6,39 +6,36 @@
 
 ## 🎯 Mission
 
-Build the **operational intelligence infrastructure** that allows AI agents and engineering teams to learn from how a company's infrastructure actually behaves — compounding that knowledge with every incident, override, and resolution.
+We are building the execution and security layer that sits between AI agents and critical infrastructure.
 
-**The Disappear Test:** When we ask design partners, "If Mergen disappeared tomorrow, what would stop working?", we are aiming for: *"Our AI agents and engineers would lose access to years of operational knowledge."*
+AI agents can write code, deploy infrastructure, and access production systems. Prompts are not security boundaries. Mergen is the Execution and Security Gateway that enforces deterministic controls before AI actions reach your runtime, cloud infrastructure, or developer environment.
 
 ---
 
-## 📐 The Five-Phase Model
+## 📐 The Product Pyramid
 
-Knowledge compounding is the organizing principle. Phases build sequentially — each unlocks the next.
+The progression from local utility to enterprise safety gate.
 
 ```
-Phase 1: Operational Memory (Sensor Ingest) ✅ SHIPPED
-   └── Capture telemetry, browser logs, console traces, Docker streams.
+Layer 1 — Local Execution Gateway (Today)
+   └── CLI Interception, MCP tool interception, prompt-injection protection, secret exposure detection, destructive command blocking.
+       Value: Prevent AI agents from making dangerous local actions.
 
-Phase 2: Operational Intelligence (IDE Integration) ✅ SHIPPED
-   └── Compress telemetry into Context Packs for Cursor & Claude Code.
-       MCP tools: triage_incident, reconstruct_context, validate_fix, etc.
+Layer 2 — Team Governance Gateway (Next)
+   └── GitHub integration, CI/CD controls, deployment approvals, Slack approval workflows, audit logging.
+       Value: Prevent unsafe AI-generated changes from reaching production.
 
-Phase 3: Agent Safety & Governance (CI/CD Deployment Gate) 🔄 IN PROGRESS
-   └── Intercept proposed commits in CI/CD; evaluate against Override Corpus.
-       GitHub Action: check PR changes against operational memory before merge.
-
-Phase 4: Organizational Learning (Continuous Flywheel) ← PRIORITY
-   └── Index Slack discussions, git history, and postmortems into Override Corpus.
-       Convert unstructured human conversations into machine-readable policy.
-       [Formerly Phase 5 — moved forward. This is the moat.]
-
-Phase 5: Autonomous Operations (Self-Healing) ← DEPRIORITIZED FOR GTM
-   └── Safely execute automated remediation under Hard Safety Policies.
-       [Creates security friction with buyers. Ship Phase 4 first.]
+Layer 3 — Agent IAM (Future)
+   └── Identity federation, ephemeral credentials, least privilege execution, human-to-agent authorization, compliance reporting.
+       Value: Govern autonomous agents at enterprise scale.
 ```
 
-**Why Phase 4 before Phase 5:** VPs of Engineering are eager to buy tools that help engineers and agents "make safer changes." They are not yet ready to buy tools that autonomously restart production services. Phase 4 (knowledge compounding) builds the trust corpus that makes Phase 5 (autonomous ops) credible.
+**Strategic Alignment:**
+* **Today, Mergen secures AI execution on the developer machine.**
+* **Tomorrow, Mergen becomes the security gateway for CI/CD pipelines.**
+* **Long term, Mergen becomes the identity and authorization layer for autonomous agents.**
+
+This believable, technically coherent progression gives a clear path from our current codebase to a much larger outcome.
 
 ---
 

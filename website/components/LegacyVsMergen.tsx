@@ -26,7 +26,7 @@ const manualSteps = [
 const mergenSteps = [
   { time: '0m',  action: 'PagerDuty fires',        detail: 'Mergen receives the webhook.' },
   { time: '2s',  action: 'Analyze telemetry',      detail: 'Correlates logs, traces, and infra signals.' },
-  { time: '5s',  action: 'Check operational memory', detail: 'Matches against past incidents and human overrides.' },
+  { time: '5s',  action: 'Check policy & overrides', detail: 'Matches against past incidents and human overrides.' },
   { time: '10s', action: 'Generate validated fix',  detail: 'Produces a remediation plan at ≥85% confidence.' },
   { time: '1m',  action: 'Resolve or recommend',   detail: 'Executes (autopilot) or posts fix for approval.' },
   { time: '2m',  action: 'Audit trail posted',     detail: 'Full root cause + actions logged to Slack.' },
@@ -167,9 +167,92 @@ export default function LegacyVsMergen() {
         </div>
       </div>
 
+      {/* HITL gate scenario */}
+      <p style={{ color: 'var(--gray-600)', fontSize: '0.8rem', fontFamily: 'var(--font-geist-sans), sans-serif', fontWeight: 600, letterSpacing: '-0.01em', marginBottom: '1.25rem', marginTop: '2.5rem' }}>
+        Scenario C — AI agent attempts a destructive command
+      </p>
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: '1px',
+        background: 'var(--gray-800)',
+        border: '1px solid var(--gray-800)',
+        borderRadius: 'var(--radius)',
+        overflow: 'hidden',
+        marginBottom: '2.5rem',
+      }}>
+        <div style={{ background: 'var(--surface)', padding: '2.5rem' }}>
+          <h3 style={{ marginBottom: '1.5rem', letterSpacing: '-0.01em', fontSize: '0.95rem', fontWeight: 700, color: 'var(--gray-600)' }}>Without Mergen</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            {[
+              { time: '0ms',  action: 'Agent calls execute_fix',     detail: '{ command: "terraform destroy prod" }' },
+              { time: '0ms',  action: 'Handler runs immediately',     detail: 'No gate. No check. No approval.' },
+              { time: '1s',   action: 'terraform destroy executes',   detail: 'Production infrastructure torn down.' },
+              { time: '∞',    action: 'Incident declared',            detail: 'Human wakes up to a destroyed environment.' },
+            ].map((s, i) => (
+              <div key={i} style={{ display: 'flex', gap: '1.25rem', opacity: 0.5 }}>
+                <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '40px', color: 'var(--gray-600)', flexShrink: 0 }}>{s.time}</span>
+                <div>
+                  <div style={{ fontSize: '0.88rem', fontWeight: 700, marginBottom: '0.2rem', color: 'var(--white)' }}>{s.action}</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--gray-600)', fontFamily: 'var(--font-geist-mono), monospace' }}>{s.detail}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ background: 'rgba(46, 125, 50, 0.02)', padding: '2.5rem', borderLeft: '1px solid var(--gray-800)' }}>
+          <h3 style={{ marginBottom: '1.5rem', letterSpacing: '-0.01em', fontSize: '0.95rem', fontWeight: 700, color: '#2e7d32' }}>With Mergen</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            {[
+              { time: '0ms',  action: 'Agent calls execute_fix',       detail: '{ command: "terraform destroy prod" }' },
+              { time: '<1ms', action: 'Local gate evaluates',           detail: 'Pattern "destroy" matched → rule block_destructive_commands' },
+              { time: '<1ms', action: 'Handler never runs',             detail: 'MCP error returned before execution.' },
+              { time: '<1ms', action: 'Blunder logged',                 detail: 'Recorded to agent-blunders.json with hash chain.' },
+            ].map((s, i) => (
+              <div key={i} style={{ display: 'flex', gap: '1.25rem' }}>
+                <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '40px', color: '#2e7d32', fontWeight: 700, flexShrink: 0 }}>{s.time}</span>
+                <div>
+                  <div style={{ fontSize: '0.88rem', fontWeight: 700, marginBottom: '0.2rem', color: 'var(--white)' }}>{s.action}</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--gray-400)', fontFamily: 'var(--font-geist-mono), monospace' }}>{s.detail}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{
+            marginTop: '1.5rem',
+            background: '#1a1a1a',
+            border: '1px solid #333',
+            borderRadius: '6px',
+            padding: '12px 16px',
+            fontFamily: 'var(--font-geist-mono), monospace',
+            fontSize: '0.72rem',
+          }}>
+            <div style={{ color: '#ef4444', marginBottom: '6px' }}>🚫 Tool call blocked by Mergen local policy gate.</div>
+            <div style={{ color: '#94a3b8' }}>Tool: <span style={{ color: '#e2e8f0' }}>execute_fix</span></div>
+            <div style={{ color: '#94a3b8' }}>Reason: <span style={{ color: '#fbbf24' }}>Destructive command pattern matched.</span></div>
+            <div style={{ color: '#94a3b8', marginTop: '6px' }}>See: GET /agent-blunders</div>
+          </div>
+          <div style={{
+            marginTop: '1rem',
+            padding: '1rem 1.25rem',
+            background: '#edf6ec',
+            borderLeft: '4px solid #2e7d32',
+            borderRadius: '6px',
+            display: 'flex',
+            gap: '10px',
+            alignItems: 'flex-start'
+          }}>
+            <span style={{ fontSize: '1.1rem', lineHeight: '1' }}>✅</span>
+            <p style={{ fontSize: '0.8rem', color: '#2e7d32', lineHeight: 1.5, margin: 0 }}>
+              <strong>Result:</strong> Production never touched. The gate runs before the handler — deterministically, in under 1ms, with no LLM involved.
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Knowledge compounding scenario */}
       <p style={{ color: 'var(--gray-600)', fontSize: '0.8rem', fontFamily: 'var(--font-geist-sans), sans-serif', fontWeight: 600, letterSpacing: '-0.01em', marginBottom: '1.25rem', marginTop: '2.5rem' }}>
-        Scenario C — Postmortem that compounds into policy
+        Scenario D — Postmortem that compounds into policy
       </p>
       <div style={{
         display: 'grid',

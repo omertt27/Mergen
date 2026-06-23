@@ -3,7 +3,7 @@ const plans = [
     name: 'Solo / Open Source',
     price: '$0',
     period: '/forever',
-    pitch: 'Full operational intelligence loop on a single machine. Override corpus, calibration, pre-commit guard. No cloud, no card.',
+    pitch: 'Full agent execution governance on a single machine. Local execution gate, override corpus, pre-commit guard, Agent Blunder Log. No cloud, no card.',
     pilotCondition: null,
     cta: 'Get Started',
     ctaClass: 'btn btn-outline',
@@ -14,7 +14,7 @@ const plans = [
     name: 'Growth',
     price: '$299',
     period: '/mo',
-    pitch: 'Shared operational memory across your engineering team. Incident replay, Slack-to-corpus learning loop, ROI dashboard. Up to 10 services.',
+    pitch: 'Team-wide execution policy enforcement. Shared override corpus, Slack-to-corpus loop, incident replay, ROI dashboard. Up to 10 services.',
     pilotCondition: 'Pilot succeeds when Mergen correctly analyzes 1 real incident in your environment within 7 days.',
     cta: 'Start Growth Pilot →',
     ctaClass: 'btn btn-outline',
@@ -38,7 +38,7 @@ type Cell = boolean | string
 
 const matrix: { name: string; solo: Cell; team: Cell; enterprise: Cell }[] = [
   { name: 'Incident triage + causal analysis',          solo: true,     team: true,     enterprise: true },
-  { name: 'Override corpus (local operational DNA)',    solo: 'Local',  team: 'Shared', enterprise: 'Shared' },
+  { name: 'Override corpus (enforcement policy)',       solo: 'Local',  team: 'Shared', enterprise: 'Shared' },
   { name: 'Per-environment Platt calibration',         solo: true,     team: true,     enterprise: true },
   { name: 'Pre-commit incident guard (git hook)',       solo: true,     team: true,     enterprise: true },
   { name: 'Agent Blunder Log + audit trail',            solo: true,     team: true,     enterprise: true },
@@ -65,7 +65,7 @@ export default function Pricing() {
   return (
     <section id="access">
       <span className="section-label">07 // Pricing</span>
-      <h2>Start free.<br />The corpus pays for itself.</h2>
+      <h2>Start free.<br />The gate runs before any handler does.</h2>
 
       {/* ── Price cards ── */}
       <div className="price-row mt-lg" style={{ maxWidth: '1100px', margin: '8rem auto 0' }}>

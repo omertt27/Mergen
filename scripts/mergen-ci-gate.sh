@@ -2,7 +2,7 @@
 # mergen-ci-gate.sh — Reusable CI/CD safety gate for local hooks and non-GitHub CI systems.
 #
 # Queries the local or remote Mergen server's /ci/gate endpoint to cross-reference
-# modified files against the operational memory and override corpus.
+# modified files against the execution history and override corpus.
 #
 # Usage:
 #   ./scripts/mergen-ci-gate.sh [mergen-url] [x-mergen-secret] [service]

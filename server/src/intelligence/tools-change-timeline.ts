@@ -1,7 +1,7 @@
 /**
  * tools-change-timeline.ts — get_change_timeline MCP tool.
  *
- * The "30-second context dump" the Operational Memory strategy promises.
+ * The "30-second context dump" the execution history gateway strategy promises.
  * Answers: "What changed in this service in the last N days?"
  *
  * Pulls from: CI events, deployment events, incident store, gitSuspect
@@ -37,7 +37,7 @@ export function registerChangeTimelineTools(server: McpServer): void {
       description:
         'Returns a chronological change timeline for a service — the "what changed?" context dump ' +
         'before diagnosis begins. Pulls deployments, CI runs, incidents, and AI-generated commits ' +
-        'from operational memory. AI-written commits are flagged so on-call engineers know which ' +
+        'from the execution buffer. AI-written commits are flagged so on-call engineers know which ' +
         'changes have no human author to ask. ' +
         'Call this first when a PagerDuty alert fires, before reconstruct_context or triage_incident.',
       inputSchema: {

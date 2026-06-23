@@ -5,57 +5,57 @@ metadata:
   type: project
 ---
 
-## Current Positioning (as of 2026-06-22)
+## Current Positioning (as of 2026-06-23)
 
-**Category:** Operational Intelligence Infrastructure for AI-Native Engineering Teams
-**Core essence:** The Knowledge Compounding Company — not an observability tool, not an autopilot executor
+**Category:** Execution and Security Gateway for AI Agents
+**Core essence:** The Execution and Security Layer for AI Engineering — enforcing deterministic controls before actions reach systems.
 
-**Developer-Facing Positioning:**
-* **"Mergen remembers what your AI coding assistant forgets."**
-* **"Stop debugging the same problem twice."**
-* **"Make your AI understand your codebase over time."**
+**Core Positioning:**
+* Prompts are not security boundaries. AI agents write code, deploy infrastructure, and access production systems.
+* Mergen is the Execution and Security Gateway that enforces deterministic controls before AI actions reach your runtime, cloud infrastructure, or developer environment.
 
-**One-sentence (investor):** Mergen is the operational intelligence layer that allows AI agents and engineering teams to learn from how a company's infrastructure actually behaves.
+**One-sentence (investor):** We are building the execution and security layer that sits between AI agents and critical infrastructure.
 
-**Landing page headline:** AI agents don't know how your systems actually work.
-**Subheadline:** Mergen gives AI agents and engineers the operational context, historical decisions, and infrastructure memory needed to make safer changes.
+**Landing page headline:** Secure Every AI Agent Action Before It Executes
+**Subheadline:** Mergen sits inline between AI agents and your systems, blocking unsafe actions, enforcing approval workflows, and creating auditable execution trails across development and production environments.
 
 ---
 
-## Beachhead Market & Strategic Tiers
+## The Product Pyramid & Beachhead Market
 
-Instead of treating solo devs and mid-market teams as disjoint products, we unify them in a single strategic alignment:
+Instead of treating solo devs and mid-market teams as disjoint products, we unify them under the execution security hierarchy:
 
-* **Solo Devs (Distribution & Sensor Network)**: Generate behavioral data + distribution. They install Mergen to get immediate leverage inside their daily coding loop (avoiding repeated mistakes, stopping confidently wrong AI suggestions).
-* **Mid-Market Teams (20–150 developers) (Monetization)**: Experiencing high AI velocity, already using tools like Datadog/Sentry/PagerDuty, but missing a memory layer that turns resolutions into durable policies.
-* **Enterprise (500+ developers) (Moat)**: Requires deep custom policy and Override Corpora to prevent autonomous agent risks.
+* **Layer 1 — Local Execution Gateway (Today)**:
+  * Intercepts CLI and MCP tool calls locally.
+  * Blocks destructive commands and enforces prompt-injection / secret exposure protection.
+  * *Value (Solo Dev / Sensor Network)*: Prevent AI agents from making dangerous local actions or executing unauthorized mutations.
+* **Layer 2 — Team Governance Gateway (Next)**:
+  * CI/CD control gate, GitHub checks integration, and deployment approvals.
+  * Slack-based HITL approval workflows and structured audit logs.
+  * *Value (Teams / Monetization)*: Prevent unsafe AI-generated changes from reaching production.
+* **Layer 3 — Agent IAM (Future)**:
+  * Ephemeral credentials, least-privilege execution sandboxes, and identity federation.
+  * Human-to-agent authorization boundaries and automated compliance reporting.
+  * *Value (Enterprise / Moat)*: Govern autonomous agents at scale.
 
 ---
 
 ## Defensibility
 
-**The moat is not the algorithm — it's the corpus.**
+**The moat is the execution gate corpus and audit trail.**
 
-Algorithms converge across vendors. The Override Corpus — the accumulated operational knowledge of the customer's specific infrastructure — is proprietary, non-portable, and compounds with time. Competitors cannot replicate 6 months of "never restart DB pool during Friday settlement window" from a standing start.
-
-**Three compounding assets (Same system, different scale):**
-1. **Micro Override Corpus (Solo)** → **Organizational Override Corpus (Enterprise)**: every human override encoded as queryable policy.
-2. **Calibration Corpus**: Platt-scaled confidence calibrated to this environment's actual incident history.
-3. **Agent Blunder Log**: every blocked action recorded — the audit trail that answers "why trust an AI agent with prod?"
+The Agent Blunder Log is our primary defensibility asset: every blocked action is recorded to answer the compliance and platform question, "how do you trust an AI agent with production/terminal access?"
 
 ---
 
 ## Phase Ordering (Strategic)
 
-Phase 4 (Organizational Learning) is now higher priority than Phase 5 (Autonomous Operations).
-Solo dev features feed directly into Phase 4 by automatically accumulating incident resolutions and file/error histories.
-
 ```
-Phase 1: Sensor Ingest ✅
-Phase 2: IDE Integration (Personal Leverage Focus) ✅
-Phase 3: CI/CD Safety Gate 🔄
-Phase 4: Organizational Learning ← PRIORITY (Slack+git→corpus)
-Phase 5: Autonomous Operations ← DEPRIORITIZED for GTM
+Phase 1: Local Execution Gate (Interception, Destructive Command Blocks) ✅
+Phase 2: IDE Integration (Tool Guard, Agent Blunder Logging) ✅
+Phase 3: CI/CD Safety Gate (Inline checks, composite GitHub Action) 🔄
+Phase 4: Continuous Flywheel (Slack approvals & ADR policy compiler) ✅
+Phase 5: Agent IAM / Ephemeral Credentials (Enterprise Scale) ← FUTURE
 ```
 
 ---

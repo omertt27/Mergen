@@ -1,7 +1,10 @@
-# Mergen
+# Mergen — The Execution and Security Gateway for AI Agents
 
-> **AI agents don't know how your systems actually work.**
-> **Mergen gives AI agents and engineers the operational context, historical decisions, and infrastructure memory needed to make safer changes. Every incident, override, and postmortem compounds into queryable policy — specific to your systems, impossible to replicate from a standing start.**
+### Secure Every AI Agent Action Before It Executes
+
+Mergen sits inline between AI agents and your systems, blocking unsafe actions, enforcing approval workflows, and creating auditable execution trails across development and production environments.
+
+[Join Design Partner Program](https://mergen.dev/partner) | [Request Early Access](https://mergen.dev/access)
 
 ---
 
@@ -11,11 +14,9 @@
 npx mergen-server
 ```
 
-* **✓ Knowledge compounds** with every incident
-* **✓ Override corpus**: your infrastructure DNA
-* **✓ Pre-commit incident guard**
-* **✓ Platt-calibrated** per-environment confidence
-* **✓ Agent safety CI gate**
+* **✓ Local Execution Gateway** — Intercepts CLI/MCP tool calls, blocks destructive commands, and prevents secret exposure
+* **✓ Team Governance Gateway** — CI/CD controls, GitHub PR checks, Slack approvals, and structured audit logs
+* **✓ Agent IAM** — Least privilege execution sandboxes and Ephemeral Credentials (coming soon)
 * **✓ All data on your infrastructure**
 
 #### Key Metrics
@@ -67,13 +68,13 @@ Posting audit trail to #incidents thread...
 | :--- | :--- |
 | **0m · PagerDuty fires**<br>Engineer wakes up. Opens laptop. | **0m · PagerDuty fires**<br>Mergen receives the webhook. |
 | **5m · Check logs**<br>Grep through millions of lines across services. | **2s · Analyze telemetry**<br>Correlates logs, traces, and infra signals. |
-| **15m · Check dashboards**<br>Correlate metrics across 5 different tabs. | **5s · Check operational memory**<br>Matches against past incidents and human overrides. |
+| **15m · Check dashboards**<br>Correlate metrics across 5 different tabs. | **5s · Check policy &amp; overrides**<br>Matches against past incidents and human overrides. |
 | **30m · Ask Slack**<br>"Who deployed last?" "Is the DB down?" | **10s · Generate validated fix**<br>Produces a remediation plan at ≥85% confidence. |
 | **45m · Guess root cause**<br>Apply a fix based on intuition. Hope it works. | **1m · Resolve or recommend**<br>Executes (autopilot) or posts fix for approval. |
 | **60m+ · Watch and wait**<br>Monitor dashboards for another 15 min to confirm. | **2m · Audit trail posted**<br>Full root cause + actions logged to Slack. |
 | **❌ Result**: 3am fire drill. | **✅ Result**: The engineer wakes up to a resolved incident and a full audit trail — not a 3am fire drill. Every action is logged and reversible. |
 
-### Scenario C — Postmortem that compounds into policy
+### Scenario C — Postmortem that forms execution policy
 
 | Without Mergen | With Mergen |
 | :--- | :--- |
@@ -81,22 +82,22 @@ Posting audit trail to #incidents thread...
 | **2wk · Postmortem is stale**<br>Nobody updates it. The constraint lives in one person's head. | **1s · Policy encoded**<br>Override corpus entry created. Applies to all future incidents of this type. |
 | **3mo · Engineer leaves**<br>The constraint — "never resize pool on Friday" — is gone. | **3mo · Engineer leaves**<br>The constraint stays — in the corpus, queryable, enforceable. |
 | **3mo · Same incident**<br>New on-call rebuilds the understanding from scratch. | **3mo · Similar incident fires**<br>Mergen surfaces: "This pattern was overridden 6× — reason: batch-window." Autopilot pauses. |
-| **❌ Result**: Knowledge evaporates. | **✅ Result**: The knowledge compounds. Every incident makes the next one faster to resolve — for any engineer, any agent, forever. |
+| **❌ Result**: Knowledge evaporates. | **✅ Result**: Every incident encodes a policy that binds future agent execution. |
 
 ---
 
 ## 03 // How It Works
 
-### Four steps from alert to resolution
+### Four steps from agent tool call to secure execution
 
-* **STEP 1: Connect your production stack**
-  Ingest signals from PagerDuty, OpenTelemetry, Docker, Kubernetes, and optionally Datadog. No agent required.
-* **STEP 2: Detect and understand incidents**
-  When an alert fires, Mergen correlates telemetry across services, identifies the likely root cause, and matches it against past incidents and overrides.
-* **STEP 3: Apply operational memory**
-  Mergen checks what your team did last time — past fixes, human overrides, known failure patterns — before generating a validated remediation plan.
-* **STEP 4: Resolve or recommend**
-  Shadow mode: suggestion only. Assisted: recommended fix + approval. Autopilot: safe execution within constraints. Every action is logged and reversible.
+* **STEP 1: Intercept agent tool access**
+  Intercept tool calls and shell command requests from Cursor, Claude Code, or local developer scripts.
+* **STEP 2: Evaluate inline policy gates**
+  Evaluate rules in under 1ms (unconditional destructive command blocks, time windows, and developer-type conditions).
+* **STEP 3: Check execution context**
+  Assess changed files against past failures, human overrides, and environment calibration before approval.
+* **STEP 4: Secure execution or approval**
+  Execute safely, hold schema changes for Slack-based HITL approval, and log all events to the Agent Blunder Log.
 
 ```text
 PAGERDUTY             OPENTELEMETRY           DOCKER               DATADOG
@@ -106,9 +107,9 @@ Webhooks              OTLP HTTP               stdout/stderr        Optional
    └─────────────────────┼──────────┬────────────┘                    │
                          ▼          ▼                                 ▼
                     ┌──────────────────────────────────────────────────┐
-                    │               MEMORY LAYER                       │
+                    │           EXECUTION GATEWAY                      │
                     │                  Mergen                          │
-                    │       Operational Memory Layer                   │
+                    │      Deterministic Policy Engine                 │
                     │   ──────────────────────────────────             │
                     │   - Incident history                             │
                     │   - Override corpus                              │
@@ -159,37 +160,37 @@ We built a regression eval harness before shipping v1. Every PR that touches det
 
 ## 02 // The Problem
 
-### Teams ship code faster. Operational knowledge still evaporates.
+### AI agents inherit full tool access. Nothing enforces what they're allowed to do.
 
-Every incident teaches your team something. The diagnosis, the override, the constraint that mattered — evaporates into heads, stale runbooks, Slack threads nobody reads under pressure. AI agents make this worse: they generate changes with no institutional memory at all.
+Your agents can call any MCP tool, execute any shell command, and mutate any system state with zero authorization checks. System prompts saying "please don't drop tables" are probabilistic suggestions — LLMs ignore them under pressure, adversarial injection, or unexpected context shifts.
 
-1. **Knowledge evaporates after every incident**
-   *Wikis rot. Slack threads become noise. People leave.*
-   When the incident is over, the hard-won understanding — why it happened, what constraint matters, what not to do next time — evaporates into heads, stale runbooks, and Slack threads nobody reads under pressure. Every repeat incident is a failure of memory, not engineering.
+1. **Agents run with unrestricted tool access**
+   *MCP tool calls are not gated. The handler runs the moment the agent calls it.*
+   When you register an MCP server, every tool becomes available to every agent with no scope, no role check, and no approval flow. An agent asked to "clean up old records" can call the same `execute_fix` tool that runs `DROP TABLE`. Nothing in the protocol prevents it.
 
-2. **AI velocity without memory is sabotage**
-   *Agents generate code. They have no institutional knowledge.*
-   AI coding agents clear backlogs fast and introduce production failures faster. They have no context about your Friday settlement window, your compliance hold, or the connection pool that exhausted twice last quarter. Without an operational memory layer, every agent change is a blind change.
+2. **Prompts are advisory, not enforcement**
+   *"Don't do X" in a system prompt is a suggestion. Mergen is the stop sign.*
+   AI agents trained to be helpful will comply with a prompt instruction under normal conditions. Under adversarial prompt injection, jailbreak, or simply an unusual context shift, they will not. The only reliable enforcement is a deterministic layer outside the LLM's reasoning path.
 
-3. **Observability tells you what broke — not what to do**
-   *Datadog has the logs. The understanding still lives in one engineer.*
-   PagerDuty pages a human. Datadog shows the trace. The human reconstructs the context — from memory, from a Slack thread, from the last person who touched that service. When they leave, the knowledge leaves. Mergen is the layer that keeps it.
+3. **Monitoring is reactive — the damage is already done**
+   *Datadog fires after the agent destroyed the environment. Mergen fires before the handler runs.*
+   PagerDuty pages a human. Datadog shows what the agent did. By then the schema is migrated, the infrastructure is torn down, or the credentials are in the logs. Mergen is the inline gate that intercepts the action before any of that happens.
 
-4. **Solo devs have no reviewer**
-   *Nothing between "I wrote this" and "it's in production"*
-   A team has code review as a safety net — someone else reads the change before it merges. A solo dev has nothing. Mergen's guard cross-references every commit against your incident history, asking the question your missing teammate would: *"didn't this file cause the outage last month?"* Not a lint check. Encoded institutional memory at commit time.
+4. **CI pipelines have no agent governance layer**
+   *AI-generated PRs and deployments bypass human review at scale.*
+   As agents generate pull requests and trigger deployments autonomously, your CI pipeline becomes a production mutation surface with no mandatory human checkpoint. Mergen's CI gate enforces blast-radius analysis and HITL approval before any autonomous change merges.
 
 > [!TIP]
-> **The missing layer is not more observability.** It is operational intelligence — converting every incident, override, and postmortem into compounding machine-readable policy that engineers and AI agents can query before they act.
+> **The missing layer is not more monitoring.** It is a deterministic execution gate — one that physically intercepts agent tool calls before they reach your OS, terminal, or cloud provider, and enforces the policies your team has defined.
 
 ---
 
 ## 04 // Core Systems
 
-### Knowledge that compounds. Safety that enforces it.
+### Enforcement that runs before the handler. Policy that compounds with every incident.
 
-* **🧬 01 · Override Corpus — Infrastructure DNA**
-  Every human override becomes machine-readable policy. After six months: your Friday settlement windows, compliance holds, and on-call preferences form your specific operational DNA — enforcing invariants before any autonomous action triggers. The algorithm is reproducible. This corpus is not.
+* **🧬 01 · Override Corpus — Enforcement Policy**
+  Every human override becomes binding enforcement policy. After six months: your Friday settlement windows, compliance holds, and hard stop patterns form your specific governance corpus — enforced before any autonomous action triggers. The algorithm is reproducible. This corpus is not.
 
 * **⚙️ 02 · Per-Environment Calibration**
   Mergen uses Platt scaling calibrated to your specific infrastructure — not a global benchmark. As your team tags diagnoses (correct / partial / wrong), the confidence model updates. After 20–50 incidents, accuracy numbers reflect your systems, not ours.
@@ -230,7 +231,7 @@ Every incident teaches your team something. The diagnosis, the override, the con
   Before you ship, Mergen cross-references every staged file against your incident history. *"This file was in 3 incidents last month"* — the question a code reviewer would ask, encoded as a git hook. The corpus working before the incident happens.
 
 * **👁️ 08 · Passive Status Surface**
-  Mergen tracks what happened while you weren't looking. Next time you check: *"this started failing 6 hours ago."* Not a push notification — context waiting when you return. The on-call teammate who works in silence.
+  Mergen tracks what happened while you weren't looking. Next time you check: *"this started failing 6 hours ago."* Not a push notification — a structured context brief waiting when you return.
 
 ---
 
@@ -332,31 +333,27 @@ MERGEN_SLACK_OVERRIDE_LOOP=true mergen-server start
 
 ## 07 // Pricing
 
-### Start free. The corpus pays for itself.
+### Infrastructure-aligned pricing. Secure your agent execution at any scale.
 
-| Solo / Open Source | Growth | Enterprise |
-| :--- | :--- | :--- |
-| **$0/forever** | **$299/mo** | **Custom** |
-| Full operational intelligence loop on a single machine. Override corpus, calibration, pre-commit guard. No cloud, no card. | Shared operational memory across your engineering team. Incident replay, Slack-to-corpus learning loop, ROI dashboard. Up to 10 services. | Policy-enforced autonomous remediation, CI/CD agent safety gate, compliance controls, VPC deployment — with a 30-day shadow pilot before any commitment. |
-| [Get Started](https://mergen.dev/pricing) | [Start Growth Pilot](https://mergen.dev/pricing#growth) | [Schedule Pilot Call](https://mergen.dev/pricing#enterprise) |
+| Starter (PLG / OSS) | Team (Core Revenue) | Platform (Scale Tier) | Enterprise |
+| :--- | :--- | :--- | :--- |
+| **$499 / month** | **$2,500 / month** | **$10,000 / month** | **Custom ($100K–$500K / yr)** |
+| Basic execution gateway on a single machine. Includes basic override corpus, 1–2 services, Slack + GitHub integration, 10,000 event buffer. | Shared execution gateway across engineering teams. Full operational context graph, Slack + Git + CI ingestion, Cursor/Claude Code Context Packs, 50,000 event buffer. | CI/CD governance layer, agent safety gate, audit logs, 200,000 event buffer. | VPC deployment, strict policy engine (Layer 3 safety), SOC2 alignment, custom override policies. |
+| [Get Started](https://mergen.dev/pricing) | [Start Team Pilot](https://mergen.dev/pricing#team) | [Start Platform Pilot](https://mergen.dev/pricing#platform) | [Schedule Pilot Call](https://mergen.dev/pricing#enterprise) |
 
 ### Feature Comparison
 
-| Feature | Solo | Growth | Enterprise |
-| :--- | :--- | :--- | :--- |
-| Incident triage + causal analysis | ✓ | ✓ | ✓ |
-| Override corpus (local operational DNA) | Local | Shared | Shared |
-| Per-environment Platt calibration | ✓ | ✓ | ✓ |
-| Pre-commit incident guard (git hook) | ✓ | ✓ | ✓ |
-| Agent Blunder Log + audit trail | ✓ | ✓ | ✓ |
-| Shadow mode (30-day trust track record) | ✓ | ✓ | ✓ |
-| Incident replay + MTTR analytics | — | ✓ | ✓ |
-| Slack-to-corpus learning loop | — | ✓ | ✓ |
-| ROI dashboard (time saved) | — | ✓ | ✓ |
-| Slack ownership routing (10 services) | — | ✓ | ✓ |
-| CI/CD agent safety gate (GitHub Action) | — | — | ✓ |
-| Policy-enforced autonomous remediation | — | — | ✓ |
-| VPC deployment + TLS | — | — | ✓ |
-| SSO + RBAC + compliance controls | — | — | ✓ |
-| Audit exports (SOC 2 ready) | — | — | ✓ |
-| Dedicated onboarding + SLA | — | — | ✓ |
+| Feature | Starter | Team | Platform | Enterprise |
+| :--- | :--- | :--- | :--- | :--- |
+| Incident triage + causal analysis | ✓ | ✓ | ✓ | ✓ |
+| Local Execution Gateway (destructive command blocks) | ✓ | ✓ | ✓ | ✓ |
+| Pre-commit incident guard (git hook) | ✓ | ✓ | ✓ | ✓ |
+| Agent Blunder Log + local audit trail | ✓ | ✓ | ✓ | ✓ |
+| Shared Override Corpus | Local | Shared | Shared | VPC Isolated |
+| Slack + Git + CI Webhook Ingestion | — | ✓ | ✓ | ✓ |
+| Cursor & Claude Code Context Packs | — | ✓ | ✓ | ✓ |
+| CI/CD Agent Safety Gate (GitHub Action / script) | — | — | ✓ | ✓ |
+| Epic/Multi-repo Audit Logs | — | — | ✓ | ✓ |
+| Ephemeral credentials & identity federation | — | — | — | ✓ |
+| Strict Policy Engine (Layer 3 Safety) | — | — | — | ✓ |
+| Dedicated Onboarding + SLA | — | — | — | ✓ |

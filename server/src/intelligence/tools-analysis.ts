@@ -26,7 +26,7 @@ function _registerAnalyzeRuntime(server: McpServer): void {
     'reconstruct_context',
     {
       description:
-        '🔬 OPERATIONAL MEMORY — Reconstructs what happened in the runtime before a failure. ' +
+        '🔬 EXECUTION HISTORY — Reconstructs what happened in the runtime before a failure. ' +
         'Resolves stack frames to original source (with code snippets), tracks event dependencies ' +
         '(request → response → state mutation → crash), flags AI-generated commits in the blast radius, ' +
         'and produces a structured diagnosis with root-cause summary, causal path, and fix hint. ' +

@@ -1,57 +1,57 @@
-# Mergen — Operational Intelligence Infrastructure for AI-Native Engineering
+# Mergen — The Execution and Security Gateway for AI Agents
 
-**AI agents don't know how your systems actually work.** Mergen gives AI agents and engineers the operational context, historical decisions, and infrastructure memory needed to make safer changes.
+**Prompts are not boundaries — they are suggestions. AI agents don't know your security, infrastructure, or compliance constraints, and asking them nicely doesn't enforce those constraints.** Mergen is the inline control plane that physically blocks hazardous agent actions before they reach your runtime, databases, or cloud infrastructure.
 
-Every incident teaches your team something. Most of that knowledge evaporates — into engineers' heads, stale runbooks, Slack threads nobody re-reads. Mergen ensures it compounds instead.
+Sentry and Datadog tell you after an AI agent has corrupted your database or leaked credentials. Mergen is the deterministic gate that prevents it.
 
-When an engineer overrides an automated fix — "don't restart during the Friday settlement window" — Mergen encodes that as queryable policy. The next time a similar incident fires, Mergen knows. When your best on-call engineer leaves, their instincts stay. When the same issue surfaces six months later, Mergen surfaces what was tried before and why it worked. When an AI agent proposes a change, Mergen checks it against everything your team has ever learned about that system.
+When an agent calls `terraform destroy prod`, Mergen intercepts the MCP tool call in under 1ms — before the handler runs — and returns a structured error. The handler never executes. When an agent attempts a schema migration, Mergen holds the Promise and fires a Slack webhook: a human approves or denies with one click. When an engineer overrides an automated fix — "skip pool resize during the Friday settlement window" — Mergen encodes that as enforcement policy. The next agent that touches that system is bound by it.
 
-Mergen is a **Knowledge Compounding System**: an MCP server that compresses raw production telemetry into structured context, converts human engineering activity (overrides, Slack postmortems, git decisions) into machine-readable policy, and gets faster and safer with every incident your team resolves.
+Mergen is the **first Agent Execution Governance (AEG) platform**: a local MCP and CLI proxy that physically intercepts every tool call, evaluates it against your deterministic policy engine, and either passes, blocks, or holds it for human approval. No probabilistic guardrails. No LLM in the critical path. No cloud credentials exposed.
 
 All data stays on your infrastructure. No cloud. No copy-paste.
 
 ## Who it's for
 
-**Mid-market engineering teams (20–150 developers)** adopting AI coding assistants but without a dedicated platform engineering team. You're deploying code faster than ever, your AI agents are generating bugs faster than your humans can catch them, and on-call fatigue is compounding. You need the system to know what your team has learned — not just what happened, but why it happened and what not to do next time.
+**Mid-market engineering teams (20–150 developers)** granting autonomous write access to AI coding agents without a dedicated security or platform engineering team. You're deploying AI-generated code faster than ever, and a single unconstrained agent can mutate production state, expose credentials, or trigger a cascade before any human sees it.
 
-The beachhead: teams that already have observability (Datadog, Sentry, PagerDuty) but lack the memory layer that converts incident resolution into durable, queryable policy.
+The beachhead: teams that already have PagerDuty and Datadog but lack the enforcement layer that sits between the agent and your infrastructure — the control plane that makes autonomous execution safe enough to grant in the first place.
 
 ---
 
 ## Why Mergen vs. point tools (Datadog + PagerDuty + Grafana)?
 
-Observability tools notify humans after a crash. Mergen compounds the knowledge of how your team resolves crashes, feeding it directly into the developer loop to prevent repetition.
+Observability tools notify humans after a crash. They have no enforcement authority over agents before the crash. Mergen is the inline gate that sits between the agent and your infrastructure.
 
 | | Point tools (Datadog + PagerDuty + Grafana) | **Mergen** |
 | :--- | :--- | :--- |
-| **Action** | Alert → page engineer | ✅ **Alert → diagnose → fix → validate → remember** |
-| **AI integration** | Dashboard with AI summaries | ✅ **MCP tools your AI IDE calls directly — with full operational context** |
-| **Knowledge** | Static runbooks that rot | ✅ **Override corpus: every human decision becomes machine-readable policy** |
-| **Agent safety** | None | ✅ **Agent Blunder Log + CI gate — autonomous changes checked against operational memory** |
-| **System context** | None — stateless alerting | ✅ **Calibration corpus compounds with every incident — specific to your infrastructure** |
-| **Slack** | One-way webhook | ✅ **Owns the thread — posts progress through resolution** |
+| **Execution control** | None — agents run unrestricted | ✅ **Deterministic local gate blocks destructive tool calls in <1ms** |
+| **AI integration** | Dashboard with AI summaries | ✅ **MCP proxy: every tool call passes through policy before the handler runs** |
+| **Policy enforcement** | System prompts (probabilistic) | ✅ **Override corpus: every human decision becomes binding enforcement policy** |
+| **Agent safety** | None | ✅ **Agent Blunder Log + CI gate — every blocked action hash-chained and logged** |
+| **Human-in-the-loop** | None | ✅ **HITL holds the Promise — Slack approve/deny before execution resumes** |
+| **Incident response** | Alert → page engineer | ✅ **Alert → diagnose → fix → validate → post audit trail** |
 
 ---
 
-## The three-layer trust architecture
+## The three-layer execution governance architecture
 
-Before autonomous execution, Mergen applies three layers in order:
+Before any autonomous tool call executes, Mergen applies three layers in order:
 
-1. **Global Prior (heuristics):** Out-of-the-box detectors for common failure patterns. Immediate value on Day 1 with no historical data.
-2. **Customer Calibration (Platt scaling):** As engineers tag diagnoses (correct/wrong/partial) via the IDE panel, the engine calibrates to the team's specific infrastructure within 20–50 events. Confidence numbers reflect *this system's* history, not a global benchmark.
-3. **Hard Safety Policies (immutable guardrails):** Explicit, unconditional constraints defined by platform leads — "never restart the database automatically regardless of confidence." These override any model-derived decision. No amount of high confidence can bypass them.
+1. **Hard Safety Policies (immutable guardrails):** Explicit, unconditional constraints — "never execute terraform destroy regardless of confidence." JSON rules evaluated in <1ms. No LLM in the path. No amount of agent persuasion bypasses them.
+2. **Override Corpus (enforcement policy):** Every human override is encoded as binding policy. Before a tool call executes, Mergen checks whether the same action was ever overridden in the same context — and blocks or holds if it was. The corpus grows with every incident.
+3. **Calibrated Confidence Gate (Platt scaling):** As engineers tag diagnoses (correct/wrong/partial), the confidence model calibrates to the team's specific infrastructure. Autonomous execution only proceeds above the threshold you set.
 
 ---
 
-## Defensibility: three primitives that compound with use
+## Defensibility: three enforcement primitives that compound with use
 
 ### Agent Blunder Log — `GET /agent-blunders`
 
 Every time Mergen's safety layer blocks an autonomous action the event is recorded. `prevented` = total intercepted actions. Types: `allowlist_block` · `injection_attempt` · `rbac_block` · `override_corpus_block` · `pipeline_block` · `planning_gate_block`. Wired automatically — no setup required. This is the board-deck answer to "why would you trust an AI agent with prod?"
 
-### Override Corpus — queryable operational DNA
+### Override Corpus — your enforcement policy corpus
 
-Every team override is encoded as policy. The corpus is consulted before every autonomous action — Mergen will pause before repeating an action overridden in the same context. `GET /override-corpus` shows what the system has learned. Builds automatically from shadow mode annotations. After six months: your Friday settlement windows, your compliance holds, your on-call's preferred fixes — impossible to replicate from a standing start.
+Every team override is encoded as binding enforcement policy. The corpus is evaluated before every autonomous action — Mergen blocks or holds any action that was previously overridden in the same context. `GET /override-corpus` shows what has been encoded. Builds automatically from shadow mode annotations. After six months: your Friday settlement windows, your compliance holds, your hard stop patterns — a policy corpus impossible to replicate from a standing start.
 
 ### Organic Habituation — `GET /habituation`
 
@@ -66,27 +66,32 @@ Weekly rate of engineers who received a Mergen PR comment and then submitted a r
 ## How it works
 
 ```
-Your backend / infrastructure
-  ├── OpenTelemetry SDK  →  :4318/v1/traces  (OTLP HTTP)
-  ├── PagerDuty webhook  →  /webhooks/pagerduty
-  ├── CI/CD pipeline     →  /ci  (GitHub Actions, etc.)
-  ├── Docker containers  →  log streaming via Docker SDK
-  └── Terminal / process →  process watcher (stdout/stderr)
-              │
-              ▼
-  Express :3000           ← rate-limited, Zod-validated, PII-shielded
+AI IDE (Claude Code / Cursor / Windsurf / VS Code)
        │
-       └── in-memory ring buffer (2000 events, O(1) eviction)
-                │
-                ▼
-  MCP Server (stdio)      ← speaks Model Context Protocol
+       │  agent calls MCP tool (execute_fix, bash, etc.)
+       ▼
+  MCP Execution Gateway (stdio)   ← Mergen intercepts BEFORE handler
        │
-       ├── Claude Code  ──  claude mcp add mergen ...
-       ├── Cursor        ──  .cursor/mcp.json
-       ├── Windsurf      ──  ~/.codeium/windsurf/mcp_config.json
-       └── VS Code       ──  .vscode/mcp.json
+       ├── Hard Safety Policies   ← <1ms JSON rule evaluation
+       ├── Override Corpus check  ← enforcement policy lookup
+       └── Confidence gate        ← Platt-scaled threshold
                 │
-                ▼
+         PASS / BLOCK / HOLD
+                │
+       ┌────────┴─────────────────────┐
+       │ PASS: handler runs           │ BLOCK: MCP error returned,
+       │ HOLD: Promise suspended,     │   blunder logged, hash-chained
+       │   HITL webhook → Slack       │
+       │   approve/deny → resume      │
+       └──────────────────────────────┘
+                │
+       Express :3000  ← telemetry ingest, audit log, impact report
+       │
+       ├── PagerDuty webhook  →  /webhooks/pagerduty
+       ├── OpenTelemetry SDK  →  :4318/v1/traces  (OTLP HTTP)
+       ├── CI/CD pipeline     →  /ci  (GitHub Actions, etc.)
+       └── Docker / K8s       →  log streaming, events poller
+
   Autonomous triage loop (MERGEN_AUTOPILOT=true)
        PagerDuty trigger → causal analysis → execute fix → validate → Slack thread reply
 ```

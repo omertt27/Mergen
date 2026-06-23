@@ -88,6 +88,37 @@ export DD_API_KEY=... DD_APP_KEY=...
 
 ---
 
+## Step 3.5 — Configure Continuous Flywheel Webhooks (Compounding Memory)
+
+To automatically populate the **Override Corpus** and build system-specific safety policies from human operational decisions, connect your team's communication and documentation loops:
+
+### 1. Slack Postmortems Webhook
+Point your Slack App's **Event Subscriptions** Request URL to:
+```
+http://your-server:3000/webhooks/slack/events
+```
+* Subscribe to `message.channels` event callbacks.
+* Ensure the Slack Bot is added to your `#postmortems` channels.
+* When an engineer discusses or logs a remediation override (e.g. *",db connection leak resolved. proposed command: systemctl restart postgresql reason: cost-constraint tag: infra_db_connection_pool",*), Mergen automatically compiles it into the Override Corpus.
+
+### 2. Git ADR Webhook Ingestion
+Point your VCS or ADR pipeline webhooks (or send updates on commit) to:
+```
+http://your-server:3000/ci/adr
+```
+* Send a `POST` payload matching:
+  ```json
+  {
+    "title": "Limit auth token validation depth",
+    "decision": "We will block JWT validation nested depth > 4 on OOM error prevention",
+    "rationale": "Deep nesting in token verification triggers server oom",
+    "status": "accepted"
+  }
+  ```
+* This automatically parses decisions, matches operational failure tags, and creates policies in the Override Corpus.
+
+---
+
 ## Step 4 — Add to your AI IDE (if not done via setup)
 
 ```bash

@@ -92,6 +92,8 @@ export function createSetupRouter(): Router {
       slackChannel: process.env.MERGEN_SLACK_CHANNEL ?? '',
       autopilot: process.env.MERGEN_AUTOPILOT === 'true',
       pagerdutyWebhookUrl: `${process.env.MERGEN_DASHBOARD_URL ?? 'http://your-server:3000'}/webhooks/pagerduty`,
+      slackEventsWebhookUrl: `${process.env.MERGEN_DASHBOARD_URL ?? 'http://your-server:3000'}/webhooks/slack/events`,
+      adrWebhookUrl: `${process.env.MERGEN_DASHBOARD_URL ?? 'http://your-server:3000'}/ci/adr`,
     });
   });
 
@@ -384,6 +386,22 @@ node app.js</pre>
         </div>
         <div id="ide-result"></div>
       </div>
+
+      <div class="step complete" id="step-6">
+        <h2><span class="icon">✅</span> Step 6: Continuous Flywheel (Compounding Memory)</h2>
+        <p>Enable Phase 4 Continuous Flywheel to automatically extract override policies from Slack threads and git decisions.</p>
+        <p style="margin-bottom:8px"><strong>Slack Postmortems Webhook:</strong> Point your Slack App's <em>Event Subscriptions</em> to:</p>
+        <div id="slack-events-url-box" style="background:#1e293b;color:#e2e8f0;padding:10px 14px;border-radius:8px;font-family:monospace;font-size:13px;margin-bottom:12px;word-break:break-all">
+          Loading slack events URL…
+        </div>
+        <p style="font-size:13px;color:#64748b;margin-bottom:12px">Subscribe to <code>message.channels</code> events (ensure your bot is added to postmortem channels).</p>
+        
+        <p style="margin-bottom:8px"><strong>Git ADR Webhook:</strong> Point your repository's commit or ADR webhook to:</p>
+        <div id="adr-events-url-box" style="background:#1e293b;color:#e2e8f0;padding:10px 14px;border-radius:8px;font-family:monospace;font-size:13px;margin-bottom:12px;word-break:break-all">
+          Loading ADR webhook URL…
+        </div>
+        <p style="font-size:13px;color:#64748b;margin-bottom:12px">Submit architectural decisions via JSON to compile override corpus rules automatically.</p>
+      </div>
     </div>
 
     <footer>
@@ -467,6 +485,12 @@ node app.js</pre>
         if (s.pagerdutyWebhookUrl) {
           _webhookUrl = s.pagerdutyWebhookUrl;
           document.getElementById('pd-url-box').textContent = s.pagerdutyWebhookUrl;
+        }
+        if (s.slackEventsWebhookUrl) {
+          document.getElementById('slack-events-url-box').textContent = s.slackEventsWebhookUrl;
+        }
+        if (s.adrWebhookUrl) {
+          document.getElementById('adr-events-url-box').textContent = s.adrWebhookUrl;
         }
       } catch(e) { console.error('Status load failed:', e); }
     });

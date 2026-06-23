@@ -1,7 +1,7 @@
 import { ImageResponse } from 'next/og'
 
 export const runtime = 'edge'
-export const alt = 'Mergen — Operational Memory for AI Agents'
+export const alt = 'Mergen — Execution & Security Gateway for AI Agents'
 export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
 
@@ -63,8 +63,8 @@ export default function OgImage() {
             flexWrap: 'wrap',
           }}
         >
-          Operational Memory{' '}
-          <span style={{ color: '#a5f3fc', display: 'flex' }}>for AI Agents.</span>
+          Execution & Security{' '}
+          <span style={{ color: '#a5f3fc', display: 'flex' }}>Gateway for AI Agents.</span>
         </div>
 
         {/* Subline */}

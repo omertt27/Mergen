@@ -25,8 +25,8 @@ const howSteps = [
   },
   {
     num: '3',
-    title: 'Apply operational memory',
-    desc: 'Mergen checks what your team did last time — past fixes, human overrides, known failure patterns — before generating a validated remediation plan.',
+    title: 'Enforce gateway controls',
+    desc: 'Mergen checks proposed actions against local policy, blocking destructive commands, checking secrets, or pausing for human approval.',
   },
   {
     num: '4',
@@ -88,7 +88,7 @@ export default function Architecture() {
             <div className="arch-flow-arrow">›</div>
           </div>
 
-          {/* ── Center: Operational Memory Layer ── */}
+          {/* ── Center: Execution & Security Gateway ── */}
           <div
             className="arch-box"
             style={{
@@ -100,11 +100,11 @@ export default function Architecture() {
             }}
           >
             <span className="tag" style={{ background: 'var(--accent)', color: '#fff' }}>
-              MEMORY LAYER
+              SECURITY GATEWAY
             </span>
             <h4 style={{ margin: '1rem 0 0.5rem' }}>Mergen</h4>
             <code style={{ fontSize: '0.6rem', color: 'var(--accent-text)', display: 'block' }}>
-              Operational Memory Layer
+              Execution &amp; Security Gateway
             </code>
             <div style={{ marginTop: '1rem', borderTop: '1px solid var(--gray-800)', paddingTop: '0.75rem' }}>
               {[

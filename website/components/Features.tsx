@@ -1,63 +1,3 @@
-const IconLoop = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/>
-    <path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
-  </svg>
-)
-
-const IconDatabase = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <ellipse cx="12" cy="5" rx="9" ry="3"/>
-    <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
-    <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
-  </svg>
-)
-
-const IconShield = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-  </svg>
-)
-
-const IconArchive = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="21 8 21 21 3 21 3 8"/>
-    <rect x="1" y="3" width="22" height="5"/>
-    <line x1="10" y1="12" x2="14" y2="12"/>
-  </svg>
-)
-
-const IconClock = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="10"/>
-    <polyline points="12 6 12 12 16 14"/>
-  </svg>
-)
-
-const IconServer = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
-    <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
-    <line x1="6" y1="6" x2="6.01" y2="6"/>
-    <line x1="6" y1="18" x2="6.01" y2="18"/>
-  </svg>
-)
-
-const IconGitCommit = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="3"/>
-    <line x1="3" y1="12" x2="9" y2="12"/>
-    <line x1="15" y1="12" x2="21" y2="12"/>
-  </svg>
-)
-
-const IconEye = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-    <circle cx="12" cy="12" r="3"/>
-  </svg>
-)
-
 const SlackAuditTrail = () => (
   <div style={{
     marginTop: '2rem',
@@ -85,6 +25,47 @@ const SlackAuditTrail = () => (
         </div>
       </div>
     </div>
+  </div>
+)
+
+const GateTerminal = () => (
+  <div style={{
+    marginTop: '2rem',
+    background: '#0f0f0f',
+    border: '1px solid #2a2a2a',
+    borderRadius: '8px',
+    padding: '16px',
+    fontFamily: 'var(--font-geist-mono), monospace',
+    fontSize: '0.72rem',
+    lineHeight: 1.8,
+  }}>
+    <div style={{ color: '#666', marginBottom: '8px' }}># agent calls execute_fix with "terraform destroy prod"</div>
+    <div style={{ color: '#94a3b8' }}>→ <span style={{ color: '#e2e8f0' }}>tool-guard</span>: evaluating in <span style={{ color: '#4ade80' }}>&lt;1ms</span></div>
+    <div style={{ color: '#94a3b8' }}>→ pattern matched: <span style={{ color: '#fbbf24' }}>&quot;destroy&quot;</span> → rule <span style={{ color: '#e2e8f0' }}>block_destructive_commands</span></div>
+    <div style={{ color: '#94a3b8' }}>→ handler: <span style={{ color: '#ef4444' }}>BLOCKED</span> (never invoked)</div>
+    <div style={{ color: '#94a3b8' }}>→ blunder logged: <span style={{ color: '#e2e8f0' }}>agent-blunders.json</span></div>
+    <div style={{ marginTop: '8px', color: '#ef4444' }}>🚫 Tool call blocked by Mergen local policy gate.</div>
+  </div>
+)
+
+const HitlTerminal = () => (
+  <div style={{
+    marginTop: '2rem',
+    background: '#0f0f0f',
+    border: '1px solid #2a2a2a',
+    borderRadius: '8px',
+    padding: '16px',
+    fontFamily: 'var(--font-geist-mono), monospace',
+    fontSize: '0.72rem',
+    lineHeight: 1.8,
+  }}>
+    <div style={{ color: '#666', marginBottom: '8px' }}># agent calls execute_fix with "prisma migrate deploy"</div>
+    <div style={{ color: '#94a3b8' }}>→ pattern matched: <span style={{ color: '#fbbf24' }}>&quot;prisma migrate&quot;</span> → rule <span style={{ color: '#e2e8f0' }}>hold_schema_mutations</span></div>
+    <div style={{ color: '#94a3b8' }}>→ <span style={{ color: '#fbbf24' }}>HOLD</span>: Promise suspended, token issued</div>
+    <div style={{ color: '#94a3b8' }}>→ webhook fired → <span style={{ color: '#e2e8f0' }}>MERGEN_HITL_WEBHOOK_URL</span></div>
+    <div style={{ color: '#64748b', marginTop: '8px', fontSize: '0.68rem' }}># operator clicks approve in Slack...</div>
+    <div style={{ color: '#94a3b8' }}>→ POST /hitl/approve?token=a3f9… → <span style={{ color: '#4ade80' }}>Promise resolved</span></div>
+    <div style={{ color: '#4ade80' }}>✅ Tool call approved. Handler now executing.</div>
   </div>
 )
 
@@ -133,6 +114,36 @@ const IDEHint = () => (
 const features = [
   {
     num: '01',
+    icon: '🔒',
+    title: 'Local Execution Gate — Deterministic, Not Advisory',
+    desc: (
+      <>
+        Every MCP tool call passes through a{' '}
+        <span className="highlight-yellow">synchronous local policy engine before the handler runs</span>.
+        Pattern matched against your JSON rules in under 1ms — no LLM, no network, no probabilistic guardrails.
+        PASS calls the handler. BLOCK returns a structured MCP error immediately and logs the blunder.
+        The AI IDE waits for the response; the gate decides before any code executes.
+        <GateTerminal />
+      </>
+    ),
+  },
+  {
+    num: '02',
+    icon: '🧑‍💻',
+    title: 'Human-in-the-Loop (HITL) — Held Promise Approval',
+    desc: (
+      <>
+        For flagged-but-not-blocked calls (schema migrations, high blast-radius commands), the gate{' '}
+        <span className="highlight-blue">holds the Promise until a human approves or denies</span>.
+        An outbound webhook fires to Slack or any HTTP endpoint with approve/deny URLs.
+        The AI IDE blocks — MCP stdio is naturally async, so it waits indefinitely for the JSON-RPC response.
+        No polling. No re-submission. One click resolves the hold.
+        <HitlTerminal />
+      </>
+    ),
+  },
+  {
+    num: '03',
     icon: '🧬',
     title: 'Override Corpus — Infrastructure DNA',
     desc: (
@@ -145,7 +156,20 @@ const features = [
     ),
   },
   {
-    num: '02',
+    num: '04',
+    icon: '🛡️',
+    title: 'Agent Blunder Log — CISO Insurance',
+    desc: (
+      <>
+        Every blocked action is hash-chained to a tamper-evident log: allowlist blocks, corpus halts, planning gates,
+        policy intercepts. The total prevented count is the board-deck answer to{' '}
+        <span className="highlight-red">"why would you trust an AI agent with production?"</span>
+        {' '}Wired automatically — no setup required.
+      </>
+    ),
+  },
+  {
+    num: '05',
     icon: '⚙️',
     title: 'Per-Environment Calibration',
     desc: (
@@ -158,78 +182,41 @@ const features = [
     ),
   },
   {
-    num: '03',
-    icon: '🛡️',
-    title: 'Agent Blunder Log — CISO Insurance',
-    desc: (
-      <>
-        Every blocked autonomous action is recorded: allowlist blocks, corpus halts, planning gates, semantic blocks.
-        The total prevented count is the board-deck answer to{' '}
-        <span className="highlight-red">"why would you trust an AI agent with production?"</span>
-        {' '}Wired automatically — no setup required.
-      </>
-    ),
-  },
-  {
-    num: '04',
-    icon: '🚦',
-    title: 'Semantic Safety Gates',
-    desc: (
-      <>
-        Before any autonomous execution, Mergen red-teams the proposed command using a
-        <span className="highlight-green"> local semantic safety engine</span>: action risk, blast radius,
-        and corpus-policy check — not regex allowlists.
-        <IDEHint />
-      </>
-    ),
-  },
-  {
-    num: '05',
+    num: '06',
     icon: '📊',
     title: 'Measurable MTTR — Board-Ready ROI',
     desc: (
       <>
-        The impact report isolates Mergen's context-assisted value:
+        The impact report isolates Mergen&rsquo;s context-assisted value:
         autonomous vs. manual MTTR, resolution rate, and time saved.
-        <span className="highlight-blue"> "We saved 47 engineer-hours last month"</span>
+        <span className="highlight-blue"> &ldquo;We saved 47 engineer-hours last month&rdquo;</span>
         {' '}is a sentence. The report generates it automatically.
       </>
     ),
   },
   {
-    num: '06',
+    num: '07',
     icon: '👤',
     title: 'Shadow Mode — 30-Day Trust Track Record',
     desc: (
       <>
         Before autonomous execution, Mergen runs in shadow mode: diagnoses every incident, records what it would have done,
         and lets your team annotate verdicts.
-        <span className="highlight-yellow"> The shadow report is your CISO's 30-day evidence package</span>
+        <span className="highlight-yellow"> The shadow report is your CISO&rsquo;s 30-day evidence package</span>
         {' '}before you flip the autopilot switch.
       </>
     ),
   },
   {
-    num: '07',
+    num: '08',
     icon: '🚨',
     title: 'Pre-commit Incident Guard',
     desc: (
       <>
         Before you ship, Mergen cross-references every staged file against your incident history.{' '}
-        <span className="highlight-red">"This file was in 3 incidents last month"</span>
+        <span className="highlight-red">&ldquo;This file was in 3 incidents last month&rdquo;</span>
         {' '}— the question a code reviewer would ask, encoded as a git hook. The corpus working before the incident happens.
-      </>
-    ),
-  },
-  {
-    num: '08',
-    icon: '👁️',
-    title: 'Passive Status Surface',
-    desc: (
-      <>
-        Mergen tracks what happened while you weren't looking.{' '}
-        <span className="highlight-green">Next time you check: "this started failing 6 hours ago."</span>
-        {' '}Not a push notification — context waiting when you return. The on-call teammate who works in silence.
+        <IDEHint />
       </>
     ),
   },
@@ -240,9 +227,9 @@ export default function Features() {
     <section id="why">
       <span className="section-label">04 // Core Systems</span>
       <h2>
-        Knowledge that compounds.
+        Control that enforces.
         <br />
-        Safety that enforces it.
+        Safety that compounds.
       </h2>
       <div className="feature-grid">
         {features.map((f, i) => (

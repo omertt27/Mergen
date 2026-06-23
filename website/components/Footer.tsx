@@ -5,7 +5,7 @@ export default function Footer() {
         <div>
           <div>© 2026 Mergen</div>
           <div style={{ marginTop: '0.5rem', fontSize: '0.65rem', color: 'var(--gray-600)' }}>
-            Operational intelligence for AI-native engineering.{' '}
+            Execution &amp; Security Gateway for AI Agents.{' '}
             <a href="mailto:hello@mergen.dev" style={{ color: 'var(--accent-text)' }}>
               hello@mergen.dev
             </a>

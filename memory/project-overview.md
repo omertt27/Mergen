@@ -5,9 +5,9 @@ metadata:
   type: project
 ---
 
-Mergen is a local-first production and behavior telemetry MCP server that gives AI IDEs production and runtime memory — remembering what your AI assistant forgets to ensure you never debug the same problem twice.
+Mergen is the Execution and Security Gateway for AI Agents that enforces deterministic controls before AI actions reach your runtime, cloud infrastructure, or developer environment. It sits inline between AI agents and your systems to block unsafe actions, enforce approval workflows, and create auditable execution trails across development and production environments.
 
-**Architecture:** PagerDuty / OpenTelemetry / Docker / Datadog / Local Processes → POST /ingest → ring buffer → MCP server (stdio) → Claude Code / Cursor / Windsurf / VS Code
+**Architecture:** PagerDuty / OpenTelemetry / Docker / Datadog / Local Processes → POST /ingest → ring buffer → MCP server (stdio) with inline security gate -> Claude Code / Cursor / Windsurf / VS Code
 
 **Key files:**
 - `server/src/sensor/buffer.ts` — Zod schemas + ring buffer implementation
@@ -18,7 +18,8 @@ Mergen is a local-first production and behavior telemetry MCP server that gives 
 - `server/src/intelligence/mcp-prompts.ts` — MCP Prompts (auth, network, crash, summary)
 - `extension/src/content.js` — Browser event capture
 
-**Why:** Gives AI agents real browser and runtime behavior context (auth cookies, real errors, visual details, and historical resolution memory) vs. blind code generation.
+**Why:** Enforces a deterministic execution sandbox and inline policy gate (unconditional blocking of destructive terminal commands, HITL approvals for database migrations, and context cross-referencing) rather than letting AI agents execute arbitrary mutations or run blind with unrestricted shell access.
 
 **How to apply:** The project has paid plan gating — `getActivePlanId()` controls feature access. Always respect plan gates when adding features.
+
 

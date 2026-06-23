@@ -6,7 +6,7 @@
 
 AI coding tools made writing code fast. They did not make debugging production failures fast.
 
-Mergen is the **operational memory layer for AI-assisted engineering.** It connects your AI IDE (Claude Code, Cursor, Windsurf, VS Code) to live production telemetry — PagerDuty alerts, OpenTelemetry traces, Docker logs, Datadog spans — and compresses that signal into a structured causal chain your IDE can act on.
+Mergen is the **Execution and Security Gateway for AI Agents.** It sits inline between AI agents and your systems, blocking unsafe actions, enforcing approval workflows, and creating auditable execution trails across development and production environments. It connects your AI IDE (Claude Code, Cursor, Windsurf, VS Code) to live production telemetry, intercepts tool calls, and evaluates them against policy in under 1ms.
 
 When an incident fires at 3am, your IDE calls `triage_incident`. Mergen identifies the root cause with evidence, and at ≥85% confidence executes the fix, validates the result, and posts the full audit trail to your Slack thread. No log pasting. No dashboard-hopping. No waking up the team.
 
@@ -23,9 +23,9 @@ Mergen uses an open-core model:
 
 | Tier | Price | What's included |
 |---|---|---|
-| **Solo / Open Source** | $0/forever | Full operational intelligence loop on a single machine. Override corpus, calibration, pre-commit guard. |
-| **Growth** | $299/mo | Shared operational memory across your engineering team. Incident replay, Slack-to-corpus learning loop, ROI dashboard. Up to 10 services. |
-| **Enterprise** | Custom | Policy-enforced autonomous remediation, CI/CD agent safety gate, compliance controls, VPC deployment — with a 30-day shadow pilot. |
+| **Solo / Open Source** | $0/forever | Full agent execution governance on a single machine. Local execution gate, override corpus, pre-commit guard, Agent Blunder Log. |
+| **Growth** | $299/mo | Team-wide execution policy enforcement. Shared override corpus, Slack-to-corpus loop, incident replay, ROI dashboard. Up to 10 services. |
+| **Enterprise** | Custom | Policy-enforced autonomous remediation, CI/CD agent safety gate, compliance controls, VPC deployment — with a 30-day shadow pilot before any commitment. |
 
 The core server, SDKs, and IDE integrations are MIT-licensed and free. The Hypothesis Engine (causal chain reconstruction, Platt-scaled confidence calibration, autonomous remediation) is licensed under the Elastic License 2.0 — free for internal use, not for resale as a managed service.
 

@@ -4,9 +4,9 @@ import { GeistMono } from 'geist/font/mono'
 import './globals.css'
 
 const SITE_URL = 'https://mergen.dev'
-const TITLE = 'Mergen — Operational Memory for AI Agents'
+const TITLE = 'Mergen — Execution & Security Gateway for AI Agents'
 const DESCRIPTION =
-  'Mergen compresses raw production telemetry into structured machine context, encodes your team\'s override decisions as enforceable policy, and gives AI coding agents the operational facts they need to act safely in production.'
+  'Mergen sits inline between AI agents and your systems, blocking unsafe actions, enforcing approval workflows, and creating auditable execution trails across development and production environments.'
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),

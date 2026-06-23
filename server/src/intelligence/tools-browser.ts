@@ -30,7 +30,7 @@ export function registerBrowserTools(server: McpServer): void {
     'get_recent_logs',
     {
       description:
-        'Retrieves operational memory from the event buffer — recent console events captured from the runtime. ' +
+        'Retrieves runtime events from the event buffer — recent console events captured from the runtime. ' +
         'Default min_severity is WARN — console.log spam is filtered out automatically. ' +
         'Use exclude_patterns to suppress known noise (e.g. ["HMR", "\\[vite\\]", "\\[Fast Refresh\\]"]). ' +
         'Use this to drill into specific errors after get_unified_timeline has shown the cross-signal picture. ' +

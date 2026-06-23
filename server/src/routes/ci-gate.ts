@@ -136,7 +136,7 @@ export function createCIGateRouter(): Router {
         ? 'Review the override corpus before merging. This change touches areas your team has explicitly blocked in the past.'
         : verdict === 'warn'
         ? 'Proceed with caution — this change touches areas with a history of operational overrides.'
-        : 'No corpus conflicts found. Safe to merge based on operational memory.';
+        : 'No corpus conflicts found. Safe to merge based on execution history.';
 
     logger.info({ verdict, riskScore, tags: inferredTags, service, actor, files: files.length }, 'ci-gate: evaluated PR');
 
