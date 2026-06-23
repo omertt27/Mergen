@@ -50,6 +50,7 @@ import { initTeam, broadcastToTeam } from './intelligence/team.js';
 import { initTelemetry, maybeSendTelemetry } from './intelligence/telemetry.js';
 import { getPlan } from './intelligence/plans.js';
 import { registerTools, toolCallCounts } from './intelligence/tools.js';
+import { createGuardedServer } from './intelligence/tool-guard.js';
 import { registerResources } from './intelligence/mcp-resources.js';
 import { registerPrompts } from './intelligence/mcp-prompts.js';
 import { SYSTEM_PROMPT } from './intelligence/prompts.js';
@@ -356,7 +357,12 @@ async function main(): Promise<void> {
     { name: 'mergen', version: SERVER_VERSION },
     { instructions: SYSTEM_PROMPT },
   );
-  registerTools(mcp);
+  // Wrap with local policy gate before tool registration. Every tool call now
+  // passes through enterprise-policy-engine.ts before the handler executes:
+  //   PASS  → handler runs immediately (<1ms overhead)
+  //   BLOCK → MCP error returned, blunder logged
+  //   HOLD  → Promise held until POST /hitl/approve or /hitl/deny
+  registerTools(createGuardedServer(mcp, port));
   registerResources(mcp);
   registerPrompts(mcp);
   const transport = new StdioServerTransport();

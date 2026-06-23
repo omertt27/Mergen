@@ -43,14 +43,20 @@ describe('planAllowsTier', () => {
     expect(planAllowsTier('nonexistent', 'pro')).toBe(false);
   });
 
-  it.each(['solo_starter', 'solo_pro', 'solo_power', 'pay_as_you_go'])(
+  it.each([
+    'starter', 'team', 'platform', 'enterprise',
+    'solo_starter', 'solo_pro', 'solo_power', 'pay_as_you_go'
+  ])(
     '%s plan allows pro tier',
     (planId) => {
       expect(planAllowsTier(planId, 'pro')).toBe(true);
     },
   );
 
-  it.each(['solo_starter', 'solo_pro', 'solo_power', 'pay_as_you_go'])(
+  it.each([
+    'starter', 'team', 'platform', 'enterprise',
+    'solo_starter', 'solo_pro', 'solo_power', 'pay_as_you_go'
+  ])(
     '%s plan also allows free and all tiers',
     (planId) => {
       expect(planAllowsTier(planId, 'free')).toBe(true);

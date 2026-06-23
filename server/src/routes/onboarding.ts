@@ -158,7 +158,7 @@ export function createOnboardingRouter(): Router {
       ...(shouldNudgeUpgrade() ? [{
         id:          'team_upgrade_prompt',
         label:       `You've analyzed ${analyzedIncidentCount()} incidents — share with your team`,
-        description: `The override corpus you've built on ${analyzedIncidentCount()} incidents is your team's most valuable asset. Team plan ($299/mo) shares it across your on-call rotation, adds incident replay, and unlocks the shadow analytics PDF your CISO needs for autopilot sign-off.`,
+        description: `The override corpus you've built on ${analyzedIncidentCount()} incidents is your team's most valuable asset. Team plan ($2,500/mo) shares it across your on-call rotation, adds incident replay, and unlocks the shadow analytics PDF your CISO needs for autopilot sign-off.`,
         status:      'pending' as const,
         docsUrl:     'https://mergen.dev/pricing',
         command:     'open https://mergen.dev/pricing',

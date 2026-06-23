@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { memoryStore, formatMttr, type IncidentMemoryRecord } from '../datadog/memory-store.js';
 import { agentMemoryStore } from '../sensor/agent-memory-store.js';
-import { getOverrideSummary, getOverridesForTag } from './override-corpus.js';
+import { getOverrideSummary, getOverridesForTag, type OverrideReason } from './override-corpus.js';
 import { getStats, getStatsForTag, getRecords, isCorpusSeeded } from './calibration.js';
 import { trackCall } from './tools-state.js';
 
@@ -129,6 +129,26 @@ export function registerMemoryTools(server: McpServer): void {
         `## Incident History — fingerprint \`${fp}\``,
         '',
       ];
+
+      // "Why did this break again?" — Visible Intelligence Moment for Solo Devs
+      const mostRecent = similar[0];
+      const timeAgo = Math.round((Date.now() - mostRecent.firedAt) / 86_400_000);
+      const timeDesc = timeAgo === 0 ? 'today' : timeAgo === 1 ? 'yesterday' : `${timeAgo} days ago`;
+      const lastFixDesc = mostRecent.fixPrTitle
+        ? `[${mostRecent.fixPrTitle}](${mostRecent.fixPrUrl ?? '#'})`
+        : mostRecent.fixSummary
+          ? mostRecent.fixSummary
+          : `Fix pattern (${mostRecent.resolutionType})`;
+
+      lines.push(
+        `> 💡 **Visible Intelligence: "Why did this break again?"**`,
+        `> `,
+        `> 👉 **This error has happened before (${timeDesc}). Here's what you did last time — and why it worked:**`,
+        `> - **Last Fix:** ${lastFixDesc}`,
+        `> - **Resolution Type:** \`${mostRecent.resolutionType}\``,
+        `> - **Implicated File:** \`${mostRecent.implicatedFile || 'unknown'}${mostRecent.implicatedLine ? ':' + mostRecent.implicatedLine : ''}\``,
+        ''
+      );
 
       if (stats && stats.occurrences > 1) {
         const p50 = stats.p50MttrMs ? formatMttr(stats.p50MttrMs) : 'N/A';
@@ -570,5 +590,101 @@ export function registerMemoryTools(server: McpServer): void {
 
       return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
     },
+  );
+
+  // ── check_staged_changes ───────────────────────────────────────────────────
+  server.registerTool(
+    'check_staged_changes',
+    {
+      description:
+        'Checks a list of files or staged changes against the operational database to see ' +
+        'if they have been involved in past outages or conflicts. Always call this BEFORE ' +
+        'applying a change or proposing a fix to make sure your AI assistant is not confidently wrong ' +
+        'and repeating a previous failure.',
+      inputSchema: {
+        files: z.array(z.string())
+          .describe('List of files changed or intended to change (e.g. ["server/src/auth.ts", "package.json"])'),
+        prTitle: z.string().optional()
+          .describe('The proposed changes description or commit message'),
+        service: z.string().optional()
+          .describe('Service name if known'),
+      },
+    },
+    async ({ files, prTitle = '', service = '' }) => {
+      trackCall('check_staged_changes');
+      
+      const matchedIncidents: any[] = [];
+      const matchedOverrides: any[] = [];
+      
+      // Look up files in the incident memory database
+      if (memoryStore.isHealthy()) {
+        const allIncidents = memoryStore.listAll(1000);
+        for (const file of files) {
+          const matching = allIncidents.filter(
+            (r) => r.implicatedFile && r.implicatedFile.toLowerCase().includes(file.toLowerCase())
+          );
+          matchedIncidents.push(...matching);
+        }
+      }
+      
+      // Look up overrides matching files or service
+      const summary = getOverrideSummary();
+      for (const item of summary) {
+        if (service && item.services.includes(service)) {
+          matchedOverrides.push(item);
+        } else {
+          // Check if failure tag matches PR description or files
+          const cleanTag = item.tag.replace(/_/g, ' ').toLowerCase();
+          const cleanTitle = prTitle.toLowerCase();
+          if (cleanTitle.includes(cleanTag) || files.some(f => f.toLowerCase().includes(item.tag.replace(/^infra_/, '').replace(/_/g, '')))) {
+            matchedOverrides.push(item);
+          }
+        }
+      }
+      
+      if (matchedIncidents.length === 0 && matchedOverrides.length === 0) {
+        return {
+          content: [{
+            type: 'text',
+            text: '✅ **No past failures or override patterns match your proposed changes.** Safe to proceed.',
+          }],
+        };
+      }
+      
+      const lines: string[] = [
+        `> 💡 **Visible Intelligence: "My AI agent is confidently wrong"**`,
+        `> `,
+        `> ⚠️ **Warning: Your proposed changes touch files or logic with a history of operational failures:**`,
+      ];
+      
+      // Deduplicate incident matches by ID
+      const uniqueIncidents = Array.from(new Map(matchedIncidents.map(i => [i.id, i])).values());
+      for (const inc of uniqueIncidents.slice(0, 5)) {
+        const dateDesc = new Date(inc.firedAt).toISOString().slice(0, 10);
+        lines.push(
+          `> - **File:** \`${inc.implicatedFile}\` previously caused **Incident #${inc.id}** (${dateDesc})`,
+          `>   *Error:* ${inc.errorMessage.slice(0, 100)}`,
+          `>   *Last Fix:* ${inc.fixPrTitle || inc.fixSummary || 'Not specified'}`
+        );
+      }
+      
+      // Deduplicate override matches
+      const uniqueOverrides = Array.from(new Map(matchedOverrides.map(o => [o.tag, o])).values());
+      if (uniqueOverrides.length > 0) {
+        lines.push(`>`, `> 🚫 **Active constraints from past overrides:**`);
+        for (const ov of uniqueOverrides.slice(0, 5)) {
+          lines.push(
+            `> - \`${ov.tag}\` has been overridden **${ov.total} times** (Dominant reason: \`${ov.dominantReason || 'unknown'}\`)`
+          );
+        }
+      }
+      
+      return {
+        content: [{
+          type: 'text',
+          text: lines.join('\n'),
+        }],
+      };
+    }
   );
 }

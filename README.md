@@ -1,639 +1,362 @@
 # Mergen
 
-> **AI agents don't know how your systems actually work. Mergen gives them — and you — the operational context, historical decisions, and infrastructure memory needed to make safer changes.**
+> **AI agents don't know how your systems actually work.**
+> **Mergen gives AI agents and engineers the operational context, historical decisions, and infrastructure memory needed to make safer changes. Every incident, override, and postmortem compounds into queryable policy — specific to your systems, impossible to replicate from a standing start.**
 
-Code generation is now instantaneous. The bottleneck has shifted: engineering teams no longer struggle to write code — they struggle to understand what AI-generated code does in production before it breaks something, and to ensure that knowledge doesn't evaporate when the incident is over.
+---
 
-Mergen is a **Knowledge Compounding System** — the operational intelligence layer between your observability stack and the people and agents who act on it. It compresses raw production telemetry into structured causal chains, converts human engineering decisions (overrides, postmortems, Slack resolutions) into machine-readable policy, and gives your AI IDE the operational facts it needs to act safely without asking you to paste logs into a chat.
-
-**The compound effect:** Every incident Mergen sees improves its accuracy for your specific infrastructure. Every override your team records becomes enforceable policy. After six months, Mergen knows your Friday settlement windows, your compliance holds, and your on-call's preferred fixes — structured, queryable, impossible to replicate from a standing start.
-
-Works with **Claude Code**, **Cursor**, **Windsurf**, and **VS Code** — any IDE that supports MCP.
+### See it in 60 seconds 🚀
 
 ```bash
-# Claude Code
-claude mcp add mergen --transport stdio -- mergen-server start
-
-# Cursor / Windsurf / VS Code
-mergen-server setup   # writes the config file for your IDE automatically
+npx mergen-server
 ```
 
-Then ask: *"Triage the api-service."*
+* **✓ Knowledge compounds** with every incident
+* **✓ Override corpus**: your infrastructure DNA
+* **✓ Pre-commit incident guard**
+* **✓ Platt-calibrated** per-environment confidence
+* **✓ Agent safety CI gate**
+* **✓ All data on your infrastructure**
 
-**One-click install:**
-
-[![Install in Cursor](https://img.shields.io/badge/Cursor-Install%20MCP-000?logo=cursor&logoColor=white)](cursor://anysphere.cursor-deeplink/mcp/install?name=mergen&command=npx&args=mergen-server%20start)
-[![Install in VS Code](https://img.shields.io/badge/VS%20Code-Install%20MCP-007ACC?logo=visualstudiocode&logoColor=white)](vscode://github.copilot-chat/installMcpServer?name=mergen&command=npx&args=mergen-server%20start)
-[![Install in Windsurf](https://img.shields.io/badge/Windsurf-Install%20MCP-4A90D9?logo=windsurf&logoColor=white)](windsurf://mcp/install?name=mergen&command=npx&args=mergen-server%20start)
-[![Install in Claude Code](https://img.shields.io/badge/Claude%20Code-Add%20MCP-D97706?logo=anthropic&logoColor=white)](https://claude.ai/code?addMcp=mergen)
-
-[![npm](https://img.shields.io/npm/v/mergen-server)](https://www.npmjs.com/package/mergen-server)
-[![License](https://img.shields.io/badge/license-MIT%20%2B%20ELv2-blue)](./LICENSE)
-[![MCP](https://img.shields.io/badge/MCP-stdio-black)](https://modelcontextprotocol.io)
-[![Privacy](https://img.shields.io/badge/data-your%20infra%20only-success)](#security)
-
-[**Quick Start →**](#quick-start) · [**Shadow Mode →**](#the-safety-layer) · [**How it works →**](#how-it-works) · [**MCP tools →**](#mcp-tools-ai-ide-integration)
+#### Key Metrics
+* 🎯 **94%** Root cause accuracy (33-incident eval corpus)
+* 🚀 **31 / 33** Correct classifications (2 known false positives)
+* ⏱️ **< 60s** Time to first insight (zero config required)
+* 🚦 **≥85%** Calibrated Gate (Platt-scaled safety threshold)
 
 ---
 
-## Who it's for
+### mergen — autonomous incident loop
 
-**Mid-market engineering teams (20–150 developers)** adopting AI coding assistants at high velocity — deploying fast, generating bugs faster, and burning on-call rotation. You have observability (Datadog, Sentry, PagerDuty) but no memory layer that turns incident resolutions into durable policy. Mergen is that layer.
+```text
+⏸ Pause  ↺ Restart  1x Speed
 
-**The VP of Engineering managing autonomous agents** — Your coding agents clear backlogs fast and introduce production incidents faster. They have no institutional memory. Mergen is the mandatory governance layer: every autonomous change is checked against your team's override corpus before it executes. When an agent proposes something that mirrors a past outage pattern, Mergen blocks it. You are buying insurance against the **Agent Outage Tax**.
-
-**The engineer drowning in AI-generated complexity** — You're not tired of writing code; you're tired of debugging the code AI wrote. Mergen compresses 500KB of telemetry noise into a 1KB runtime fact: the exact service, the exact failure signature, what was tried before, and what your team said worked. When an incident fires at 2am, Mergen is the colleague who already read the postmortem.
-
-**Solo developers and early-stage startups** — No Datadog required. Point Mergen at your Docker containers or drop one import into your Node.js entry point. Your AI IDE gets live context from your production logs immediately. The local verdict corpus builds automatically — the longer you run, the more Mergen knows about your specific system's quirks.
-
-**Compliance-heavy orgs** — Every autonomous action and every blocked command is written to `~/.mergen/audit.log` as immutable JSONL. The Agent Blunder Log shows every time Mergen blocked itself. Shadow mode gives your CISO 30 days of evidence — exactly what Mergen would have done autonomously, and how often it would have been right — before you flip `MERGEN_AUTOPILOT=true`.
-
----
-
-## The bottleneck shift
-
-AI IDEs write, review, and ship code well. They have no visibility into what broke in production, what the error rate looked like before and after a deploy, or what the on-call engineer did at 3am last Tuesday.
-
-This is not a logging problem. Datadog has the logs. PagerDuty has the alerts. The gap is *system understanding* — knowing why a system behaves the way it does before you change it. That understanding used to live in engineers' heads. As AI increases the volume and velocity of changes, the cost of not having it becomes critical.
-
-Mergen is the infrastructure that makes that understanding machine-readable. It connects your AI IDE to live telemetry (PagerDuty alerts, OpenTelemetry traces, Docker logs, Datadog spans) and builds a queryable corpus of how your system actually behaves and how your team handles production. When an incident fires, your IDE calls `triage_incident` and gets a structured causal chain, not a log dump.
-
----
-
-## How it differs from Datadog / PagerDuty / Notion / existing tools
-
-Observability tools notify humans after a crash. Wiki tools store what humans wrote down. Mergen compounds the knowledge of how your team *actually* resolves crashes — converting human activity into machine-readable policy automatically.
-
-**vs. Datadog / Sentry:** They have the logs. The gap is operational memory — knowing why your system behaves the way it does, what your team tried before, and what constraints matter before you change it. Mergen is the layer above observability, not a replacement for it.
-
-**vs. Notion / Confluence / Slack:** Your wiki was stale when you wrote it. Mergen builds the Override Corpus dynamically as your team works — every incident resolution, every human override, every postmortem automatically becomes queryable policy. No maintenance required.
-
-**vs. PagerDuty / Incident.io:** They orchestrate human workflows. Mergen adds memory to the workflow: when an incident fires, Mergen surfaces what happened in the last 47 similar incidents, what was tried, and what your team said afterward.
-
-**The moat is not the algorithm — it's the corpus.** Algorithms converge across vendors. The accumulated operational knowledge of your specific infrastructure — your Friday settlement windows, your compliance holds, your on-call's preferred fixes — is proprietary, non-portable, and impossible to replicate from a standing start. The longer Mergen runs, the wider that gap becomes.
-
----
-
-## Why this gets more valuable as AI coding accelerates
-
-Every other startup is building the accelerator pedal — tools to make AI write code faster. Mergen is building the brakes, the steering wheel, and the black-box flight recorder.
-
-The core bet: as code generation becomes nearly free, understanding software systems becomes the bottleneck. Three structural pressures are compounding in parallel:
-
-**Velocity trap — spaghetti automation at scale.** AI agents produce syntactically perfect code that ignores systemic architecture constraints. The result is high-velocity technical debt shipped at machine speed. When code generation is free and instantaneous, understanding what a system actually does in production becomes the scarcest resource in an engineering org. Mergen compresses that uncertainty into structured context before it tanks the infrastructure.
-
-**Loss of system context at the moment of change.** When a human spent three days writing a complex routing loop, the context lived in their head — edge cases, database quirks, the *why* behind the choices. When an AI agent generates the same block in four seconds, nobody knows why it exists. The moment it hits production, it becomes instant, unmaintainable legacy. Mergen recaptures that context: every incident, every override, every causal chain is stored as a replayable snapshot. Future engineers and future agents query Mergen before touching that code — not documentation that was already stale when it was written.
-
-**Exponential surge in distributed incidents.** Autonomous agents shipping code at machine speed introduce distributed systems failures that only manifest under production load — connection pool exhaustion, timeout cascades, silent microservice regressions that escape all static tests. The Agent Blunder Log and override corpus act as the governance checkpoint: when an autonomous coding loop tries to ship something that mirrors a historical outage signature, Mergen detects the pattern drift, halts the execution path, and records why.
-
-The macro thesis: Mergen scales directly in proportion to the change pressure AI puts on software systems. The faster the industry accelerates, the more necessary the system understanding layer becomes.
-
----
-
-## Why this is defensible: two primitives that compound with use
-
-### The Override Corpus — operational DNA that enforces itself
-
-Every time your team overrides Mergen's recommendation, that decision is encoded as policy. Shadow mode annotations build it automatically:
-
-```bash
-# After reviewing a shadow recommendation your team would have handled differently:
-curl -X POST http://127.0.0.1:3000/shadow-report/<id>/verdict \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "verdict": "would-override",
-    "overrideReason": "batch-window",
-    "note": "Friday 20-24 UTC — settlement run makes pool resize unsafe",
-    "manualAction": "kubectl rollout restart deployment/api"
-  }'
-```
-
-Mergen consults the corpus before every autonomous action. After enough production cycles, it knows your Friday settlement windows, your compliance holds, your on-call's preferred fixes — structured, queryable, and impossible to reconstruct from documentation alone. A generic vendor entering this space builds a general model. You build the operational DNA of your specific infrastructure.
-
-### The Agent Blunder Log — proof that autonomous agents need guardrails
-
-Every time Mergen's safety layer blocks an autonomous action, the event is recorded:
-
-```bash
-curl http://127.0.0.1:3000/agent-blunders
-# {"prevented": 23, "byType": {"allowlist_block": 14, "override_corpus_block": 7, "rbac_block": 2}, "last7Days": 4}
-```
-
-`prevented: 23` means your on-call did not handle 23 potentially unsafe autonomous actions. It is also the answer to "why would you trust an AI agent with prod?" — the system blocked itself, logged why, and waited. The Blunder Log compounds the same way the Override Corpus does: the more incidents Mergen sees, the richer the audit trail, and the more precisely the safety layer distinguishes safe from unsafe in your specific environment.
-
-**These two primitives are the long-term moat.** The diagnosis algorithm is reproducible. The accumulated operational memory of your infrastructure is not.
-
----
-
-## How it works
-
-```
-Your infrastructure
-  ├── OpenTelemetry  →  :3000/v1/traces   (any language, zero code changes)
-  ├── PagerDuty      →  /webhooks/pagerduty
-  ├── Docker         →  log streaming
-  └── CI/CD          →  /ci
-
-              ↓ incident.triggered
-
-  Mergen (Express + MCP stdio)
-    1. Receives PagerDuty webhook
-    2. Fetches trace context from Datadog (if configured)
-    3. Posts structured alert to Slack thread (owns the thread)
-    4. Runs causal analysis across all telemetry signals
-    5. Consults override corpus — has this action been overridden before?
-    6. If confidence ≥ 85% AND MERGEN_AUTOPILOT=true AND corpus permits:
-         → executes the fix command
-         → waits 5s → counts errors before/after
-         → posts RESOLVED / PARTIAL / REGRESSED to thread
-    7. Records resolvedAutonomously + MTTR to incident store
-
-              ↓ your AI IDE (Claude Code / Cursor / Windsurf / VS Code)
-
-  MCP tools available on demand:
-    triage_incident   → full autonomous loop
-    analyze_runtime   → diagnosis only, no execution
-    execute_fix       → run a specific fix (requires confirm: true)
-    validate_fix      → compare error counts before/after
-```
-
----
-
-## Quick start
-
-→ **[QUICKSTART.md](QUICKSTART.md)** — get running in 2 minutes
-
-```bash
-# One command does everything: checks Node, detects IDE, writes MCP config
-npx mergen-server@latest setup
-
-# Non-interactive (CI / scripts):
-npx mergen-server@latest setup --yes --ide cursor
-
-# Then start:
-mergen-server start
-```
-
-After setup, check integration status anytime:
-```bash
-mergen-server doctor
-```
-
-**In PagerDuty:** Services → Integrations → Webhooks → `https://your-server:3000/webhooks/pagerduty`
-
-**In your AI IDE:** *"Triage the latest incident"* — Mergen calls `triage_incident` automatically.
-
----
-
-## Honest note on confidence numbers
-
-When you first install Mergen, confidence scores like "91%" are **initial engineering estimates** — not measured from your production incidents. They reflect our judgment of how reliable each detector is across common failure modes.
-
-**Day 0 state:** Platt scaling (the statistical layer that converts raw scores into calibrated probabilities) is dormant until your local verdict corpus has at least 10 confirmed outcomes for a given detector. Until then, the score shown is the raw prior — honest, but uncalibrated. The Slack thread and MCP output always label this: `estimated — self-calibrates with use` vs `calibrated — N verdicts`, so you always know which you're looking at.
-
-After you record verdicts on your own incidents (via `/feedback` or the shadow mode annotation API), those numbers become **empirically calibrated to your system**. Per-detector calibration activates at 10 verdicts; a global model activates across all detectors once 10 total verdicts exist.
-
-Detectors that are consistently wrong on your system get demoted or suppressed automatically. Detectors that are consistently right earn trust. The system disciplines itself.
-
----
-
-## Before you enable autopilot: shadow mode
-
-Most teams don't flip `MERGEN_AUTOPILOT=true` on day one. Shadow mode lets you build the track record first.
-
-```bash
-MERGEN_SHADOW_MODE=true \
-MERGEN_SLACK_BOT_TOKEN=xoxb-... \
-MERGEN_SLACK_CHANNEL=#incidents \
-mergen-server start
-```
-
-For 30 days, Mergen runs the full diagnosis pipeline on every PagerDuty trigger and posts to your Slack thread what it **would have done** — without executing anything.
-
-```
 [03:17] PagerDuty → incident.triggered: "api-service HIGH error rate"
-
-[03:17] Mergen → #incidents (thread):
-  👁️ Shadow mode — would execute:
-     npm install jsonwebtoken@9.0.0 && pm2 restart api
-     Diagnosis: 91% confidence | Remediation: 88% confidence
-     Awaiting manual action.
+Fetching trace context...
+Running causal analysis across 847 telemetry events...
+Consulting override corpus for api-service...
+✓ No matching override pattern — proceeding
+Root cause: JWT middleware rejecting valid tokens (91% confidence)
+Deploy a3f8c12 · auth/middleware.ts in changed files · 4m before spike
+Autopilot executing fix (remediation confidence: 88%)
+npm install jsonwebtoken@9.0.0 && pm2 restart api
+Validating... error count: 14 → 0
+✅ RESOLVED — MTTR: 5m 23s · resolvedAutonomously=true
+Agent Blunder Log: 0 blocks this incident
+Posting audit trail to #incidents thread...
 ```
-
-After 30 days, pull the impact report:
-
-```bash
-# Shareable HTML one-pager — open in browser or save as PDF
-curl http://127.0.0.1:3000/impact-report?format=html > report.html
-
-# JSON for your own tooling
-curl http://127.0.0.1:3000/impact-report
-```
-
-You get: N incidents processed, X% Mergen would have resolved correctly, average autonomous MTTR vs. actual manual MTTR. That's the number your CISO needs before approving autonomous execution.
-
-**Annotate shadow entries** to build the track record faster:
-
-```bash
-# After reviewing a shadow recommendation:
-curl -X POST http://127.0.0.1:3000/shadow-report/<id>/verdict \
-  -H 'Content-Type: application/json' \
-  -d '{"verdict": "would-approve"}'
-
-# Or if you would have done something different:
-curl -X POST http://127.0.0.1:3000/shadow-report/<id>/verdict \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "verdict": "would-override",
-    "overrideReason": "batch-window",
-    "note": "Friday 20-24 UTC — settlement run makes pool resize unsafe",
-    "manualAction": "kubectl rollout restart deployment/api"
-  }'
-```
-
-`would-override` annotations automatically build the **override corpus** — Mergen learns your team's operational patterns and will pause before taking that action again in the same context.
+*Watch: 60s Quick Start*
 
 ---
 
-## Enabling autopilot
+## 01 // The Difference
 
-Once you've seen 30 days of shadow recommendations and the approval rate is above 80%:
+### Scenario A — Solo developer, no code reviewer
 
-```bash
-# Start with the safest tier — service restarts only
-MERGEN_AUTOPILOT=true \
-MERGEN_AUTOPILOT_LEVEL=restarts \
-MERGEN_SLACK_BOT_TOKEN=xoxb-... \
-MERGEN_SLACK_CHANNEL=#incidents \
-mergen-server start
-```
+| Without Mergen | With Mergen |
+| :--- | :--- |
+| **0m · Write the change**<br>Touch the same file that caused last month's outage. | **0m · Stage the change**<br>`git add auth_middleware.ts` |
+| **0m · Run tests**<br>Tests pass. No reviewer. Ship it. | **0s · Guard runs**<br>Cross-references staged files against incident history. |
+| **4h · Production alert fires**<br>Same failure mode. No one warned you. | **1s · Warning surfaced**<br>"This file was in Incident #388 — do not increase stack depth > 4." |
+| **4h+ · Reconstruct context**<br>Grep logs. Trace the history. Piece it together under pressure. | **2m · Fix before shipping**<br>Adjust the change. The outage never happens. |
+| **❌ Result**: The bug ships. | **✅ Result**: The bug never ships. Incident history is your reviewer — working silently at commit time. |
 
-`MERGEN_AUTOPILOT_LEVEL` controls which command risk tier executes autonomously:
+### Scenario B — Team, production incident at 3am
 
-| Level | What executes |
-|-------|--------------|
-| `restarts` | Service restarts and reloads (`pm2 restart`, `kubectl rollout restart`, `systemctl restart`) |
-| `deploys` | Restarts + rollbacks, dependency pins, image updates |
-| `full` | All commands that pass the safety blocklist (default) |
+| Without Mergen | With Mergen |
+| :--- | :--- |
+| **0m · PagerDuty fires**<br>Engineer wakes up. Opens laptop. | **0m · PagerDuty fires**<br>Mergen receives the webhook. |
+| **5m · Check logs**<br>Grep through millions of lines across services. | **2s · Analyze telemetry**<br>Correlates logs, traces, and infra signals. |
+| **15m · Check dashboards**<br>Correlate metrics across 5 different tabs. | **5s · Check operational memory**<br>Matches against past incidents and human overrides. |
+| **30m · Ask Slack**<br>"Who deployed last?" "Is the DB down?" | **10s · Generate validated fix**<br>Produces a remediation plan at ≥85% confidence. |
+| **45m · Guess root cause**<br>Apply a fix based on intuition. Hope it works. | **1m · Resolve or recommend**<br>Executes (autopilot) or posts fix for approval. |
+| **60m+ · Watch and wait**<br>Monitor dashboards for another 15 min to confirm. | **2m · Audit trail posted**<br>Full root cause + actions logged to Slack. |
+| **❌ Result**: 3am fire drill. | **✅ Result**: The engineer wakes up to a resolved incident and a full audit trail — not a 3am fire drill. Every action is logged and reversible. |
 
-Start with `restarts`, watch for 2–4 weeks, then promote to `deploys`, then `full`. Commands outside the permitted tier surface in the Slack thread as paused with an explanation.
+### Scenario C — Postmortem that compounds into policy
 
----
-
-## What an autonomous resolution looks like
-
-```
-[03:17] PagerDuty → incident.triggered: "api-service HIGH error rate"
-
-[03:17] Mergen → #incidents:
-  🚨 Production Incident — api-service
-  Fired just now  |  PagerDuty
-
-  ✅ Causal Attribution — 91% [HIGH]
-  Deploy a3f8c12 • production
-  • Deploy 4 minutes before error spike
-  • auth/middleware.ts in changed files
-
-[03:17] Mergen → #incidents (thread):
-  🔍 Root Cause Analysis
-  Hypothesis: JWT validation middleware rejecting valid tokens after dependency upgrade
-  Confidence: HIGH (91%) | Remediation: 88%
-  Fix: npm install jsonwebtoken@9.0.0 && pm2 restart api
-
-[03:17] Mergen → #incidents (thread):
-  ⚙️ Autopilot executing fix
-  `npm install jsonwebtoken@9.0.0 && pm2 restart api`
-
-[03:22] Mergen → #incidents (thread):
-  ✅ RESOLVED — 0 errors after fix (was 14)
-
-[03:22] incident store: resolvedAutonomously=true, MTTR=5m
-```
-
-Engineer wakes up to a resolved incident and a Slack thread with the full audit trail.
+| Without Mergen | With Mergen |
+| :--- | :--- |
+| **0m · Incident resolved**<br>Engineer writes a postmortem in Notion. Team reads it once. | **0m · Incident resolved**<br>Mergen records the override: "skip pool resize — Friday batch window." |
+| **2wk · Postmortem is stale**<br>Nobody updates it. The constraint lives in one person's head. | **1s · Policy encoded**<br>Override corpus entry created. Applies to all future incidents of this type. |
+| **3mo · Engineer leaves**<br>The constraint — "never resize pool on Friday" — is gone. | **3mo · Engineer leaves**<br>The constraint stays — in the corpus, queryable, enforceable. |
+| **3mo · Same incident**<br>New on-call rebuilds the understanding from scratch. | **3mo · Similar incident fires**<br>Mergen surfaces: "This pattern was overridden 6× — reason: batch-window." Autopilot pauses. |
+| **❌ Result**: Knowledge evaporates. | **✅ Result**: The knowledge compounds. Every incident makes the next one faster to resolve — for any engineer, any agent, forever. |
 
 ---
 
-## The safety layer
+## 03 // How It Works
 
-No autonomous system earns trust on day one. Mergen is designed so you can verify it before you rely on it — and so every failure mode has a defined, non-destructive outcome.
+### Four steps from alert to resolution
 
-**Start in shadow mode**
+* **STEP 1: Connect your production stack**
+  Ingest signals from PagerDuty, OpenTelemetry, Docker, Kubernetes, and optionally Datadog. No agent required.
+* **STEP 2: Detect and understand incidents**
+  When an alert fires, Mergen correlates telemetry across services, identifies the likely root cause, and matches it against past incidents and overrides.
+* **STEP 3: Apply operational memory**
+  Mergen checks what your team did last time — past fixes, human overrides, known failure patterns — before generating a validated remediation plan.
+* **STEP 4: Resolve or recommend**
+  Shadow mode: suggestion only. Assisted: recommended fix + approval. Autopilot: safe execution within constraints. Every action is logged and reversible.
 
-Run shadow mode for 30 days before enabling autopilot. Mergen runs the full diagnosis pipeline on every PagerDuty trigger, posts what it _would have done_ to your Slack thread, and never executes anything. Pull the track record at any time:
-
-```bash
-open http://127.0.0.1:3000/impact-report?format=html
-```
-
-You get: N incidents analyzed, X% Mergen would have resolved correctly, average proposed MTTR vs. actual, and a side-by-side table of Mergen's recommendation vs. what your engineer did. That is the number your CISO needs before approving autonomous execution.
-
-**Confidence gate — nothing runs below 85%**
-
-When diagnosis or remediation confidence is below the threshold, Mergen posts the root cause analysis and fix hint to Slack, returns the same to your AI IDE, and waits. Your engineer acts on a structured brief instead of a raw alert. The threshold self-calibrates via ROC analysis as your incident history grows.
-
-**Wrong fix — automatic rollback**
-
-If Mergen executes a fix and errors increase, `validate_fix` returns `REGRESSED`. Mergen immediately derives and runs the inverse command (`kubectl rollout undo`, `helm rollback`, package version revert) and posts the result to the thread. If auto-rollback isn't possible, it surfaces the manual revert command and waits.
-
-**Agent Blunder Log — every interception is recorded**
-
-Every blocked action is appended to the log and queryable at `GET /agent-blunders`. Block types: `allowlist_block` · `rbac_block` · `override_corpus_block` · `injection_attempt` · `planning_gate_block`. See [Why this is defensible](#why-this-is-defensible-two-primitives-that-compound-with-use) for the full breakdown of what this compounds into over time.
-
-**Safety blocklist — unconditional**
-
-15 command patterns are blocked regardless of confidence: `rm -rf`, `curl | bash`, `DROP TABLE`, `git push --force`, and others. A blocked command is never run. Mergen posts it to Slack for manual review. All blocked attempts are in `~/.mergen/audit.log`.
-
-**Override corpus — learns your team's constraints**
-
-If your team has previously overridden a fix for this service in this time window, Mergen pauses and posts why. It does not re-run an action that was judged unsafe in the same context. The corpus is explicit — you can inspect it at `GET /override-corpus`.
-
-**Audit trail**
-
-Every action taken or skipped is written to `~/.mergen/audit.log` as JSONL: timestamp, actor, command, verdict, reason.
-
-```bash
-cat ~/.mergen/audit.log | python3 -m json.tool
+```text
+PAGERDUTY             OPENTELEMETRY           DOCKER               DATADOG
+Incident Alerts       Traces + Metrics        Container Logs       APM Spans
+Webhooks              OTLP HTTP               stdout/stderr        Optional
+   │                     │                       │                    │
+   └─────────────────────┼──────────┬────────────┘                    │
+                         ▼          ▼                                 ▼
+                    ┌──────────────────────────────────────────────────┐
+                    │               MEMORY LAYER                       │
+                    │                  Mergen                          │
+                    │       Operational Memory Layer                   │
+                    │   ──────────────────────────────────             │
+                    │   - Incident history                             │
+                    │   - Override corpus                              │
+                    │   - Root cause engine                            │
+                    │   - Agent Blunder Log                            │
+                    │   - PII Shield                                   │
+                    └───────────────────────┬──────────────────────────┘
+                                            │
+         ┌──────────────────────────────────┼──────────────────────────┐
+         ▼                                  ▼                          ▼
+     AI IDEs                              COMMS                   COMPLIANCE
+   Claude Code (triage_incident)        Slack                     Audit Log
+   Cursor      (analyze_runtime)        (Owns the thread)         (Reversible JSONL)
 ```
 
 ---
 
-## The override corpus
+## 05 // Evaluation
 
-Every time your team decides not to apply Mergen's recommendation, record why:
+### Evaluated before you ever use it
 
-```bash
-curl -X POST http://127.0.0.1:3000/overrides \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "incidentTag": "infra_db_connection_pool",
-    "proposedCommand": "kubectl set env deployment/api DB_POOL_MAX=50",
-    "overrideReason": "batch-window",
-    "note": "Friday 20-24 UTC — settlement run, pool resize unsafe during this window",
-    "service": "api",
-    "environment": "production",
-    "manualAction": "kubectl rollout restart deployment/api"
-  }'
-```
+We built a regression eval harness before shipping v1. Every PR that touches detection logic must pass this suite — 33 real incident scenarios, 10 infrastructure failure classes. When we say 94% accuracy, that number is reproducible and falsifiable.
 
-Valid override reasons: `batch-window` · `cost-constraint` · `on-call-discretion` · `compliance-hold` · `prefer-read-replica` · `maintenance-window` · `wrong-diagnosis` · `wrong-fix` · `other`
+* **Overall accuracy**: `94%` (31 of 33 incidents classified correctly)
+* **Corpus size**: 33 incidents (31 correct, 2 false positives due to probe/scrape errors)
+* **Last eval run**: Jun 16, 2026
 
-After recording enough overrides, Mergen will pause before taking that action again in the same time window — and tell you why in the Slack thread:
+| Failure Class | Fixtures | Accuracy |
+| :--- | :--- | :--- |
+| DB Connection Pool | 5/5 | 100% |
+| OOM Kill | 5/5 | 100% |
+| Rate Limit Cascade | 3/3 | 100% |
+| Certificate Expiry | 3/3 | 100% |
+| Disk Pressure | 3/3 | 100% |
+| Service Unavailable | 3/3 | 100% |
+| Slow Query | 2/2 | 100% |
+| Downstream Latency | 3/3 | 100% |
+| Queue Backlog | 3/3 | 100% |
+| Upstream Error | 1/1 | 100% |
+| False positive (probe/scrape errors) | 0/2 | 0% |
 
-```
-⚠️ Autopilot paused — this action has been overridden before for `api`
-   (reason: batch-window). Awaiting manual confirmation.
-```
-
-See what the corpus has learned: `GET /override-corpus`
+> [!NOTE]
+> **Why this matters**: Most observability tools are evaluated by the engineers who built them, on the incidents they chose. Mergen ships a public eval harness — the same suite that gates every release. The 2 failures are documented: the detector fires on liveness probe and Prometheus scrape errors when it shouldn't. Fix is in the roadmap; hiding it is not.
+>
+> [View Full JSON Baseline →](file:///Users/omer/Desktop/Mergen/server/src/__tests__/eval-baseline.json)
 
 ---
 
-## Integrations
+## 02 // The Problem
 
-### OpenTelemetry (any language, zero code changes)
+### Teams ship code faster. Operational knowledge still evaporates.
 
-```bash
-# Python / Django / FastAPI
-OTEL_EXPORTER_OTLP_ENDPOINT=http://your-mergen-server:3000 \
-OTEL_SERVICE_NAME=api python app.py
+Every incident teaches your team something. The diagnosis, the override, the constraint that mattered — evaporates into heads, stale runbooks, Slack threads nobody reads under pressure. AI agents make this worse: they generate changes with no institutional memory at all.
 
-# Node.js / Express / NestJS
-OTEL_EXPORTER_OTLP_ENDPOINT=http://your-mergen-server:3000 \
-OTEL_SERVICE_NAME=api node app.js
+1. **Knowledge evaporates after every incident**
+   *Wikis rot. Slack threads become noise. People leave.*
+   When the incident is over, the hard-won understanding — why it happened, what constraint matters, what not to do next time — evaporates into heads, stale runbooks, and Slack threads nobody reads under pressure. Every repeat incident is a failure of memory, not engineering.
 
-# Go / Java / Ruby / .NET — same env var pattern
+2. **AI velocity without memory is sabotage**
+   *Agents generate code. They have no institutional knowledge.*
+   AI coding agents clear backlogs fast and introduce production failures faster. They have no context about your Friday settlement window, your compliance hold, or the connection pool that exhausted twice last quarter. Without an operational memory layer, every agent change is a blind change.
+
+3. **Observability tells you what broke — not what to do**
+   *Datadog has the logs. The understanding still lives in one engineer.*
+   PagerDuty pages a human. Datadog shows the trace. The human reconstructs the context — from memory, from a Slack thread, from the last person who touched that service. When they leave, the knowledge leaves. Mergen is the layer that keeps it.
+
+4. **Solo devs have no reviewer**
+   *Nothing between "I wrote this" and "it's in production"*
+   A team has code review as a safety net — someone else reads the change before it merges. A solo dev has nothing. Mergen's guard cross-references every commit against your incident history, asking the question your missing teammate would: *"didn't this file cause the outage last month?"* Not a lint check. Encoded institutional memory at commit time.
+
+> [!TIP]
+> **The missing layer is not more observability.** It is operational intelligence — converting every incident, override, and postmortem into compounding machine-readable policy that engineers and AI agents can query before they act.
+
+---
+
+## 04 // Core Systems
+
+### Knowledge that compounds. Safety that enforces it.
+
+* **🧬 01 · Override Corpus — Infrastructure DNA**
+  Every human override becomes machine-readable policy. After six months: your Friday settlement windows, compliance holds, and on-call preferences form your specific operational DNA — enforcing invariants before any autonomous action triggers. The algorithm is reproducible. This corpus is not.
+
+* **⚙️ 02 · Per-Environment Calibration**
+  Mergen uses Platt scaling calibrated to your specific infrastructure — not a global benchmark. As your team tags diagnoses (correct / partial / wrong), the confidence model updates. After 20–50 incidents, accuracy numbers reflect your systems, not ours.
+  
+  ```text
+  MRG Mergen APP 3:17 PM
+  ✅ Incident #402 resolved autonomously
+  Audit Trail Summary
+  • Root Cause: DB Connection Pool exhaustion (api-service)
+  • Confidence: 91% (matches pattern: stuck_idle_connections)
+  • Action: Flushed idle pools & increased capacity (max_idle: 5 → 20)
+  • Validation: Error rate 14% → 0.02% (confirmed 3:18 PM)
+  ```
+
+* **🛡️ 03 · Agent Blunder Log — CISO Insurance**
+  Every blocked autonomous action is recorded: allowlist blocks, corpus halts, planning gates, semantic blocks. The total prevented count is the board-deck answer to "why would you trust an AI agent with production?" Wired automatically — no setup required.
+
+* **🚦 04 · Semantic Safety Gates**
+  Before any autonomous execution, Mergen red-teams the proposed command using a local semantic safety engine: action risk, blast radius, and corpus-policy check — not regex allowlists.
+  
+  ```typescript
+  // auth_middleware.ts — Mergen Context / mcp.json
+  // Mergen: Historical Context found ⚠️
+  // This file was modified in Incident #388 (OOM Kill).
+  // Reason: Recursive token validation on nested JWTs.
+  // Constraint: Do not increase stack depth > 4.
+  export const validateToken = (token: string) => {
+    // checking depth...
+  ```
+
+* **📊 05 · Measurable MTTR — Board-Ready ROI**
+  The impact report isolates Mergen's context-assisted value: autonomous vs. manual MTTR, resolution rate, and time saved. "We saved 47 engineer-hours last month" is a sentence. The report generates it automatically.
+
+* **👤 06 · Shadow Mode — 30-Day Trust Track Record**
+  Before autonomous execution, Mergen runs in shadow mode: diagnoses every incident, records what it would have done, and lets your team annotate verdicts. The shadow report is your CISO's 30-day evidence package before you flip the autopilot switch.
+
+* **🚨 07 · Pre-commit Incident Guard**
+  Before you ship, Mergen cross-references every staged file against your incident history. *"This file was in 3 incidents last month"* — the question a code reviewer would ask, encoded as a git hook. The corpus working before the incident happens.
+
+* **👁️ 08 · Passive Status Surface**
+  Mergen tracks what happened while you weren't looking. Next time you check: *"this started failing 6 hours ago."* Not a push notification — context waiting when you return. The on-call teammate who works in silence.
+
+---
+
+## 04 // Interactive Sandbox
+
+### Test the detector logic
+
+* **Select Scenario:**
+  * DB Connection Leak
+  * OOM Kill
+  * Rate Limit Cascade
+* **Adjust Telemetry Inputs:**
+  * Idle Connections: `85%` (Critical)
+  * Error Rate Spike: `14.2%` (High)
+* **Run Detector →**
+  * Telemetry context pack: `pg_stat_activity count=85/100, wait_event=ClientRead`
+  * Causal Rule Match: `✓ MATCHED (Armed)`
+
+*Adjust parameters on the left, then click "Run Detector" to see Mergen's diagnostic check in action.*
+
+---
+
+## 04 // Integrations
+
+### Every source is a lesson. Mergen keeps the receipt.
+
+```text
+  Data Sources                                           Knowledge Corpus                   AI IDEs
+┌──────────────┐                                        ┌────────────────┐                 ┌─────────────┐
+│ PagerDuty    │──(Incident trigger)───────────┐        │                │                 │ Claude Code │
+├──────────────┤                               │        │                │                 └──────┬──────┘
+│ Datadog      │──(Traces + Logs)──────────────┼───────▶│                │──────(Context)─────────┘
+├──────────────┤                               │        │                │
+│ Slack        │──(Postmortem → corpus)────────┼───────▶│   Operational  │                 ┌─────────────┐
+├──────────────┤                               │        │     Memory     │──────(Context)──│ Cursor      │
+│ Git          │──(ADR → policy)───────────────┼───────▶│     Layer      │                 └──────┬──────┘
+├──────────────┤                               │        │                │──────(Context)─────────┘
+│ Kubernetes   │──(Events + Manifests)─────────┤        │                │
+├──────────────┤                               │        │                │                 ┌─────────────┐
+│ Prometheus   │──(Metrics)────────────────────┘        │                │                 │ Windsurf    │
+├──────────────┤                                        └────────────────┘                 └──────┬──────┘
+│ OpenTelemetry│──(OTLP HTTP)                                   ▲                                 │
+├──────────────┤                                                │                                 ▼
+│ GitHub       │──(PR safety gate)                              └─────────────(mcp.json)───── VS Code
+├──────────────┤
+│ AWS/GCP      │──(Config + Topology)
+└──────────────┘
 ```
 
-### Node.js (one line, zero deps)
+---
 
-```js
-// Top of your entry point — captures uncaught exceptions + process exits
-import 'mergen-server/sdk/node.js';
-```
+## 06 // Getting Started
 
-### Docker containers
+### First insight in 60 seconds. Pilot success: 1 real incident analyzed.
 
+#### 1. Zero Config (See it in 60 seconds)
+Run one command. Mergen starts a local server, loads 50 sample incidents from public postmortems, and immediately shows you a root cause analysis. No PagerDuty, no OTLP, no IDE setup required.
 ```bash
+npx mergen-server
+```
+*Opens `http://localhost:3000/demo` — click "Trigger P1 Incident" or ask a question in the chat tab.*
+
+#### 2. Connect Your Stack (Optional)
+When you're ready to switch from sample incidents to real production data, connect one source. Start with Docker logs — it requires zero configuration and works immediately.
+```bash
+# Docker logs (easiest — works immediately)
 curl -X POST http://127.0.0.1:3000/watchers/docker
-# Streams stdout/stderr from all running containers into Mergen's buffer
+
+# PagerDuty → Service → Webhooks → https://your-host:3000/webhooks/pagerduty
+
+# OTLP (any language — one env var)
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:3000 node app.js
 ```
+*Pilot success condition: Mergen correctly analyzes 1 real incident in your environment.*
 
-### CI/CD (GitHub Actions)
-
-```yaml
-- name: Notify Mergen
-  if: failure()
-  run: |
-    curl -X POST $MERGEN_URL/ci \
-      -H 'Content-Type: application/json' \
-      -d '{"status":"failed","branch":"${{ github.ref_name }}","sha":"${{ github.sha }}"}'
-```
-
-### Slack (required for autonomous loop)
-
-1. Create a Slack app at [api.slack.com/apps](https://api.slack.com/apps)
-2. Add OAuth scope: `chat:write`
-3. Install to workspace → copy Bot Token (`xoxb-...`)
-4. Set `MERGEN_SLACK_BOT_TOKEN` and `MERGEN_SLACK_CHANNEL`
-
-### Per-service Slack routing
-
+#### 3. Add to Your AI IDE
+Register Mergen as an MCP server. The tools — `triage_incident`, `analyze_runtime`, `validate_fix` — appear automatically in your IDE.
 ```bash
-curl -X POST http://127.0.0.1:3000/slack/routing \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "service": "payments",
-    "channel": "#payments-incidents",
-    "minConfidence": 0.8,
-    "escalateAt": 0.95,
-    "oncallMention": "<!oncall>"
-  }'
+# Guided setup (detects your IDE automatically)
+mergen-server setup
+
+# Or manually — Claude Code
+claude mcp add mergen --transport stdio -- node "$(pwd)/server/dist/index.js"
 ```
+*Ask: "What caused the last incident?" — Mergen answers with root cause + fix hint.*
 
----
-
-## MCP tools (AI IDE integration)
-
+#### 4. Build the Override Corpus
+Run in shadow mode to start building your team's Override Corpus — the record of every override, constraint, and postmortem that makes Mergen specific to your infrastructure. Enable autopilot only after the corpus has established a track record.
 ```bash
-# Claude Code
-claude mcp add mergen --transport stdio -- mergen-server start
+# Start with shadow mode (builds corpus, no execution)
+MERGEN_SHADOW_MODE=true mergen-server start
 
-# Cursor / Windsurf / VS Code
-mergen-server setup  # writes the config file automatically
+# Enable auto-learning from Slack postmortems
+MERGEN_SLACK_OVERRIDE_LOOP=true mergen-server start
 ```
-
-| Tool | What it does |
-|------|-------------|
-| `triage_incident` | Full autonomous loop — diagnosis + optional fix execution |
-| `analyze_runtime` | Root cause analysis, no execution |
-| `execute_fix` | Run a hypothesis fix (`confirm: true` required) |
-| `validate_fix` | Error count before/after — records verdict to corpus |
-| `get_recent_logs` | Console/log events from the buffer |
-| `get_network_activity` | HTTP events with status, duration, response body |
-| `get_unified_timeline` | Request joined to backend span (exact causal join) |
-| `clear_buffer` | Empty the ring buffer |
-
-**Example prompts:**
-- *"What caused the last incident?"*
-- *"Triage the api-service — auto-execute if confident"*
-- *"Why are 401s spiking on /api/auth?"*
+*Every blocked action is recorded in the Agent Blunder Log at `GET /agent-blunders`. Hard Safety Policies at `~/.mergen/safety-policy.json` always apply first.*
 
 ---
 
-## Impact metrics
+## 07 // Pricing
 
-```bash
-# Full report as shareable HTML — open in browser, save as PDF
-open http://127.0.0.1:3000/impact-report?format=html
+### Start free. The corpus pays for itself.
 
-# JSON (custom window: ?days=7, ?days=90)
-curl http://127.0.0.1:3000/impact-report
+| Solo / Open Source | Growth | Enterprise |
+| :--- | :--- | :--- |
+| **$0/forever** | **$299/mo** | **Custom** |
+| Full operational intelligence loop on a single machine. Override corpus, calibration, pre-commit guard. No cloud, no card. | Shared operational memory across your engineering team. Incident replay, Slack-to-corpus learning loop, ROI dashboard. Up to 10 services. | Policy-enforced autonomous remediation, CI/CD agent safety gate, compliance controls, VPC deployment — with a 30-day shadow pilot before any commitment. |
+| [Get Started](https://mergen.dev/pricing) | [Start Growth Pilot](https://mergen.dev/pricing#growth) | [Schedule Pilot Call](https://mergen.dev/pricing#enterprise) |
 
-# Shadow mode track record
-curl http://127.0.0.1:3000/shadow-report
+### Feature Comparison
 
-# Weekly Slack digest (Slack block format)
-curl http://127.0.0.1:3000/shadow-report/slack-digest
-```
-
-The impact report shows: incidents processed, autonomous resolution rate, MTTR autonomous vs. manual, per-failure-mode breakdown, and the side-by-side comparison table of what Mergen would have done vs. what your on-call engineer actually did.
-
-**Three additional validation metrics for board-deck level evidence:**
-
-**Agent Blunder Log** — safety interceptions by type. The headline number is `prevented`: every time Mergen blocked itself before an unsafe autonomous action. Grows as you run in autopilot mode; zero on day one.
-```bash
-curl http://127.0.0.1:3000/agent-blunders
-```
-
-**Organic Habituation** — weekly rate of engineers who received a Mergen PR comment and subsequently engaged (submitted a review) that week, without being asked. A rising habituationRate means Mergen is becoming part of the review workflow.
-```bash
-curl http://127.0.0.1:3000/habituation
-# {"habituationRate": 0.71, "weekly": [{"week": "2026-W23", "engagementRate": 0.75, ...}]}
-```
-
-**Context-Assisted MTTR** — among manually resolved incidents, those where the engineer first read Mergen's diagnosis brief (`GET /trust-score/:pid`) resolved faster than those who did not. This isolates Mergen's value even when autopilot is off. Reported automatically in `GET /impact-report` once enough data exists.
-
----
-
-## Security
-
-**Local by default.** Ingest binds to `127.0.0.1`. Nothing leaves your infrastructure without explicit opt-in.
-
-- **PII shield** — always-on: email, phone, AWS access keys, PEM private keys, JWTs, credit card numbers. Configurable via `~/.mergen/pii-config.json`.
-- **Execution safety** — 15-pattern blocklist (no `rm -rf`, no `curl | bash`, no `DROP TABLE`, no force push). 60-second timeout. Every execution audit-logged to `~/.mergen/audit.log`.
-- **Confidence gate** — autonomous execution only at ≥85% remediation confidence. Diagnosis and remediation confidence are tracked separately.
-- **Override corpus gate** — autopilot consults your team's override history before executing. Recurring overrides are learned automatically.
-- **RBAC** — role-based access control for fix execution. Observers can view; only responders can execute.
-- **Cloud mode** — TLS + SHA-256 hashed API keys + sliding-window rate limiting + per-tenant event isolation.
-
-**Anonymous calibration (opt-in).** By default, zero data leaves your infrastructure. Set `MERGEN_TELEMETRY=1` to contribute anonymous accuracy signals — detector tag and verdict only, never incident content, service names, commands, or stack traces. You can audit exactly what would be sent: `GET /calibration/export`.
-
-```bash
-# Optional shared secret (local mode)
-MERGEN_SECRET=mysecret mergen-server start
-
-# Cloud mode (multi-tenant)
-MERGEN_CLOUD_MODE=true \
-MERGEN_TLS_CERT=/path/cert.pem \
-MERGEN_TLS_KEY=/path/key.pem \
-mergen-server start
-```
-
----
-
-## Environment variables
-
-```bash
-# Core
-MERGEN_AUTOPILOT=true              # enable autonomous fix execution
-MERGEN_SHADOW_MODE=true            # analyze + report, never execute — can be a permanent mode
-MERGEN_AUTOPILOT_LEVEL=restarts    # restarts | deploys | full (default: full)
-MERGEN_SLACK_BOT_TOKEN=xoxb-...    # Slack Web API token
-MERGEN_SLACK_CHANNEL=#incidents    # default incident channel
-MERGEN_SLACK_DIGEST_CHANNEL=#incidents  # weekly shadow digest channel (default: MERGEN_SLACK_CHANNEL)
-
-# Datadog (for trace context + validation)
-DD_API_KEY=...
-DD_APP_KEY=...
-DATADOG_SITE=datadoghq.com
-
-# Anonymous calibration (opt-in)
-MERGEN_TELEMETRY=1                 # enable anonymous accuracy signal export (to corpus.mergen.dev)
-MERGEN_TELEMETRY_URL=https://...   # override default aggregation server (self-hosted)
-
-# Cloud mode
-MERGEN_CLOUD_MODE=true
-MERGEN_TLS_CERT=/path/to/cert.pem
-MERGEN_TLS_KEY=/path/to/key.pem
-```
-
----
-
-## Verify your setup
-
-```bash
-# Health check
-curl -s http://127.0.0.1:3000/health | python3 -m json.tool
-
-# Simulate a backend incident
-curl -X POST http://127.0.0.1:3000/ingest \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "type": "console",
-    "level": "error",
-    "args": ["[api] database connection timeout — pool exhausted after 30s"],
-    "url": "http://api:8080/health",
-    "timestamp": '$(date +%s000)'
-  }'
-
-# Run the demo
-mergen-server demo
-
-# Pull the impact report
-open http://127.0.0.1:3000/impact-report?format=html
-```
-
----
-
-## Open-source scope
-
-The causal analysis engine in this repository (the Hypothesis Engine) is a **functional open-source implementation** that detects the most common failure patterns: auth token not persisted, silent slow requests, and empty 200 responses. It is the same engine used by the default tier.
-
-The commercial layer adds a broader detector library, multi-signal correlation across traces + spans + K8s events, and proprietary Platt-scaling models trained on aggregate incident data. These are not in this repository.
-
-Everything else — the MCP server, override corpus, agent blunder log, Slack threading, MTTR tracking, habituation metrics, and the safety execution layer — is fully implemented in this repo with no stubs.
-
----
-
-## Self-host vs. cloud
-
-Mergen runs entirely on your infrastructure. Your telemetry never leaves. For teams that want hosted Mergen (multi-tenant, managed updates, compliance exports), reach out: **hello@mergen.dev**
-
----
-
-## Governance
-
-Mergen is **public-source, closed-governance** infrastructure.
-
-The source code is public so that enterprise security teams and CISOs can audit our PII shield, command allowlist, and autonomous execution model before deploying inside their production VPCs. **We do not accept external pull requests.**
-
-This is a deliberate supply-chain security decision: Mergen executes autonomous remediation commands inside your infrastructure. Every line of server code is reviewed and signed by the core team to guarantee the integrity of the confidence calibration and command execution logic.
-
-| Want to... | Do this |
-|---|---|
-| Report a bug | [Open an Issue](https://github.com/omertt27/Mergen/issues) |
-| Suggest a feature | [Start a Discussion](https://github.com/omertt27/Mergen/discussions) |
-| Improve the Hypothesis Engine | Rate hypotheses 👍/👎 in the VS Code panel — this directly updates the calibration corpus |
-| Enterprise / custom integration | [mergen.dev/pricing](https://mergen.dev/pricing) |
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full governance model.
-
----
-
-
-<div align="center">
-
-**Mergen — system understanding infrastructure for high-change software environments.**
-
-</div>
+| Feature | Solo | Growth | Enterprise |
+| :--- | :--- | :--- | :--- |
+| Incident triage + causal analysis | ✓ | ✓ | ✓ |
+| Override corpus (local operational DNA) | Local | Shared | Shared |
+| Per-environment Platt calibration | ✓ | ✓ | ✓ |
+| Pre-commit incident guard (git hook) | ✓ | ✓ | ✓ |
+| Agent Blunder Log + audit trail | ✓ | ✓ | ✓ |
+| Shadow mode (30-day trust track record) | ✓ | ✓ | ✓ |
+| Incident replay + MTTR analytics | — | ✓ | ✓ |
+| Slack-to-corpus learning loop | — | ✓ | ✓ |
+| ROI dashboard (time saved) | — | ✓ | ✓ |
+| Slack ownership routing (10 services) | — | ✓ | ✓ |
+| CI/CD agent safety gate (GitHub Action) | — | — | ✓ |
+| Policy-enforced autonomous remediation | — | — | ✓ |
+| VPC deployment + TLS | — | — | ✓ |
+| SSO + RBAC + compliance controls | — | — | ✓ |
+| Audit exports (SOC 2 ready) | — | — | ✓ |
+| Dedicated onboarding + SLA | — | — | ✓ |

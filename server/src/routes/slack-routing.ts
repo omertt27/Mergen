@@ -10,6 +10,7 @@
 import { Router } from 'express';
 import { getRules, upsertRule, deleteRule, type SlackRoutingRule } from '../intelligence/slack-routing.js';
 import { postDailyDigest } from '../intelligence/slack-digest.js';
+import { compileOverrideFromSlackThread } from '../intelligence/override-corpus.js';
 import logger from '../sensor/logger.js';
 
 export function createSlackRoutingRouter(): Router {
@@ -148,6 +149,43 @@ export function createSlackRoutingRouter(): Router {
       const msg = err instanceof Error ? err.message : 'unknown error';
       res.status(500).json({ ok: false, error: `Failed to reach Slack API: ${msg}` });
     }
+  });
+
+  // ── POST /webhooks/slack/events ───────────────────────────────────────────
+  router.post('/webhooks/slack/events', (req, res) => {
+    const body = req.body as Record<string, any>;
+
+    // 1. URL Verification challenge
+    if (body.type === 'url_verification') {
+      res.status(200).send(body.challenge);
+      return;
+    }
+
+    // 2. Process event callback messages
+    if (body.type === 'event_callback' && body.event?.type === 'message') {
+      const event = body.event;
+      const text = String(event.text || '');
+      const service = String(event.service || 'unknown');
+
+      // Autocomplete check if it looks like an incident postmortem
+      const isPostmortem = text.toLowerCase().includes('postmortem') ||
+                           text.toLowerCase().includes('override') ||
+                           text.toLowerCase().includes('remediation');
+
+      if (isPostmortem) {
+        const overrideEvent = compileOverrideFromSlackThread(text, service);
+        if (overrideEvent) {
+          logger.info(
+            { id: overrideEvent.id, tag: overrideEvent.incidentTag },
+            'slack-events: automatically compiled override from Slack postmortem'
+          );
+          res.json({ ok: true, overrideCompiled: true, overrideId: overrideEvent.id });
+          return;
+        }
+      }
+    }
+
+    res.json({ ok: true, overrideCompiled: false });
   });
 
   return router;

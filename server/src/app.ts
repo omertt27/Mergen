@@ -65,6 +65,7 @@ import { createConfidenceRouter } from './routes/confidence.js';
 import { createArchRouter } from './routes/arch.js';
 import { createRunbooksRouter } from './routes/runbooks.js';
 import { createCIGateRouter } from './routes/ci-gate.js';
+import { createHitlRouter } from './routes/hitl.js';
 import { cloudAuthMiddleware, CLOUD_MODE } from './sensor/cloud-auth.js';
 import { handleSlackActions, handleFeedbackLink } from './intelligence/slack.js';
 import { getPrometheusMetrics } from './sensor/otel-exporter.js';
@@ -79,7 +80,7 @@ const MUTATING_PATHS = [
   // Incident pipeline — triggers autonomous command execution
   '/incident',
   // Infrastructure mutations
-  '/ci', '/overrides', '/rbac', '/heartbeats', '/slack/routing', '/slack/test', '/runbooks', '/ci/gate',
+  '/ci', '/overrides', '/rbac', '/heartbeats', '/slack/routing', '/slack/test', '/runbooks', '/ci/gate', '/hitl',
   // Process / container watchers
   '/watchers',
   // Billing & account mutations
@@ -359,6 +360,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createArchRouter());          // Arch boundary enforcement, risk scoring, graph, critic
   app.use(createRunbooksRouter());      // Pre-approved runbook library
   app.use(createCIGateRouter());        // CI/CD corpus gate for AI-generated PRs
+  app.use(createHitlRouter());          // Human-in-the-Loop approve/deny for held tool calls
 
   // GET /service-graph — in cloud mode, require API key (exposes internal topology)
   app.get('/service-graph', ...(CLOUD_MODE ? [cloudAuthMiddleware] : []), (_req, res) => {

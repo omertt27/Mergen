@@ -360,7 +360,7 @@ get_recent_logs(min_severity: 'error', exclude_patterns: ['HMR']) → 800 tokens
 
 | Tool | Free Tier | Paid Tier | Notes |
 |------|-----------|-----------|-------|
-| **Mergen** | 10 `analyze_runtime`/mo | $19/mo → 500 calls | Advanced analysis only, all other tools free |
+| **Mergen** | 10 `analyze_runtime`/mo | $299/mo (Growth) | Advanced causal analysis is local-only, team sharing is paid |
 | **chrome-devtools-mcp** | Unlimited | N/A | Fully free, no paid tier |
 | **playwright-mcp** | Unlimited | N/A | Fully free, no paid tier |
 | **Cursor Debug Mode** | N/A | $20/mo (Cursor Pro) | Requires Cursor subscription |

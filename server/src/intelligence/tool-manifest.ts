@@ -107,6 +107,7 @@ export const ALL_TOOLS: readonly ToolEntry[] = [
   { name: 'recall_agent_memory',      module: 'tools-memory',         tier: 'all'  },
   { name: 'get_override_patterns',    module: 'tools-memory',         tier: 'all'  },
   { name: 'get_detector_calibration', module: 'tools-memory',         tier: 'all'  },
+  { name: 'check_staged_changes',     module: 'tools-memory',         tier: 'all'  },
 
   // ── Intent / tickets ─────────────────────────────────────────────────────
   { name: 'create_ticket',            module: 'tools-utility',        tier: 'pro'  },
@@ -122,6 +123,7 @@ export const ALL_TOOLS: readonly ToolEntry[] = [
   { name: 'search_adrs',              module: 'tools-utility',        tier: 'all'  },
   { name: 'discover_repo_context',    module: 'tools-discovery',      tier: 'all'  },
   { name: 'get_buffer_schema',        module: 'tools-discovery',      tier: 'all'  },
+  { name: 'get_behavior_map',         module: 'tools-discovery',      tier: 'all'  },
   { name: 'report_confidence',        module: 'tools-utility',        tier: 'all'  },
   { name: 'plan_rollback',            module: 'tools-utility',        tier: 'all'  },
 

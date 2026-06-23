@@ -23,9 +23,9 @@ Mergen uses an open-core model:
 
 | Tier | Price | What's included |
 |---|---|---|
-| **Solo** | $0/forever | Full autonomous loop on a single machine |
-| **Team** | $299/mo | Shared operational memory, incident replay, Slack routing across up to 10 services |
-| **Enterprise** | Custom | Policy-enforced remediation, VPC deployment, SSO/RBAC, SOC 2 exports, dedicated SLA |
+| **Solo / Open Source** | $0/forever | Full operational intelligence loop on a single machine. Override corpus, calibration, pre-commit guard. |
+| **Growth** | $299/mo | Shared operational memory across your engineering team. Incident replay, Slack-to-corpus learning loop, ROI dashboard. Up to 10 services. |
+| **Enterprise** | Custom | Policy-enforced autonomous remediation, CI/CD agent safety gate, compliance controls, VPC deployment — with a 30-day shadow pilot. |
 
 The core server, SDKs, and IDE integrations are MIT-licensed and free. The Hypothesis Engine (causal chain reconstruction, Platt-scaled confidence calibration, autonomous remediation) is licensed under the Elastic License 2.0 — free for internal use, not for resale as a managed service.
 

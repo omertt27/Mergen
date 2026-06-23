@@ -10,6 +10,11 @@ metadata:
 **Category:** Operational Intelligence Infrastructure for AI-Native Engineering Teams
 **Core essence:** The Knowledge Compounding Company — not an observability tool, not an autopilot executor
 
+**Developer-Facing Positioning:**
+* **"Mergen remembers what your AI coding assistant forgets."**
+* **"Stop debugging the same problem twice."**
+* **"Make your AI understand your codebase over time."**
+
 **One-sentence (investor):** Mergen is the operational intelligence layer that allows AI agents and engineering teams to learn from how a company's infrastructure actually behaves.
 
 **Landing page headline:** AI agents don't know how your systems actually work.
@@ -17,13 +22,13 @@ metadata:
 
 ---
 
-## Beachhead Market
+## Beachhead Market & Strategic Tiers
 
-**Mid-market engineering teams (20–150 developers)** experiencing high AI coding velocity without a dedicated platform/SRE team. They already have observability (Datadog, Sentry, PagerDuty) but lack the memory layer that turns incident resolutions into durable policy.
+Instead of treating solo devs and mid-market teams as disjoint products, we unify them in a single strategic alignment:
 
-**Why:** They're deploying fast, adopting AI assistants, burning out on-call rotation, but can't afford dedicated SREs. They feel the pain acutely. Decision-makers (VP Eng, lead SRE) respond to "hours saved" and "agents behaving safely" — not "better dashboards."
-
-**Not (yet):** 2–5 person solo dev teams (too small for enterprise ACV) or enterprise 500+ dev orgs (too slow to buy and require compliance maturity Mergen doesn't have yet).
+* **Solo Devs (Distribution & Sensor Network)**: Generate behavioral data + distribution. They install Mergen to get immediate leverage inside their daily coding loop (avoiding repeated mistakes, stopping confidently wrong AI suggestions).
+* **Mid-Market Teams (20–150 developers) (Monetization)**: Experiencing high AI velocity, already using tools like Datadog/Sentry/PagerDuty, but missing a memory layer that turns resolutions into durable policies.
+* **Enterprise (500+ developers) (Moat)**: Requires deep custom policy and Override Corpora to prevent autonomous agent risks.
 
 ---
 
@@ -31,24 +36,23 @@ metadata:
 
 **The moat is not the algorithm — it's the corpus.**
 
-Algorithms converge across vendors. The Override Corpus — the accumulated operational knowledge of the customer's specific infrastructure — is proprietary, non-portable, and compounds with time. Competitor cannot replicate 6 months of "never restart DB pool during Friday settlement window" from a standing start.
+Algorithms converge across vendors. The Override Corpus — the accumulated operational knowledge of the customer's specific infrastructure — is proprietary, non-portable, and compounds with time. Competitors cannot replicate 6 months of "never restart DB pool during Friday settlement window" from a standing start.
 
-**Three compounding assets:**
-1. Override Corpus (Infrastructure DNA): every human override encoded as queryable policy
-2. Calibration Corpus: Platt-scaled confidence calibrated to this environment's actual incident history
-3. Agent Blunder Log: every blocked action recorded — the audit trail that answers "why trust an AI agent with prod?"
+**Three compounding assets (Same system, different scale):**
+1. **Micro Override Corpus (Solo)** → **Organizational Override Corpus (Enterprise)**: every human override encoded as queryable policy.
+2. **Calibration Corpus**: Platt-scaled confidence calibrated to this environment's actual incident history.
+3. **Agent Blunder Log**: every blocked action recorded — the audit trail that answers "why trust an AI agent with prod?"
 
 ---
 
 ## Phase Ordering (Strategic)
 
 Phase 4 (Organizational Learning) is now higher priority than Phase 5 (Autonomous Operations).
-
-**Why:** VPs of Engineering buy "safer changes." They fear "autonomous restarts." Phase 4 (Slack→corpus ingestion, git ADR→policy) builds the knowledge foundation that makes Phase 5 credible. Shipping Phase 5 first triggers CISO security scrutiny before trust is established.
+Solo dev features feed directly into Phase 4 by automatically accumulating incident resolutions and file/error histories.
 
 ```
 Phase 1: Sensor Ingest ✅
-Phase 2: IDE Integration ✅
+Phase 2: IDE Integration (Personal Leverage Focus) ✅
 Phase 3: CI/CD Safety Gate 🔄
 Phase 4: Organizational Learning ← PRIORITY (Slack+git→corpus)
 Phase 5: Autonomous Operations ← DEPRIORITIZED for GTM
@@ -56,20 +60,21 @@ Phase 5: Autonomous Operations ← DEPRIORITIZED for GTM
 
 ---
 
-## 6-Month Action Plan
+## 6-Month Action Plan (Solo & Team Alignment)
 
-1. Days 1–30: Distribution — Chrome Web Store + npm, `npx mergen-setup` auto-discovery
-2. Days 30–60: ROI Dashboard — time-saved tracking, VP-facing impact report
-3. Days 60–90: Slack-to-Override Memory Loop (Phase 4 MVP)
-4. Days 90–150: Agent Safety CI Gate / GitHub Action (Phase 3 MVP)
-5. Days 150–180: Enterprise pipeline — 5 mid-market design partners → paid
+1. **Days 1–30: Distribution**: Chrome Web Store + npm, `npx mergen-setup` auto-discovery. (Shipped/Done)
+2. **Days 30–60: Instant Personal Leverage (3 Killer Solo Use Cases)**:
+   * **"Why did this break again?"**: Retrieve previous diagnosis/resolutions for matching error signatures in IDE.
+   * **"My AI agent is confidently wrong"**: Warn/block changes that touch files/code implicated in previous failures.
+   * **"I don't understand my own system anymore"**: Auto-generate living behavioral maps from local telemetry.
+3. **Days 60–90: Slack-to-Override Memory Loop (Phase 4 MVP)**
+4. **Days 90–150: Agent Safety CI Gate / GitHub Action (Phase 3 MVP)**
+5. **Days 150–180: Enterprise pipeline** — 5 mid-market design partners → paid
 
 ---
 
 ## What to avoid
 
-**Focus drift:** Browser-specific integrations (React Fiber trees, WebSocket inspection) are developer utilities. They drive WAUs but not enterprise ACVs. Prioritize the Override Knowledge Graph server-side.
-
-**Autonomous execution framing:** Leading with "autopilot" triggers CISO objections before trust is established. Lead with knowledge compounding, surface autonomous execution as a later capability.
-
-**Why:** From investment memo (2026-06-22). Use this to filter any new feature request — does it compound the knowledge graph, or does it add a new UI surface?
+* **Focus drift on Administrative UI**: Avoid spending cycles on dashboards, enterprise governance panels, complex policy definition UIs, and compliance features for the developer-facing distribution tier. Keep the focus entirely on instant feedback loop value inside the IDE.
+* **Headless/Stateless Autopilot**: Leading with "autopilot" triggers CISO objections before trust is established. Lead with knowledge compounding (system memory) and personal safety checks.
+* **Invisible Infra**: The product must generate visible intelligence moments (such as error memory popping up when the AI IDE asks a question or proposes a fix) so developers feel the leverage immediately and share it.

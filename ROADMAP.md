@@ -241,29 +241,24 @@ Phase 5: Autonomous Operations (Self-Healing) ← DEPRIORITIZED FOR GTM
 
 ---
 
-## 🚀 Solo Developer Safety Layer (Planned)
+## 🚀 Solo Developer Personal Leverage (Instant Value Loop)
 
-**Context:** Solo devs face three structural absences that teams don't: no code reviewer, no one watching while they're away, no shared institutional memory. These features compensate for each — not as convenience, but as structural substitutes.
+**Context:** Solo devs adopt Mergen not for long-term governance or dashboards, but to gain immediate personal leverage inside their daily coding loop. The product acts as the **behavior memory** of their project, helping them stop repeating debugging work and shipping faster without breaking the same system twice.
 
-### Feature A: Pre-commit Incident Cross-Reference
-**The gap:** A team has code review. A solo dev has nothing between "I wrote this" and "it's in production."
-- At commit time, cross-reference staged file paths against incident ring buffer
-- Output: `auth_middleware.ts was modified in Incident #388 (OOM Kill) — constraint: do not increase stack depth > 4`
-- Hooks into `guard` pre-commit flow; requires `file`/`service` tags on buffer events
-- This is not a lint check — it's the teammate instinct: "didn't this break before?"
+### Use Case A: "Why did this break again?" (Incident Re-occurrence Memory)
+* **The Gap:** A dev encounters the same bug weeks or months later, but has forgotten the root cause and the workaround, wasting time repeating the investigation.
+* **Implementation:** When an error is recorded, check SQLite database history for matching signatures.
+* **Output:** The MCP tool outputs: *"This error has happened before (e.g., Incident #388). Here is what you did last time and why it worked."*
 
-### Feature B: Passive Status Surface (doctor enhancement)
-**The gap:** No one watching while you sleep.
-- When `/health` or `/doctor` is queried, surface first-error-timestamp: "this started failing 6h ago"
-- Not a push notification — context waiting when you return, not an interrupt while you're working
-- Requires: `firstSeenAt` timestamp on error records in ring buffer (one-field addition)
+### Use Case B: "My AI agent is confidently wrong" (Staged Changes Cross-Reference)
+* **The Gap:** AI code assistants (Cursor/Claude Code) propose plausible-looking code changes that inadvertently break other parts of the system.
+* **Implementation:** Cross-reference modified files and PR diffs against historical failure contexts and override corpus entries.
+* **Output:** Before allowing the change to proceed, Mergen injects: *"This change previously caused incident #12 in your repo (related files: auth_middleware.ts)."*
 
-### Feature C: Rationale Field on Override Records
-**The gap:** You're the only source of institutional memory. If you forget why a workaround exists, no one else knows.
-- Add optional `reason` field to override corpus records
-- Surface at query time: "3 weeks ago you overrode restart-during-window — reason: Friday settlement window"
-- The override corpus already stores *policy* (don't do X). This stores *rationale* (here's why past-you decided that)
-- Schema addition only; exposed in `/override-corpus` response and MCP tool output
+### Use Case C: "I don't understand my own system anymore" (Behavior Memory Graph)
+* **The Gap:** As side projects grow, the developer's mental model of runtime behavior, service topologies, and dependencies degrades.
+* **Implementation:** Auto-generate a living map of actual system behavior, request timelines, and dependency traces from local telemetry.
+* **Output:** Serves an interactive visualization and MCP resource showing the true operational connections and behavior logs of the system.
 
 ---
 

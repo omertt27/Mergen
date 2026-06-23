@@ -5,9 +5,44 @@
  * correctly with AI IDEs (Claude, Cursor, Windsurf, Copilot).
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { store } from '../sensor/buffer.js';
 import type { ConsoleEvent, NetworkEvent, ContextSnapshot } from '../sensor/buffer.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+
+// ── Hoisted mocks for tools testing ───────────────────────────────────────────
+const { mockMemoryStore, mockServiceTopology, mockGetOverrideSummary } = vi.hoisted(() => {
+  return {
+    mockMemoryStore: {
+      isHealthy: vi.fn().mockReturnValue(true),
+      findSimilar: vi.fn().mockReturnValue([]),
+      listAll: vi.fn().mockReturnValue([]),
+      benchmarkStats: vi.fn().mockReturnValue(null),
+      listOpen: vi.fn().mockReturnValue([]),
+    },
+    mockServiceTopology: {
+      snapshot: vi.fn().mockReturnValue({ nodes: [], edges: [], summary: {} }),
+    },
+    mockGetOverrideSummary: vi.fn().mockReturnValue([]),
+  };
+});
+
+vi.mock('../datadog/memory-store.js', () => ({
+  memoryStore: mockMemoryStore,
+  formatMttr: (ms: number) => `${Math.round(ms / 1000)}s`,
+}));
+
+vi.mock('../sensor/service-topology.js', () => ({
+  serviceTopology: mockServiceTopology,
+}));
+
+vi.mock('../intelligence/override-corpus.js', () => ({
+  getOverrideSummary: () => mockGetOverrideSummary(),
+  getOverridesForTag: vi.fn().mockReturnValue([]),
+}));
+
+import { registerMemoryTools } from '../intelligence/tools-memory.js';
+import { registerDiscoveryTools } from '../intelligence/tools-discovery.js';
 
 describe('MCP Tool Interface Tests', () => {
   beforeEach(() => {
@@ -561,6 +596,182 @@ describe('MCP Tool Interface Tests', () => {
 
       expect(network[0].responseBody).toEqual({ error: 'Token expired' });
       expect(errors[0].args[0]).toContain('Token expired');
+    });
+  });
+
+  describe('Developer Tier Leverage Tools', () => {
+    let server: McpServer;
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      server = new McpServer({ name: 'test', version: '0.0.0' });
+      registerMemoryTools(server);
+      registerDiscoveryTools(server);
+    });
+
+    async function callTool(name: string, args: Record<string, any>): Promise<any> {
+      const tools = (server as any)._registeredTools;
+      const tool = tools?.[name];
+      if (!tool) throw new Error(`Tool ${name} not registered`);
+      return tool.handler(args);
+    }
+
+    describe('get_incident_history tool', () => {
+      it('should return incident history and include the "Why did this break again?" warning block', async () => {
+        const mockRecord = {
+          id: 123,
+          fingerprint: 'fp-12345',
+          service: 'auth-service',
+          endpoint: '/api/login',
+          errorType: 'TypeError',
+          errorMessage: 'Cannot read property token of undefined',
+          implicatedFile: 'server/src/auth.ts',
+          implicatedLine: 45,
+          deployedSha: 'a3f8c12',
+          firedAt: Date.now() - 3600 * 1000 * 24, // 1 day ago
+          resolvedAt: Date.now() - 3600 * 1000 * 23,
+          mttrMs: 3600 * 1000,
+          pdIncidentId: 'pd-1',
+          pdAlertTitle: 'auth error',
+          pdAlertUrl: 'http://pd',
+          traceId: 'trace-1',
+          fixPrUrl: 'http://github/pr/1',
+          fixPrTitle: 'fix auth middleware token validation',
+          fixPrSha: 'b4a9e21',
+          fixSummary: 'Fixed check for undefined token structure in jwt decode',
+          resolutionType: 'hotfix_deploy' as const,
+          rawFact: null,
+          attributionConfidence: 0.9,
+          attributionSha: 'a3f8c12',
+          attributionValidated: 1,
+        };
+
+        mockMemoryStore.isHealthy.mockReturnValue(true);
+        mockMemoryStore.findSimilar.mockReturnValue([mockRecord]);
+        mockMemoryStore.benchmarkStats.mockReturnValue({
+          fingerprint: 'fp-12345',
+          occurrences: 2,
+          p50MttrMs: 3600 * 1000,
+          p90MttrMs: 3600 * 1000,
+          topResolutionType: 'hotfix_deploy',
+          topResolutionCount: 2,
+          lastSeenAt: Date.now() - 3600 * 1000 * 24,
+        });
+
+        const res = await callTool('get_incident_history', { fingerprint: 'fp-12345' });
+        expect(res.content[0].text).toContain('Visible Intelligence: "Why did this break again?"');
+        expect(res.content[0].text).toContain('This error has happened before');
+        expect(res.content[0].text).toContain('server/src/auth.ts:45');
+        expect(res.content[0].text).toContain('fix auth middleware token validation');
+      });
+    });
+
+    describe('check_staged_changes tool', () => {
+      it('should warn when changed files match past incidents and active overrides', async () => {
+        const mockRecord = {
+          id: 388,
+          fingerprint: 'fp-auth',
+          service: 'api-service',
+          endpoint: '/auth',
+          errorType: 'OOM',
+          errorMessage: 'Out of memory in token verification',
+          implicatedFile: 'auth_middleware.ts',
+          implicatedLine: 12,
+          deployedSha: 'sha-old',
+          firedAt: Date.now() - 3600 * 1000 * 24 * 3,
+          resolvedAt: Date.now() - 3600 * 1000 * 24 * 3 + 120000,
+          mttrMs: 120000,
+          pdIncidentId: 'pd-388',
+          pdAlertTitle: 'api oom',
+          pdAlertUrl: 'http://pd',
+          traceId: 'tr-388',
+          fixPrUrl: 'http://git/1',
+          fixPrTitle: 'fix recursive jwt verification depth limit',
+          fixPrSha: 'sha-new',
+          fixSummary: 'limit verification recursion',
+          resolutionType: 'hotfix_deploy' as const,
+          rawFact: null,
+          attributionConfidence: 0.95,
+          attributionSha: 'sha-old',
+          attributionValidated: 1,
+        };
+
+        mockMemoryStore.isHealthy.mockReturnValue(true);
+        mockMemoryStore.listAll.mockReturnValue([mockRecord]);
+
+        mockGetOverrideSummary.mockReturnValue([{
+          tag: 'infra_oom_kill',
+          total: 6,
+          dominantReason: 'batch-window',
+          services: ['api-service'],
+        }]);
+
+        const res = await callTool('check_staged_changes', {
+          files: ['auth_middleware.ts'],
+          prTitle: 'add middleware validation',
+          service: 'api-service',
+        });
+
+        expect(res.content[0].text).toContain('Visible Intelligence: "My AI agent is confidently wrong"');
+        expect(res.content[0].text).toContain('auth_middleware.ts');
+        expect(res.content[0].text).toContain('Incident #388');
+        expect(res.content[0].text).toContain('fix recursive jwt verification depth limit');
+        expect(res.content[0].text).toContain('infra_oom_kill');
+        expect(res.content[0].text).toContain('batch-window');
+      });
+
+      it('should return safe to proceed when no history matches', async () => {
+        mockMemoryStore.isHealthy.mockReturnValue(true);
+        mockMemoryStore.listAll.mockReturnValue([]);
+        mockGetOverrideSummary.mockReturnValue([]);
+
+        const res = await callTool('check_staged_changes', {
+          files: ['clean_file.ts'],
+        });
+
+        expect(res.content[0].text).toContain('No past failures or override patterns match');
+      });
+    });
+
+    describe('get_behavior_map tool', () => {
+      it('should generate living behavior map output based on serviceTopology data', async () => {
+        mockServiceTopology.snapshot.mockReturnValue({
+          capturedAt: '2026-06-23T16:00:00Z',
+          nodes: [
+            { name: 'api-service', type: 'service', avgDurationMs: 45, p99DurationMs: 120, spanCount: 150, errorCount: 2 },
+            { name: 'auth-service', type: 'service', avgDurationMs: 12, p99DurationMs: 30, spanCount: 150, errorCount: 0 },
+          ],
+          edges: [
+            { from: 'api-service', to: 'auth-service', callCount: 150, errorCount: 0, avgDurationMs: 10 },
+          ],
+          summary: {
+            totalServices: 2,
+            totalEdges: 1,
+            errorHotspot: 'api-service',
+            slowestEdge: { from: 'api-service', to: 'auth-service', avgDurationMs: 10 },
+            criticalPath: ['api-service', 'auth-service'],
+          },
+        });
+
+        const res = await callTool('get_behavior_map', {});
+        expect(res.content[0].text).toContain('Living Behavior Map (Behavior Memory)');
+        expect(res.content[0].text).toContain('api-service');
+        expect(res.content[0].text).toContain('auth-service');
+        expect(res.content[0].text).toContain('Error Hotspot**: `api-service`');
+        expect(res.content[0].text).toContain('Slowest Connection**: `api-service` → `auth-service`');
+        expect(res.content[0].text).toContain('Critical Execution Path**: `api-service` → `auth-service`');
+      });
+
+      it('should handle empty topology gracefully', async () => {
+        mockServiceTopology.snapshot.mockReturnValue({
+          nodes: [],
+          edges: [],
+          summary: { totalServices: 0, totalEdges: 0 },
+        });
+
+        const res = await callTool('get_behavior_map', {});
+        expect(res.content[0].text).toContain('No telemetry data available yet to build the map');
+      });
     });
   });
 });

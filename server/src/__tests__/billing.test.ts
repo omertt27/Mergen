@@ -49,14 +49,20 @@ describe('billing webhook signature', () => {
   });
 });
 
-// ── planFromVariantId — P1.1: single source of truth ─────────────────────────
-
 describe('planFromVariantId', () => {
   it('returns free for undefined variant', () => {
-    // When LS_VARIANT_* env vars are not set, all lsVariantIds are null.
-    // planFromVariantId should fall back to solo_starter (not crash).
     const result = planFromVariantId(undefined);
-    const validIds = ['free', 'solo_starter', 'solo_pro', 'solo_power', 'team', 'team_pro', 'pay_as_you_go'];
+    const validIds = [
+      'free',
+      'starter',
+      'team',
+      'platform',
+      'enterprise',
+      'solo_starter',
+      'solo_pro',
+      'solo_power',
+      'pay_as_you_go',
+    ];
     expect(validIds).toContain(result);
   });
 

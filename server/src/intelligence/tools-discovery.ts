@@ -16,6 +16,7 @@ import { z } from 'zod';
 import { ALL_TOOLS } from './tool-manifest.js';
 import { trackCall } from './tools-state.js';
 import { store } from '../sensor/buffer.js';
+import { serviceTopology } from '../sensor/service-topology.js';
 
 export function registerDiscoveryTools(server: McpServer): void {
   server.registerTool(
@@ -288,5 +289,75 @@ export function registerDiscoveryTools(server: McpServer): void {
 
       return { content: [{ type: 'text', text: lines.join('\n') }] };
     },
+  );
+
+  // ── get_behavior_map ────────────────────────────────────────────────────────
+  server.registerTool(
+    'get_behavior_map',
+    {
+      description:
+        'Returns the living runtime behavior map of the system based on actual call traces. ' +
+        'Shows service nodes, communication edges, latency stats, error rates, ' +
+        'and critical paths. Use this to understand service connections and trace dependencies.',
+      inputSchema: {},
+    },
+    async () => {
+      trackCall('get_behavior_map');
+      
+      const snap = serviceTopology.snapshot();
+      
+      if (snap.nodes.length === 0) {
+        return {
+          content: [{
+            type: 'text',
+            text: '## Living Behavior Map\n\nNo telemetry data available yet to build the map. Run your application and trigger network calls to build the topology.',
+          }],
+        };
+      }
+      
+      const lines: string[] = [
+        '## 🌐 Living Behavior Map (Behavior Memory)',
+        '',
+        `*Auto-generated topology based on live traces as of ${snap.capturedAt}*`,
+        '',
+        '### 🖥️ Services / Nodes',
+        '| Service Name | Type | Average Latency | p99 Latency | Call Count | Error Count |',
+        '|---|---|---|---|---|---|',
+        ...snap.nodes.map(n => 
+          `| \`${n.name}\` | \`${n.type}\` | ${n.avgDurationMs}ms | ${n.p99DurationMs}ms | ${n.spanCount} | ${n.errorCount} |`
+        ),
+        '',
+        '### 🔌 Connections / Edges',
+        '| Caller | Receiver | Call Count | Error Count | Average Latency |',
+        '|---|---|---|---|---|',
+        ...snap.edges.map(e => 
+          `| \`${e.from}\` | \`${e.to}\` | ${e.callCount} | ${e.errorCount} | ${e.avgDurationMs}ms |`
+        ),
+        '',
+        '### 📊 Summary',
+        `- **Total Services**: ${snap.summary.totalServices}`,
+        `- **Total Edges**: ${snap.summary.totalEdges}`,
+      ];
+      
+      if (snap.summary.errorHotspot) {
+        lines.push(`- ⚠️ **Error Hotspot**: \`${snap.summary.errorHotspot}\` has the highest error rate.`);
+      }
+      
+      if (snap.summary.slowestEdge) {
+        const { from, to, avgDurationMs } = snap.summary.slowestEdge;
+        lines.push(`- 🐢 **Slowest Connection**: \`${from}\` → \`${to}\` (Average: ${avgDurationMs}ms)`);
+      }
+      
+      if (snap.summary.criticalPath && snap.summary.criticalPath.length > 0) {
+        lines.push(`- ⛓️ **Critical Execution Path**: ${snap.summary.criticalPath.map(s => `\`${s}\``).join(' → ')}`);
+      }
+      
+      return {
+        content: [{
+          type: 'text',
+          text: lines.join('\n'),
+        }],
+      };
+    }
   );
 }

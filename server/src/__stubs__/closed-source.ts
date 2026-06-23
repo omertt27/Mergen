@@ -37,7 +37,16 @@ export const uploadCalibrationBatch = noopAsync;
 export const getActivePlanId = (): string => 'free';
 export const getPlan = (): Record<string, unknown> => ({ bufferSize: 2000, name: 'free' });
 
-const _PAID_PLANS = new Set(['solo_starter', 'solo_pro', 'solo_power', 'pay_as_you_go']);
+const _PAID_PLANS = new Set([
+  'starter',
+  'team',
+  'platform',
+  'enterprise',
+  'solo_starter',
+  'solo_pro',
+  'solo_power',
+  'pay_as_you_go',
+]);
 export const planAllowsTier = (planId: string | undefined, tier: string): boolean => {
   if (tier === 'free' || tier === 'all') return true;
   return _PAID_PLANS.has(planId ?? '');

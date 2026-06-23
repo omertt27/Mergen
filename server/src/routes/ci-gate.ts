@@ -16,6 +16,7 @@ import { getRulesForTag, hasRecentOverride, getOverrideSummary } from '../intell
 import type { CompactedRule } from '../intelligence/override-corpus.js';
 import { analyzeSemanticRisk } from '../intelligence/action-risk.js';
 import { postmortemStore } from '../intelligence/postmortem-store.js';
+import { evaluateEnterprisePolicy } from '../intelligence/enterprise-policy-engine.js';
 import logger from '../sensor/logger.js';
 
 export function createCIGateRouter(): Router {
@@ -95,6 +96,22 @@ export function createCIGateRouter(): Router {
         verdict = 'warn';
         reasons.push(`Semantic risk MEDIUM: ${semantic.reason ?? 'elevated-risk operation in diff'}`);
       }
+    }
+
+    // 4.5. Enterprise Custom Policy Engine evaluation
+    const enterpriseResult = evaluateEnterprisePolicy({
+      files,
+      actor,
+      service,
+      timestamp: Date.now(),
+    });
+    if (enterpriseResult.triggeredRules.length > 0) {
+      if (enterpriseResult.verdict === 'block') {
+        verdict = 'block';
+      } else if (enterpriseResult.verdict === 'warn' && verdict !== 'block') {
+        verdict = 'warn';
+      }
+      reasons.push(...enterpriseResult.reasons);
     }
 
     // 5. PR title keyword check against corpus tags

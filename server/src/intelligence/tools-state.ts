@@ -32,14 +32,14 @@ export const KNOWN_TOOLS = new Set([
   'get_session_replay', 'get_audit_log',
   // Memory
   'store_agent_memory', 'recall_agent_memory',
-  'get_override_patterns', 'get_detector_calibration',
+  'get_override_patterns', 'get_detector_calibration', 'check_staged_changes',
   // Intent
   'create_ticket',
   // Utility
   'clear_buffer', 'get_status', 'mark_capture_start', 'export_session', 'suggest_logging_locations',
   'watch_for_fix', 'stop_file_watch',
   // ADR / discovery / agent workflow
-  'search_adrs', 'discover_repo_context', 'report_confidence', 'plan_rollback', 'get_buffer_schema',
+  'search_adrs', 'discover_repo_context', 'report_confidence', 'plan_rollback', 'get_buffer_schema', 'get_behavior_map',
   // Architectural governance
   'check_arch_violations', 'score_change_risk', 'query_arch_graph', 'critique_implementation',
   // Discovery and environment

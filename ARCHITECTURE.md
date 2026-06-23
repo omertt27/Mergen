@@ -102,7 +102,7 @@ Mergen is a **production memory layer for AI IDEs** — an MCP server that conne
 8.  Context Pack is returned to the AI as the tool response.
     AI reads it and produces a precise, cited diagnosis.
 
-9.  Credit is consumed (solo_standard: 1 of 500/month, solo_pro: unlimited).
+9.  Credit is consumed (Solo / Open Source: 10 calls/month, Growth/Enterprise: unlimited).
     If overage, a usage record is reported to LemonSqueezy.
 ```
 
@@ -112,28 +112,23 @@ Mergen is a **production memory layer for AI IDEs** — an MCP server that conne
 
 | Plan | Price | Buffer | `analyze_runtime` Credits | Overage | Team Sync |
 |------|-------|--------|--------------------------|---------|-----------|
-| **Free** | $0 | 50 events | 0 (disabled) | — | ✗ |
-| **Solo Standard** | $19 / mo | 200 events | 500 / month | $0.05 / call | ✗ |
-| **Solo Pro** | $39 / mo | 200 events | ∞ Unlimited | — | ✗ |
-| **Team** | $49 / seat / mo | 200 events | ∞ Unlimited | — | ✓ |
-| **Pay-as-you-go** | $0 base | 200 events | 0 included | $0.05 / call | ✗ |
+| **Solo / Open Source** | $0 | 2,000 events | 10 / month | — | ✗ |
+| **Growth** | $299 / mo | 50,000 events | ∞ Unlimited | — | ✓ |
+| **Enterprise** | Custom | 1,000,000 events | ∞ Unlimited | — | ✓ |
 
 ### 5.1 Credit Mechanics
 
-- **Free:** 25 incidents/month, shadow mode (analysis without execution), hard cap.
-- **Pro ($29/mo):** 200 incidents/month, $50 overage ceiling — never more than $50 extra regardless of spike volume.
-- **Enterprise:** unlimited incidents per seat, shared override corpus, SSO + RBAC.
-- Counters reset on the **1st of every calendar month at 00:00 UTC**.
+- **Solo / Open Source:** 10 incidents/month causal analysis, shadow mode (analysis without execution), local override corpus.
+- **Growth:** Unlimited incidents/month, shared override corpus, Slack-to-corpus learning loop, ROI dashboard.
+- **Enterprise:** Unlimited incidents/month, CI/CD safety gate, policy-enforced autonomous remediation, VPC deployment, SSO + RBAC.
 - Counters reset on the **1st of every calendar month at 00:00 UTC**.
 
 ### 5.2 LemonSqueezy Variant IDs (env vars)
 
 | Plan | Env Var |
 |------|---------|
-| Solo Standard | `LS_VARIANT_SOLO_STANDARD` |
-| Solo Pro | `LS_VARIANT_SOLO_PRO` |
-| Team | `LS_VARIANT_TEAM` |
-| Pay-as-you-go | `LS_VARIANT_PAYG` |
+| Growth | `LS_VARIANT_GROWTH` |
+| Enterprise | `LS_VARIANT_ENTERPRISE` |
 
 ---
 
@@ -306,10 +301,8 @@ All persistent state lives under `~/.mergen/`:
 |----------|----------|-------------|
 | `LS_API_KEY` | For billing | LemonSqueezy API key — enables overage reporting |
 | `LS_WEBHOOK_SECRET` | For billing | HMAC secret for webhook signature verification |
-| `LS_VARIANT_SOLO_STANDARD` | For billing | LemonSqueezy variant ID for Solo Standard plan |
-| `LS_VARIANT_SOLO_PRO` | For billing | LemonSqueezy variant ID for Solo Pro plan |
-| `LS_VARIANT_TEAM` | For billing | LemonSqueezy variant ID for Team plan |
-| `LS_VARIANT_PAYG` | For billing | LemonSqueezy variant ID for Pay-as-you-go |
+| `LS_VARIANT_GROWTH` | For billing | LemonSqueezy variant ID for Growth plan |
+| `LS_VARIANT_ENTERPRISE` | For billing | LemonSqueezy variant ID for Enterprise plan |
 | `MERGEN_SECRET` | Optional | Shared secret for the `/ingest` endpoint |
 | `LOG_LEVEL` | Optional | Pino log level (`info`, `debug`, `warn`, `error`) |
 
@@ -317,7 +310,7 @@ All persistent state lives under `~/.mergen/`:
 
 ## Summary
 
-Mergen is a **single-binary MCP server** that runs locally, has zero external dependencies at runtime, costs nothing for basic use, and unlocks deep AI-assisted debugging for **$19–$49/month**. The architecture is intentionally minimal: one ring buffer, one causal engine, one MCP transport. Every design decision optimises for:
+Mergen is a **single-binary MCP server** that runs locally, has zero external dependencies at runtime, costs nothing for basic use, and scales to shared team memory for **$299/month**. The architecture is intentionally minimal: one ring buffer, one causal engine, one MCP transport. Every design decision optimises for:
 
 - **Latency** — local-only, O(1) buffer, LRU source map cache
 - **Precision** — source-mapped frames, ±2 s causal correlation, 7-section structured Context Pack

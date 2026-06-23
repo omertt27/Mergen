@@ -5,9 +5,9 @@ metadata:
   type: project
 ---
 
-Mergen is a local-first production telemetry MCP server that gives AI IDEs production memory — connecting Claude Code, Cursor, Windsurf, and VS Code to live incident data.
+Mergen is a local-first production and behavior telemetry MCP server that gives AI IDEs production and runtime memory — remembering what your AI assistant forgets to ensure you never debug the same problem twice.
 
-**Architecture:** PagerDuty / OpenTelemetry / Docker / Datadog → POST /ingest → ring buffer → MCP server (stdio) → Claude Code / Cursor / Windsurf / VS Code
+**Architecture:** PagerDuty / OpenTelemetry / Docker / Datadog / Local Processes → POST /ingest → ring buffer → MCP server (stdio) → Claude Code / Cursor / Windsurf / VS Code
 
 **Key files:**
 - `server/src/sensor/buffer.ts` — Zod schemas + ring buffer implementation
@@ -18,6 +18,7 @@ Mergen is a local-first production telemetry MCP server that gives AI IDEs produ
 - `server/src/intelligence/mcp-prompts.ts` — MCP Prompts (auth, network, crash, summary)
 - `extension/src/content.js` — Browser event capture
 
-**Why:** Gives AI agents real browser context (auth cookies, real errors) vs. headless browser tools.
+**Why:** Gives AI agents real browser and runtime behavior context (auth cookies, real errors, visual details, and historical resolution memory) vs. blind code generation.
 
 **How to apply:** The project has paid plan gating — `getActivePlanId()` controls feature access. Always respect plan gates when adding features.
+
