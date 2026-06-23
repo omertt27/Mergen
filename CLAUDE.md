@@ -4,7 +4,7 @@
 
 Sentry and Datadog tell you after an AI agent has corrupted your database or leaked credentials. Mergen is the deterministic gate that prevents it.
 
-When an agent calls `terraform destroy prod`, Mergen intercepts the MCP tool call in under 1ms — before the handler runs — and returns a structured error. The handler never executes. When an agent attempts a schema migration, Mergen holds the Promise and fires a Slack webhook: a human approves or denies with one click. When an engineer overrides an automated fix — "skip pool resize during the Friday settlement window" — Mergen encodes that as enforcement policy. The next agent that touches that system is bound by it.
+When an agent calls `terraform destroy prod`, Mergen intercepts the MCP tool call in under 1ms — before the handler runs — and returns a structured error with a guided alternative: *why* the call was blocked and *what to do instead*. The handler never executes. The agent reformulates and retries within policy. When an agent attempts a schema migration, Mergen holds the Promise and fires a Slack webhook: a human approves or denies with one click. When an engineer overrides an automated fix — "skip pool resize during the Friday settlement window" — Mergen encodes that as enforcement policy. The next agent that touches that system is bound by it.
 
 Mergen is the **first Agent Execution Governance (AEG) platform**: a local MCP and CLI proxy that physically intercepts every tool call, evaluates it against your deterministic policy engine, and either passes, blocks, or holds it for human approval. No probabilistic guardrails. No LLM in the critical path. No cloud credentials exposed.
 
@@ -24,7 +24,7 @@ Post-incident monitoring tools (Datadog, PagerDuty, Grafana) alert engineers aft
 
 | | Post-incident tools (Datadog + PagerDuty + Grafana) | **Mergen** |
 | :--- | :--- | :--- |
-| **Execution control** | None — agents run unrestricted | ✅ **Deterministic local gate blocks destructive tool calls in <1ms** |
+| **Execution control** | None — agents run unrestricted | ✅ **Deterministic local gate blocks destructive tool calls in <1ms — returns guided alternative so agent reformulates instead of stopping** |
 | **AI integration** | Dashboard with AI summaries | ✅ **MCP proxy: every tool call passes through policy before the handler runs** |
 | **Policy enforcement** | System prompts (probabilistic) | ✅ **Override corpus: every human decision becomes binding enforcement policy** |
 | **Agent safety** | None | ✅ **Agent Blunder Log + CI gate — every blocked action hash-chained and logged** |
@@ -103,12 +103,12 @@ AI IDE (Claude Code / Cursor / Windsurf / VS Code)
                 │
          PASS / BLOCK / HOLD
                 │
-       ┌────────┴─────────────────────┐
-       │ PASS: handler runs           │ BLOCK: MCP error returned,
-       │ HOLD: Promise suspended,     │   blunder logged, hash-chained
-       │   HITL webhook → Slack       │
-       │   approve/deny → resume      │
-       └──────────────────────────────┘
+       ┌────────┴──────────────────────────────────────────────┐
+       │ PASS: handler runs                                   │ BLOCK: structured error returned —
+       │ HOLD: Promise suspended,                             │   Why + What to do instead;
+       │   HITL webhook → Slack                               │   agent reformulates + retries;
+       │   approve/deny → resume                              │   blunder logged, hash-chained
+       └──────────────────────────────────────────────────────┘
                 │
        Express :3000  ← telemetry ingest, audit log, impact report
        │

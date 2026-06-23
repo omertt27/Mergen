@@ -21,6 +21,13 @@ import { randomUUID } from 'crypto';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { evaluateEnterprisePolicy } from './enterprise-policy-engine.js';
 import { recordBlunder } from '../sensor/agent-blunder-store.js';
+import {
+  recordGateBlock,
+  recordGatePass,
+  recordGateCoverage,
+  recordHitlDecision,
+} from './gate-analytics.js';
+import { trackBlock, trackSuccessfulCall } from '../sensor/bypass-tracker.js';
 import logger from '../sensor/logger.js';
 
 type McpResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
@@ -28,11 +35,13 @@ type McpResult = { content: Array<{ type: 'text'; text: string }>; isError?: boo
 const HOLD_TIMEOUT_MS = 15 * 60 * 1_000; // 15 minutes — matches execution-gate.ts
 
 interface PendingHold {
-  toolName:      string;
-  argsSnapshot:  string;
-  policyReason:  string;
-  resolve:       (result: McpResult) => void;
-  timeoutHandle: ReturnType<typeof setTimeout>;
+  toolName:       string;
+  argsSnapshot:   string;
+  policyReason:   string;
+  triggeredRules: string[];
+  heldAt:         number;
+  resolve:        (result: McpResult) => void;
+  timeoutHandle:  ReturnType<typeof setTimeout>;
 }
 
 const _pendingHolds = new Map<string, PendingHold>();
@@ -44,6 +53,7 @@ export function approveToolCall(token: string): boolean {
   if (!hold) return false;
   clearTimeout(hold.timeoutHandle);
   _pendingHolds.delete(token);
+  recordHitlDecision(hold.triggeredRules, 'approve', hold.heldAt);
   logger.info({ token, toolName: hold.toolName }, 'tool-guard: HITL approved');
   hold.resolve({
     content: [{ type: 'text', text: `✅ Tool call \`${hold.toolName}\` approved by operator.` }],
@@ -56,6 +66,7 @@ export function denyToolCall(token: string): boolean {
   if (!hold) return false;
   clearTimeout(hold.timeoutHandle);
   _pendingHolds.delete(token);
+  recordHitlDecision(hold.triggeredRules, 'deny', hold.heldAt);
   logger.info({ token, toolName: hold.toolName }, 'tool-guard: HITL denied');
   hold.resolve({
     content: [{ type: 'text', text: `❌ Tool call \`${hold.toolName}\` denied by operator.` }],
@@ -140,6 +151,38 @@ async function fireHitlWebhook(
   }
 }
 
+// ── Suggested alternatives for blocked tool calls ─────────────────────────────
+
+const COMMAND_ALTERNATIVES: Array<[RegExp, string]> = [
+  [/terraform destroy/i,       'Run `terraform plan -destroy` to preview the blast radius and share the plan output, then request human approval before proceeding.'],
+  [/kubectl delete/i,          'Run `kubectl describe <resource>` to confirm the target and current state, then request HITL approval before deletion.'],
+  [/drop (table|database)/i,   'Export a schema snapshot, confirm row counts, then create a reversible migration with a rollback path and request HITL approval.'],
+  [/truncate table/i,          'Confirm row count with `SELECT count(*) FROM <table>` and back up the data, then request approval to truncate.'],
+  [/rm -rf/i,                  'List the target first with `ls -la <path>` to confirm scope, then request human approval before deleting.'],
+  [/(destroy|nuke|wipe)\b/i,   'Describe the specific resource and intended outcome, then request human approval — this action is irreversible.'],
+];
+
+const RULE_ALTERNATIVES: Record<string, string> = {
+  policy_auth_batch_window:
+    'Auth changes are locked during the Friday settlement window (12:00–24:00 UTC). Schedule this for after Saturday 00:00 UTC, or submit a change request via HITL for manual override.',
+  hold_schema_mutations:
+    'Schema mutations require operator approval. Describe the migration intent, submit it for HITL review, and await the operator response before proceeding.',
+  policy_prod_database_warn:
+    'Database migrations should run via automated pipelines. Open a PR to trigger the migration workflow rather than running it directly.',
+};
+
+function getSuggestedAlternative(triggeredRules: string[], commandArg: string): string {
+  for (const ruleId of triggeredRules) {
+    const ruleAlt = RULE_ALTERNATIVES[ruleId];
+    if (ruleAlt) return ruleAlt;
+  }
+  const haystack = commandArg.toLowerCase();
+  for (const [pattern, alt] of COMMAND_ALTERNATIVES) {
+    if (pattern.test(haystack)) return alt;
+  }
+  return 'Describe the intended outcome and the specific resource, then request human approval before executing irreversible actions.';
+}
+
 // ── Core gate logic ───────────────────────────────────────────────────────────
 
 async function applyGate(
@@ -170,11 +213,19 @@ async function applyGate(
     logger.warn({ evalMs, toolName }, 'tool-guard: policy evaluation exceeded 10ms target');
   }
 
-  if (evaluation.verdict === 'pass') return next();
+  recordGateCoverage(toolName, evaluation.triggeredRules);
+
+  if (evaluation.verdict === 'pass') {
+    recordGatePass();
+    trackSuccessfulCall(toolName);
+    return next();
+  }
 
   const reason = evaluation.reasons.join('; ');
 
   if (evaluation.verdict === 'block') {
+    recordGateBlock(evaluation.triggeredRules);
+    trackBlock(toolName, evaluation.triggeredRules);
     recordBlunder({
       blunderType:     'pipeline_block',
       command:         toolName,
@@ -186,17 +237,19 @@ async function applyGate(
       confidenceScore: null,
     });
     logger.warn({ toolName, reason }, 'tool-guard: tool call blocked by local policy');
+    const alternative = getSuggestedAlternative(evaluation.triggeredRules, commandArg);
     return {
       content: [{
         type: 'text',
         text:  [
-          `🚫 **Tool call blocked by Mergen local policy gate.**`,
+          `🚫 **Mergen policy gate blocked this tool call.**`,
           ``,
-          `Tool: \`${toolName}\``,
-          `Reason: ${reason}`,
+          `**Tool:** \`${toolName}\``,
+          `**Why:** ${reason}`,
           ``,
-          `This action was logged to the Agent Blunder Log (\`GET /agent-blunders\`).`,
-          `To override: update the policy at \`~/.mergen/enterprise-policy.json\`.`,
+          `**What to do instead:** ${alternative}`,
+          ``,
+          `_Action logged to the Agent Blunder Log. To modify this policy: \`~/.mergen/enterprise-policy.json\`._`,
         ].join('\n'),
       }],
       isError: true,
@@ -204,7 +257,8 @@ async function applyGate(
   }
 
   // verdict === 'warn' → HITL hold
-  const token = randomUUID();
+  const token  = randomUUID();
+  const heldAt = Date.now();
   logger.info({ toolName, token, reason }, 'tool-guard: tool call held for HITL approval');
 
   void fireHitlWebhook(token, toolName, argsSnapshot, reason, port);
@@ -223,7 +277,15 @@ async function applyGate(
     }, HOLD_TIMEOUT_MS);
     timeoutHandle.unref();
 
-    _pendingHolds.set(token, { toolName, argsSnapshot, policyReason: reason, resolve, timeoutHandle });
+    _pendingHolds.set(token, {
+      toolName,
+      argsSnapshot,
+      policyReason:   reason,
+      triggeredRules: evaluation.triggeredRules,
+      heldAt,
+      resolve,
+      timeoutHandle,
+    });
   });
 }
 

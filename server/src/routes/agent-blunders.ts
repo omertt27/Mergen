@@ -1,7 +1,7 @@
 /**
  * routes/agent-blunders.ts
  *
- *   GET /agent-blunders           summary + recent events
+ *   GET /agent-blunders           summary + recent events + policy refinement candidates
  *   GET /agent-blunders?limit=N   change page size (max 100)
  *   GET /agent-blunders/verify    cryptographic hash-chain audit
  *
@@ -10,6 +10,10 @@
  * "Why would you trust an AI agent with prod?" Answer: because it blocked
  * itself N times before you had to.
  *
+ * "policyRefinementCandidates" are rules that triggered a block and were
+ * immediately bypassed (same tool called again within 60s and passed) 5+
+ * times — a signal the rule may be too aggressive for this team's workflow.
+ *
  * /verify answers: "Has the log been tampered with?" An external auditor
  * calls this endpoint without trusting the server — the hash chain proves
  * integrity of every surviving entry.
@@ -17,6 +21,7 @@
 
 import { Router } from 'express';
 import { getBlunders, getBlunderStats, verifyChain } from '../sensor/agent-blunder-store.js';
+import { getRefinementCandidates, getBypassStats } from '../sensor/bypass-tracker.js';
 
 export function createAgentBlundersRouter(): Router {
   const router = Router();
@@ -25,11 +30,15 @@ export function createAgentBlundersRouter(): Router {
     const limit = Math.min(100, Math.max(1, Number(req.query.limit ?? 20)));
     const stats = getBlunderStats();
     const recent = getBlunders().slice(-limit).reverse();
+    const policyRefinementCandidates = getRefinementCandidates();
+    const bypassStats = getBypassStats();
     res.json({
       ok: true,
       prevented: stats.total,
       ...stats,
       recentBlunders: recent,
+      bypassStats,
+      policyRefinementCandidates,
     });
   });
 

@@ -67,6 +67,7 @@ import { createArchRouter } from './routes/arch.js';
 import { createRunbooksRouter } from './routes/runbooks.js';
 import { createCIGateRouter } from './routes/ci-gate.js';
 import { createHitlRouter } from './routes/hitl.js';
+import { createGateAnalyticsRouter } from './routes/gate-analytics.js';
 import { cloudAuthMiddleware, CLOUD_MODE } from './sensor/cloud-auth.js';
 import { handleSlackActions, handleFeedbackLink } from './intelligence/slack.js';
 import { getPrometheusMetrics } from './sensor/otel-exporter.js';
@@ -300,6 +301,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
     '/shadow-report/entries', // shadow log entries with proposed commands
     '/impact-report',         // autonomous resolution rate + MTTR metrics
     '/hitl/pending',          // currently-held gate tokens + policy reasons
+    '/gate-analytics',        // retry success rates, coverage gaps, HITL decision patterns
   ];
   if (localSecret) {
     app.use((req, res, next) => {
@@ -365,6 +367,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createRunbooksRouter());      // Pre-approved runbook library
   app.use(createCIGateRouter());        // CI/CD corpus gate for AI-generated PRs
   app.use(createHitlRouter());          // Human-in-the-Loop approve/deny for held tool calls
+  app.use(createGateAnalyticsRouter()); // Gate feedback: retry success, coverage gaps, HITL patterns
 
   // GET /service-graph — in cloud mode, require API key (exposes internal topology)
   app.get('/service-graph', ...(CLOUD_MODE ? [cloudAuthMiddleware] : []), (_req, res) => {

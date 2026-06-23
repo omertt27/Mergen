@@ -41,10 +41,15 @@ const GateTerminal = () => (
   }}>
     <div style={{ color: '#666', marginBottom: '8px' }}># agent calls execute_fix with "terraform destroy prod"</div>
     <div style={{ color: '#94a3b8' }}>→ <span style={{ color: '#e2e8f0' }}>tool-guard</span>: evaluating in <span style={{ color: '#4ade80' }}>&lt;1ms</span></div>
-    <div style={{ color: '#94a3b8' }}>→ pattern matched: <span style={{ color: '#fbbf24' }}>&quot;destroy&quot;</span> → rule <span style={{ color: '#e2e8f0' }}>block_destructive_commands</span></div>
+    <div style={{ color: '#94a3b8' }}>→ pattern matched: <span style={{ color: '#fbbf24' }}>&quot;terraform destroy&quot;</span> → rule <span style={{ color: '#e2e8f0' }}>block_destructive_commands</span></div>
     <div style={{ color: '#94a3b8' }}>→ handler: <span style={{ color: '#ef4444' }}>BLOCKED</span> (never invoked)</div>
     <div style={{ color: '#94a3b8' }}>→ blunder logged: <span style={{ color: '#e2e8f0' }}>agent-blunders.json</span></div>
-    <div style={{ marginTop: '8px', color: '#ef4444' }}>🚫 Tool call blocked by Mergen local policy gate.</div>
+    <div style={{ marginTop: '8px', color: '#ef4444' }}>🚫 Mergen policy gate blocked this tool call.</div>
+    <div style={{ marginTop: '4px', color: '#94a3b8' }}><span style={{ color: '#e2e8f0' }}>Why:</span> Local Gate: Destructive command pattern matched.</div>
+    <div style={{ marginTop: '4px', color: '#94a3b8' }}><span style={{ color: '#4ade80' }}>What to do instead:</span> Run `terraform plan -destroy` to preview</div>
+    <div style={{ color: '#94a3b8' }}>&nbsp;&nbsp;the blast radius, then request human approval before proceeding.</div>
+    <div style={{ marginTop: '8px', color: '#666' }}># agent reformulates → calls analyze_runtime → requests HITL approval</div>
+    <div style={{ color: '#4ade80' }}>✅ Handler runs within policy.</div>
   </div>
 )
 
@@ -121,7 +126,8 @@ const features = [
         Every MCP tool call passes through a{' '}
         <span className="highlight-yellow">synchronous local policy engine before the handler runs</span>.
         Pattern matched against your JSON rules in under 1ms — no LLM, no network, no probabilistic guardrails.
-        PASS calls the handler. BLOCK returns a structured MCP error immediately and logs the blunder.
+        PASS calls the handler. BLOCK returns a structured error with a specific guided alternative —
+        the agent reformulates and retries within policy instead of stopping dead.
         The AI IDE waits for the response; the gate decides before any code executes.
         <GateTerminal />
       </>

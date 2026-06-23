@@ -14,7 +14,7 @@ Mergen sits inline between AI agents and your systems, blocking unsafe actions, 
 npx mergen-server
 ```
 
-* **✓ Local Execution Gateway** — Intercepts CLI/MCP tool calls, blocks destructive commands, and prevents secret exposure
+* **✓ Local Execution Gateway** — Intercepts CLI/MCP tool calls, blocks destructive commands, and returns a guided alternative so agents reformulate instead of stopping dead
 * **✓ Team Governance Gateway** — CI/CD controls, GitHub PR checks, Slack approvals, and structured audit logs
 * **✓ Agent IAM** — Least privilege execution sandboxes and Ephemeral Credentials (coming soon)
 * **✓ All data on your infrastructure**
@@ -96,8 +96,10 @@ Posting audit trail to #incidents thread...
   Evaluate rules in under 1ms (unconditional destructive command blocks, time windows, and developer-type conditions).
 * **STEP 3: Check execution context**
   Assess changed files against past failures, human overrides, and environment calibration before approval.
-* **STEP 4: Secure execution or approval**
-  Execute safely, hold schema changes for Slack-based HITL approval, and log all events to the Agent Blunder Log.
+* **STEP 4: Gate verdict — PASS / BLOCK / HOLD**
+  - **PASS**: handler runs immediately.
+  - **BLOCK**: structured error returned with a guided alternative (`Why` + `What to do instead`). The agent reformulates and retries within policy. Blunder logged and hash-chained.
+  - **HOLD**: Promise suspended, HITL webhook fires to Slack. One click resumes execution.
 
 ```text
 PAGERDUTY             OPENTELEMETRY           DOCKER               DATADOG
