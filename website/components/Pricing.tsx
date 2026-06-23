@@ -44,7 +44,7 @@ const matrix: { name: string; solo: Cell; team: Cell; enterprise: Cell }[] = [
   { name: 'Agent Blunder Log + audit trail',            solo: true,     team: true,     enterprise: true },
   { name: 'Shadow mode (30-day trust track record)',    solo: true,     team: true,     enterprise: true },
   { name: 'Incident replay + MTTR analytics',          solo: false,    team: true,     enterprise: true },
-  { name: 'Slack-to-corpus learning loop',              solo: false,    team: true,     enterprise: true },
+  { name: 'Slack-to-corpus enforcement loop',            solo: false,    team: true,     enterprise: true },
   { name: 'ROI dashboard (time saved)',                 solo: false,    team: true,     enterprise: true },
   { name: 'Slack ownership routing (10 services)',      solo: false,    team: true,     enterprise: true },
   { name: 'CI/CD agent safety gate (GitHub Action)',    solo: false,    team: false,    enterprise: true },
@@ -65,7 +65,7 @@ export default function Pricing() {
   return (
     <section id="access">
       <span className="section-label">07 // Pricing</span>
-      <h2>Start free.<br />The gate runs before any handler does.</h2>
+      <h2>Start with the local gate.<br />Graduate to Agent IAM.</h2>
 
       {/* ── Price cards ── */}
       <div className="price-row mt-lg" style={{ maxWidth: '1100px', margin: '8rem auto 0' }}>

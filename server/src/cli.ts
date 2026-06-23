@@ -9,7 +9,7 @@
  *   npx mergen-server --help   # Show help
  */
 
-import { execSync, spawn } from 'child_process';
+import { execSync, spawn, spawnSync } from 'child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { resolve, dirname, join } from 'path';
 import { homedir } from 'os';
@@ -402,8 +402,11 @@ async function configureIDE(ide: string): Promise<void> {
   switch (ide) {
     case 'claude-code':
       try {
-        execSync(`claude mcp add mergen --transport stdio -- node "${serverPath}"`, {
+        // Use spawnSync with an args array — never interpolate serverPath into a
+        // shell string because paths with spaces or special chars cause injection.
+        spawnSync('claude', ['mcp', 'add', 'mergen', '--transport', 'stdio', '--', 'node', serverPath], {
           stdio: 'inherit',
+          shell: false,
         });
       } catch {
         log('Run manually:', 'ℹ');

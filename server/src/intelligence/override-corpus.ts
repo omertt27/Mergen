@@ -90,10 +90,12 @@ const MAX_EVENTS = 2_000;
 
 let _events: OverrideEvent[] = [];
 let _loaded = false;
-// Short TTL cache so repeated reads within the same autopilot run avoid disk I/O.
-// Write operations (recordOverride, updateOutcome) always force-reload inside the
-// file lock so in-memory state stays consistent with the file.
-const READ_CACHE_TTL_MS = 500;
+// 2000ms TTL: long enough to collapse repeated reads within a single autopilot
+// run (which issues several corpus lookups per incident in rapid succession)
+// without serving stale data to the next distinct incident.
+// Write operations (recordOverride, updateOutcome) always force-reload inside
+// the file lock, so in-memory state stays consistent with the file on writes.
+const READ_CACHE_TTL_MS = 2_000;
 let _lastForcedLoadAt = 0;
 
 // ── Compaction cache (dirty flag) ─────────────────────────────────────────────

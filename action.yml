@@ -1,7 +1,10 @@
-name: 'Mergen Corpus Gate'
+name: 'Mergen AEG Gate'
 description: >
-  Check PR changes against your team's operational knowledge corpus.
-  Blocks or warns when changed files match patterns your team has historically overridden.
+  Agent Execution Governance gate for AI-generated PRs.
+  Checks changed files and diff against your team's override corpus and
+  enterprise policy rules. Blocks or warns when the PR touches areas your
+  team has historically overridden — and posts a structured PR comment
+  with the verdict, risk score, and reasons.
 
 branding:
   icon: 'shield'
@@ -26,6 +29,14 @@ inputs:
     description: 'Fail the workflow step when verdict is "block". Set to "false" to warn-only.'
     required: false
     default: 'true'
+  post-comment:
+    description: 'Post a PR comment with the verdict, risk score, and reasons. Requires pull_request event.'
+    required: false
+    default: 'true'
+  diff-limit-kb:
+    description: 'Max kilobytes of PR diff to send for semantic analysis (0 = skip diff analysis).'
+    required: false
+    default: '10'
 
 outputs:
   verdict:
@@ -37,40 +48,72 @@ outputs:
   reasons:
     description: 'JSON array of reasons for the verdict'
     value: ${{ steps.gate.outputs.reasons }}
+  comment-id:
+    description: 'ID of the posted PR comment (empty if post-comment is false or not a PR event)'
+    value: ${{ steps.post-comment.outputs.comment-id }}
 
 runs:
   using: 'composite'
   steps:
-    - name: Get changed files
-      id: changed-files
+    - name: Gather PR context
+      id: pr-context
       uses: actions/github-script@v7
       with:
         result-encoding: json
         script: |
           if (!context.payload.pull_request) {
-            core.warning('Mergen corpus gate: not a pull_request event — skipping');
-            return [];
+            core.warning('Mergen AEG gate: not a pull_request event — skipping');
+            return { files: [], diff: '', prTitle: '', actor: 'unknown', prNumber: null };
           }
-          const { data: files } = await github.rest.pulls.listFiles({
+
+          const pr = context.payload.pull_request;
+          const prNumber = pr.number;
+          const prTitle = pr.title ?? '';
+          const actor = pr.user?.login ?? 'unknown';
+
+          // Changed files
+          const { data: fileList } = await github.rest.pulls.listFiles({
             owner: context.repo.owner,
             repo: context.repo.repo,
-            pull_number: context.payload.pull_request.number,
+            pull_number: prNumber,
             per_page: 100,
           });
-          return files.map(f => f.filename);
+          const files = fileList.map(f => f.filename);
 
-    - name: Check Mergen corpus gate
+          // PR diff (truncated) — used for semantic destructive-command detection
+          let diff = '';
+          const diffLimitKb = parseInt('${{ inputs.diff-limit-kb }}', 10);
+          if (diffLimitKb > 0) {
+            try {
+              const diffResp = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+                mediaType: { format: 'diff' },
+              });
+              const rawDiff = String(diffResp.data);
+              const limitBytes = diffLimitKb * 1024;
+              diff = rawDiff.length > limitBytes
+                ? rawDiff.slice(0, limitBytes) + '\n[diff truncated]'
+                : rawDiff;
+            } catch (err) {
+              core.warning(`Mergen AEG gate: could not fetch PR diff — ${err.message}`);
+            }
+          }
+
+          return { files, diff, prTitle, actor, prNumber };
+
+    - name: Evaluate AEG corpus gate
       id: gate
       uses: actions/github-script@v7
       env:
         MERGEN_URL: ${{ inputs.mergen-url }}
         MERGEN_SECRET: ${{ inputs.mergen-secret }}
         MERGEN_SERVICE: ${{ inputs.service }}
-        FAIL_ON_BLOCK: ${{ inputs.fail-on-block }}
       with:
         script: |
-          const files = ${{ steps.changed-files.outputs.result }};
-          if (!files || files.length === 0) {
+          const ctx = ${{ steps.pr-context.outputs.result }};
+          if (!ctx || !ctx.files || ctx.files.length === 0) {
             core.setOutput('verdict', 'pass');
             core.setOutput('risk-score', '0');
             core.setOutput('reasons', '[]');
@@ -80,7 +123,6 @@ runs:
           const url = process.env.MERGEN_URL;
           const secret = process.env.MERGEN_SECRET;
           const service = process.env.MERGEN_SERVICE;
-          const pr = context.payload.pull_request;
 
           let result;
           try {
@@ -91,16 +133,20 @@ runs:
                 ...(secret ? { 'x-mergen-secret': secret } : {}),
               },
               body: JSON.stringify({
-                files,
-                prTitle: pr?.title ?? '',
+                files: ctx.files,
+                prTitle: ctx.prTitle,
+                diff: ctx.diff,
                 service: service || undefined,
-                actor: pr?.user?.login ?? 'unknown',
+                actor: ctx.actor,
               }),
-              signal: AbortSignal.timeout(10_000),
+              signal: AbortSignal.timeout(15_000),
             });
+            if (!resp.ok) {
+              throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
+            }
             result = await resp.json();
           } catch (err) {
-            core.warning(`Mergen corpus gate: could not reach server at ${url} — ${err.message}. Skipping gate.`);
+            core.warning(`Mergen AEG gate: could not reach server at ${url} — ${err.message}. Skipping gate (fail-open).`);
             core.setOutput('verdict', 'pass');
             core.setOutput('risk-score', '0');
             core.setOutput('reasons', '[]');
@@ -115,15 +161,93 @@ runs:
           core.setOutput('risk-score', String(riskScore));
           core.setOutput('reasons', JSON.stringify(reasons));
 
-          const icon = verdict === 'block' ? '🚫' : verdict === 'warn' ? '⚠️' : '✅';
-          const summary = `${icon} **Mergen Corpus Gate: ${verdict.toUpperCase()}** (risk score: ${riskScore}/100)\n\n` +
-            (reasons.length > 0 ? reasons.map(r => `- ${r}`).join('\n') : '_No corpus conflicts found._') +
-            `\n\n${result.recommendation ?? ''}`;
+    - name: Post PR comment
+      id: post-comment
+      if: ${{ inputs.post-comment == 'true' && steps.pr-context.outputs.result != '' }}
+      uses: actions/github-script@v7
+      env:
+        GATE_VERDICT: ${{ steps.gate.outputs.verdict }}
+        GATE_RISK_SCORE: ${{ steps.gate.outputs.risk-score }}
+        GATE_REASONS: ${{ steps.gate.outputs.reasons }}
+      with:
+        script: |
+          const ctx = ${{ steps.pr-context.outputs.result }};
+          if (!ctx?.prNumber) { core.setOutput('comment-id', ''); return; }
 
-          await core.summary.addRaw(summary).write();
+          const verdict = process.env.GATE_VERDICT || 'pass';
+          const riskScore = parseInt(process.env.GATE_RISK_SCORE || '0', 10);
+          const reasons = JSON.parse(process.env.GATE_REASONS || '[]');
 
-          if (verdict === 'block' && process.env.FAIL_ON_BLOCK !== 'false') {
-            core.setFailed(`Mergen corpus gate blocked this PR.\n${reasons.join('\n')}`);
+          const icon  = verdict === 'block' ? '🚫' : verdict === 'warn' ? '⚠️' : '✅';
+          const badge = verdict === 'block'
+            ? '![block](https://img.shields.io/badge/AEG%20Gate-BLOCK-red)'
+            : verdict === 'warn'
+            ? '![warn](https://img.shields.io/badge/AEG%20Gate-WARN-orange)'
+            : '![pass](https://img.shields.io/badge/AEG%20Gate-PASS-green)';
+
+          const reasonLines = reasons.length > 0
+            ? reasons.map(r => `> ${r}`).join('\n')
+            : '> No corpus conflicts found.';
+
+          const body = [
+            `${badge}`,
+            '',
+            `${icon} **Mergen AEG Gate — ${verdict.toUpperCase()}** &nbsp;·&nbsp; Risk score: **${riskScore}/100**`,
+            '',
+            reasonLines,
+            '',
+            verdict === 'block'
+              ? '**Action required:** Review the override corpus before merging. This PR touches areas your team has explicitly blocked in the past.'
+              : verdict === 'warn'
+              ? '_Proceed with caution — this PR touches areas with a history of operational overrides._'
+              : '_Safe to merge based on your team\'s execution history._',
+            '',
+            '<sub>Powered by [Mergen AEG](https://mergen.dev) · <code>GET /agent-blunders</code> for full block history</sub>',
+          ].join('\n');
+
+          // Delete any previous Mergen AEG gate comment on this PR to avoid stacking
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: ctx.prNumber,
+            per_page: 100,
+          });
+          for (const c of comments) {
+            if (c.body?.includes('Mergen AEG Gate') && c.user?.type === 'Bot') {
+              await github.rest.issues.deleteComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: c.id,
+              }).catch(() => {});
+            }
+          }
+
+          const { data: comment } = await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: ctx.prNumber,
+            body,
+          });
+          core.setOutput('comment-id', String(comment.id));
+
+    - name: Enforce gate verdict
+      if: ${{ steps.gate.outputs.verdict != '' }}
+      uses: actions/github-script@v7
+      env:
+        GATE_VERDICT: ${{ steps.gate.outputs.verdict }}
+        GATE_REASONS: ${{ steps.gate.outputs.reasons }}
+        FAIL_ON_BLOCK: ${{ inputs.fail-on-block }}
+      with:
+        script: |
+          const verdict = process.env.GATE_VERDICT;
+          const reasons = JSON.parse(process.env.GATE_REASONS || '[]');
+          const failOnBlock = process.env.FAIL_ON_BLOCK !== 'false';
+
+          if (verdict === 'block' && failOnBlock) {
+            core.setFailed(
+              `Mergen AEG gate blocked this PR (risk score: ${{ steps.gate.outputs.risk-score }}/100)\n` +
+              reasons.join('\n')
+            );
           } else if (verdict === 'warn') {
-            for (const reason of reasons) core.warning(reason);
+            for (const reason of reasons) core.warning(`Mergen AEG: ${reason}`);
           }

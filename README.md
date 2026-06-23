@@ -152,7 +152,7 @@ We built a regression eval harness before shipping v1. Every PR that touches det
 | False positive (probe/scrape errors) | 0/2 | 0% |
 
 > [!NOTE]
-> **Why this matters**: Most observability tools are evaluated by the engineers who built them, on the incidents they chose. Mergen ships a public eval harness — the same suite that gates every release. The 2 failures are documented: the detector fires on liveness probe and Prometheus scrape errors when it shouldn't. Fix is in the roadmap; hiding it is not.
+> **Why this matters**: Most post-incident monitoring tools are evaluated by the engineers who built them, on the incidents they chose. Mergen ships a public eval harness — the same suite that gates every release. The 2 failures are documented: the detector fires on liveness probe and Prometheus scrape errors when it shouldn't. Fix is in the roadmap; hiding it is not.
 >
 > [View Full JSON Baseline →](file:///Users/omer/Desktop/Mergen/server/src/__tests__/eval-baseline.json)
 
@@ -259,15 +259,15 @@ Your agents can call any MCP tool, execute any shell command, and mutate any sys
 ### Every source is a lesson. Mergen keeps the receipt.
 
 ```text
-  Data Sources                                           Knowledge Corpus                   AI IDEs
+  Data Sources                                           Policy Engine                      AI IDEs
 ┌──────────────┐                                        ┌────────────────┐                 ┌─────────────┐
 │ PagerDuty    │──(Incident trigger)───────────┐        │                │                 │ Claude Code │
 ├──────────────┤                               │        │                │                 └──────┬──────┘
 │ Datadog      │──(Traces + Logs)──────────────┼───────▶│                │──────(Context)─────────┘
 ├──────────────┤                               │        │                │
-│ Slack        │──(Postmortem → corpus)────────┼───────▶│   Operational  │                 ┌─────────────┐
-├──────────────┤                               │        │     Memory     │──────(Context)──│ Cursor      │
-│ Git          │──(ADR → policy)───────────────┼───────▶│     Layer      │                 └──────┬──────┘
+│ Slack        │──(Postmortem → corpus)────────┼───────▶│    Execution   │                 ┌─────────────┐
+├──────────────┤                               │        │                │──────(Context)──│ Cursor      │
+│ Git          │──(ADR → policy)───────────────┼───────▶│    Gateway     │                 └──────┬──────┘
 ├──────────────┤                               │        │                │──────(Context)─────────┘
 │ Kubernetes   │──(Events + Manifests)─────────┤        │                │
 ├──────────────┤                               │        │                │                 ┌─────────────┐

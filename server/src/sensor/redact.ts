@@ -60,7 +60,10 @@ const MAX_DEPTH = 8;
 const RE_JWT      = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g;
 const RE_BEARER   = /\bBearer\s+[A-Za-z0-9._\-+/=]{8,}\b/gi;
 const RE_EMAIL    = /\b[\w.+-]+@[\w-]+\.[\w.-]+\b/g;
-const RE_CARD     = /\b(?:\d[ -]?){13,19}\b/g;
+// Credit cards: match common structured formats (4-4-4-4, 4-6-5, 4-4-4-4-3, etc.)
+// Avoids the catastrophic backtracking risk of (?:\d[ -]?){13,19} on adversarial
+// digit-heavy inputs by using fixed-length alternation instead of an open quantifier.
+const RE_CARD     = /\b(?:\d{4}[ -]?\d{4}[ -]?\d{4}[ -]?\d{1,7}|\d{4}[ -]?\d{6}[ -]?\d{5})\b/g;
 // Phone: US/international formats — narrow enough to avoid false-positives on version numbers
 const RE_PHONE    = /\b(\+?1[\s.-]?)?\(?[2-9]\d{2}\)?[\s.-]?\d{3}[\s.-]\d{4}\b/g;
 // AWS access key IDs — always 20 uppercase alphanumeric starting with AKIA/AROA/ASIA/AIDA/ANPA/ANVA/APKA

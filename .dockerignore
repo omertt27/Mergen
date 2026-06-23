@@ -41,3 +41,8 @@ extension/store-assets
 .env*
 *.log
 .cache
+
+# Local Mergen data — secrets, SQLite DBs, and policy files must never be
+# baked into image layers. These are runtime-generated on the host machine.
+.mergen/
+*.db

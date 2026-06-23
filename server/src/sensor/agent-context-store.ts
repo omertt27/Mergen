@@ -1,9 +1,13 @@
 /**
- * agent-memory-store.ts — Persistent cross-session memory for autonomous AI agents.
+ * agent-context-store.ts — Persistent cross-session execution context for autonomous AI agents.
  *
  * Autonomous coding agents (Claude Code, Cursor Composer, GitHub Copilot Coding Agent)
- * lose context between sessions. This store lets them persist key–value memories so
- * they don't repeat the same discovery work or violate the same "why" constraints.
+ * lose context between sessions. This store lets them persist key–value context entries so
+ * they don't repeat the same discovery work or violate the same enforcement constraints.
+ *
+ * Renamed from agent-memory-store.ts to align with AEG positioning — Mergen is an
+ * enforcement gateway, not a memory system. The stored data is execution context
+ * (prior incident patterns, override corpus entries, constraint records) not general memory.
  *
  * Table schema:
  *   id         — auto-generated UUID
@@ -23,9 +27,11 @@ import { DATA_DIR } from './paths.js';
 import logger from './logger.js';
 import { randomUUID } from 'crypto';
 
-const MEMORY_DB = path.join(DATA_DIR, 'agent-memory.db');
+// Support both old DB file name (backward compat) and new name.
+const LEGACY_CONTEXT_DB = path.join(DATA_DIR, 'agent-memory.db');
+const CONTEXT_DB = path.join(DATA_DIR, 'agent-context.db');
 
-export interface AgentMemoryEntry {
+export interface AgentContextEntry {
   id: string;
   agentId: string;
   key: string;
@@ -38,7 +44,10 @@ export interface AgentMemoryEntry {
   errorFingerprint: string;
 }
 
-class AgentMemoryStore {
+/** @deprecated Use AgentContextEntry */
+export type AgentMemoryEntry = AgentContextEntry;
+
+class AgentContextStore {
   private db: Database | null = null;
 
   private resolveWasmPath(): string {
@@ -60,14 +69,19 @@ class AgentMemoryStore {
       const SQL = await initSqlJs({ wasmBinary });
       fs.mkdirSync(DATA_DIR, { recursive: true });
 
+      // Migrate legacy DB file if it exists and the new one doesn't.
+      if (fs.existsSync(LEGACY_CONTEXT_DB) && !fs.existsSync(CONTEXT_DB)) {
+        try { fs.renameSync(LEGACY_CONTEXT_DB, CONTEXT_DB); } catch { /* non-fatal */ }
+      }
+
       let fileBuffer: Buffer | undefined;
-      if (fs.existsSync(MEMORY_DB)) {
-        try { fileBuffer = fs.readFileSync(MEMORY_DB); } catch {}
+      if (fs.existsSync(CONTEXT_DB)) {
+        try { fileBuffer = fs.readFileSync(CONTEXT_DB); } catch {}
       }
       this.db = fileBuffer ? new SQL.Database(fileBuffer) : new SQL.Database();
 
       this.db.run(`
-        CREATE TABLE IF NOT EXISTS agent_memory (
+        CREATE TABLE IF NOT EXISTS agent_context (
           id                TEXT PRIMARY KEY,
           agent_id          TEXT NOT NULL DEFAULT '',
           key               TEXT NOT NULL,
@@ -77,23 +91,25 @@ class AgentMemoryStore {
           service           TEXT NOT NULL DEFAULT '',
           error_fingerprint TEXT NOT NULL DEFAULT ''
         );
-        CREATE INDEX IF NOT EXISTS idx_agent_memory_agent_key ON agent_memory (agent_id, key);
-        CREATE INDEX IF NOT EXISTS idx_agent_memory_episodic ON agent_memory (service, error_fingerprint, stored_at);
+        CREATE INDEX IF NOT EXISTS idx_agent_context_agent_key ON agent_context (agent_id, key);
+        CREATE INDEX IF NOT EXISTS idx_agent_context_episodic ON agent_context (service, error_fingerprint, stored_at);
       `);
 
       this.flush();
-      // Migrations for existing databases that predate these columns
-      try { this.db.run(`ALTER TABLE agent_memory ADD COLUMN service TEXT NOT NULL DEFAULT ''`); } catch { /**/ }
-      try { this.db.run(`ALTER TABLE agent_memory ADD COLUMN error_fingerprint TEXT NOT NULL DEFAULT ''`); } catch { /**/ }
-      // Index may not exist on older DBs
-      try { this.db.run(`CREATE INDEX IF NOT EXISTS idx_agent_memory_episodic ON agent_memory (service, error_fingerprint, stored_at)`); } catch { /**/ }
-      logger.debug({ path: MEMORY_DB }, 'agent-memory-store: initialized');
+      // Migrations: rename table from agent_memory → agent_context on legacy DBs
+      try { this.db.run(`ALTER TABLE agent_memory RENAME TO agent_context`); } catch { /**/ }
+      // Migrations for databases that predate optional columns
+      try { this.db.run(`ALTER TABLE agent_context ADD COLUMN service TEXT NOT NULL DEFAULT ''`); } catch { /**/ }
+      try { this.db.run(`ALTER TABLE agent_context ADD COLUMN error_fingerprint TEXT NOT NULL DEFAULT ''`); } catch { /**/ }
+      try { this.db.run(`CREATE INDEX IF NOT EXISTS idx_agent_context_episodic ON agent_context (service, error_fingerprint, stored_at)`); } catch { /**/ }
+
+      logger.debug({ path: CONTEXT_DB }, 'agent-context-store: initialized');
 
       // Purge expired TTL entries and enforce a 100 MB file-size cap on a
       // background timer. Without cleanup the DB grows unbounded indefinitely.
       this.scheduleCleanup();
     } catch (err) {
-      logger.error({ err }, 'agent-memory-store: init failed');
+      logger.error({ err }, 'agent-context-store: init failed');
     }
   }
 
@@ -102,41 +118,35 @@ class AgentMemoryStore {
       if (!this.db) return;
       try {
         const now = Date.now();
-        this.db.run('DELETE FROM agent_memory WHERE ttl_ms > 0 AND stored_at + ttl_ms < ?', [now]);
+        this.db.run('DELETE FROM agent_context WHERE ttl_ms > 0 AND stored_at + ttl_ms < ?', [now]);
         this.flush();
         // Enforce 100 MB cap: if DB file exceeds limit, delete oldest rows in batches.
         try {
-          const stat = fs.statSync(MEMORY_DB);
+          const stat = fs.statSync(CONTEXT_DB);
           if (stat.size > 100 * 1024 * 1024) {
-            this.db.run('DELETE FROM agent_memory WHERE id IN (SELECT id FROM agent_memory ORDER BY stored_at ASC LIMIT 1000)');
+            this.db.run('DELETE FROM agent_context WHERE id IN (SELECT id FROM agent_context ORDER BY stored_at ASC LIMIT 1000)');
             this.flush();
-            logger.warn('agent-memory-store: DB exceeded 100 MB cap — pruned oldest 1000 entries');
+            logger.warn('agent-context-store: DB exceeded 100 MB cap — pruned oldest 1000 entries');
           }
         } catch { /* stat may fail if file not yet written */ }
       } catch (err) {
-        logger.warn({ err }, 'agent-memory-store: cleanup failed');
+        logger.warn({ err }, 'agent-context-store: cleanup failed');
       }
     };
-    // Run once now to clear any accumulated expired entries from previous sessions.
     run();
-    setInterval(run, 60 * 60_000).unref(); // hourly cleanup
+    setInterval(run, 60 * 60_000).unref();
   }
 
   private flush(): void {
     if (!this.db) return;
     try {
       const data = this.db.export();
-      fs.writeFileSync(MEMORY_DB, Buffer.from(data));
+      fs.writeFileSync(CONTEXT_DB, Buffer.from(data));
     } catch (err) {
-      logger.warn({ err }, 'agent-memory-store: flush failed');
+      logger.warn({ err }, 'agent-context-store: flush failed');
     }
   }
 
-  /**
-   * Store or overwrite a memory entry.
-   * If an entry with the same (agentId, key) already exists it is replaced.
-   * Optional `service` and `errorFingerprint` enable episodic recall.
-   */
   store(
     agentId: string,
     key: string,
@@ -144,15 +154,15 @@ class AgentMemoryStore {
     ttlMs = 0,
     service = '',
     errorFingerprint = '',
-  ): AgentMemoryEntry {
-    if (!this.db) throw new Error('agent-memory-store: not initialized');
+  ): AgentContextEntry {
+    if (!this.db) throw new Error('agent-context-store: not initialized');
 
     const now = Date.now();
     const existing = this.recall(agentId, key, 1);
     const id = existing[0]?.id ?? randomUUID();
 
     this.db.run(
-      `INSERT OR REPLACE INTO agent_memory
+      `INSERT OR REPLACE INTO agent_context
          (id, agent_id, key, value, stored_at, ttl_ms, service, error_fingerprint)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, agentId, key, value, now, ttlMs, service, errorFingerprint],
@@ -162,17 +172,13 @@ class AgentMemoryStore {
     return { id, agentId, key, value, storedAt: now, ttlMs, service, errorFingerprint };
   }
 
-  /**
-   * Retrieve memory entries filtered by agentId, key, service, and/or errorFingerprint.
-   * Expired entries are excluded. Results are ordered newest-first.
-   */
   recall(
     agentId?: string,
     key?: string,
     limit = 20,
     service?: string,
     errorFingerprint?: string,
-  ): AgentMemoryEntry[] {
+  ): AgentContextEntry[] {
     if (!this.db) return [];
 
     const now = Date.now();
@@ -184,13 +190,13 @@ class AgentMemoryStore {
     if (service)          { clauses.push('service = ?');           params.push(service); }
     if (errorFingerprint) { clauses.push('error_fingerprint = ?'); params.push(errorFingerprint); }
 
-    const sql = `SELECT * FROM agent_memory WHERE ${clauses.join(' AND ')} ORDER BY stored_at DESC LIMIT ?`;
+    const sql = `SELECT * FROM agent_context WHERE ${clauses.join(' AND ')} ORDER BY stored_at DESC LIMIT ?`;
     params.push(limit);
 
     try {
       const stmt = this.db.prepare(sql);
       stmt.bind(params);
-      const rows: AgentMemoryEntry[] = [];
+      const rows: AgentContextEntry[] = [];
       while (stmt.step()) {
         const r = stmt.getAsObject() as Record<string, unknown>;
         rows.push({
@@ -207,26 +213,17 @@ class AgentMemoryStore {
       stmt.free();
       return rows;
     } catch (err) {
-      logger.warn({ err }, 'agent-memory-store: recall failed');
+      logger.warn({ err }, 'agent-context-store: recall failed');
       return [];
     }
   }
 
-  /**
-   * Episodic recall: return memories for a specific (service, errorFingerprint) context,
-   * ordered by recency. This is the associative lookup LeCun-style models use.
-   */
-  recallEpisodic(service: string, errorFingerprint?: string, limit = 10): AgentMemoryEntry[] {
+  recallEpisodic(service: string, errorFingerprint?: string, limit = 10): AgentContextEntry[] {
     return this.recall(undefined, undefined, limit, service, errorFingerprint);
   }
 
-  /** Returns true when the SQLite database initialised successfully. */
   isHealthy(): boolean { return this.db !== null; }
 
-  /**
-   * List all non-expired keys stored by an agent, grouped for discovery.
-   * Lets an agent enumerate what it has stored without knowing keys in advance.
-   */
   listKeys(agentId?: string): Array<{ agentId: string; key: string; lastStoredAt: number }> {
     if (!this.db) return [];
     const now = Date.now();
@@ -234,7 +231,7 @@ class AgentMemoryStore {
     const params: (string | number)[] = [now];
     if (agentId) { clauses.push('agent_id = ?'); params.push(agentId); }
     const sql = `SELECT agent_id, key, MAX(stored_at) AS last_at
-                 FROM agent_memory
+                 FROM agent_context
                  WHERE ${clauses.join(' AND ')}
                  GROUP BY agent_id, key
                  ORDER BY last_at DESC`;
@@ -245,25 +242,27 @@ class AgentMemoryStore {
       while (stmt.step()) {
         const r = stmt.getAsObject() as Record<string, unknown>;
         rows.push({
-          agentId:     r['agent_id'] as string,
-          key:         r['key'] as string,
+          agentId:      r['agent_id'] as string,
+          key:          r['key'] as string,
           lastStoredAt: r['last_at'] as number,
         });
       }
       stmt.free();
       return rows;
     } catch (err) {
-      logger.warn({ err }, 'agent-memory-store: listKeys failed');
+      logger.warn({ err }, 'agent-context-store: listKeys failed');
       return [];
     }
   }
 
-  /** Remove a specific memory by (agentId, key). */
   forget(agentId: string, key: string): void {
     if (!this.db) return;
-    this.db.run('DELETE FROM agent_memory WHERE agent_id = ? AND key = ?', [agentId, key]);
+    this.db.run('DELETE FROM agent_context WHERE agent_id = ? AND key = ?', [agentId, key]);
     this.flush();
   }
 }
 
-export const agentMemoryStore = new AgentMemoryStore();
+export const agentContextStore = new AgentContextStore();
+
+/** @deprecated Use agentContextStore */
+export const agentMemoryStore = agentContextStore;

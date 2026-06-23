@@ -1,6 +1,6 @@
 ---
 name: project-strategy
-description: Mergen strategic positioning — Knowledge Compounding Company for AI-Native Engineering
+description: Mergen strategic positioning — Agent Execution Governance (AEG) platform; Inside-Out progression from local gate to Agent IAM
 metadata:
   type: project
 ---
@@ -67,7 +67,7 @@ Phase 5: Agent IAM / Ephemeral Credentials (Enterprise Scale) ← FUTURE
    * **"Why did this break again?"**: Retrieve previous diagnosis/resolutions for matching error signatures in IDE.
    * **"My AI agent is confidently wrong"**: Warn/block changes that touch files/code implicated in previous failures.
    * **"I don't understand my own system anymore"**: Auto-generate living behavioral maps from local telemetry.
-3. **Days 60–90: Slack-to-Override Memory Loop (Phase 4 MVP)**
+3. **Days 60–90: Slack-to-Override Corpus Loop (Phase 4 MVP)**
 4. **Days 90–150: Agent Safety CI Gate / GitHub Action (Phase 3 MVP)**
 5. **Days 150–180: Enterprise pipeline** — 5 mid-market design partners → paid
 
@@ -76,5 +76,5 @@ Phase 5: Agent IAM / Ephemeral Credentials (Enterprise Scale) ← FUTURE
 ## What to avoid
 
 * **Focus drift on Administrative UI**: Avoid spending cycles on dashboards, enterprise governance panels, complex policy definition UIs, and compliance features for the developer-facing distribution tier. Keep the focus entirely on instant feedback loop value inside the IDE.
-* **Headless/Stateless Autopilot**: Leading with "autopilot" triggers CISO objections before trust is established. Lead with knowledge compounding (system memory) and personal safety checks.
-* **Invisible Infra**: The product must generate visible intelligence moments (such as error memory popping up when the AI IDE asks a question or proposes a fix) so developers feel the leverage immediately and share it.
+* **Headless/Stateless Autopilot**: Leading with "autopilot" triggers CISO objections before trust is established. Lead with enforcement-first execution gates and local safety checks.
+* **Soft Advisory Framing**: The product must generate visible enforcement moments (such as a corpus block surfacing when the AI IDE proposes a dangerous fix) so developers feel the gate working immediately and share it. Never frame Mergen as advisory — it is the stop sign, not the recommendation engine.

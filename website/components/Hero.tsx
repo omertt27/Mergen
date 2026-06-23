@@ -33,11 +33,11 @@ export default function Hero() {
   return (
     <section className="hero">
       <span className="hero-eyebrow">
-        ⚡️ Agent Security &amp; Governance for AI-native engineering teams
+        ⚡️ The first Agent Execution Governance (AEG) platform
       </span>
       <h1>Secure Every AI Agent Action Before It Executes</h1>
       <p className="hero-sub">
-        Mergen sits inline between AI agents and your systems, blocking unsafe actions, enforcing approval workflows, and creating auditable execution trails across development and production environments.
+        Sentry and Datadog tell you after an AI agent has corrupted your database or leaked credentials. Mergen is the inline Execution and Security Gateway that physically blocks hazardous agent actions before they reach your runtime, databases, or cloud infrastructure.
       </p>
       <div className="hero-actions">
         <a href="mailto:hello@mergen.dev?subject=Request%20Early%20Access" className="btn btn-white">Request Early Access</a>

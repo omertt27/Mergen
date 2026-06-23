@@ -35,7 +35,7 @@ import { incidentStore } from './sensor/incident-store.js';
 import { postmortemStore } from './intelligence/postmortem-store.js';
 import { memoryStore } from './datadog/memory-store.js';
 import { commitContextStore } from './sensor/commit-context-store.js';
-import { agentMemoryStore } from './sensor/agent-memory-store.js';
+import { agentContextStore as agentMemoryStore } from './sensor/agent-context-store.js';
 import { complianceLedgerStore } from './sensor/audit-log.js';
 import { stopAllProcessWatchers } from './sensor/process-watcher.js';
 import { stopFileWatch } from './sensor/fs-watcher.js';
@@ -166,6 +166,17 @@ function validateConfig(): void {
     );
   }
 
+  // Team mode + no public URL: HITL webhook approve/deny links will contain
+  // http://127.0.0.1 which Slack can't reach. Warn so operators don't get
+  // silently-broken HITL flows in production.
+  if (TEAM_MODE && !process.env.MERGEN_PUBLIC_URL) {
+    logger.warn(
+      'startup: MERGEN_BIND is not 127.0.0.1 (team mode) but MERGEN_PUBLIC_URL is not set. ' +
+      'HITL webhook approve/deny links will point to http://127.0.0.1 — unreachable from Slack or external callers. ' +
+      'Set MERGEN_PUBLIC_URL=https://your-server.example.com so Slack can POST the approve/deny callback.',
+    );
+  }
+
   // Safe-default: when autopilot is enabled but MERGEN_SHADOW_MODE is not explicitly
   // set to 'false', the system runs in shadow mode (diagnose, alert, but never execute).
   // This prevents accidental live execution on first deploy. Set MERGEN_SHADOW_MODE=false
@@ -218,6 +229,9 @@ async function main(): Promise<void> {
   await initTeam();
   await initTelemetry();
   await historyStore.init();
+  // Prune expired events once per minute via indexed DELETE instead of on every
+  // push — keeps the push path O(1) without accumulating stale rows indefinitely.
+  setInterval(() => historyStore.pruneOld(), 60_000).unref();
   await incidentStore.init();
   await postmortemStore.init();
   void syncMarkdownFilesFromDisk().catch((err) => logger.warn({ err }, 'startup: markdown sync failed'));

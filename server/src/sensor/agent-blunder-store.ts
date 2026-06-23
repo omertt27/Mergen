@@ -17,7 +17,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { createHash, randomUUID } from 'crypto';
+import { createHash, randomUUID, randomBytes } from 'crypto';
 import { DATA_DIR, zeroRetentionMode } from './paths.js';
 import logger from './logger.js';
 import { lockAndExecute } from './file-lock.js';
@@ -114,7 +114,7 @@ function persist(): void {
   if (zeroRetentionMode()) return;
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
-    const tmp = `${BLUNDER_FILE}.tmp.${process.pid}`;
+    const tmp = `${BLUNDER_FILE}.tmp.${process.pid}.${randomBytes(4).toString('hex')}`;
     fs.writeFileSync(tmp, JSON.stringify({ version: 2, blunders: _blunders } satisfies BlunderFile), 'utf8');
     fs.renameSync(tmp, BLUNDER_FILE);
   } catch (err) {

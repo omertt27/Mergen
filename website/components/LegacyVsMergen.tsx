@@ -37,9 +37,9 @@ export default function LegacyVsMergen() {
     <section id="how">
       <span className="section-label">01 // The Difference</span>
       <h2>
-        Before Mergen.
+        The gate runs before
         <br />
-        After Mergen.
+        the handler does.
       </h2>
 
       {/* Solo dev scenario */}
@@ -312,7 +312,7 @@ export default function LegacyVsMergen() {
           }}>
             <span style={{ fontSize: '1.1rem', lineHeight: '1' }}>✅</span>
             <p style={{ fontSize: '0.8rem', color: '#2e7d32', lineHeight: 1.5, margin: 0 }}>
-              <strong>Result:</strong> The knowledge compounds. Every incident makes the next one faster to resolve — for any engineer, any agent, forever.
+              <strong>Result:</strong> Every incident becomes binding enforcement policy. The gate enforces it for every engineer and every agent, forever.
             </p>
           </div>
         </div>

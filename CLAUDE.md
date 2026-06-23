@@ -18,11 +18,11 @@ The beachhead: teams that already have PagerDuty and Datadog but lack the enforc
 
 ---
 
-## Why Mergen vs. point tools (Datadog + PagerDuty + Grafana)?
+## Why Mergen — Security, Compliance, and Identity vs. post-incident monitoring
 
-Observability tools notify humans after a crash. They have no enforcement authority over agents before the crash. Mergen is the inline gate that sits between the agent and your infrastructure.
+Post-incident monitoring tools (Datadog, PagerDuty, Grafana) alert engineers after the damage is done. They have zero enforcement authority over agents before the tool call executes. Mergen is the inline gate — the category is **Agent Execution Governance (AEG)**, not observability.
 
-| | Point tools (Datadog + PagerDuty + Grafana) | **Mergen** |
+| | Post-incident tools (Datadog + PagerDuty + Grafana) | **Mergen** |
 | :--- | :--- | :--- |
 | **Execution control** | None — agents run unrestricted | ✅ **Deterministic local gate blocks destructive tool calls in <1ms** |
 | **AI integration** | Dashboard with AI summaries | ✅ **MCP proxy: every tool call passes through policy before the handler runs** |
@@ -30,6 +30,31 @@ Observability tools notify humans after a crash. They have no enforcement author
 | **Agent safety** | None | ✅ **Agent Blunder Log + CI gate — every blocked action hash-chained and logged** |
 | **Human-in-the-loop** | None | ✅ **HITL holds the Promise — Slack approve/deny before execution resumes** |
 | **Incident response** | Alert → page engineer | ✅ **Alert → diagnose → fix → validate → post audit trail** |
+
+---
+
+## The Inside-Out progression — from local wedge to enterprise IAM
+
+Mergen is architected as a deliberate, technically honest progression. Never sell the next layer before you've built it; each layer is the natural team upgrade point from the one before it.
+
+**Layer 1 — Local Execution Gate (Today, developer-first):**
+Mergen runs directly on the developer's machine at the protocol layer. It wraps local terminal processes and MCP tool registrations. Before an agent runs a command or executes a tool call, the local rules engine evaluates the payload in under 1ms. If it detects an unsafe command or an untrusted path, it halts the execution loop on the host machine. This is technically honest, operates on the current Node/SQLite architecture, and provides immediate, friction-free value.
+
+**Layer 2 — CI/CD Security Gate (Next, team upgrade point):**
+When developers collaborate, Mergen graduates from local process wrapping to a CI/CD Security Gate. If an autonomous agent generates a pull request or attempts a deployment, Mergen intercepts the workflow, flags high-risk changes, runs automated blast-radius calculations, and enforces HITL approval via Slack webhook before any code can be merged or executed. Achievable in under three months. This establishes team-wide policy enforcement using standard API structures and webhook loops.
+
+**Layer 3 — Agent IAM & Ephemeral Credentialing (Future, $1B moat):**
+Because Mergen is already embedded as the local tool execution gatekeeper, it is uniquely positioned to serve as the enterprise Agent Identity and Access Management (Agent IAM) control plane. As agents scale to unattended cloud operations, Mergen federates the human developer's SSO identity (Okta/Active Directory) directly down to the agent's active execution thread, brokering ephemeral, short-lived cloud credentials scoped exclusively to the duration and boundary of that single task — eliminating long-lived secrets entirely.
+
+**The strategic wedge:** The local execution gate is the Trojan Horse. You aren't forcing a top-down, high-friction security sale on day one. You seed the local execution hooks organically; by the time the enterprise realizes it needs agent governance, your interception layer is already running on every developer's machine.
+
+---
+
+## Unified elevator pitch
+
+> "AI agents don't know your security, infrastructure, or compliance boundaries — and prompts are not boundaries, they are just suggestions. Sentry and Datadog will only tell you about a disaster after it happens.
+>
+> Mergen is the inline Execution and Security Gateway for AI agents. We start directly on the developer's laptop, using a lightweight MCP and CLI proxy to physically block destructive actions and prompt injections locally. As teams scale, Mergen graduates to an enterprise Agent IAM control plane — federating human identities, managing non-human credentials, and enforcing deterministic governance gates across your entire automated pipeline."
 
 ---
 
@@ -187,6 +212,7 @@ MERGEN_CLOUD_MODE=true
 MERGEN_TLS_CERT=/path/to/cert.pem
 MERGEN_TLS_KEY=/path/to/key.pem
 MERGEN_ALLOWED_ORIGINS=https://app.example.com  # CORS allow-list in team/cloud mode
+MERGEN_PUBLIC_URL=https://mergen.example.com    # externally reachable base URL for HITL webhook approve/deny links (required in team/cloud mode)
 
 # ── Billing (LemonSqueezy) ────────────────────────────────────────────────────
 LS_API_KEY=...                     # LemonSqueezy API key for license/billing endpoints

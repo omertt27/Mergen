@@ -14,10 +14,11 @@
  *   6. Route modules
  *   7. Error handler
  */
-import crypto from 'crypto';
 import express from 'express';
+import { LRUCache } from 'lru-cache';
 import helmet from 'helmet';
 import logger from './sensor/logger.js';
+import { timingSafeSecretEqual } from './sensor/security-utils.js';
 import { billingRouter } from './intelligence/billing.js';
 import { teamRouter } from './intelligence/team.js';
 import { ingestRouter } from './sensor/ingest.js';
@@ -171,16 +172,27 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   // Local mode (127.0.0.1): wildcard for all routes except /local-secret
   // (which sets its own header above). Content scripts run under the page
   // origin, not chrome-extension://, so they need CORS.
-  // Team mode (0.0.0.0): restrict to MERGEN_ALLOWED_ORIGINS; warn if unset.
-  const allowedOrigins = process.env.MERGEN_ALLOWED_ORIGINS
-    ? new Set(process.env.MERGEN_ALLOWED_ORIGINS.split(',').map((s) => s.trim()))
-    : null;
+  // Team mode (0.0.0.0): restrict to MERGEN_ALLOWED_ORIGINS; refuse to start if unset.
+  let allowedOrigins: Set<string> | null = null;
+  if (process.env.MERGEN_ALLOWED_ORIGINS) {
+    const validated = process.env.MERGEN_ALLOWED_ORIGINS
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => {
+        try { new URL(s); return true; }
+        catch { logger.warn({ origin: s }, 'CORS: invalid origin in MERGEN_ALLOWED_ORIGINS — skipped'); return false; }
+      });
+    allowedOrigins = new Set(validated);
+  }
 
   if (bindHost !== '127.0.0.1' && !allowedOrigins) {
-    logger.warn(
-      'MERGEN_ALLOWED_ORIGINS is not set in team/cloud mode — CORS is open to all origins. ' +
-      'Set MERGEN_ALLOWED_ORIGINS=https://your-dashboard.example.com to restrict cross-origin access.',
+    // In team/cloud mode, running with CORS open to all origins is a security
+    // misconfiguration. Refuse to start rather than silently allowing it.
+    logger.error(
+      'FATAL: MERGEN_BIND is not 127.0.0.1 (team/cloud mode) but MERGEN_ALLOWED_ORIGINS is not set. ' +
+      'Set MERGEN_ALLOWED_ORIGINS=https://your-dashboard.example.com to restrict cross-origin access, then restart.',
     );
+    process.exit(1);
   }
 
   app.use((req, res, next) => {
@@ -228,15 +240,11 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   // ── Global rate limiter (per IP) ──────────────────────────────────────────
   // Protects all endpoints against request floods. High-volume ingest paths
   // (/ingest exact, /v1/) are excluded — they receive continuous telemetry streams.
-  const _ipBuckets = new Map<string, { count: number; resetAt: number }>();
+  // LRUCache caps memory at 10,000 unique IPs, evicting least-recently-seen
+  // entries to prevent unbounded heap growth under rotating-IP traffic.
   const RATE_WINDOW_MS = 60_000; // 1 minute
-  const RATE_MAX       = 600;   // 600 req/min per IP (~10 req/s)
-  setInterval(() => {
-    const now = Date.now();
-    for (const [ip, bucket] of _ipBuckets) {
-      if (now > bucket.resetAt) _ipBuckets.delete(ip);
-    }
-  }, 5 * 60_000).unref(); // prune stale entries every 5 min
+  const RATE_MAX       = 600;    // 600 req/min per IP (~10 req/s)
+  const _ipBuckets = new LRUCache<string, { count: number; resetAt: number }>({ max: 10_000 });
 
   app.use((req, res, next) => {
     // Use exact match for /ingest to avoid accidentally exempting future /ingest-* routes.
@@ -269,10 +277,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
     if (req.method === 'GET' || req.method === 'OPTIONS') { next(); return; }
     if (!MUTATING_PATHS.some((p) => req.path === p || req.path.startsWith(p + '/'))) { next(); return; }
     const presented = req.headers['x-mergen-secret'];
-    const valid = typeof presented === 'string' &&
-      presented.length === localSecret.length &&
-      crypto.timingSafeEqual(Buffer.from(presented), Buffer.from(localSecret));
-    if (!valid) {
+    if (!timingSafeSecretEqual(presented, localSecret)) {
       res.status(401).json({ error: 'unauthorized' });
       return;
     }
@@ -286,23 +291,22 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   // Sensitive GET endpoints that expose operational data and require the shared secret.
   // Any path here that starts with a listed prefix will require x-mergen-secret on GET.
   const SENSITIVE_GET_PATHS = [
-    '/api/war-room',       // incident attribution + Slack thread history
-    '/sessions/history',   // full session event replay
-    '/audit',              // audit log
-    '/agent-blunders',     // blocked command history — reveals system constraints
-    '/incidents',          // live incident list + MTTR data
-    '/override-corpus',    // team's operational override knowledge
+    '/api/war-room',          // incident attribution + Slack thread history
+    '/sessions/history',      // full session event replay
+    '/audit',                 // audit log
+    '/agent-blunders',        // blocked command history — reveals system constraints
+    '/incidents',             // live incident list + MTTR data
+    '/override-corpus',       // team's operational override knowledge
     '/shadow-report/entries', // shadow log entries with proposed commands
-    '/impact-report',      // autonomous resolution rate + MTTR metrics
+    '/impact-report',         // autonomous resolution rate + MTTR metrics
+    '/hitl/pending',          // currently-held gate tokens + policy reasons
   ];
   if (localSecret) {
     app.use((req, res, next) => {
       if (req.method !== 'GET') { next(); return; }
       if (!SENSITIVE_GET_PATHS.some((p) => req.path === p || req.path.startsWith(p + '/'))) { next(); return; }
       const presented = req.headers['x-mergen-secret'];
-      const valid = typeof presented === 'string' &&
-        presented.length === localSecret.length &&
-        crypto.timingSafeEqual(Buffer.from(presented), Buffer.from(localSecret));
+      const valid = timingSafeSecretEqual(presented, localSecret);
       if (!valid) { res.status(401).json({ error: 'unauthorized' }); return; }
       next();
     });

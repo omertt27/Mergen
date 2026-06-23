@@ -1,6 +1,6 @@
 # Mergen Product Roadmap
-**Last Updated:** 2026-06-22  
-**Strategic Context:** See [IMPROVEMENT_PLAN.md](./IMPROVEMENT_PLAN.md)
+**Last Updated:** 2026-06-23
+**Category:** Agent Execution Governance (AEG)
 
 ---
 
@@ -12,353 +12,290 @@ AI agents can write code, deploy infrastructure, and access production systems. 
 
 ---
 
-## 📐 The Product Pyramid
-
-The progression from local utility to enterprise safety gate.
+## 📐 The Product Pyramid — Inside-Out Progression
 
 ```
-Layer 1 — Local Execution Gateway (Today)
-   └── CLI Interception, MCP tool interception, prompt-injection protection, secret exposure detection, destructive command blocking.
+Layer 1 — Local Execution Gateway (Today)  ✅
+   └── MCP proxy intercepts every tool call before the handler runs.
+       Blocks destructive commands in <1ms. Holds schema mutations for HITL approval.
+       Agent Blunder Log — hash-chained, tamper-evident, auto-wired.
        Value: Prevent AI agents from making dangerous local actions.
 
-Layer 2 — Team Governance Gateway (Next)
-   └── GitHub integration, CI/CD controls, deployment approvals, Slack approval workflows, audit logging.
+Layer 2 — Team Governance Gateway (Next)  🔄
+   └── CI/CD safety gate intercepts AI-generated PRs. Corpus check + blast-radius analysis.
+       HITL Slack approval before any autonomous change merges. Shared override corpus.
        Value: Prevent unsafe AI-generated changes from reaching production.
 
-Layer 3 — Agent IAM (Future)
-   └── Identity federation, ephemeral credentials, least privilege execution, human-to-agent authorization, compliance reporting.
+Layer 3 — Agent IAM (Future)  ← BUILDING TOWARD
+   └── Federate human SSO identity (Okta/AD) to the agent's active execution thread.
+       Broker ephemeral, short-lived cloud credentials scoped to a single task.
+       Eliminate long-lived secrets. Automated compliance reporting.
        Value: Govern autonomous agents at enterprise scale.
 ```
 
-**Strategic Alignment:**
-* **Today, Mergen secures AI execution on the developer machine.**
-* **Tomorrow, Mergen becomes the security gateway for CI/CD pipelines.**
-* **Long term, Mergen becomes the identity and authorization layer for autonomous agents.**
-
-This believable, technically coherent progression gives a clear path from our current codebase to a much larger outcome.
+**Strategic alignment:**
+- **Today:** The local execution gate is the Trojan Horse — already running on the developer's machine when the enterprise needs governance.
+- **Next:** CI gate graduates Mergen from developer utility to team product, justifying $2.5k/mo.
+- **Long term:** Agent IAM positions Mergen as the non-discretionary enterprise security requirement.
 
 ---
 
----
+## 📊 Current Status (v1.1.0)
 
-## 📊 Current Status (v1.0.0)
+### ✅ Shipped — Layer 1 (Local Execution Gate)
+- [x] MCP stdio proxy with `createGuardedServer` — every tool call passes through policy before handler runs
+- [x] Enterprise policy engine — JSON rules evaluated in <1ms, word-boundary pattern matching
+- [x] HITL gate — Promise suspension + outbound webhook + `/hitl/approve` / `/hitl/deny`
+- [x] Agent Blunder Log — hash-chained, tamper-evident, `GET /agent-blunders/verify`
+- [x] Override Corpus — human overrides encoded as enforcement policy, evaluated before every gate check
+- [x] Shadow mode — 30-day trust track record before autonomous execution
+- [x] Pre-commit incident guard — git hook cross-references staged files against incident history
+- [x] Slack-to-Override Corpus Loop — scans postmortem threads, auto-encodes constraints
+- [x] Git ADR sync — reads architectural decisions, materialises as corpus entries
+- [x] PagerDuty autonomous triage loop — incident → analysis → fix → validate → audit trail
+- [x] Multi-IDE support — Claude Code, Cursor, Windsurf, VS Code
 
-### ✅ Shipped
-- [x] MCP server with stdio transport
-- [x] Chrome extension (console, network, DOM capture)
-- [x] Source map de-minification
-- [x] HMR checkpoints (Vite, webpack, Next.js)
-- [x] Multi-IDE support (Claude Code, Cursor, Windsurf, VS Code)
-- [x] Causal chain analysis (`analyze_runtime` tool)
-- [x] Credit system with usage tracking
-- [x] LemonSqueezy billing integration
+### 🔄 In Progress — Layer 2 (CI/CD Safety Gate)
+- [x] `POST /ci/gate` — corpus check + semantic risk + enterprise policy evaluation
+- [x] `action.yml` composite GitHub Action — changed files + PR diff → verdict → PR comment
+- [ ] GitHub Status Check integration (show gate verdict directly on PR status line)
+- [ ] Blast-radius scoring v2 (service dependency graph awareness)
+- [ ] Team-scoped shared override corpus (currently per-instance)
 
 ### 🐛 Known Issues
-- [ ] Context bloat: Full DOM snapshots can saturate LLM context window (#1216 pattern)
-- [ ] No WebSocket/SSE visibility
-- [ ] No framework-native state inspection (React/Vue component trees)
-- [ ] No filtering by severity/pattern in console logs
-- [ ] Token budget not enforced per-tool
+- [ ] MERGEN_PUBLIC_URL not set in team mode: HITL webhook links point to 127.0.0.1 (warning now shown at startup)
+- [ ] Policy hot-reload: 5-second polling delay before rule changes take effect
+- [ ] CI gate diff analysis: very large PRs (>10KB diff) truncated — semantic analysis may miss tail content
 
 ---
 
-## 🚀 Sprint 1: Context Compression (Week of May 26)
-**Goal:** Solve token bloat. Never exceed 2000 tokens per tool call.
+## 🚀 Sprint 1: AEG Gate Hardening
+**Goal:** Make the local gate production-ready for design partners. Zero false positives. Fast feedback on blocked calls.
 
 ### Deliverables
-- [ ] **Add severity filtering to `get_recent_logs`**
-  - New param: `min_severity: 'log' | 'warn' | 'error'` (default: `warn`)
-  - Filters out low-priority noise
-  - File: [server/src/intelligence/tools.ts](./server/src/intelligence/tools.ts)
+- [ ] **Corpus-driven dynamic blocking**
+  - If an action was blocked 3+ times in the override corpus for the same tag, auto-promote from `warn` → `block`
+  - File: `server/src/intelligence/override-corpus.ts` + `enterprise-policy-engine.ts`
+  - This closes the loop: human overrides automatically tighten the gate without manual policy edits
 
-- [ ] **Add exclude patterns**
-  - New param: `exclude_patterns: string[]` (e.g., `["HMR", "webpack", "vite"]`)
-  - Regex-based filtering
-  - Common patterns auto-suggested in docs
+- [ ] **Policy rule tester**
+  - `POST /ci/gate/test` — evaluate a hypothetical `{ files, commands, actor }` against current policy without side effects
+  - Lets operators validate rule changes before deploying
+  - File: `server/src/routes/ci-gate.ts`
 
-- [ ] **Smart DOM context compression**
-  - Only send changed localStorage keys (diff vs. previous snapshot)
-  - Limit sessionStorage to 10 most-recently-modified keys
-  - Add `focused_element_only: boolean` mode (default: false)
-  - File: [server/src/sensor/buffer.ts](./server/src/sensor/buffer.ts)
+- [ ] **Blunder log structured export**
+  - `GET /agent-blunders?format=csv` and `?format=pdf` for compliance reviews
+  - Include chain verification result in every export
+  - File: `server/src/routes/agent-blunders.ts`
 
-- [ ] **Token budget soft-limits**
-  - Add `max_tokens?: number` param to all tools
-  - Truncate responses with `[...truncated, +X more items]` footer
-  - Log truncation events for observability
+- [ ] **Gate latency metric**
+  - Expose `p50/p95/p99` policy evaluation latency in `GET /health`
+  - Alert if p99 exceeds 10ms target
+  - File: `server/src/sensor/otel-exporter.ts`
 
 ### Success Metrics
-- Avg. `get_recent_logs` response: < 1500 tokens (down from 3000+)
-- Zero user reports of context saturation
-- Tool response time: < 200ms (no perf regression)
-
-### Testing
-- Unit tests: Filter logic with known console data
-- Integration test: 500-event buffer → confirm compressed output < 2000 tokens
-- Manual: Run in Cursor with long session, verify LLM doesn't hit context limit
+- Zero false-positive blocks reported by design partners in first 30 days
+- Policy evaluation p99 < 5ms (currently ~1ms; goal is headroom for corpus growth)
+- Blunder log export accepted by at least one design partner's compliance team
 
 ---
 
-## 🚀 Sprint 2: WebSocket Inspection (Week of June 2)
-**Goal:** Capture real-time communication (WebSocket, SSE). First MCP to ship this.
+## 🚀 Sprint 2: CI Gate v2
+**Goal:** Make the GitHub Action the primary team upgrade path. Verdict must appear on the PR within 10 seconds of push.
 
 ### Deliverables
-- [ ] **Intercept WebSocket constructor**
-  - Patch `new WebSocket(url)` in [extension/src/content.js](./extension/src/content.js)
-  - Capture: open/close/error events, last 50 frames per connection
-  - Rate-limit: Max 10 frames/sec (prevent buffer saturation)
+- [ ] **GitHub Status Check integration**
+  - Post verdict as a GitHub Commit Status (`pending` → `success`/`failure`) in addition to PR comment
+  - Required for branch protection rules ("require Mergen AEG gate to pass before merge")
+  - File: new `server/src/routes/github-status.ts`
 
-- [ ] **New MCP tool: `get_websocket_activity`**
-  - Params: `limit?: number`, `connection_url?: string`, `since?: number`
-  - Returns: connection status, frame history (sent + received), duration
-  - File: [server/src/intelligence/tools.ts](./server/src/intelligence/tools.ts)
+- [ ] **Blast-radius v2 — service graph awareness**
+  - Use the service dependency graph (`serviceGraph.toJSON()`) to calculate how many downstream services a change affects
+  - Upgrade verdict from `warn` → `block` if changed service has >3 downstream dependents and actor is AI
+  - File: `server/src/intelligence/blast-radius.ts`
 
-- [ ] **Server-Sent Events (SSE) support**
-  - Detect `EventSource` usage
-  - Capture event stream (last 50 messages)
-  - Include in same tool output
+- [ ] **Diff pattern matching**
+  - Extend `POST /ci/gate` to detect specific patterns in diff content: secret exposure (regex), known-bad code patterns, direct DB calls without transactions
+  - File: `server/src/intelligence/action-risk.ts`
 
-- [ ] **Buffer storage for WS frames**
-  - Add `websocket` event type to ring buffer
-  - File: [server/src/sensor/buffer.ts](./server/src/sensor/buffer.ts)
+- [ ] **CI gate history**
+  - `GET /ci/gate/history?pr=<number>` — all past evaluations for a PR
+  - Lets the PR author see what changed between gate runs
+  - File: new `server/src/routes/ci-gate-history.ts`
 
 ### Success Metrics
-- 20% of users with WebSocket usage call `get_websocket_activity` within first week
-- Zero perf impact on apps with high-frequency WS traffic (tested with 100 msg/sec)
-- AI can debug "WebSocket connection drops randomly" without user intervention
-
-### Testing
-- Unit test: Mock WebSocket, verify frame capture
-- Integration test: Run against Socket.io demo app
-- Load test: 1000 frames/min → confirm rate-limiting works
+- Gate verdict appears on PR within 10 seconds of push
+- At least 1 design partner uses branch protection with "require Mergen gate to pass"
+- Zero false-block escalations in first 30 days of team use
 
 ---
 
-## 🚀 Sprint 3: Debug Hypothesis Workflow (Week of June 9)
-**Goal:** Enable autonomous multi-step debugging. Implement "Debug Mode" pattern from report.
+## 🚀 Sprint 3: Agent IAM Foundation
+**Goal:** Lay the groundwork for ephemeral credential brokering. No production release; this is scaffolding + design.
 
 ### Deliverables
-- [ ] **New tool: `start_debug_session`**
-  - Params: `hypothesis: string`, `target_component?: string`
-  - Returns: session ID + baseline state capture
-  - Prompts user: "Reproduce the issue now, then call `end_debug_session(id)`"
+- [ ] **MERGEN_PUBLIC_URL team deployment guide**
+  - Document the full team deployment flow (MERGEN_BIND, MERGEN_PUBLIC_URL, MERGEN_ALLOWED_ORIGINS, TLS)
+  - `mergen-server setup --team` wizard that walks through all required env vars
+  - File: `INSTALL.md` + `server/src/cli.ts`
 
-- [ ] **New tool: `end_debug_session`**
-  - Params: `session_id: string`
-  - Returns: diff between baseline and post-reproduction state
-  - Auto-calls `analyze_runtime` with filtered events
+- [ ] **Non-human identity model**
+  - Define the `AgentIdentity` type: `{ agentId, humanOwner, sessionId, scopedTools, expiresAt }`
+  - Wire into the tool-guard: every gate evaluation records the identity of the calling agent
+  - File: new `server/src/sensor/agent-identity.ts`
 
-- [ ] **Tool: `suggest_logging_locations`**
-  - Params: `hypothesis: string`, `file_path?: string`
-  - Analyzes source code (via Read tool)
-  - Returns: "Add console.log at line X to track Y"
+- [ ] **Ephemeral token scaffolding**
+  - `POST /agent-tokens` — issues a short-lived (15-minute) token scoped to a specific tool set
+  - `DELETE /agent-tokens/:id` — revoke before expiry
+  - Tokens are stored in SQLite with `expiresAt`, validated on every guarded tool call
+  - File: new `server/src/routes/agent-tokens.ts`
 
-- [ ] **Integration with `analyze_runtime`**
-  - If root cause unclear, auto-suggest starting debug session
-  - Add `debug_hypothesis` field to response
+- [ ] **SSO federation hook (stub)**
+  - `MERGEN_SSO_ISSUER` env var + OIDC discovery endpoint lookup
+  - Validates `Authorization: Bearer <oidc-token>` and maps to `humanOwner` in AgentIdentity
+  - File: `server/src/sensor/sso.ts` (extend existing)
 
 ### Success Metrics
-- 30% of `analyze_runtime` calls preceded by `start_debug_session`
-- User feedback: "Mergen walked me through debugging like a senior engineer"
-
-### Testing
-- E2E test: Simulate bug reproduction workflow
-- User study: 5 beta testers attempt debugging with vs. without this tool
+- `AgentIdentity` recorded in every blunder log entry (enables "which agent triggered this block?")
+- Ephemeral tokens working end-to-end in local mode
+- Design: document reviewed by at least one enterprise design partner CISO
 
 ---
 
-## 🚀 Sprint 4–5: React DevTools Integration (Weeks of June 16 & 23)
-**Goal:** Expose component state to AI. Largest ecosystem whitespace.
-
-### Phase 1: React Support
-- [ ] **Detect React DevTools hook**
-  - Check for `__REACT_DEVTOOLS_GLOBAL_HOOK__`
-  - Fallback: Manual Fiber tree traversal
-  - File: [extension/src/content.js](./extension/src/content.js)
-
-- [ ] **Serialize component tree**
-  - Capture on `console.error` or manual trigger
-  - Per component: name, props, state, hooks, render count
-  - Max depth: 10 levels (configurable)
-
-- [ ] **New tool: `get_component_tree`**
-  - Params: `component_name?: string`, `max_depth?: number`, `include_props?: boolean`
-  - Returns: nested component hierarchy with state
-
-- [ ] **Auto-capture on error**
-  - When `console.error` fires, snapshot React tree
-  - Include in `get_dom_context` output
-
-### Phase 2: Vue Support
-- [ ] **Detect Vue DevTools hook**
-  - Check for `__VUE_DEVTOOLS_GLOBAL_HOOK__`
-  - Support Vue 2 (`__vue__`) and Vue 3 (`__vueParentComponent`)
-
-- [ ] **Serialize Vue component tree**
-  - Capture: name, props, data, computed, watchers
-
-### Success Metrics
-- 40% of React/Vue users call `get_component_tree` within first week
-- AI can answer: "Why is this component re-rendering?" without user manually inspecting DevTools
-- Beta feedback: "This is a game-changer for debugging state issues"
-
-### Testing
-- Test apps: Create React App, Next.js, Vue 3 Vite starter
-- Edge cases: Error boundaries, Suspense, portals
-- Perf test: 500-component tree serialization < 100ms
-
----
-
-## 🚀 Sprint 6: Marketing & Positioning Refresh (Week of June 30)
-**Goal:** Clearly communicate Mergen's advantages vs. chrome-devtools-mcp.
+## 🚀 Sprint 4: Compliance & Audit
+**Goal:** Make the Agent Blunder Log and override corpus CISO-presentable. Close the SOC 2 gap.
 
 ### Deliverables
-- [ ] **Comparison doc**
-  - New file: `docs/why-mergen.md`
-  - Table: Mergen vs. chrome-devtools-mcp vs. playwright-mcp
-  - Highlight: Real browser, auth support, HMR checkpoints
+- [ ] **Structured audit report**
+  - `GET /audit/report?from=<epoch>&to=<epoch>&format=pdf|html|json`
+  - Sections: blocked actions by type, HITL approvals/denials, corpus growth, agent identities, chain verification result
+  - File: new `server/src/routes/audit-report.ts`
 
-- [ ] **Update README.md**
-  - Add "Why Mergen?" section at top
-  - Include demo GIF (auth-gated debugging)
+- [ ] **RBAC actor scoping in policy rules**
+  - Extend `EnterprisePolicyRule.conditions` with `roles?: string[]` — only applies to actors with that role
+  - `POST /rbac/roles` — assign roles to actors (human or agent)
+  - File: `server/src/sensor/rbac.ts` + `enterprise-policy-engine.ts`
 
-- [ ] **Demo video (30 sec)**
-  - Scenario: Debug a bug in a production app behind OAuth
-  - Show: AI finds root cause without opening DevTools
-  - Publish: YouTube + embed in README
+- [ ] **Retention controls**
+  - `MERGEN_AUDIT_RETENTION_DAYS=365` — blunders older than N days are exported to S3/GCS/local archive before deletion
+  - `MERGEN_ZERO_RETENTION=true` already exists; add `MERGEN_ARCHIVE_PATH` for regulated environments
+  - File: `server/src/sensor/agent-blunder-store.ts`
 
-- [ ] **Update CLAUDE.md**
-  - Add competitive positioning section
-  - Include when-to-use guide
+- [ ] **SOC 2 alignment doc**
+  - Map every Mergen control to SOC 2 Trust Service Criteria (Security, Availability, Confidentiality)
+  - File: new `docs/soc2-alignment.md`
 
 ### Success Metrics
-- 50% of new users mention "real browser debugging" in onboarding survey
-- 2x increase in GitHub stars week-over-week
-- Featured in at least one AI engineering newsletter
+- Audit report accepted without modification by at least one design partner compliance review
+- RBAC roles working end-to-end: different policy rules fire for `cursor-agent` vs `github-actions`
 
 ---
 
-## 🚀 Solo Developer Personal Leverage (Instant Value Loop)
+## 🚀 Sprint 5: Design Partner & Distribution
+**Goal:** Sign 3 design partners. Measure shadow mode value before the first paid conversion.
 
-**Context:** Solo devs adopt Mergen not for long-term governance or dashboards, but to gain immediate personal leverage inside their daily coding loop. The product acts as the **behavior memory** of their project, helping them stop repeating debugging work and shipping faster without breaking the same system twice.
+### Deliverables
+- [ ] **Outreach execution**
+  - Send 20 cold emails using `docs/design-partner/outreach-email.md`
+  - Target: VP Engineering at companies with public postmortems in last 6 months, 20–150 person eng teams
+  - Goal: 3 design partners in shadow mode within 30 days
 
-### Use Case A: "Why did this break again?" (Incident Re-occurrence Memory)
-* **The Gap:** A dev encounters the same bug weeks or months later, but has forgotten the root cause and the workaround, wasting time repeating the investigation.
-* **Implementation:** When an error is recorded, check SQLite database history for matching signatures.
-* **Output:** The MCP tool outputs: *"This error has happened before (e.g., Incident #388). Here is what you did last time and why it worked."*
+- [ ] **`npx mergen-server` first-run experience**
+  - On first run with no config: print the AEG pitch + 3 setup steps + link to QUICKSTART.md
+  - Detect if Claude Code / Cursor is installed and offer one-command MCP registration
+  - File: `server/src/cli.ts`
 
-### Use Case B: "My AI agent is confidently wrong" (Staged Changes Cross-Reference)
-* **The Gap:** AI code assistants (Cursor/Claude Code) propose plausible-looking code changes that inadvertently break other parts of the system.
-* **Implementation:** Cross-reference modified files and PR diffs against historical failure contexts and override corpus entries.
-* **Output:** Before allowing the change to proceed, Mergen injects: *"This change previously caused incident #12 in your repo (related files: auth_middleware.ts)."*
+- [ ] **MCP marketplace submissions**
+  - Submit `mcp/cursor-directory.json` as a PR to cursor.directory
+  - Submit to glama.ai and pulsemcp.com via their submission flows
+  - Update npm package description to AEG category
 
-### Use Case C: "I don't understand my own system anymore" (Behavior Memory Graph)
-* **The Gap:** As side projects grow, the developer's mental model of runtime behavior, service topologies, and dependencies degrades.
-* **Implementation:** Auto-generate a living map of actual system behavior, request timelines, and dependency traces from local telemetry.
-* **Output:** Serves an interactive visualization and MCP resource showing the true operational connections and behavior logs of the system.
+- [ ] **Shadow report shareable PDF**
+  - `GET /shadow-report?format=pdf` — CISO-ready one-pager
+  - Include: total evaluated, would-have-blocked, corpus size, calibration accuracy
+  - This is the design partner deliverable at day 30
 
----
-
-## 📅 6-Month Action Plan (Knowledge Compounding Focus)
-
-Sequenced around the Phase 4 priority shift: knowledge collection and compounding before autonomous execution.
-
-### Days 1–30: Distribution & Frictionless Onboarding
-- Publish browser extension to Chrome Web Store (`mergen-open` branding)
-- Publish local server to npm — remove manual `git clone` onboarding
-- `npx mergen-setup` auto-discovers local topology (Docker, ports, CI hooks)
-- **Why:** The beachhead (mid-market 20–150 dev teams) will not install a tool that requires manual configuration. Free distribution drives the organic acquisition that makes the paid platform credible.
-
-### Days 30–60: ROI Dashboard & Time-Saved Tracker
-- Add time-to-resolution tracking across incidents
-- `GET /impact-report` shows hours saved vs. manual triage baseline
-- VP of Engineering dashboard: autonomous resolution rate, MTTR delta, false positive breakdown
-- **Why:** Enterprise sales requires a measurable ROI story. "We saved 47 engineer-hours last month" closes deals that "we triage incidents faster" cannot.
-
-### Days 60–90: Slack-to-Override Memory Loop (Phase 4 MVP)
-- Ingestion path watching postmortem channels in Slack and git ADR commits
-- Convert human post-mortems into machine-readable override corpus entries automatically
-- **Why:** This is the compounding flywheel. Every postmortem discussion becomes durable policy without engineers doing extra work. After 90 days, Mergen knows things about the customer's system that no competitor can replicate.
-
-### Days 90–150: Agent Safety CI Gate (Phase 3 MVP)
-- GitHub Action intercepting PRs from autonomous coding agents
-- Match proposed changes against Override Corpus and action-risk.ts
-- Block dangerous code before merge; post structured reason to PR review
-- **Why:** This moves Mergen from "developer utility" to "CISO-approved governance layer." Without this, Mergen cannot command enterprise ACV. With it, the pitch becomes: "Mergen is how you let AI agents touch production safely."
-
-### Days 150–180: Enterprise Pipeline
-- Target 5 mid-market engineering teams adopting agentic coding
-- Convert from free CLI to paid Operational Intelligence platform
-- Focus on teams with public postmortems in last 12 months, 10–50 person eng orgs, on PagerDuty
-- **Why:** Proof of commercial viability before Series A conversation.
+### Success Metrics
+- 3 design partners in active shadow mode
+- At least 1 MCP marketplace listing live under "security" category
+- First design partner produces a shadow report at day 30
 
 ---
 
-## 📅 Future Sprints (Q3–Q4 2026)
+## 📅 6-Month Action Plan (Agent Execution Governance Focus)
+
+Sequenced around the Inside-Out progression: establish the local enforcement gate, graduate to CI/CD governance, then Agent IAM.
+
+### Days 1–30: Sign 3 design partners (Sprint 5)
+- Outreach using `docs/design-partner/outreach-email.md`
+- Shadow mode onboarding using `docs/design-partner/shadow-mode-onboarding.md`
+- **Why:** The product is ready. The blocker is not engineering — it's distribution.
+
+### Days 30–60: CI gate to production (Sprint 2)
+- GitHub Status Check integration — makes the gate enforceable via branch protection
+- Blast-radius v2 — makes the gate defensible ("here's the blast radius score and why")
+- **Why:** This moves Mergen from "developer utility" to "team requirement."
+
+### Days 60–90: AEG gate hardening + compliance (Sprints 1 & 4)
+- Corpus-driven dynamic blocking, audit report, RBAC actor scoping
+- **Why:** Design partners are 60 days in — they have real corpus data and real CISO questions.
+
+### Days 90–150: Agent IAM foundation (Sprint 3)
+- Ephemeral tokens, SSO federation hook, AgentIdentity model
+- **Why:** By now, design partners are asking "how do we know which agent did this?" — IAM is the answer.
+
+### Days 150–180: Enterprise pipeline
+- Convert 3 design partners → paid Growth ($299/mo) or Enterprise (custom)
+- Target 5 additional mid-market teams via warm intros from design partners
+- **Why:** Proof of commercial viability before any fundraising conversation.
+
+---
+
+## 📅 Future Quarters (Q3–Q4 2026)
 
 ### Q3 2026: Enterprise Hardening
-- OpenTelemetry export
-- MCP permission system
-- Sentry integration
-- Audit logging for compliance teams
+- Agent IAM production release (Okta/AD federation, ephemeral credentials)
+- VPC deployment option
+- SOC 2 Type I preparation
+- Managed Cloud SaaS (multi-tenant)
 
-### Q4 2026: Scale & Monetization
-- Team buffer sharing
-- Managed Cloud SaaS
+### Q4 2026: Scale
+- Team buffer sharing with tenant isolation
+- Policy authoring web UI (edit `enterprise-policy.json` visually)
 - VS Code native extension
-- Public beta launch
-
----
-
-## 🎁 Backlog (Nice-to-Haves)
-
-### Developer Experience
-- [ ] TypeScript types for all MCP tools (auto-generated from Zod schemas)
-- [ ] CLI tool: `mergen diagnose` (run health check, test extension connectivity)
-- [ ] Better error messages when extension disconnected
-- [ ] Dark mode for extension popup
-
-### Advanced Features
-- [ ] GraphQL query/mutation inspection (similar to network tool)
-- [ ] Performance profiling: capture flame graphs on demand
-- [ ] A/B test detection: auto-tag events with feature flags
-- [ ] Local replay: re-run buffer events in a sandbox
-
-### Integrations
-- [ ] Datadog MCP integration
-- [ ] LogRocket correlation
-- [ ] Supabase real-time database logs
-- [ ] Vercel deployment correlation (match errors to deploy ID)
+- Public beta launch with press
 
 ---
 
 ## 🚨 Risk Mitigation
 
 ### Competitive Threats
-- **chrome-devtools-mcp adds auth support** → Mitigation: Ship WebSocket + React DevTools before they do (6-month lead)
-- **Cursor builds native runtime tools** → Mitigation: MCP-native approach works in all IDEs (not locked to Cursor)
+- **Anthropic ships tool-level authorization in the MCP spec** → Mitigation: Mergen's override corpus and Agent Blunder Log compound with use — a new MCP feature provides a protocol but not the 6-month enforcement history.
+- **Datadog/PagerDuty ships an "AI agent policy" layer** → Mitigation: They are post-incident tools. We are the pre-execution gate. Different category, different buyer motion.
+- **Open-source AEG tool emerges** → Mitigation: The algorithm is reproducible. The override corpus and blunder log built from a team's real incidents are not.
 
 ### Technical Risks
-- **React Fiber API instability** → Mitigation: Abstract behind adapter layer, support multiple React versions
-- **Context bloat regression** → Mitigation: Add CI test that fails if any tool response > 2500 tokens
-- **Browser API changes break extension** → Mitigation: Automated smoke tests in CI (Playwright runs extension in headless Chrome)
+- **Policy engine performance degrades as corpus grows** → Mitigation: Indexed SQLite lookups + in-memory LRU cache; benchmark at 10k corpus entries.
+- **HITL webhook approval window expires on slow Slack responses** → Mitigation: 15-minute window is configurable; add `MERGEN_HITL_TIMEOUT_MS` env var.
+- **SQLite file corruption on crash** → Mitigation: Atomic tmp-rename on every write + Redis persistence option for production deployments.
 
 ### Business Risks
-- **Low adoption** → Mitigation: VS Code native extension (zero-config onboarding)
-- **Hard to monetize** → Mitigation: Enterprise features (OTEL, team sharing) behind paid tier
+- **Design partners don't convert to paid** → Mitigation: Shadow report + blunder log give them CISO evidence; price the Growth tier below their cost-per-incident.
+- **CISO blocks adoption** → Mitigation: Shadow mode is the answer — no autonomous execution until the CISO has seen 30 days of evidence.
 
 ---
 
 ## 📈 KPIs (Monthly Tracking)
 
-| Metric | May 2026 | Target (Aug 2026) | Target (Dec 2026) |
+| Metric | Jun 2026 | Target (Sep 2026) | Target (Dec 2026) |
 |--------|----------|-------------------|-------------------|
-| Weekly active users | 50 | 500 | 2,000 |
-| GitHub stars | 120 | 500 | 1,500 |
-| MRR | $0 | $1K | $10K |
-| Avg. session duration | 15 min | 30 min | 45 min |
-| Tools calls per session | 3 | 8 | 12 |
-| Net Promoter Score (NPS) | N/A | 40 | 60 |
+| Design partners in shadow mode | 0 | 3 | 8 |
+| Weekly active developers (gate calls) | — | 50 | 300 |
+| GitHub stars | — | 200 | 800 |
+| MRR | $0 | $900 | $8K |
+| Agent Blunder Log entries (all partners) | 0 | 500 | 5,000 |
+| Override corpus entries (all partners) | 0 | 200 | 2,000 |
+| NPS (design partners) | — | 50 | 60 |
 
 ---
 
@@ -367,14 +304,16 @@ Sequenced around the Phase 4 priority shift: knowledge collection and compoundin
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for dev setup and PR guidelines.
 
 **High-impact contributions:**
-- React/Vue DevTools integration (advanced, 2-week effort)
-- WebSocket inspection (intermediate, 1-week effort)
-- Context compression (beginner, 2-day effort)
+- Corpus-driven dynamic blocking (Sprint 1 — medium effort, 3-5 days)
+- GitHub Status Check integration (Sprint 2 — medium effort, 2-3 days)
+- Ephemeral token scaffolding (Sprint 3 — advanced, 1 week)
+- Audit report generation (Sprint 4 — beginner-friendly, 2 days)
 
 ---
 
 ## 📚 Related Docs
-- [IMPROVEMENT_PLAN.md](./IMPROVEMENT_PLAN.md) — Strategic analysis and competitive positioning
-- [CLAUDE.md](./CLAUDE.md) — AI assistant instructions for this codebase
-- [QUICKSTART.md](./QUICKSTART.md) — 2-minute setup guide
-- [INSTALL.md](./INSTALL.md) — Detailed installation options
+- [CLAUDE.md](./CLAUDE.md) — AI assistant instructions + AEG positioning framework
+- [QUICKSTART.md](./QUICKSTART.md) — Install + verify the gate in 5 minutes
+- [docs/design-partner/outreach-email.md](./docs/design-partner/outreach-email.md) — Design partner outreach templates
+- [docs/design-partner/shadow-mode-onboarding.md](./docs/design-partner/shadow-mode-onboarding.md) — 30-day shadow mode guide
+- [.github/SECURITY.md](./.github/SECURITY.md) — Vulnerability disclosure policy

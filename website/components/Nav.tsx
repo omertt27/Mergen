@@ -33,7 +33,7 @@ export default function Nav() {
     <nav>
       <div className="wrap">
         <div className="nav-inner">
-          <a href="/" className="logo">🧠 Mergen</a>
+          <a href="/" className="logo">⚡ Mergen</a>
 
           <ul className="nav-links">
             {navLinks.map((l) => (

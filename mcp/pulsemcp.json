@@ -1,15 +1,15 @@
 {
   "name": "mergen",
-  "title": "Mergen — Local-First Runtime Debugging",
-  "shortDescription": "Browser → 127.0.0.1 → MCP. Causal Context Packs for your AI assistant.",
-  "longDescription": "Mergen is a local-first MCP server that captures console events, fetch/XHR traffic, and DOM snapshots from your active browser tab and exposes them as MCP tools. The bundled VS Code extension and Chrome/Edge extension stream events to a 127.0.0.1 server — nothing leaves your laptop. The killer tool is `analyze_runtime`, which returns a causally correlated Context Pack with ranked hypotheses and source-mapped evidence so your AI host can fix the bug instead of asking you to paste a stack trace.",
-  "homepage": "https://github.com/omertt27/Mergen",
+  "title": "Mergen — Agent Execution Governance (AEG)",
+  "shortDescription": "The inline gate between your AI agent and production. Blocks destructive tool calls in <1ms. HITL approval for schema mutations. Tamper-evident Agent Blunder Log.",
+  "longDescription": "Mergen is the first Agent Execution Governance (AEG) platform. It wraps your MCP server as a transparent proxy: before any tool handler executes, Mergen evaluates the call against your local policy engine in under 1ms. Destructive commands (rm -rf, terraform destroy, DROP TABLE) are blocked and logged. Schema mutations are held — the Promise suspends until an operator approves or denies via Slack webhook. Every intercepted action is written to a hash-chained, tamper-evident Agent Blunder Log that your CISO can audit.\n\nSentry and Datadog tell you after an AI agent has corrupted your database. Mergen is the deterministic gate that prevents it.\n\nThe Inside-Out progression: Layer 1 — local execution gate on the developer's machine. Layer 2 — CI/CD safety gate for AI-generated PRs. Layer 3 — Agent IAM with ephemeral credential brokering (coming).",
+  "homepage": "https://mergen.dev",
   "repository": "https://github.com/omertt27/Mergen",
   "license": "MIT",
   "author": { "name": "omertt27", "url": "https://github.com/omertt27" },
-  "icon": "https://raw.githubusercontent.com/omertt27/Mergen/main/extension/icons/icon128.png",
-  "categories": ["developer-tools", "debugging", "browser"],
-  "tags": ["browser", "console", "network", "dom", "causal", "source-maps", "local-first", "privacy"],
+  "icon": "https://raw.githubusercontent.com/omertt27/Mergen/main/mergen-logo-128.png",
+  "categories": ["security", "governance", "developer-tools"],
+  "tags": ["agent-security", "aeg", "policy-enforcement", "hitl", "audit-log", "agent-blunder-log", "local-first", "mcp-proxy", "override-corpus"],
   "transport": "stdio",
   "install": {
     "claudeDesktop": {
@@ -31,11 +31,12 @@
     }
   },
   "tools": [
-    { "name": "get_status",           "summary": "Health + buffer + analyses-per-day." },
-    { "name": "get_recent_logs",      "summary": "Last N console events." },
-    { "name": "get_network_activity", "summary": "Last N fetch/XHR events." },
-    { "name": "get_dom_context",      "summary": "DOM snapshot + framework hints." },
-    { "name": "clear_buffer",         "summary": "Drop the rolling buffer." },
-    { "name": "analyze_runtime",      "summary": "Causal Context Pack with ranked hypotheses." }
+    { "name": "triage_incident",      "summary": "Full autonomous loop — diagnosis + optional fix execution." },
+    { "name": "execute_fix",          "summary": "Execute a hypothesis fix (requires confirm: true + passes local gate)." },
+    { "name": "analyze_runtime",      "summary": "Causal analysis — root cause + fix hint, no execution." },
+    { "name": "get_recent_logs",      "summary": "Console events from the ring buffer." },
+    { "name": "get_network_activity", "summary": "HTTP/fetch events with status, duration, body." },
+    { "name": "validate_fix",         "summary": "Compare error counts before/after a fix — records verdict." },
+    { "name": "clear_buffer",         "summary": "Empties the ring buffer." }
   ]
 }

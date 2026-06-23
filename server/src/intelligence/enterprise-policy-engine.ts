@@ -1,28 +1,34 @@
 import fs from 'fs';
 import path from 'path';
+import { z } from 'zod';
 import { DATA_DIR, zeroRetentionMode } from '../sensor/paths.js';
 import logger from '../sensor/logger.js';
 
-export interface EnterprisePolicyRule {
-  id: string;
-  name: string;
-  description: string;
-  action: 'block' | 'warn' | 'pass';
-  reason: string;
-  conditions: {
-    files?: string[];                  // substring match on filenames / tool names
-    commands?: string[];               // substring match on tool name + command args
-    actorType?: 'ai' | 'human' | 'all';
-    daysOfWeek?: number[];             // e.g. [5] for Friday
-    hourWindow?: [number, number];     // e.g. [12, 18] UTC
-    services?: string[];               // e.g. ["api-service"]
-  };
-}
+// ── Zod schemas (single source of truth for both types and runtime validation) ─
 
-export interface EnterprisePolicyConfig {
-  enabled: boolean;
-  rules: EnterprisePolicyRule[];
-}
+const EnterprisePolicyRuleSchema = z.object({
+  id:          z.string().min(1),
+  name:        z.string(),
+  description: z.string(),
+  action:      z.enum(['block', 'warn', 'pass']),
+  reason:      z.string(),
+  conditions:  z.object({
+    files:      z.array(z.string()).optional(),
+    commands:   z.array(z.string()).optional(),
+    actorType:  z.enum(['ai', 'human', 'all']).optional(),
+    daysOfWeek: z.array(z.number().int().min(0).max(6)).optional(),
+    hourWindow: z.tuple([z.number().int().min(0).max(23), z.number().int().min(0).max(24)]).optional(),
+    services:   z.array(z.string()).optional(),
+  }),
+});
+
+const EnterprisePolicyConfigSchema = z.object({
+  enabled: z.boolean(),
+  rules:   z.array(EnterprisePolicyRuleSchema),
+});
+
+export type EnterprisePolicyRule   = z.infer<typeof EnterprisePolicyRuleSchema>;
+export type EnterprisePolicyConfig = z.infer<typeof EnterprisePolicyConfigSchema>;
 
 export const ENTERPRISE_POLICY_FILE = path.join(DATA_DIR, 'enterprise-policy.json');
 
@@ -106,22 +112,46 @@ export function loadEnterprisePolicy(force = false): EnterprisePolicyConfig {
       }
     }
     _cachedConfig = DEFAULT_ENTERPRISE_POLICY;
+    _watchPolicyFile();
     return _cachedConfig;
   }
 
   try {
-    const raw = fs.readFileSync(ENTERPRISE_POLICY_FILE, 'utf8');
-    const parsed = JSON.parse(raw) as EnterprisePolicyConfig;
-    if (parsed && Array.isArray(parsed.rules)) {
-      _cachedConfig = parsed;
+    const raw  = fs.readFileSync(ENTERPRISE_POLICY_FILE, 'utf8');
+    const json = JSON.parse(raw);
+    const result = EnterprisePolicyConfigSchema.safeParse(json);
+    if (result.success) {
+      _cachedConfig = result.data;
     } else {
+      logger.warn({ issues: result.error.issues }, 'policy-engine: enterprise-policy.json failed schema validation — using defaults');
       _cachedConfig = DEFAULT_ENTERPRISE_POLICY;
     }
   } catch (err) {
     logger.warn({ err }, 'policy-engine: failed to load enterprise policy — using defaults');
     _cachedConfig = DEFAULT_ENTERPRISE_POLICY;
   }
+  _watchPolicyFile();
   return _cachedConfig;
+}
+
+/** Test-only: force the default policy into the cache without touching disk. */
+export function _resetPolicyCacheForTesting(overrideConfig?: EnterprisePolicyConfig): void {
+  _cachedConfig = overrideConfig ?? DEFAULT_ENTERPRISE_POLICY;
+}
+
+let _watcherStarted = false;
+
+function _watchPolicyFile(): void {
+  if (_watcherStarted || zeroRetentionMode()) return;
+  _watcherStarted = true;
+  try {
+    fs.watchFile(ENTERPRISE_POLICY_FILE, { interval: 5_000, persistent: false }, () => {
+      _cachedConfig = null;
+      logger.info('policy-engine: enterprise-policy.json changed — reloading on next evaluation');
+    });
+  } catch {
+    // watchFile fails if the path's parent directory doesn't exist yet; safe to ignore
+  }
 }
 
 export function isAiActor(actorName: string): boolean {
@@ -151,6 +181,29 @@ export interface PolicyEvaluationResult {
   verdict: 'pass' | 'warn' | 'block';
   triggeredRules: string[];
   reasons: string[];
+}
+
+/**
+ * Match a single policy pattern against a command haystack.
+ *
+ * Multi-word patterns (e.g. "terraform destroy", "drop table") are already
+ * specific enough to use plain substring matching — collateral matches are
+ * extremely unlikely in practice.
+ *
+ * Single-word patterns (e.g. "destroy", "nuke", "wipe") are matched with word
+ * boundaries (\b) so they don't fire on compound identifiers like
+ * "destroy_reason", "destroy-session", or JSON keys containing the word.
+ *
+ * Escaped for regex safety: chars that are special in RegExp (e.g. `*`, `.`,
+ * `+`) are escaped before the pattern is compiled.
+ */
+function matchesCommandPattern(haystack: string, pattern: string): boolean {
+  const lower = pattern.toLowerCase();
+  if (lower.includes(' ')) {
+    return haystack.includes(lower);
+  }
+  const escaped = lower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`\\b${escaped}\\b`).test(haystack);
 }
 
 export function evaluateEnterprisePolicy(input: EvaluationInput): PolicyEvaluationResult {
@@ -187,10 +240,11 @@ export function evaluateEnterprisePolicy(input: EvaluationInput): PolicyEvaluati
       );
     }
 
-    // 2. Commands Condition — substring match against tool name + serialized args
+    // 2. Commands Condition — word-boundary match for single-word patterns,
+    //    substring match for multi-word patterns (already precise enough).
     if (cond.commands && cond.commands.length > 0) {
       const haystack = commands.map(s => s.toLowerCase()).join(' ');
-      commandMatched = cond.commands.some(pattern => haystack.includes(pattern.toLowerCase()));
+      commandMatched = cond.commands.some(pattern => matchesCommandPattern(haystack, pattern));
     }
 
     // 3. Actor Type Condition

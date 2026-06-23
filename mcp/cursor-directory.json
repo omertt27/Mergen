@@ -1,23 +1,24 @@
 {
-  "_comment": "Submit as a PR to https://github.com/pontusab/cursor.directory (or current canonical Cursor directory repo).",
+  "_comment": "Submit as a PR to https://github.com/pontusab/cursor.directory",
   "name": "mergen",
-  "displayName": "Mergen",
-  "description": "Local-first runtime debugging. Streams browser console, network, and DOM to your AI assistant via MCP. Causally correlated, source-mapped, never leaves 127.0.0.1.",
-  "homepage": "https://github.com/omertt27/Mergen",
+  "displayName": "Mergen — Agent Execution Governance",
+  "description": "The first Agent Execution Governance (AEG) platform. Sits inline between your AI agent and your systems — physically blocks destructive tool calls in <1ms, holds schema mutations for HITL approval, and hash-chains every blocked action to a tamper-evident audit log. Prompts are not enforcement. This is.",
+  "homepage": "https://mergen.dev",
   "repository": "https://github.com/omertt27/Mergen",
   "license": "MIT",
-  "tags": ["debugging", "browser", "observability", "local-first"],
+  "tags": ["security", "agent-safety", "policy-enforcement", "governance", "hitl", "audit-log", "local-first"],
   "mcp": {
     "transport": "stdio",
     "command": "npx",
     "args": ["-y", "mergen-server"]
   },
   "tools": [
-    "get_status",
+    "triage_incident",
+    "execute_fix",
+    "analyze_runtime",
     "get_recent_logs",
     "get_network_activity",
-    "get_dom_context",
-    "clear_buffer",
-    "analyze_runtime"
+    "validate_fix",
+    "clear_buffer"
   ]
 }

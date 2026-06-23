@@ -5,11 +5,11 @@ import { useState } from 'react'
 const steps = [
   {
     num: '01',
-    title: 'See it in 60 seconds',
+    title: 'Start the local gate',
     tag: 'zero config · Node.js 18+',
-    body: 'Run one command. Mergen starts a local server, loads 50 sample incidents from public postmortems, and immediately shows you a root cause analysis. No PagerDuty, no OTLP, no IDE setup required.',
+    body: 'Run one command. Mergen starts the local policy gate and binds to 127.0.0.1:3000. Every MCP tool call your AI agent makes now passes through the gate before the handler runs.',
     code: 'npx mergen-server',
-    note: 'Opens http://localhost:3000/demo — click "Trigger P1 Incident" or ask a question in the chat tab.',
+    note: 'Verify the gate is live: curl http://127.0.0.1:3000/health → { "ok": true, "gate": "active" }',
   },
   {
     num: '02',
@@ -40,7 +40,7 @@ claude mcp add mergen --transport stdio -- node "$(pwd)/server/dist/index.js"`,
   {
     num: '04',
     title: 'Build the Override Corpus',
-    tag: 'shadow mode · knowledge compounding',
+    tag: 'shadow mode · corpus enforcement',
     body: 'Run in shadow mode to start building your team\'s Override Corpus — the record of every override, constraint, and postmortem that makes Mergen specific to your infrastructure. Enable autopilot only after the corpus has established a track record.',
     code: `# Start with shadow mode (builds corpus, no execution)
 MERGEN_SHADOW_MODE=true mergen-server start
@@ -85,9 +85,9 @@ export default function UserGuide() {
     <section id="guide">
       <span className="section-label">06 // Getting Started</span>
       <h2>
-        First insight in 60 seconds.
+        Gate running in 60 seconds.
         <br />
-        Pilot success: 1 real incident analyzed.
+        Pilot success: first blocked action logged.
       </h2>
 
       <div className="guide-steps mt-lg">

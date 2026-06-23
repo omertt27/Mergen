@@ -124,7 +124,7 @@ export default function EvalProof() {
       }}>
         <p style={{ color: 'var(--gray-400)', fontSize: '0.95rem', lineHeight: 1.7 }}>
         <span style={{ color: 'var(--white)', fontWeight: 700 }}>Why this matters:</span>{' '}
-        Most observability tools are evaluated by the engineers who built them, on the incidents they chose.
+        Most post-incident monitoring tools are evaluated by the engineers who built them, on the incidents they chose.
         Mergen ships a public eval harness — the same suite that gates every release.
         The 2 failures are documented: the detector fires on liveness probe and Prometheus scrape errors when it shouldn't.
         Fix is in the roadmap; hiding it is not.

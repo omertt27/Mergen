@@ -1,19 +1,19 @@
 const sources = [
-  { name: 'PagerDuty',     type: 'Alerting',      tag: 'Incident trigger' },
-  { name: 'Datadog',       type: 'Observability', tag: 'Traces + Logs' },
-  { name: 'Slack',         type: 'Knowledge',     tag: 'Postmortem → corpus' },
-  { name: 'Git',           type: 'Code',          tag: 'ADR → policy' },
-  { name: 'Kubernetes',    type: 'Infra',         tag: 'Events + Manifests' },
-  { name: 'Prometheus',    type: 'Metrics',       tag: 'OpenTelemetry' },
-  { name: 'GitHub',        type: 'CI/CD',         tag: 'PR safety gate' },
-  { name: 'AWS/GCP',       type: 'Cloud',         tag: 'Config + Topology' },
+  { name: 'PagerDuty',     type: 'Alerting',    tag: 'Incident trigger' },
+  { name: 'Datadog',       type: 'APM',         tag: 'Traces + Logs' },
+  { name: 'Slack',         type: 'Enforcement', tag: 'Postmortem → corpus' },
+  { name: 'Git',           type: 'Policy',      tag: 'ADR → corpus' },
+  { name: 'Kubernetes',    type: 'Infra',       tag: 'Events + Manifests' },
+  { name: 'Prometheus',    type: 'Metrics',     tag: 'OpenTelemetry' },
+  { name: 'GitHub',        type: 'CI/CD',       tag: 'AEG safety gate' },
+  { name: 'AWS/GCP',       type: 'Cloud',       tag: 'Config + Topology' },
 ]
 
 const ides = [
-  { name: 'Claude Code',    tag: 'get_incident_context' },
-  { name: 'Cursor',         tag: 'get_datadog_trace' },
-  { name: 'Windsurf',       tag: 'analyze_production' },
-  { name: 'VS Code',        tag: 'mcp.json' },
+  { name: 'Claude Code',    tag: 'triage_incident' },
+  { name: 'Cursor',         tag: 'analyze_runtime' },
+  { name: 'Windsurf',       tag: 'execute_fix' },
+  { name: 'VS Code',        tag: 'validate_fix' },
 ]
 
 export default function Integrations() {
@@ -21,9 +21,9 @@ export default function Integrations() {
     <section id="integrations">
       <span className="section-label">04 // Integrations</span>
       <h2>
-        Every source is a lesson.
+        Every signal feeds
         <br />
-        Mergen keeps the receipt.
+        the enforcement gate.
       </h2>
 
       <div className="integ-grid mt-lg">
@@ -42,7 +42,7 @@ export default function Integrations() {
         <div className="integ-divider">
           <div className="integ-arrow">→</div>
           <span style={{ fontSize: '0.55rem', color: 'var(--gray-600)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-            Knowledge<br />Corpus
+            Policy<br />Engine
           </span>
           <div className="integ-arrow">→</div>
         </div>

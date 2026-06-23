@@ -83,16 +83,22 @@ async function fireHitlWebhook(
 ): Promise<void> {
   const webhookUrl = process.env.MERGEN_HITL_WEBHOOK_URL;
   if (!webhookUrl) {
+    const baseUrl = (process.env.MERGEN_PUBLIC_URL ?? '').replace(/\/$/, '') || `http://127.0.0.1:${port}`;
     logger.warn(
       { token, toolName },
       'tool-guard: HITL triggered but MERGEN_HITL_WEBHOOK_URL is not set — ' +
-      `resolve manually: POST http://127.0.0.1:${port}/hitl/approve?token=${token}`,
+      `resolve manually: POST ${baseUrl}/hitl/approve?token=${token}`,
     );
     return;
   }
 
-  const approveUrl = `http://127.0.0.1:${port}/hitl/approve?token=${token}`;
-  const denyUrl    = `http://127.0.0.1:${port}/hitl/deny?token=${token}`;
+  // In team/cloud mode the server is reachable from the internet but 127.0.0.1
+  // is not. MERGEN_PUBLIC_URL lets operators set the externally-reachable base
+  // URL so Slack can POST the approve/deny callback. Falls back to localhost for
+  // single-developer local mode.
+  const baseUrl    = (process.env.MERGEN_PUBLIC_URL ?? '').replace(/\/$/, '') || `http://127.0.0.1:${port}`;
+  const approveUrl = `${baseUrl}/hitl/approve?token=${token}`;
+  const denyUrl    = `${baseUrl}/hitl/deny?token=${token}`;
 
   // Slack-compatible payload (works with Incoming Webhooks and generic HTTP endpoints)
   const payload = {
@@ -145,13 +151,15 @@ async function applyGate(
   const t0 = Date.now();
 
   const argsSnapshot = JSON.stringify(args ?? {});
-  // Extract the most likely "command" string from common arg shapes
-  const argsObj   = (args && typeof args === 'object') ? args as Record<string, unknown> : {};
-  const commandArg = (argsObj.command ?? argsObj.cmd ?? argsObj.query ?? '') as string;
+  // Extract command-like strings from well-known arg shapes only.
+  // Do NOT pass the full argsSnapshot — arbitrary JSON containing user text
+  // (e.g. {"query": "why did the wipe job fail?"}) would trigger false blocks.
+  const argsObj    = (args && typeof args === 'object') ? args as Record<string, unknown> : {};
+  const commandArg = (argsObj.command ?? argsObj.cmd ?? argsObj.fix ?? '') as string;
 
   const evaluation = evaluateEnterprisePolicy({
     files:    [toolName],
-    commands: [toolName, commandArg, argsSnapshot],
+    commands: [toolName, commandArg].filter(Boolean),
     actor:    'agent',
     service:  'mcp',
     timestamp: Date.now(),

@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { memoryStore, formatMttr, type IncidentMemoryRecord } from '../datadog/memory-store.js';
-import { agentMemoryStore } from '../sensor/agent-memory-store.js';
+import { agentContextStore as agentMemoryStore } from '../sensor/agent-context-store.js';
 import { getOverrideSummary, getOverridesForTag, type OverrideReason } from './override-corpus.js';
 import { getStats, getStatsForTag, getRecords, isCorpusSeeded } from './calibration.js';
 import { trackCall } from './tools-state.js';

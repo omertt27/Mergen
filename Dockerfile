@@ -31,8 +31,9 @@ COPY --from=builder /app/server/package.json ./server/
 # Copy extension (for serving via /extension endpoint if needed)
 COPY extension ./extension
 
-# Create data directory
-RUN mkdir -p /app/.mergen && chown -R node:node /app
+# Create data directory with explicit permissions — 700 so only the node user
+# can read/write secrets and SQLite databases stored there.
+RUN mkdir -p /app/.mergen && chown -R node:node /app && chmod 700 /app/.mergen
 
 # Switch to non-root user
 USER node

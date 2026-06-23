@@ -128,8 +128,6 @@ class SqliteHistoryStore {
       );
       this.writeCount++;
 
-      this.pruneOld();
-
       if (this.writeCount % FLUSH_EVERY === 0) {
         this.flush();
       }
@@ -195,7 +193,7 @@ class SqliteHistoryStore {
     }
   }
 
-  private pruneOld(): void {
+  pruneOld(): void {
     if (!this.db) return;
     const cutoff = Date.now() - ONE_HOUR_MS;
     this.db.run('DELETE FROM events WHERE inserted_at < ?', [cutoff]);

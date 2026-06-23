@@ -1,14 +1,14 @@
 {
   "name": "mergen",
-  "displayName": "Mergen",
-  "description": "Local-first runtime debugging for AI. Streams browser console, network, and DOM to your AI assistant via MCP. Causally correlated, source-mapped, PII-redacted, never leaves 127.0.0.1.",
+  "displayName": "Mergen — Agent Execution Governance",
+  "description": "Inline execution and security gateway for AI agents. Physically blocks destructive MCP tool calls in <1ms before the handler runs — no LLM in the critical path, no probabilistic guardrails. Holds schema mutations for Slack-based HITL approval. Every blocked action is hash-chained to a tamper-evident Agent Blunder Log. Shadow mode builds a 30-day trust track record before you enable autonomous execution.",
   "author": "omertt27",
   "repository": "https://github.com/omertt27/Mergen",
-  "homepage": "https://github.com/omertt27/Mergen",
+  "homepage": "https://mergen.dev",
   "license": "MIT",
-  "icon": "https://raw.githubusercontent.com/omertt27/Mergen/main/extension/icons/icon128.png",
-  "categories": ["Developer Tools", "Debugging", "Browser Automation"],
-  "tags": ["browser", "debugging", "local-first", "privacy", "source-maps", "causal"],
+  "icon": "https://raw.githubusercontent.com/omertt27/Mergen/main/mergen-logo-128.png",
+  "categories": ["Security", "Governance", "Developer Tools"],
+  "tags": ["agent-security", "policy-enforcement", "hitl", "audit-log", "aeg", "agent-governance", "local-first", "mcp-proxy"],
   "language": "typescript",
   "transport": "stdio",
   "install": {
@@ -16,14 +16,15 @@
     "args": ["-y", "mergen-server"]
   },
   "tools": [
-    "get_status",
+    "triage_incident",
+    "execute_fix",
+    "analyze_runtime",
     "get_recent_logs",
     "get_network_activity",
-    "get_dom_context",
-    "clear_buffer",
-    "analyze_runtime"
+    "validate_fix",
+    "clear_buffer"
   ],
   "verification": {
-    "tested_with": ["claude-desktop", "cursor", "continue", "windsurf", "vscode-copilot", "cline"]
+    "tested_with": ["claude-code", "cursor", "windsurf", "vscode-copilot"]
   }
 }
