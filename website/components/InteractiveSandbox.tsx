@@ -11,22 +11,22 @@ interface Scenario {
 
 const scenarios: Scenario[] = [
   {
-    name: 'DB Connection Leak',
-    key: 'db_leak',
-    logic: 'if (idle_connections > 80% && error_rate > 5%)',
-    remedy: 'flush_idle_pools(api-service)',
+    name: 'Destructive Command Intercept',
+    key: 'destructive_cmd',
+    logic: 'if (danger_level > 7 && blast_radius > 50%)',
+    remedy: 'block_destructive_commands(agent-cli)',
   },
   {
-    name: 'OOM Kill',
-    key: 'oom_kill',
-    logic: 'if (memory_usage > 95% && oom_events === true)',
-    remedy: 'restart_with_profile(worker-node)',
+    name: 'Secret Leak Prevention',
+    key: 'secret_leak',
+    logic: 'if (access_depth > 5 || contains_credentials === true)',
+    remedy: 'redact_credentials(file-reader)',
   },
   {
-    name: 'Rate Limit Cascade',
-    key: 'rate_limit',
-    logic: 'if (upstream_429_errors > 0 && p99_latency > 1.0s)',
-    remedy: 'enable_circuit_breaker(auth-service)',
+    name: 'Incident Re-occurrence Guard',
+    key: 'incident_repeat',
+    logic: 'if (touches_auth_middleware === true && stack_depth > 4)',
+    remedy: 'block_recursive_stack_depth(git-hook)',
   },
 ]
 
@@ -35,17 +35,17 @@ export default function InteractiveSandbox() {
   const [running, setRunning] = useState(false)
   const [output, setOutput] = useState<string[]>([])
 
-  // DB Leak State
-  const [idleConns, setIdleConns] = useState(85)
-  const [errorRate, setErrorRate] = useState(14.2)
+  // Scenario A State (replaces idleConns and errorRate)
+  const [dangerLevel, setDangerLevel] = useState(8)
+  const [blastRadius, setBlastRadius] = useState(65)
 
-  // OOM Kill State
-  const [memoryUsage, setMemoryUsage] = useState(97)
-  const [oomEvents, setOomEvents] = useState(true)
+  // Scenario B State (replaces memoryUsage and oomEvents)
+  const [accessDepth, setAccessDepth] = useState(7)
+  const [isCredential, setIsCredential] = useState(true)
 
-  // Rate Limit State
-  const [upstream429, setUpstream429] = useState(12)
-  const [latency, setLatency] = useState(1.2)
+  // Scenario C State (replaces upstream429 and latency)
+  const [stackDepth, setStackDepth] = useState(6)
+  const [riskScore, setRiskScore] = useState(1.8)
 
   // Clear output on scenario selection change
   useEffect(() => {
@@ -58,47 +58,47 @@ export default function InteractiveSandbox() {
   let eventText = ''
   let confidence = 0
 
-  if (selected.key === 'db_leak') {
-    isMatched = idleConns > 80 && errorRate > 5
-    telemetry = `pg_stat_activity count=${idleConns}/100, wait_event=ClientRead`
-    eventText = `api-service error rate spike (${errorRate.toFixed(1)}%)`
-    confidence = isMatched ? Math.min(99, Math.round(75 + (idleConns - 80) * 0.8 + (errorRate - 5) * 0.5)) : 0
-  } else if (selected.key === 'oom_kill') {
-    isMatched = memoryUsage > 95 && oomEvents
-    telemetry = `container_memory_usage_bytes > limit (${memoryUsage}%), oom_score_adj=1000`
-    eventText = `worker-node status=Ready, MemoryPressure=${memoryUsage > 80 ? 'True' : 'False'}`
-    confidence = isMatched ? Math.min(99, Math.round(80 + (memoryUsage - 95) * 2.0)) : 0
+  if (selected.key === 'destructive_cmd') {
+    isMatched = dangerLevel > 7 && blastRadius > 50
+    telemetry = `Command: "terraform destroy prod" (danger=${dangerLevel}/10, blast=${blastRadius}%)`
+    eventText = `Agent requested run_command tool execution`
+    confidence = isMatched ? Math.min(99, Math.round(75 + (dangerLevel - 7) * 4 + (blastRadius - 50) * 0.3)) : 0
+  } else if (selected.key === 'secret_leak') {
+    isMatched = accessDepth > 5 || isCredential
+    telemetry = `File path: "/Users/omer/Desktop/Mergen/.env" (depth=${accessDepth}/10, cred=${isCredential.toString()})`
+    eventText = `Agent requested read_file tool execution`
+    confidence = isMatched ? Math.min(99, Math.round(80 + (accessDepth - 5) * 3)) : 0
   } else {
-    isMatched = upstream429 > 0 && latency > 1.0
-    telemetry = `${upstream429} errors from upstream-api, retry-after=60s`
-    eventText = `auth-service latency=${latency.toFixed(1)}s (p99)`
-    confidence = isMatched ? Math.min(99, Math.round(85 + (latency - 1.0) * 4 + (upstream429 > 10 ? 5 : 0))) : 0
+    isMatched = stackDepth > 4 && riskScore > 1.0
+    telemetry = `Git diff touches auth_middleware.ts (depth=${stackDepth}/10, risk=${riskScore.toFixed(1)}/3.0)`
+    eventText = `Agent requested git_commit tool execution`
+    confidence = isMatched ? Math.min(99, Math.round(85 + (riskScore - 1.0) * 4 + (stackDepth > 5 ? 5 : 0))) : 0
   }
 
   function runDetector() {
     setRunning(true)
-    setOutput(['> Initializing causal detector...', '> Fetching live telemetry...'])
+    setOutput(['> Initializing local policy engine...', '> Analyzing proposed agent tool call...'])
 
     setTimeout(() => {
-      setOutput(prev => [...prev, `> Event: "${eventText}"`])
+      setOutput(prev => [...prev, `> Action Attempted: "${eventText}"`])
     }, 500)
 
     setTimeout(() => {
-      setOutput(prev => [...prev, `> Telemetry: ${telemetry}`])
+      setOutput(prev => [...prev, `> Telemetry Context: ${telemetry}`])
     }, 1000)
 
     setTimeout(() => {
       if (isMatched) {
         setOutput(prev => [
           ...prev,
-          `> Pattern MATCHED: ${selected.logic}`,
-          `> SUCCESS: Executing remedy: ${selected.remedy} (${confidence}% Platt-scaled confidence)`
+          `> Policy MATCHED: ${selected.logic}`,
+          `> BLOCKED: Applied local gate policy: ${selected.remedy} (${confidence}% security confidence)`
         ])
       } else {
         setOutput(prev => [
           ...prev,
-          `> Pattern NOT MATCHED: ${selected.logic}`,
-          `> HALTED: Input metrics are below threshold limits. Safe state maintained.`
+          `> Policy NOT MATCHED: ${selected.logic}`,
+          `> SUCCESS: Action falls within safe limits. Execution allowed.`
         ])
       }
       setRunning(false)
@@ -164,100 +164,100 @@ export default function InteractiveSandbox() {
                 Adjust Telemetry Inputs
               </p>
 
-              {selected.key === 'db_leak' && (
+              {selected.key === 'destructive_cmd' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
-                      <span style={{ color: 'var(--gray-400)' }}>Idle Connections</span>
-                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', color: idleConns > 80 ? 'var(--accent-text)' : 'var(--white)' }}>
-                        {idleConns}% {idleConns > 80 && '(Critical)'}
+                      <span style={{ color: 'var(--gray-400)' }}>Command Danger Level</span>
+                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', color: dangerLevel > 7 ? 'var(--accent-text)' : 'var(--white)' }}>
+                        {dangerLevel}/10 {dangerLevel > 7 && '(Critical)'}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="1"
+                      max="10"
+                      value={dangerLevel}
+                      onChange={(e) => { setDangerLevel(Number(e.target.value)); setOutput([]); }}
+                      style={{ width: '100%', accentColor: 'var(--accent)' }}
+                    />
+                  </div>
+
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
+                      <span style={{ color: 'var(--gray-400)' }}>Blast Radius</span>
+                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', color: blastRadius > 50 ? 'var(--accent-text)' : 'var(--white)' }}>
+                        {blastRadius}% {blastRadius > 50 && '(High)'}
                       </span>
                     </div>
                     <input
                       type="range"
                       min="10"
                       max="100"
-                      value={idleConns}
-                      onChange={(e) => { setIdleConns(Number(e.target.value)); setOutput([]); }}
-                      style={{ width: '100%', accentColor: 'var(--accent)' }}
-                    />
-                  </div>
-
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
-                      <span style={{ color: 'var(--gray-400)' }}>Error Rate Spike</span>
-                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', color: errorRate > 5 ? 'var(--accent-text)' : 'var(--white)' }}>
-                        {errorRate.toFixed(1)}% {errorRate > 5 && '(High)'}
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="30"
-                      step="0.5"
-                      value={errorRate}
-                      onChange={(e) => { setErrorRate(Number(e.target.value)); setOutput([]); }}
+                      step="5"
+                      value={blastRadius}
+                      onChange={(e) => { setBlastRadius(Number(e.target.value)); setOutput([]); }}
                       style={{ width: '100%', accentColor: 'var(--accent)' }}
                     />
                   </div>
                 </div>
               )}
 
-              {selected.key === 'oom_kill' && (
+              {selected.key === 'secret_leak' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
-                      <span style={{ color: 'var(--gray-400)' }}>Memory Usage</span>
-                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', color: memoryUsage > 95 ? 'var(--accent-text)' : 'var(--white)' }}>
-                        {memoryUsage}% {memoryUsage > 95 && '(OOM Risk)'}
+                      <span style={{ color: 'var(--gray-400)' }}>Directory Depth</span>
+                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', color: accessDepth > 5 ? 'var(--accent-text)' : 'var(--white)' }}>
+                        {accessDepth}/10 {accessDepth > 5 && '(System Dir)'}
                       </span>
                     </div>
                     <input
                       type="range"
-                      min="50"
-                      max="100"
-                      value={memoryUsage}
-                      onChange={(e) => { setMemoryUsage(Number(e.target.value)); setOutput([]); }}
+                      min="1"
+                      max="10"
+                      value={accessDepth}
+                      onChange={(e) => { setAccessDepth(Number(e.target.value)); setOutput([]); }}
                       style={{ width: '100%', accentColor: 'var(--accent)' }}
                     />
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem', marginTop: '0.5rem' }}>
-                    <span style={{ color: 'var(--gray-400)' }}>OOM Incident Triggered</span>
+                    <span style={{ color: 'var(--gray-400)' }}>Credential File (.env, key)</span>
                     <input
                       type="checkbox"
-                      checked={oomEvents}
-                      onChange={(e) => { setOomEvents(e.target.checked); setOutput([]); }}
+                      checked={isCredential}
+                      onChange={(e) => { setIsCredential(e.target.checked); setOutput([]); }}
                       style={{ width: '16px', height: '16px', accentColor: 'var(--accent)', cursor: 'pointer' }}
                     />
                   </div>
                 </div>
               )}
 
-              {selected.key === 'rate_limit' && (
+              {selected.key === 'incident_repeat' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
-                      <span style={{ color: 'var(--gray-400)' }}>Upstream 429 Errors</span>
-                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', color: upstream429 > 0 ? 'var(--accent-text)' : 'var(--white)' }}>
-                        {upstream429} events
+                      <span style={{ color: 'var(--gray-400)' }}>Recursion Stack Depth</span>
+                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', color: stackDepth > 4 ? 'var(--accent-text)' : 'var(--white)' }}>
+                        {stackDepth}/10 {stackDepth > 4 && '(Deep Recursion)'}
                       </span>
                     </div>
                     <input
                       type="range"
-                      min="0"
-                      max="50"
-                      value={upstream429}
-                      onChange={(e) => { setUpstream429(Number(e.target.value)); setOutput([]); }}
+                      min="1"
+                      max="10"
+                      value={stackDepth}
+                      onChange={(e) => { setStackDepth(Number(e.target.value)); setOutput([]); }}
                       style={{ width: '100%', accentColor: 'var(--accent)' }}
                     />
                   </div>
 
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
-                      <span style={{ color: 'var(--gray-400)' }}>Latency p99</span>
-                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', color: latency > 1.0 ? 'var(--accent-text)' : 'var(--white)' }}>
-                        {latency.toFixed(1)}s {latency > 1.0 && '(Slow)'}
+                      <span style={{ color: 'var(--gray-400)' }}>Change Risk Score</span>
+                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', color: riskScore > 1.0 ? 'var(--accent-text)' : 'var(--white)' }}>
+                        {riskScore.toFixed(1)}/3.0 {riskScore > 1.0 && '(High Risk)'}
                       </span>
                     </div>
                     <input
@@ -265,8 +265,8 @@ export default function InteractiveSandbox() {
                       min="0.1"
                       max="3.0"
                       step="0.1"
-                      value={latency}
-                      onChange={(e) => { setLatency(Number(e.target.value)); setOutput([]); }}
+                      value={riskScore}
+                      onChange={(e) => { setRiskScore(Number(e.target.value)); setOutput([]); }}
                       style={{ width: '100%', accentColor: 'var(--accent)' }}
                     />
                   </div>
@@ -333,11 +333,11 @@ export default function InteractiveSandbox() {
               borderRadius: '4px',
               fontSize: '0.75rem',
             }}>
-              <span style={{ color: '#a1a1aa' }}>Causal Rule Match:</span>
+              <span style={{ color: '#a1a1aa' }}>Gateway Policy Match:</span>
               {isMatched ? (
-                <span style={{ color: '#4ade80', fontWeight: 800 }}>✓ MATCHED (Armed)</span>
+                <span style={{ color: '#4ade80', fontWeight: 800 }}>✓ MATCHED (Blocked)</span>
               ) : (
-                <span style={{ color: '#71717a' }}>✗ UNMATCHED (Inactive)</span>
+                <span style={{ color: '#71717a' }}>✗ UNMATCHED (Allowed)</span>
               )}
             </div>
 
@@ -366,32 +366,29 @@ export default function InteractiveSandbox() {
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
                     <span style={{ color: '#f87171', minWidth: '16px' }}>🚨</span>
                     <div>
-                      <span style={{ color: '#f1f5f9', fontWeight: 700 }}>Production Incident</span>
+                      <span style={{ color: '#f1f5f9', fontWeight: 700 }}>Security Gateway Block</span>
                       <span style={{ color: '#64748b' }}> — {selected.name.toLowerCase().replace(' ', '-')}</span>
                     </div>
                   </div>
                   <div style={{ paddingLeft: '1.5rem', color: '#94a3b8', lineHeight: 1.7 }}>
-                    <div>✅ <span style={{ color: '#4ade80', fontWeight: 600 }}>Causal Attribution — {confidence}% [HIGH]</span></div>
-                    <div style={{ color: '#64748b' }}>→ Root Cause: <span style={{ color: '#e2e8f0' }}>{
-                      selected.key === 'db_leak' ? `pg_stat_activity exhausted (${idleConns}/100 idle, ClientRead wait)` :
-                      selected.key === 'oom_kill' ? `Container OOM kill — memory at ${memoryUsage}%, oom_score_adj=1000` :
-                      `Upstream 429 cascade — ${upstream429} errors, p99 latency ${latency.toFixed(1)}s`
+                    <div>🚫 <span style={{ color: '#f87171', fontWeight: 600 }}>Command Intercepted — Local Gate Engine</span></div>
+                    <div style={{ color: '#64748b' }}>→ Action: <span style={{ color: '#e2e8f0' }}>{
+                      selected.key === 'destructive_cmd' ? `terraform destroy prod (danger=${dangerLevel}/10, blast=${blastRadius}%)` :
+                      selected.key === 'secret_leak' ? `Read credential file: .env (depth=${accessDepth}/10, cred=${isCredential.toString()})` :
+                      `Prisma schema migration stack depth ${stackDepth}/10 (risk=${riskScore.toFixed(1)}/3.0)`
                     }</span></div>
-                    <div style={{ color: '#64748b' }}>→ Fix: <code style={{ color: '#38bdf8', background: 'rgba(255,255,255,0.05)', padding: '1px 4px', borderRadius: '2px' }}>{selected.remedy}</code></div>
+                    <div style={{ color: '#64748b' }}>→ Rule: <code style={{ color: '#38bdf8', background: 'rgba(255,255,255,0.05)', padding: '1px 4px', borderRadius: '2px' }}>{selected.remedy}</code></div>
                   </div>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
-                    <span style={{ minWidth: '16px' }}>⚙️</span>
-                    <span style={{ color: '#94a3b8' }}>Autopilot executing fix <code style={{ color: '#38bdf8' }}>{selected.remedy}</code></span>
+                    <span style={{ minWidth: '16px' }}>🔒</span>
+                    <span style={{ color: '#94a3b8' }}>Gate intercept executed in <code style={{ color: '#4ade80' }}>&lt; 1ms</code></span>
                   </div>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
                     <span style={{ minWidth: '16px' }}>✅</span>
-                    <span style={{ color: '#4ade80', fontWeight: 700 }}>RESOLVED — 0 errors after fix (was {
-                      selected.key === 'db_leak' ? `${errorRate.toFixed(1)}%` :
-                      selected.key === 'oom_kill' ? 'OOM' : `${upstream429} upstream errors`
-                    })</span>
+                    <span style={{ color: '#4ade80', fontWeight: 700 }}>PREVENTED — Production protected. Blunder logged to git.</span>
                   </div>
                   <div style={{ color: '#334155', fontSize: '0.65rem', borderTop: '1px solid #1e293b', paddingTop: '0.5rem' }}>
-                    resolvedAutonomously=true · MTTR=47s · audit trail at ~/.mergen/audit.log
+                    actionBlocked=true · executionBlocked=true · logPath=~/.mergen/agent-blunders.json
                   </div>
                 </div>
               </div>
@@ -407,8 +404,8 @@ export default function InteractiveSandbox() {
                 color: '#a1a1aa',
                 lineHeight: 1.6,
               }}>
-                <span style={{ color: 'var(--accent)' }}>Safety gate held:</span>{' '}
-                Metrics do not cross the threshold boundary. Action was blocked at the planning layer. Raise the sliders above the threshold to see autopilot arm.
+                <span style={{ color: 'var(--accent)' }}>Gate passed:</span>{' '}
+                The inputs do not cross the policy threshold rules. The agent action was allowed to execute because it fell within safe boundaries. Raise the sliders above the threshold to see the security gate block the action.
               </div>
             )}
           </div>

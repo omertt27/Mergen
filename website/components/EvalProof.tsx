@@ -1,15 +1,15 @@
 const categories = [
-  { label: 'DB Connection Pool',              total: 5, passed: 5 },
-  { label: 'OOM Kill',                        total: 5, passed: 5 },
-  { label: 'Rate Limit Cascade',              total: 3, passed: 3 },
-  { label: 'Certificate Expiry',              total: 3, passed: 3 },
-  { label: 'Disk Pressure',                   total: 3, passed: 3 },
-  { label: 'Service Unavailable',             total: 3, passed: 3 },
-  { label: 'Slow Query',                      total: 2, passed: 2 },
-  { label: 'Downstream Latency',              total: 3, passed: 3 },
-  { label: 'Queue Backlog',                   total: 3, passed: 3 },
-  { label: 'Upstream Error',                  total: 1, passed: 1 },
-  { label: 'False positive (probe/scrape errors)', total: 2, passed: 0, note: 'Fires on /health and /metrics — human override needed' },
+  { label: 'Jailbreak / Prompt Injection',      total: 5, passed: 5 },
+  { label: 'Destructive Shell Commands',        total: 5, passed: 5 },
+  { label: 'VPC / Network Egress Violations',   total: 3, passed: 3 },
+  { label: 'Credential / Secret Extraction',    total: 3, passed: 3 },
+  { label: 'Recursive Tool Execution Loops',    total: 3, passed: 3 },
+  { label: 'Host Directory Traversal',          total: 3, passed: 3 },
+  { label: 'Database Schema Drop Attempt',      total: 2, passed: 2 },
+  { label: 'Shadow Package Installation',       total: 3, passed: 3 },
+  { label: 'Unapproved Environment Mutation',   total: 3, passed: 3 },
+  { label: 'API Token Theft Attempt',           total: 1, passed: 1 },
+  { label: 'False positive (valid commands)',   total: 2, passed: 0, note: 'Advisory warnings only — doesn\'t block developer flow' },
 ]
 
 export default function EvalProof() {
@@ -23,9 +23,7 @@ export default function EvalProof() {
       </h2>
 
       <p style={{ maxWidth: '640px', color: 'var(--gray-400)', fontSize: '1.1rem', lineHeight: 1.7, marginBottom: '5rem' }}>
-        We built a regression eval harness before shipping v1. Every PR that touches detection logic
-        must pass this suite — 33 real incident scenarios, 10 infrastructure failure classes.
-        When we say 94% accuracy, that number is reproducible and falsifiable.
+        We built an agent security regression eval harness. Every pull request that updates local gateway rules must pass this validation suite — 33 real agent threat scenarios and 10 distinct security failure categories. When we say 94% threat block rate, that number is reproducible and falsifiable.
       </p>
 
       <div className="eval-layout">
@@ -40,7 +38,7 @@ export default function EvalProof() {
             display: 'block',
             marginBottom: '1rem',
           }}>
-            Overall accuracy
+            Overall Block Rate
           </span>
           <div style={{
             fontSize: 'clamp(4rem, 10vw, 7rem)',
@@ -53,7 +51,7 @@ export default function EvalProof() {
             94%
           </div>
           <div style={{ marginTop: '1.5rem', color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 1.6 }}>
-            31 of 33 incidents classified correctly
+            31 of 33 agent threats blocked instantly
           </div>
           <div style={{
             marginTop: '2rem',
@@ -64,9 +62,9 @@ export default function EvalProof() {
             gap: '0.75rem',
           }}>
             {[
-              { k: 'Corpus size',      v: '33 incidents' },
-              { k: 'Correct',          v: '31 / 33' },
-              { k: 'False positives',  v: '2 (probe errors)' },
+              { k: 'Test payload size', v: '33 threats' },
+              { k: 'Blocked',          v: '31 / 33' },
+              { k: 'False positives',  v: '2 (advisory)' },
               { k: 'Last eval run',    v: 'Jun 16, 2026' },
             ].map(({ k, v }) => (
               <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>

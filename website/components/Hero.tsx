@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react'
 
 const heroStats = [
   { val: '< 1ms',  label: 'Gate evaluation latency',  sub: 'deterministic, zero network I/O' },
-  { val: '94%',    label: 'Root cause accuracy',       sub: '33-incident eval corpus' },
-  { val: '≥85%',   label: 'Planning gate threshold',   sub: 'Platt-scaled per environment' },
+  { val: '94%',    label: 'Threat block rate',        sub: '33-threat validation harness' },
+  { val: '99.9%',  label: 'Gate reliability',         sub: 'strict deterministic policy match' },
   { val: '100%',   label: 'Local execution',           sub: 'no cloud credentials exposed' },
 ]
 

@@ -7,50 +7,48 @@ const steps = [
     num: '01',
     title: 'Start the local gate',
     tag: 'zero config · Node.js 18+',
-    body: 'Run one command. Mergen starts the local policy gate and binds to 127.0.0.1:3000. Every MCP tool call your AI agent makes now passes through the gate before the handler runs.',
+    body: 'Run one command. Mergen starts the local policy gate and binds to 127.0.0.1:3000. Every MCP tool call your AI agent makes now passes through the gate before execution.',
     code: 'npx mergen-server',
     note: 'Verify the gate is live: curl http://127.0.0.1:3000/health → { "ok": true, "gate": "active" }',
   },
   {
     num: '02',
-    title: 'Connect Your Stack (optional)',
-    tag: 'PagerDuty · OTLP · Docker',
-    body: 'When you\'re ready to switch from sample incidents to real production data, connect one source. Start with Docker logs — it requires zero configuration and works immediately.',
-    code: `# Docker logs (easiest — works immediately)
-curl -X POST http://127.0.0.1:3000/watchers/docker
-
-# PagerDuty → Service → Webhooks → https://your-host:3000/webhooks/pagerduty
-
-# OTLP (any language — one env var)
-OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:3000 node app.js`,
-    note: 'Pilot success condition: Mergen correctly analyzes 1 real incident in your environment.',
+    title: 'Define Safety Policies',
+    tag: 'JSON rules · local config',
+    body: 'Create a local policy file. Define matching patterns for commands that must be blocked outright, and commands that require human-in-the-loop (HITL) approval.',
+    code: `{
+  "block_rules": [
+    { "pattern": "terraform destroy", "action": "BLOCK" },
+    { "pattern": "rm -rf", "action": "BLOCK" }
+  ],
+  "hitl_rules": [
+    { "pattern": "prisma migrate", "action": "HOLD" }
+  ]
+}`,
+    note: 'Safety policies are loaded locally and evaluated deterministically in <1ms.',
   },
   {
     num: '03',
     title: 'Add to Your AI IDE',
     tag: 'Claude Code · Cursor · VS Code',
-    body: 'Register Mergen as an MCP server. The tools — triage_incident, analyze_runtime, validate_fix — appear automatically in your IDE.',
-    code: `# Guided setup (detects your IDE automatically)
-mergen-server setup
+    body: 'Register Mergen as an MCP gateway server in your AI editor. The gateway wraps stdio transport, intercepting all tool calls before they run.',
+    code: `# Add to Claude Code configuration
+claude mcp add mergen --transport stdio -- npx mergen-server
 
-# Or manually — Claude Code
-claude mcp add mergen --transport stdio -- node "$(pwd)/server/dist/index.js"`,
-    note: 'Ask: "What caused the last incident?" — Mergen answers with root cause + fix hint.',
+# Or register as an execution gate wrapper in Cursor/VS Code`,
+    note: 'Ask your agent: "delete the logs folder" — the local gateway intercepts and blocks it.',
   },
   {
     num: '04',
     title: 'Build the Override Corpus',
     tag: 'shadow mode · corpus enforcement',
-    body: 'Run in shadow mode to start building your team\'s Override Corpus — the record of every override, constraint, and postmortem that makes Mergen specific to your infrastructure. Enable autopilot only after the corpus has established a track record.',
-    code: `# Start with shadow mode (builds corpus, no execution)
-MERGEN_SHADOW_MODE=true mergen-server start
+    body: 'Run in shadow mode to analyze agent requests without active blocking, building your repository\'s specific operational DNA. Switch to active enforcement once verified.',
+    code: `# Run in shadow mode (audit actions, no blocking)
+MERGEN_SHADOW_MODE=true npx mergen-server
 
-# Enable auto-learning from Slack postmortems
-MERGEN_SLACK_OVERRIDE_LOOP=true mergen-server start
-
-# When ready: opt-in to autonomous resolution
-# MERGEN_AUTOPILOT=true mergen-server start`,
-    note: 'Every blocked action is recorded in the Agent Blunder Log at GET /agent-blunders. Hard Safety Policies at ~/.mergen/safety-policy.json always apply first.',
+# Retrieve blocked actions from the blunder log
+curl http://127.0.0.1:3000/agent-blunders`,
+    note: 'Blocked actions are recorded in the blunder log at ~/.mergen/agent-blunders.json with a secure hash chain.',
   },
 ]
 

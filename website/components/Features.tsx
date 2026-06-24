@@ -13,14 +13,14 @@ const SlackAuditTrail = () => (
       <div style={{ width: '36px', height: '36px', background: 'var(--accent)', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 800, fontSize: '0.6rem' }}>MRG</div>
       <div>
         <div style={{ fontWeight: 900, marginBottom: '4px', color: '#1d1c1d' }}>Mergen <span style={{ fontWeight: 400, fontSize: '0.7rem', color: '#64748b', marginLeft: '6px' }}>APP 3:17 PM</span></div>
-        <div style={{ marginBottom: '8px', color: '#1d1c1d' }}>✅ <b>Incident #402 resolved autonomously</b></div>
-        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '12px', borderLeft: '4px solid var(--accent)' }}>
-          <div style={{ color: '#64748b', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', fontWeight: 700 }}>Audit Trail Summary</div>
+        <div style={{ marginBottom: '8px', color: '#1d1c1d' }}>🚫 <b>Agent Tool Call Intercepted (Blocked)</b></div>
+        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '12px', borderLeft: '4px solid #ef4444' }}>
+          <div style={{ color: '#64748b', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', fontWeight: 700 }}>Security Intercept Summary</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', color: '#334155' }}>
-            <div>• <b>Root Cause:</b> DB Connection Pool exhaustion (api-service)</div>
-            <div>• <b>Confidence:</b> 91% (matches pattern: <i>stuck_idle_connections</i>)</div>
-            <div>• <b>Action:</b> Flushed idle pools & increased capacity (max_idle: 5 → 20)</div>
-            <div>• <b>Validation:</b> Error rate 14% → 0.02% (confirmed 3:18 PM)</div>
+            <div>• <b>Actor:</b> cursor-agent-server</div>
+            <div>• <b>Action:</b> rm -rf /var/log/nginx/*</div>
+            <div>• <b>Rule Matched:</b> block_destructive_commands</div>
+            <div>• <b>Result:</b> Synchronously blocked in &lt;1ms; blunder logged.</div>
           </div>
         </div>
       </div>
@@ -177,12 +177,12 @@ const features = [
   {
     num: '05',
     icon: '⚙️',
-    title: 'Per-Environment Calibration',
+    title: 'Agent Policy Calibration',
     desc: (
       <>
-        Mergen uses <span className="highlight-blue">Platt scaling</span> calibrated to your specific infrastructure —
-        not a global benchmark. As your team tags diagnoses (correct / partial / wrong), the confidence model
-        updates. After 20–50 incidents, accuracy numbers reflect your systems, not ours.
+        Mergen calibrates policy rules dynamically to your specific codebase and infrastructure context.{' '}
+        As your team adjusts and tags action overrides, the local gateway updates its rule definitions.
+        Every action block is logged instantly.
         <SlackAuditTrail />
       </>
     ),
@@ -190,26 +190,24 @@ const features = [
   {
     num: '06',
     icon: '📊',
-    title: 'Measurable MTTR — Board-Ready ROI',
+    title: 'Measurable Developer ROI',
     desc: (
       <>
-        The impact report isolates Mergen&rsquo;s context-assisted value:
-        autonomous vs. manual MTTR, resolution rate, and time saved.
-        <span className="highlight-blue"> &ldquo;We saved 47 engineer-hours last month&rdquo;</span>
-        {' '}is a sentence. The report generates it automatically.
+        The local gateway tracks blocked security exposures, unapproved database mutations, and destructive commands.{' '}
+        It generates a weekly ROI report showing how many hours were saved by preventing accidental database wipes,
+        deleted configurations, or security leaks.
       </>
     ),
   },
   {
     num: '07',
     icon: '👤',
-    title: 'Shadow Mode — 30-Day Trust Track Record',
+    title: 'Shadow Mode — 30-Day Audit Track Record',
     desc: (
       <>
-        Before autonomous execution, Mergen runs in shadow mode: diagnoses every incident, records what it would have done,
-        and lets your team annotate verdicts.
-        <span className="highlight-yellow"> The shadow report is your CISO&rsquo;s 30-day evidence package</span>
-        {' '}before you flip the autopilot switch.
+        Before enforcing strict command blocks, run Mergen in shadow mode. It observes and records what actions
+        it would have blocked or suspended, giving your team a full trust report before
+        <span className="highlight-yellow"> you activate strict enforcement gates</span>.
       </>
     ),
   },

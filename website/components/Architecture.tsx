@@ -1,37 +1,37 @@
 const sources = [
-  { tag: 'PAGERDUTY',     label: 'Incident Alerts',   sub: 'Webhooks · Severity V3' },
-  { tag: 'OPENTELEMETRY', label: 'Traces + Metrics',  sub: 'OTLP HTTP · any language' },
-  { tag: 'DOCKER',        label: 'Container Logs',    sub: 'stdout/stderr · any stack' },
-  { tag: 'DATADOG',       label: 'APM Spans',         sub: 'Optional · blame attribution' },
+  { tag: 'CLAUDE CODE',   label: 'MCP Tool Ingestion', sub: 'Synchronous stdio stream' },
+  { tag: 'CURSOR',        label: 'IDE Execution Wrapper', sub: 'Intercepts terminal runs' },
+  { tag: 'CI/CD PIPELINE',label: 'Git Hooks & Actions', sub: 'Autonomous PR evaluation' },
+  { tag: 'CUSTOM AGENTS', label: 'SDK / API Integrations', sub: 'Zero-trust runtime gate' },
 ]
 
 const outputs = [
-  { label: 'Claude Code',  sub: 'triage_incident' },
-  { label: 'Cursor',       sub: 'analyze_runtime' },
-  { label: 'Slack',        sub: 'Owns the thread' },
-  { label: 'Audit Log',    sub: 'Reversible JSONL' },
+  { label: 'OS & File System', sub: 'Enforced sandboxed paths' },
+  { label: 'Cloud Infrastructure', sub: 'AWS, GCP, Terraform APIs' },
+  { label: 'Databases & VPCs', sub: 'Isolated query execution' },
+  { label: 'Slack HITL',      sub: 'Operator approval webhook' },
 ]
 
 const howSteps = [
   {
     num: '1',
-    title: 'Connect your production stack',
-    desc: 'Ingest signals from PagerDuty, OpenTelemetry, Docker, Kubernetes, and optionally Datadog. No agent required.',
+    title: 'Define local security policies',
+    desc: 'Set up rules matching command patterns, file paths, and environment settings. Rules can block outright or require validation.',
   },
   {
     num: '2',
-    title: 'Detect and understand incidents',
-    desc: 'When an alert fires, Mergen correlates telemetry across services, identifies the likely root cause, and matches it against past incidents and overrides.',
+    title: 'Intercept agent tool calls',
+    desc: 'MCP tool calls, terminal commands, and filesystem modifications pass through the local gate before execution.',
   },
   {
     num: '3',
-    title: 'Enforce gateway controls',
-    desc: 'Mergen checks proposed actions against local policy, blocking destructive commands, checking secrets, or pausing for human approval.',
+    title: 'Enforce deterministic rules',
+    desc: 'Mergen checks commands against safety rules and SQLite history in <1ms without LLM latency, blocking destructive actions.',
   },
   {
     num: '4',
-    title: 'Resolve or recommend',
-    desc: 'Shadow mode: suggestion only. Assisted: recommended fix + approval. Autopilot: safe execution within constraints. Every action is logged and reversible.',
+    title: 'HITL approval & audit logs',
+    desc: 'Pauses execution for unverified actions to request human approval. Logs every block to ~/.mergen/agent-blunders.json.',
   },
 ]
 
@@ -40,9 +40,9 @@ export default function Architecture() {
     <section id="how">
       <span className="section-label">03 // How It Works</span>
       <h2>
-        Four steps from alert
+        Four steps from tool call
         <br />
-        to resolution.
+        to target runtime.
       </h2>
 
       {/* ── Step list ── */}
@@ -108,11 +108,11 @@ export default function Architecture() {
             </code>
             <div style={{ marginTop: '1rem', borderTop: '1px solid var(--gray-800)', paddingTop: '0.75rem' }}>
               {[
-                'Incident history',
-                'Override corpus',
-                'Root cause engine',
+                'SQLite override corpus',
+                'Local policy engine',
+                'Deterministic gates',
                 'Agent Blunder Log',
-                'PII Shield',
+                'PII & Secret Shield',
               ].map((f) => (
                 <div key={f} style={{ fontSize: '0.6rem', color: 'var(--gray-400)', marginBottom: '0.3rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <span style={{ color: 'var(--accent-text)', fontSize: '0.5rem' }}>—</span>
@@ -133,7 +133,7 @@ export default function Architecture() {
             {outputs.map((o) => (
               <div key={o.label} className="arch-mini-box">
                 <span className="tag" style={{ fontSize: '0.5rem', background: 'var(--gray-800)', color: 'var(--gray-400)' }}>
-                  {o.label === 'Slack' ? 'COMMS' : o.label === 'Audit Log' ? 'COMPLIANCE' : 'AI IDE'}
+                  {o.label === 'Slack HITL' ? 'COMMS' : 'TARGET'}
                 </span>
                 <h4 style={{ fontSize: '0.7rem', marginTop: '0.5rem', marginBottom: '0.25rem' }}>
                   {o.label}

@@ -15,21 +15,19 @@ const soloMergenSteps = [
 ]
 
 const manualSteps = [
-  { time: '0m',   action: 'PagerDuty fires',      detail: 'Engineer wakes up. Opens laptop.' },
-  { time: '5m',   action: 'Check logs',            detail: 'Grep through millions of lines across services.' },
-  { time: '15m',  action: 'Check dashboards',      detail: 'Correlate metrics across 5 different tabs.' },
-  { time: '30m',  action: 'Ask Slack',             detail: '"Who deployed last?" "Is the DB down?"' },
-  { time: '45m',  action: 'Guess root cause',      detail: 'Apply a fix based on intuition. Hope it works.' },
-  { time: '60m+', action: 'Watch and wait',        detail: 'Monitor dashboards for another 15 min to confirm.' },
+  { time: '0m',   action: 'Agent task started',    detail: 'custom-agent --task "refactor users schema"' },
+  { time: '5m',   action: 'Wall of stdio text',   detail: 'Agent prints thousands of lines of terminal logs.' },
+  { time: '15m',  action: 'System breaks',         detail: 'Local server crashes. You have no idea what mutated.' },
+  { time: '30m',  action: 'Trace file edits',      detail: 'Manually inspect git diffs and trace agent tool logs.' },
+  { time: '1h',   action: 'Find root cause',       detail: 'Piece together that the agent deleted DB config on step 84.' },
 ]
 
 const mergenSteps = [
-  { time: '0m',  action: 'PagerDuty fires',        detail: 'Mergen receives the webhook.' },
-  { time: '2s',  action: 'Analyze telemetry',      detail: 'Correlates logs, traces, and infra signals.' },
-  { time: '5s',  action: 'Check policy & overrides', detail: 'Matches against past incidents and human overrides.' },
-  { time: '10s', action: 'Generate validated fix',  detail: 'Produces a remediation plan at ≥85% confidence.' },
-  { time: '1m',  action: 'Resolve or recommend',   detail: 'Executes (autopilot) or posts fix for approval.' },
-  { time: '2m',  action: 'Audit trail posted',     detail: 'Full root cause + actions logged to Slack.' },
+  { time: '0m',  action: 'Agent task started',    detail: 'custom-agent --task "refactor users schema"' },
+  { time: '1s',  action: 'Gateway inline tracing',detail: 'Gateway intercepts and indexes every tool call.' },
+  { time: '5s',  action: 'Compile audit log',     detail: 'Hash-chains every command, read, and write.' },
+  { time: '10s', action: 'Generate living map',   detail: 'Renders visual map of exactly what the agent modified.' },
+  { time: '30s', action: 'Spot mutation',         detail: 'Instantly isolate that step 84 modified DB config.' },
 ]
 
 export default function LegacyVsMergen() {
@@ -103,7 +101,7 @@ export default function LegacyVsMergen() {
 
       {/* Team incident response scenario */}
       <p style={{ color: 'var(--gray-600)', fontSize: '0.8rem', fontFamily: 'var(--font-geist-sans), sans-serif', fontWeight: 600, letterSpacing: '-0.01em', marginBottom: '1.25rem', marginTop: '2.5rem' }}>
-        Scenario B — Team, production incident at 3am
+        Scenario B — Solo developer, visual audit trail of agent activity
       </p>
       <div className="compare-grid mt-lg" style={{
         display: 'grid',
@@ -160,8 +158,7 @@ export default function LegacyVsMergen() {
           }}>
             <span style={{ fontSize: '1.1rem', lineHeight: '1' }}>✅</span>
             <p style={{ fontSize: '0.8rem', color: '#2e7d32', lineHeight: 1.5, margin: 0 }}>
-              <strong>Result:</strong> The engineer wakes up to a resolved incident and a full audit trail — not a 3am fire drill.
-              Every action is logged and reversible.
+              <strong>Result:</strong> Living map generated in real-time. You immediately see the exact files, environment variables, and system commands changed by the agent.
             </p>
           </div>
         </div>
@@ -252,7 +249,7 @@ export default function LegacyVsMergen() {
 
       {/* Knowledge compounding scenario */}
       <p style={{ color: 'var(--gray-600)', fontSize: '0.8rem', fontFamily: 'var(--font-geist-sans), sans-serif', fontWeight: 600, letterSpacing: '-0.01em', marginBottom: '1.25rem', marginTop: '2.5rem' }}>
-        Scenario D — Postmortem that compounds into policy
+        Scenario D — Human overrides compound into persistent agent policy
       </p>
       <div style={{
         display: 'grid',
@@ -267,10 +264,10 @@ export default function LegacyVsMergen() {
           <h3 style={{ marginBottom: '1.5rem', letterSpacing: '-0.01em', fontSize: '0.95rem', fontWeight: 700, color: 'var(--gray-600)' }}>Without Mergen</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             {[
-              { time: '0m',  action: 'Incident resolved',    detail: 'Engineer writes a postmortem in Notion. Team reads it once.' },
-              { time: '2wk', action: 'Postmortem is stale',  detail: 'Nobody updates it. The constraint lives in one person\'s head.' },
-              { time: '3mo', action: 'Engineer leaves',      detail: 'The constraint — "never resize pool on Friday" — is gone.' },
-              { time: '3mo', action: 'Same incident',        detail: 'New on-call rebuilds the understanding from scratch.' },
+              { time: '0m',  action: 'Constraint found',     detail: 'Write warning in README: "Never let AI rewrite auth_middleware.ts."' },
+              { time: '2wk', action: 'Rule is forgotten',    detail: 'README changes or is omitted from agent context window.' },
+              { time: '3mo', action: 'Engineer leaves',       detail: 'The context leaves with them. New agent has no idea.' },
+              { time: '3mo', action: 'Agent rewrites file',   detail: 'Agent replaces authentication logic with a broken pattern.' },
             ].map((s, i) => (
               <div key={i} style={{ display: 'flex', gap: '1.25rem', opacity: 0.5 }}>
                 <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '35px', color: 'var(--gray-600)' }}>{s.time}</span>
@@ -286,10 +283,10 @@ export default function LegacyVsMergen() {
           <h3 style={{ marginBottom: '1.5rem', letterSpacing: '-0.01em', fontSize: '0.95rem', fontWeight: 700, color: '#2e7d32' }}>With Mergen</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             {[
-              { time: '0m',  action: 'Incident resolved',      detail: 'Mergen records the override: "skip pool resize — Friday batch window."' },
-              { time: '1s',  action: 'Policy encoded',          detail: 'Override corpus entry created. Applies to all future incidents of this type.' },
-              { time: '3mo', action: 'Engineer leaves',         detail: 'The constraint stays — in the corpus, queryable, enforceable.' },
-              { time: '3mo', action: 'Similar incident fires',  detail: 'Mergen surfaces: "This pattern was overridden 6× — reason: batch-window." Autopilot pauses.' },
+              { time: '0m',  action: 'Policy registered',     detail: 'Register override: "Block automated commits to auth_middleware.ts."' },
+              { time: '1s',  action: 'Hook encoded',          detail: 'Local gate registers the constraint automatically.' },
+              { time: '3mo', action: 'Engineer leaves',       detail: 'Constraint remains in SQLite override corpus, queryable & active.' },
+              { time: '3mo', action: 'Agent edit blocked',    detail: 'Agent tries to edit file. Git hook blocks commit instantly.' },
             ].map((s, i) => (
               <div key={i} style={{ display: 'flex', gap: '1.25rem' }}>
                 <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '35px', color: '#2e7d32', fontWeight: 700 }}>{s.time}</span>
@@ -312,7 +309,7 @@ export default function LegacyVsMergen() {
           }}>
             <span style={{ fontSize: '1.1rem', lineHeight: '1' }}>✅</span>
             <p style={{ fontSize: '0.8rem', color: '#2e7d32', lineHeight: 1.5, margin: 0 }}>
-              <strong>Result:</strong> Every incident becomes binding enforcement policy. The gate enforces it for every engineer and every agent, forever.
+              <strong>Result:</strong> Overrides persist as machine-enforceable rules. The execution gate blocks agent violations even when you forget they exist.
             </p>
           </div>
         </div>

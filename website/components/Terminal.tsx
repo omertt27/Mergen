@@ -3,23 +3,26 @@
 import { useState, useEffect } from 'react'
 
 const lines = [
-  { text: '[03:17] PagerDuty → incident.triggered: "api-service HIGH error rate"', type: 'event', delay: 0 },
-  { text: 'Fetching trace context...', type: 'log', delay: 700 },
-  { text: 'Running causal analysis across 847 telemetry events...', type: 'log', delay: 500 },
+  { text: '$ custom-agent --task "refactor connection pool & cleanup obsolete log files"', type: 'event', delay: 0 },
+  { text: 'Initializing workspace context in /Users/omer/Desktop/Mergen...', type: 'log', delay: 600 },
+  { text: 'Analyzing database configuration and active dependencies...', type: 'log', delay: 500 },
   { text: '', type: 'gap', delay: 200 },
-  { text: 'Consulting override corpus for api-service...', type: 'system', delay: 400 },
-  { text: '  ✓ No matching override pattern — proceeding', type: 'success', delay: 300 },
+  { text: '[Tool Call] run_command { command: "rm -rf /var/log/nginx/*" }', type: 'log', delay: 600 },
+  { text: '  → Intercepting run_command tool execution...', type: 'system', delay: 400 },
+  { text: '  🚫 BLOCKED: Destructive wildcard deletion outside workspace path is prohibited.', type: 'error', delay: 300, isError: true },
   { text: '', type: 'gap', delay: 100 },
-  { text: 'Root cause: JWT middleware rejecting valid tokens (91% confidence)', type: 'system', delay: 600 },
-  { text: 'Deploy a3f8c12 · auth/middleware.ts in changed files · 4m before spike', type: 'log', delay: 300 },
+  { text: '[Tool Call] read_file { path: "/Users/omer/Desktop/Mergen/.env" }', type: 'log', delay: 600 },
+  { text: '  → Intercepting read_file tool execution...', type: 'system', delay: 400 },
+  { text: '  🚫 BLOCKED: Access to credential files (.env) restricted by security policy.', type: 'error', delay: 300, isError: true },
   { text: '', type: 'gap', delay: 100 },
-  { text: 'Autopilot executing fix (remediation confidence: 88%)', type: 'system', delay: 500 },
-  { text: '  npm install jsonwebtoken@9.0.0 && pm2 restart api', type: 'success', delay: 300 },
-  { text: '', type: 'gap', delay: 1200 },
-  { text: 'Validating... error count: 14 → 0', type: 'system', delay: 400 },
-  { text: '✅ RESOLVED — MTTR: 5m 23s · resolvedAutonomously=true', type: 'success', delay: 300 },
-  { text: 'Agent Blunder Log: 0 blocks this incident', type: 'log', delay: 200 },
-  { text: 'Posting audit trail to #incidents thread...', type: 'log', delay: 400 },
+  { text: '[Tool Call] run_command { command: "npx prisma migrate dev" }', type: 'log', delay: 600 },
+  { text: '  → Intercepting schema mutation command...', type: 'system', delay: 400 },
+  { text: '  ⚠️ HOLD: Schema migration command requires manual HITL confirmation.', type: 'system', delay: 300 },
+  { text: '  Fired Slack webhook. Issuing approval token: mrg-984f. Waiting for operator...', type: 'log', delay: 200 },
+  { text: '  [Operator clicked APPROVE in Slack #alerts]', type: 'success', delay: 1200 },
+  { text: '  ✅ APPROVED: Resuming execution gate...', type: 'success', delay: 400 },
+  { text: 'Executing schema migration in isolated sandbox...', type: 'log', delay: 500 },
+  { text: '✅ TASK COMPLETE — 0 security leaks, 2 blocked commands prevented', type: 'success', delay: 300 },
 ]
 
 export default function Terminal() {
@@ -144,7 +147,7 @@ export default function Terminal() {
       </div>
       <div className="terminal-body" style={{ minHeight: '450px' }}>
         {visibleLines.map((line, i) => (
-          <div key={i} className={`terminal-line ${line.type}`}>
+          <div key={i} className={`terminal-line ${line.type}`} style={(line as any).isError ? { color: '#ef4444' } : undefined}>
             {line.text}
             {i === visibleLines.length - 1 && <span className="terminal-cursor">_</span>}
           </div>
