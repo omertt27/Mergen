@@ -63,9 +63,20 @@ const DEFAULT_SAFETY_POLICY: SafetyPolicy = {
 };
 
 let _safetyPolicy: SafetyPolicy | null = null;
+let _safetyPolicyWatcherStarted = false;
+
+function _watchSafetyPolicy(): void {
+  if (_safetyPolicyWatcherStarted) return;
+  _safetyPolicyWatcherStarted = true;
+  fs.watchFile(SAFETY_POLICY_FILE, { interval: 5_000, persistent: false }, () => {
+    _safetyPolicy = null;
+    logger.info({ path: SAFETY_POLICY_FILE }, 'autonomy: safety-policy.json changed — reloading on next call');
+  });
+}
 
 export function loadSafetyPolicy(force = false): SafetyPolicy {
   if (_safetyPolicy && !force) return _safetyPolicy;
+  _watchSafetyPolicy();
   
   if (!fs.existsSync(SAFETY_POLICY_FILE)) {
     try {

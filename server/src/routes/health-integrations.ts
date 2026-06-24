@@ -18,6 +18,7 @@ import { Router } from 'express';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { getAuditHealth } from '../sensor/audit-log.js';
 
 export interface IntegrationHealth {
   id:       string;
@@ -232,6 +233,11 @@ export function createHealthIntegrationsRouter(): Router {
       summary: { ok, warn, missing, total: integrations.length },
       integrations,
     });
+  });
+
+  router.get('/audit-health', (_req, res) => {
+    const health = getAuditHealth();
+    res.status(health.ok ? 200 : 503).json(health);
   });
 
   return router;

@@ -35,6 +35,7 @@ import { serviceGraph } from '../sensor/service-graph.js';
 import { postmortemStore } from './postmortem-store.js';
 import { DEFAULT_EXECUTION_THRESHOLD } from './threshold-optimizer.js';
 import type { Hypothesis } from './causal.js';
+import logger from '../sensor/logger.js';
 
 export interface PlanningSignals {
   /** Logistic regression P(hypothesis is correct) */
@@ -98,6 +99,14 @@ export function planningGate(
   const blastRisk    = serviceGraph.getBlastRisk(service);
   const upstreamImpact = serviceGraph.getUpstreamImpact(service).length;
 
+  // Warn and apply a +10pp threshold bump when the service has no observed spans.
+  // An unobserved service has no blast-risk data — silently defaulting to 'low'
+  // could permit execution on a service that is actually critical.
+  const serviceUnobserved = upstreamImpact === 0 && blastRisk === 'low';
+  if (serviceUnobserved) {
+    logger.warn({ service }, 'planning-gate: service has no observed spans — applying +10pp threshold as precaution');
+  }
+
   // ── Signal 3: historical fix success rate ───────────────────────────────────
   const histSuccessRate = tagStats?.trusted ? tagStats.accuracy : null;
 
@@ -121,8 +130,9 @@ export function planningGate(
   const blended = confidence * 0.6 + classifierScore * 0.4;
   const adjustedConfidence = Math.round(blended * 1000) / 1000;
 
-  // ── Effective threshold (raised for high blast risk) ────────────────────────
-  const effectiveThreshold = executionThreshold + BLAST_RISK_THRESHOLD_DELTA[blastRisk];
+  // ── Effective threshold (raised for high blast risk or unobserved service) ──
+  const unobservedDelta = serviceUnobserved ? 0.10 : 0.00;
+  const effectiveThreshold = executionThreshold + BLAST_RISK_THRESHOLD_DELTA[blastRisk] + unobservedDelta;
 
   const signals: PlanningSignals = {
     classifierScore: Math.round(classifierScore * 1000) / 1000,

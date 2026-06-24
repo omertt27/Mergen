@@ -1165,16 +1165,15 @@ async function approveCommand(cmdArgs: string[]): Promise<void> {
       headers['x-mergen-secret'] = secret;
     }
 
-    const res = await fetch(`http://127.0.0.1:${port}/hitl/bypass/approve`, {
+    const res = await fetch(`http://127.0.0.1:${port}/hitl/approve`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ token }),
     });
 
-    const body = await res.json() as { ok: boolean; error?: string; toolName?: string; commandArg?: string };
+    const body = await res.json() as { ok: boolean; error?: string };
     if (res.ok && body.ok) {
-      const cmdMsg = body.commandArg ? ` execution of "${body.commandArg}"` : ` call to ${body.toolName}`;
-      success(`Approved! The next${cmdMsg} will be allowed within 10 minutes.`);
+      success(`Approved! The blocked tool call will be allowed to proceed.`);
     } else {
       error(`Approval failed: ${body.error ?? 'Unknown error'}`);
       process.exit(1);

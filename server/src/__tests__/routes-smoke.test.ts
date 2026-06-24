@@ -317,15 +317,13 @@ describe('Rate limiter', () => {
 });
 
 describe('POST /hitl/bypass/approve', () => {
-  it('allows loopback requests but requires a valid token', async () => {
+  it('returns 404 — endpoint removed; bypass approval goes through POST /hitl/approve', async () => {
     const res = await authPost('/hitl/bypass/approve', { token: 'nonexistent' });
     expect(res.status).toBe(404);
-    const body = await res.json() as { error: string };
-    expect(body.error).toBe('token not found or already expired');
   });
 
-  it('rejects loopback requests if token is missing', async () => {
-    const res = await authPost('/hitl/bypass/approve', {});
-    expect(res.status).toBe(400);
+  it('POST /hitl/approve returns 404 for unknown tokens', async () => {
+    const res = await authPost('/hitl/approve', { token: 'nonexistent-token' });
+    expect(res.status).toBe(404);
   });
 });

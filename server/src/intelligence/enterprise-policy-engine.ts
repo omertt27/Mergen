@@ -170,18 +170,14 @@ function _watchPolicyFile(): void {
   }
 }
 
+// Known AI actor tokens — matched at word boundaries to prevent substring false-positives.
+// e.g. "humanbot_ops" would match 'bot' without boundary guards.
+const AI_ACTOR_PATTERNS = [/\bbot\b/, /\bclaude\b/, /\bcursor\b/, /\bagent\b/, /\bai\b/, /\bgithub-actions\b/, /\bwindsurf\b/, /\bcopilot\b/];
+
 export function isAiActor(actorName: string): boolean {
   if (!actorName) return false;
   const name = actorName.toLowerCase();
-  return (
-    name.includes('bot') ||
-    name.includes('claude') ||
-    name.includes('cursor') ||
-    name.includes('agent') ||
-    name.includes('ai') ||
-    name.includes('github-actions') ||
-    name.includes('windsurf')
-  );
+  return AI_ACTOR_PATTERNS.some((re) => re.test(name));
 }
 
 export interface EvaluationInput {

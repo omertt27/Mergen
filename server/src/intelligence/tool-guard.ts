@@ -17,7 +17,8 @@
  *   registerTools(createGuardedServer(mcp));
  */
 
-import { randomUUID, randomBytes } from 'crypto';
+import { randomUUID, randomBytes, createHmac } from 'crypto';
+import fs from 'fs';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { evaluateEnterprisePolicy, loadEnterprisePolicy } from './enterprise-policy-engine.js';
 import { computeBlastRadius } from './blast-radius.js';
@@ -31,6 +32,7 @@ import {
 import { trackBlock, trackSuccessfulCall } from '../sensor/bypass-tracker.js';
 import { recordActivity } from './activity-feed.js';
 import logger from '../sensor/logger.js';
+import { BYPASS_PENDING_FILE, DATA_DIR, zeroRetentionMode } from '../sensor/paths.js';
 
 type McpResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
 
@@ -55,7 +57,7 @@ function normalizeCommand(cmd: unknown): string {
   return cmd.trim().replace(/\s+/g, ' ');
 }
 
-export function registerBypassBlock(toolName: string, commandArg: string, triggeredRules: string[]): string {
+export function registerBypassBlock(toolName: string, commandArg: string, triggeredRules: string[] = []): string {
   const normalizedCmd = normalizeCommand(commandArg);
   const now = Date.now();
   for (const [token, b] of _pendingBypasses.entries()) {
@@ -68,16 +70,9 @@ export function registerBypassBlock(toolName: string, commandArg: string, trigge
     }
   }
 
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  let token = '';
-  do {
-    const bytes = randomBytes(8);
-    let t = '';
-    for (let i = 0; i < 8; i++) {
-      t += chars[bytes[i] % chars.length];
-    }
-    token = t;
-  } while (_pendingBypasses.has(token));
+  // Use 16 random bytes as hex (128 bits) — no hyphens, no modulo bias, opaque.
+  let token: string;
+  do { token = randomBytes(16).toString('hex'); } while (_pendingBypasses.has(token));
 
   _pendingBypasses.set(token, {
     token,
@@ -133,6 +128,44 @@ export function getPendingBypasses(): Array<{ token: string; toolName: string; c
     }
   }
   return list;
+}
+
+/** Forcibly invalidate a bypass token — called after too many failed approval attempts. */
+export function invalidateBypassToken(token: string): void {
+  _pendingBypasses.delete(token);
+}
+
+// ── Bypass token persistence (survives server restarts within validity window) ──
+
+interface BypassFile { version: 1; bypasses: PendingBypass[] }
+
+export function persistBypasses(): void {
+  if (zeroRetentionMode()) return;
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    const now = Date.now();
+    const active = [..._pendingBypasses.values()].filter((b) => b.expiresAt > now);
+    const tmp = `${BYPASS_PENDING_FILE}.tmp.${process.pid}`;
+    fs.writeFileSync(tmp, JSON.stringify({ version: 1, bypasses: active } satisfies BypassFile), 'utf8');
+    fs.renameSync(tmp, BYPASS_PENDING_FILE);
+  } catch (err) {
+    logger.warn({ err }, 'tool-guard: bypass persist failed');
+  }
+}
+
+export function loadBypasses(): void {
+  if (zeroRetentionMode() || !fs.existsSync(BYPASS_PENDING_FILE)) return;
+  try {
+    const raw = JSON.parse(fs.readFileSync(BYPASS_PENDING_FILE, 'utf8')) as BypassFile;
+    if (raw?.version !== 1 || !Array.isArray(raw.bypasses)) return;
+    const now = Date.now();
+    for (const b of raw.bypasses) {
+      if (b.expiresAt > now) _pendingBypasses.set(b.token, b);
+    }
+    if (_pendingBypasses.size > 0) logger.info({ count: _pendingBypasses.size }, 'tool-guard: restored pending bypass tokens');
+  } catch (err) {
+    logger.warn({ err }, 'tool-guard: bypass load failed');
+  }
 }
 
 interface PendingHold {
@@ -342,7 +375,7 @@ async function applyGate(
   const evaluation = evaluateEnterprisePolicy({
     files:    [toolName],
     commands: [toolName, commandArg].filter(Boolean),
-    actor:    'agent',
+    actor:    (argsObj.actor as string | undefined) ?? 'agent',
     service:  'mcp',
     timestamp: Date.now(),
   });

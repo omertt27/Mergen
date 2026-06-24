@@ -332,7 +332,7 @@ export function compactCorpus(): CompactedRule[] {
     if (hoursToWindow.length > 0) {
       const minH = Math.min(...hoursToWindow);
       const maxH = Math.max(...hoursToWindow);
-      // Only surface a window when it's narrower than the full day.
+      // Only compact into a rule if the override pattern is narrow (< 20-hour span), otherwise too broad to be actionable.
       if (maxH - minH < 20) hourWindow = [minH, maxH + 1];
     }
 

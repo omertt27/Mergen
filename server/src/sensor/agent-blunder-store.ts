@@ -17,12 +17,32 @@
 
 import fs from 'fs';
 import path from 'path';
-import { createHash, randomUUID, randomBytes } from 'crypto';
+import { createHash, createHmac, randomUUID, randomBytes } from 'crypto';
 import { DATA_DIR, zeroRetentionMode } from './paths.js';
 import logger from './logger.js';
 import { lockAndExecute } from './file-lock.js';
 
 const BLUNDER_FILE = path.join(DATA_DIR, 'agent-blunders.json');
+const BLUNDER_HMAC_FILE = BLUNDER_FILE + '.hmac';
+
+function _blunderHmacKey(): string {
+  return process.env.MERGEN_SECRET ?? 'mergen-blunder-integrity';
+}
+
+function _writeHmac(contents: string): void {
+  try {
+    const hmac = createHmac('sha256', _blunderHmacKey()).update(contents).digest('hex');
+    fs.writeFileSync(BLUNDER_HMAC_FILE, hmac, 'utf8');
+  } catch { /* non-fatal — HMAC sidecar is best-effort */ }
+}
+
+function _verifyHmac(contents: string): boolean {
+  try {
+    const stored = fs.readFileSync(BLUNDER_HMAC_FILE, 'utf8').trim();
+    const expected = createHmac('sha256', _blunderHmacKey()).update(contents).digest('hex');
+    return stored === expected;
+  } catch { return true; /* no sidecar yet — treat as unverified, not tampered */ }
+}
 // Configurable cap — default 5,000. At 10 blocks/day this covers ~1.4 years;
 // at 1 block/minute it covers ~3.5 days. The 100,000 ceiling prevents misconfiguration.
 // Exported so tests can derive the correct threshold for wraparound assertions.
@@ -94,13 +114,21 @@ function _computeHash(
 
 // ── Storage ───────────────────────────────────────────────────────────────────
 
+let _integrityViolated = false;
+export function isBlunderIntegrityViolated(): boolean { return _integrityViolated; }
+
 function load(force = false): void {
   if (_testingMode) return; // test isolation: never read disk when reset for testing
   if (_loaded && !force) return;
   _loaded = true;
   if (!fs.existsSync(BLUNDER_FILE)) { _blunders = []; return; }
   try {
-    const raw = JSON.parse(fs.readFileSync(BLUNDER_FILE, 'utf8'));
+    const contents = fs.readFileSync(BLUNDER_FILE, 'utf8');
+    if (!_verifyHmac(contents)) {
+      _integrityViolated = true;
+      logger.error({ path: BLUNDER_FILE }, 'agent-blunder-store: HMAC mismatch — file may have been tampered with');
+    }
+    const raw = JSON.parse(contents);
     // Support reading v1 files (no hash fields) — migrate forward on next write
     if ((raw?.version === 2 || raw?.version === 1) && Array.isArray(raw.blunders)) {
       _blunders = raw.blunders;
@@ -115,8 +143,10 @@ function persist(): void {
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
     const tmp = `${BLUNDER_FILE}.tmp.${process.pid}.${randomBytes(4).toString('hex')}`;
-    fs.writeFileSync(tmp, JSON.stringify({ version: 2, blunders: _blunders } satisfies BlunderFile), 'utf8');
+    const contents = JSON.stringify({ version: 2, blunders: _blunders } satisfies BlunderFile);
+    fs.writeFileSync(tmp, contents, 'utf8');
     fs.renameSync(tmp, BLUNDER_FILE);
+    _writeHmac(contents);
   } catch (err) {
     logger.warn({ err }, 'agent-blunder-store: persist failed');
   }

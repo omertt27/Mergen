@@ -18,7 +18,7 @@ import express from 'express';
 import { LRUCache } from 'lru-cache';
 import helmet from 'helmet';
 import logger from './sensor/logger.js';
-import { timingSafeSecretEqual } from './sensor/security-utils.js';
+import { timingSafeSecretEqual, timingSafeSecretEqualAny } from './sensor/security-utils.js';
 import { billingRouter } from './intelligence/billing.js';
 import { teamRouter } from './intelligence/team.js';
 import { ingestRouter } from './sensor/ingest.js';
@@ -280,7 +280,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
     if (req.method === 'GET' || req.method === 'OPTIONS') { next(); return; }
     if (!MUTATING_PATHS.some((p) => req.path === p || req.path.startsWith(p + '/'))) { next(); return; }
     const presented = req.headers['x-mergen-secret'];
-    if (!timingSafeSecretEqual(presented, localSecret)) {
+    if (!timingSafeSecretEqualAny(presented, localSecret)) {
       res.status(401).json({ error: 'unauthorized' });
       return;
     }
@@ -312,7 +312,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
       if (req.method !== 'GET') { next(); return; }
       if (!SENSITIVE_GET_PATHS.some((p) => req.path === p || req.path.startsWith(p + '/'))) { next(); return; }
       const presented = req.headers['x-mergen-secret'];
-      const valid = timingSafeSecretEqual(presented, localSecret);
+      const valid = timingSafeSecretEqualAny(presented, localSecret);
       if (!valid) { res.status(401).json({ error: 'unauthorized' }); return; }
       next();
     });

@@ -60,10 +60,10 @@ approvalEvents.on('approval:expired', (pid: string, text: string) => {
   postThreadReply(pid, text).catch((err) => logger.error({ err, pid }, 'approval:expired: slack reply failed'));
 });
 
-/** Wrapper that logs a warning when a Slack reply fails instead of silently dropping it. */
+/** Wrapper that logs an error when a Slack reply fails instead of silently dropping it. */
 async function replyToThread(pid: string, text: string): Promise<void> {
   const ok = await postThreadReply(pid, text);
-  if (!ok) logger.warn({ pid }, 'incident-autopilot: Slack reply failed — engineer may not see this update');
+  if (!ok) logger.error({ pid }, 'incident-autopilot: Slack reply failed — engineer may not see this update');
 }
 
 const ANALYSIS_TIMEOUT_MS = 30_000;

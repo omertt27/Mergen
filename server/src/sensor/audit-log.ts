@@ -210,6 +210,13 @@ function resolveActor(req: Request): string {
 }
 
 let _writeQueue: Promise<void> = Promise.resolve();
+let _lastAuditWriteError: string | null = null;
+let _auditWriteOk = true;
+
+/** Returns the current audit log health — use in /audit-health or monitoring checks. */
+export function getAuditHealth(): { ok: boolean; lastError: string | null } {
+  return { ok: _auditWriteOk, lastError: _lastAuditWriteError };
+}
 
 async function appendEntryAsync(entry: AuditEntry): Promise<void> {
   try {
@@ -223,8 +230,12 @@ async function appendEntryAsync(entry: AuditEntry): Promise<void> {
       }
     } catch { /* file doesn't exist yet */ }
     await fs.promises.appendFile(AUDIT_LOG, JSON.stringify(entry) + '\n', 'utf8');
+    _auditWriteOk = true;
+    _lastAuditWriteError = null;
   } catch (err) {
-    logger.warn({ err }, 'audit log write failed');
+    _auditWriteOk = false;
+    _lastAuditWriteError = err instanceof Error ? err.message : String(err);
+    logger.error({ err }, 'audit-log: write failed — record dropped');
   }
 }
 
@@ -232,7 +243,11 @@ function appendEntry(entry: AuditEntry): void {
   // Save to SQLite
   complianceLedgerStore.insertHttp(entry);
   // Keep file logging as raw fallback
-  _writeQueue = _writeQueue.then(() => appendEntryAsync(entry)).catch(() => {});
+  _writeQueue = _writeQueue.then(() => appendEntryAsync(entry)).catch((err) => {
+    _auditWriteOk = false;
+    _lastAuditWriteError = err instanceof Error ? err.message : String(err);
+    logger.error({ err }, 'audit-log: write queue error — record dropped');
+  });
 }
 
 export function auditMiddleware(req: Request, res: Response, next: NextFunction): void {
@@ -287,6 +302,16 @@ export function recordExecutionAudit(entry: ExecutionAuditEntry): void {
     try {
       await fs.promises.mkdir(DATA_DIR, { recursive: true });
       await fs.promises.appendFile(AUDIT_LOG, fileEntry + '\n', 'utf8');
-    } catch {}
-  }).catch(() => {});
+      _auditWriteOk = true;
+      _lastAuditWriteError = null;
+    } catch (err) {
+      _auditWriteOk = false;
+      _lastAuditWriteError = err instanceof Error ? err.message : String(err);
+      logger.error({ err }, 'audit-log: execution record write failed — record dropped');
+    }
+  }).catch((err) => {
+    _auditWriteOk = false;
+    _lastAuditWriteError = err instanceof Error ? err.message : String(err);
+    logger.error({ err }, 'audit-log: write queue error on execution record');
+  });
 }

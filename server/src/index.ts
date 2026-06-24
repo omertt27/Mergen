@@ -50,7 +50,8 @@ import { initTeam, broadcastToTeam } from './intelligence/team.js';
 import { initTelemetry, maybeSendTelemetry } from './intelligence/telemetry.js';
 import { getPlan } from './intelligence/plans.js';
 import { registerTools, toolCallCounts } from './intelligence/tools.js';
-import { createGuardedServer } from './intelligence/tool-guard.js';
+import { createGuardedServer, loadBypasses, persistBypasses } from './intelligence/tool-guard.js';
+import { flushApprovals } from './intelligence/execution-gate.js';
 import { registerResources } from './intelligence/mcp-resources.js';
 import { registerPrompts } from './intelligence/mcp-prompts.js';
 import { SYSTEM_PROMPT } from './intelligence/prompts.js';
@@ -265,6 +266,10 @@ async function main(): Promise<void> {
   // risk calculations default to 'low' until OTLP spans rebuild the graph live —
   // which can take minutes on a freshly restarted server.
   serviceGraph.loadPersisted();
+
+  // Restore pending bypass tokens so a server restart doesn't strand in-flight
+  // `mergen approve <token>` commands issued just before shutdown.
+  loadBypasses();
 
   setBufferSizeGetter(() => getPlan(getActivePlanId()).bufferSize);
 
@@ -516,6 +521,10 @@ async function main(): Promise<void> {
     // Flush the service graph so the next startup has an immediately correct
     // blast-risk map instead of waiting for OTLP spans to rebuild it.
     serviceGraph.flushSync();
+    // Synchronously flush in-flight approvals and bypass tokens before exit.
+    // The debounce timers may not fire on SIGTERM, so we force a final write here.
+    flushApprovals();
+    persistBypasses();
 
     Promise.all([flushOverageOnShutdown(), flushPendingRebuild()]).finally(() => {
       stopDockerMonitor();

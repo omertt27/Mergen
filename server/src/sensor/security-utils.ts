@@ -33,3 +33,13 @@ export function timingSafeSecretEqual(presented: unknown, expected: string): boo
   Buffer.from(expected,  'utf8').copy(e, 0, 0, Math.min(expected.length,  COMPARISON_WIDTH));
   return crypto.timingSafeEqual(p, e) && presented.length === expected.length;
 }
+
+/**
+ * Accept any secret in a comma-separated list — enables zero-downtime rotation.
+ * MERGEN_SECRET=newSecret,oldSecret: add the new secret to the front, remove
+ * the old one once all callers have switched to the new value.
+ */
+export function timingSafeSecretEqualAny(presented: unknown, expected: string): boolean {
+  const secrets = expected.split(',').map((s) => s.trim()).filter(Boolean);
+  return secrets.some((s) => timingSafeSecretEqual(presented, s));
+}

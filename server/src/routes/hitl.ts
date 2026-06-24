@@ -16,7 +16,7 @@
 
 import { Router } from 'express';
 import logger from '../sensor/logger.js';
-import { approveToolCall, denyToolCall, getPendingHolds, approveBypass } from '../intelligence/tool-guard.js';
+import { approveToolCall, denyToolCall, getPendingHolds, approveBypass, invalidateBypassToken } from '../intelligence/tool-guard.js';
 
 // Simple in-process rate limiter: 10 resolution attempts per IP per 60 s.
 // Deliberately kept lightweight — HITL endpoints are low-volume by design
@@ -24,6 +24,11 @@ import { approveToolCall, denyToolCall, getPendingHolds, approveBypass } from '.
 const HITL_RATE_LIMIT = 10;
 const HITL_RATE_WINDOW_MS = 60_000;
 const _hitlBuckets = new Map<string, { count: number; resetAt: number }>();
+
+// Per-token attempt counter: max 3 failed attempts before the token is invalidated.
+// Prevents brute-force even when the same token is attacked from multiple IPs.
+const TOKEN_ATTEMPT_LIMIT = 3;
+const _tokenAttempts = new Map<string, number>();
 
 setInterval(() => {
   const now = Date.now();
@@ -42,6 +47,18 @@ function hitlRateLimited(ip: string): boolean {
   return ++b.count > HITL_RATE_LIMIT;
 }
 
+/** Tracks a failed token attempt. Returns true if the token has exceeded the attempt limit. */
+function recordFailedTokenAttempt(token: string): boolean {
+  const attempts = (_tokenAttempts.get(token) ?? 0) + 1;
+  _tokenAttempts.set(token, attempts);
+  if (attempts >= TOKEN_ATTEMPT_LIMIT) {
+    invalidateBypassToken(token);
+    _tokenAttempts.delete(token);
+    return true;
+  }
+  return false;
+}
+
 export function createHitlRouter(): Router {
   const router = Router();
 
@@ -57,9 +74,12 @@ export function createHitlRouter(): Router {
     const released = approveToolCall(token);
     if (!released) {
       logger.warn({ ip, token }, 'hitl: approve attempted with unknown or expired token');
+      const exhausted = recordFailedTokenAttempt(token);
+      if (exhausted) logger.warn({ token }, 'hitl: token invalidated after too many failed attempts');
       res.status(404).json({ error: 'token not found or already expired' });
       return;
     }
+    _tokenAttempts.delete(token);
     res.json({ ok: true, action: 'approved', token });
   });
 
@@ -75,35 +95,19 @@ export function createHitlRouter(): Router {
     const denied = denyToolCall(token);
     if (!denied) {
       logger.warn({ ip, token }, 'hitl: deny attempted with unknown or expired token');
+      const exhausted = recordFailedTokenAttempt(token);
+      if (exhausted) logger.warn({ token }, 'hitl: token invalidated after too many failed attempts');
       res.status(404).json({ error: 'token not found or already expired' });
       return;
     }
+    _tokenAttempts.delete(token);
     res.json({ ok: true, action: 'denied', token });
   });
 
-  router.post('/hitl/bypass/approve', (req, res) => {
-    const ip = (req.socket.remoteAddress ?? 'unknown').replace(/^::ffff:/, '');
-    if (hitlRateLimited(ip)) {
-      logger.warn({ ip }, 'hitl: rate limit exceeded on /hitl/bypass/approve');
-      res.status(429).json({ error: 'rate limit exceeded' });
-      return;
-    }
-    const isLocal = ip === '127.0.0.1' || ip === '::1' || ip === 'localhost';
-    if (!isLocal) {
-      logger.warn({ ip }, 'hitl: bypass approve rejected - remote IP attempt blocked');
-      res.status(403).json({ error: 'Bypass approval is restricted to localhost callers' });
-      return;
-    }
-    const token = ((req.query.token ?? req.body?.token) as string | undefined)?.trim();
-    if (!token) { res.status(400).json({ error: 'token required' }); return; }
-    const result = approveBypass(token);
-    if (!result.ok) {
-      logger.warn({ ip, token }, 'hitl: bypass approve attempted with unknown or expired token');
-      res.status(404).json({ error: 'token not found or already expired' });
-      return;
-    }
-    res.json({ ok: true, action: 'approved', token, toolName: result.toolName, commandArg: result.commandArg });
-  });
+  // POST /hitl/bypass/approve is intentionally removed.
+  // The `mergen approve <token>` CLI now calls POST /hitl/approve (requires x-mergen-secret),
+  // so bypass approval goes through the same authenticated path as HITL holds.
+  // Keeping a localhost-only shortcut here was a no-auth bypass in cloud/container deployments.
 
   // GET /hitl/pending is protected by SENSITIVE_GET_PATHS in app.ts (requires x-mergen-secret).
   router.get('/hitl/pending', (_req, res) => {

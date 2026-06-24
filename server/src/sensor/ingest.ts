@@ -1,5 +1,5 @@
 import { Request, Response, Router } from 'express';
-import { timingSafeSecretEqual } from './security-utils.js';
+import { timingSafeSecretEqualAny } from './security-utils.js';
 import type {} from './cloud-auth.js';
 import { store, BrowserEventSchema, type BrowserEvent } from './buffer.js';
 import { resolveFrameAndStack } from './sourcemap.js';
@@ -216,7 +216,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 ingestRouter.post('/ingest', (req: Request, res: Response): void => {
   if (SHARED_SECRET) {
-    if (!timingSafeSecretEqual(req.headers['x-mergen-secret'], SHARED_SECRET)) {
+    if (!timingSafeSecretEqualAny(req.headers['x-mergen-secret'], SHARED_SECRET)) {
       res.status(401).json({ error: 'unauthorized' });
       return;
     }
@@ -230,6 +230,15 @@ ingestRouter.post('/ingest', (req: Request, res: Response): void => {
   const result = BrowserEventSchema.safeParse(req.body);
   if (!result.success) {
     res.status(400).json({ error: 'invalid event', details: result.error.flatten() });
+    return;
+  }
+
+  // Reject events with timestamps that are unreasonably far in the future.
+  // Future-dated events could shift blast-radius "recent" windows; past events cannot.
+  const tsFutureMs = result.data.timestamp - Date.now();
+  if (tsFutureMs > 10 * 60 * 1_000) {
+    logger.warn({ tsFutureMs, url: result.data.url }, 'ingest: event timestamp is too far in the future — rejected');
+    res.status(400).json({ error: 'event timestamp too far in the future' });
     return;
   }
 

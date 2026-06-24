@@ -67,6 +67,9 @@ function _persist(): void {
   }
 }
 
+/** Synchronously flush pending approvals to disk — call in SIGTERM handler. */
+export function flushApprovals(): void { _persist(); }
+
 function load(): void {
   if (_loaded) return;
   _loaded = true;
