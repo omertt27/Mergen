@@ -14,7 +14,7 @@ import { startSession } from './session-metrics.js';
 import { getStatsForTag } from './calibration.js';
 import logger from '../sensor/logger.js';
 
-const PLAN_TIER_DESCRIPTION = 'Free: up to 25 incidents/month (shadow mode). Pro ($29/mo): 200 incidents/month, $50 overage ceiling.';
+const PLAN_TIER_DESCRIPTION = 'Free plan: 10 analyze credits/month. Starter ($499/mo): 100 credits. Team ($2,500/mo): 1,000 credits. See https://mergen.dev/pricing for details.';
 
 /** Registers only `reconstruct_context` — used by slim (5-tool) MCP mode. */
 export function registerAnalyzeRuntime(server: McpServer): void {
@@ -45,28 +45,6 @@ function _registerAnalyzeRuntime(server: McpServer): void {
     async ({ focus = 'all', since, max_tokens }) => {
       trackCall('reconstruct_context');
       setLastTimeToFirstAnalysisMs(Date.now() - getLastClearAt());
-
-      const credit = await consumeCredit();
-      if (!credit.allowed) {
-        return {
-          content: [{
-            type: 'text',
-            text: [
-              `⛔ Monthly limit reached on the **Free** plan.`,
-              ``,
-              `**Upgrade to Pro** ($29/mo) for 200 incidents/month with a $50/month overage ceiling.`,
-              `→ https://mergen.dev/pricing`,
-              ``,
-              `**Continue debugging with free tools:**`,
-              `1. \`get_incident_context\` — fetch active Datadog incident context (free)`,
-              `2. \`triage_incident\` — full causal analysis without credit cost`,
-              ``,
-              `Call \`triage_incident\` to continue debugging.`,
-            ].join('\n'),
-          }],
-          isError: true,
-        };
-      }
 
       const logs     = focus === 'network' ? [] : store.getLogs(200, undefined, since);
       const network  = focus === 'errors'  ? [] : store.getNetwork(200, undefined, since);
@@ -106,6 +84,28 @@ function _registerAnalyzeRuntime(server: McpServer): void {
               ``,
               `_Manual investigation required. Retry \`reconstruct_context\` if the issue persists._`,
             ].filter(Boolean).join('\n'),
+          }],
+          isError: true,
+        };
+      }
+
+      // Charge the credit only after a successful analysis — no cost for timeouts or errors.
+      const credit = await consumeCredit();
+      if (!credit.allowed) {
+        return {
+          content: [{
+            type: 'text',
+            text: [
+              `⛔ Monthly limit reached on the **Free** plan.`,
+              ``,
+              `**Upgrade** at https://mergen.dev/pricing for more credits.`,
+              ``,
+              `**Continue debugging with free tools:**`,
+              `1. \`get_incident_context\` — fetch active Datadog incident context (free)`,
+              `2. \`triage_incident\` — full causal analysis without credit cost`,
+              ``,
+              `Call \`triage_incident\` to continue debugging.`,
+            ].join('\n'),
           }],
           isError: true,
         };

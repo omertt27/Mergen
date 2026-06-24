@@ -43,7 +43,7 @@ import { saveSession, loadSession } from './sensor/session-persist.js';
 import { saveSessionToHistory } from './sensor/session-history.js';
 import { syncMarkdownFilesFromDisk } from './intelligence/postmortem-parser.js';
 
-import { initLicense, getActivePlanId } from './intelligence/license.js';
+import { initLicense, getActivePlanId, revalidateLicense } from './intelligence/license.js';
 import { initUsage, flushOverageOnShutdown } from './intelligence/usage.js';
 import { flushPendingRebuild } from './intelligence/hypothesis-history.js';
 import { initTeam, broadcastToTeam } from './intelligence/team.js';
@@ -228,6 +228,9 @@ async function main(): Promise<void> {
   // ── Services ───────────────────────────────────────────────────────────────
   await initLicense();
   await initUsage();
+  // Re-validate the license against the upstream server every 24 hours.
+  // Clears local state if the subscription is cancelled or key revoked.
+  setInterval(() => { void revalidateLicense(); }, 24 * 60 * 60 * 1000).unref();
   await initTeam();
   await initTelemetry();
   await historyStore.init();

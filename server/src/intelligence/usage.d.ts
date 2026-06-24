@@ -5,7 +5,7 @@ export interface UsageSnapshot {
   resetsAt:               number;
   used:                   number;
   included:               number | null;
-  remaining:              number;
+  remaining:              number | null;
   lowCredits:             boolean;
   overage:                number;
   overageCentsPerCredit:  number;

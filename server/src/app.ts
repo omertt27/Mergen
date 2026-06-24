@@ -297,6 +297,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
     '/api/war-room',          // incident attribution + Slack thread history
     '/sessions/history',      // full session event replay
     '/audit',                 // audit log
+    '/license',               // plan, customer email, activation date
     '/agent-blunders',        // blocked command history — reveals system constraints
     '/incidents',             // live incident list + MTTR data
     '/override-corpus',       // team's operational override knowledge
