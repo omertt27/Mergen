@@ -1,18 +1,19 @@
 #!/usr/bin/env node
 /**
- * eval-dry.mjs — CI-safe context-pack quality check for Mergen's diagnosis pipeline.
+ * eval-dry.mjs — CI-safe AEG gate structure check for Mergen.
  *
- * Runs the same 4 synthetic scenarios as eval.mjs but scores the contextPack
- * text returned by /diagnose directly — no OPENAI_API_KEY required.
+ * Runs the same gate scenarios as eval.mjs but scores the gate response
+ * structure returned by POST /ci/gate directly — no LLM API key required.
  *
  * What this catches:
- *   - Buffer not including the ingested event data in the contextPack
- *   - Endpoint URLs, status codes, or localStorage keys dropped from context
- *   - /diagnose returning empty or malformed contextPack after buffer changes
+ *   - Gate returning wrong verdict (block when it should pass, or vice versa)
+ *   - Block/warn responses missing required fields (reasons, recommendation)
+ *   - riskScore out of expected range for the verdict
+ *   - /agent-blunders endpoint returning a malformed response
  *
- * What this does NOT catch (needs eval.mjs + OpenAI):
- *   - LLM generating vague or non-actionable fix text
- *   - Prompt changes that cause the model to stop naming concrete endpoints
+ * What this does NOT catch (needs eval.mjs + LLM):
+ *   - Guidance text that is vague or non-actionable
+ *   - Reasons that don't name the specific command/pattern blocked
  *
  * Usage:
  *   node scripts/eval-dry.mjs [--port 3000] [--verbose]
@@ -32,115 +33,106 @@ const y = s => `\x1b[33m${s}\x1b[0m`;
 const d = s => `\x1b[2m${s}\x1b[0m`;
 
 // ── Scenarios ─────────────────────────────────────────────────────────────────
-// These are the same browser-side events as eval.mjs.
-// expect_in_context: keywords that MUST appear in the contextPack assembled by
-// the server — these come from the raw event data, so a missing keyword means
-// the buffer or context builder dropped relevant signal.
-
-const NOW = Date.now();
-const ago = ms => NOW - ms;
+// Each scenario checks the structure of the gate response, not its prose quality.
+//
+// expect_verdict:  the verdict that MUST be returned
+// expect_fields:   fields that must be present in the response (non-empty)
+// riskRange:       [min, max] riskScore expected for this verdict tier
 
 const SCENARIOS = [
+  // ── Block: destructive diff ──────────────────────────────────────────────
   {
-    name: 'Auth token not stored after successful login',
-    expect_in_context: ['/api/auth', 'token', '200', '401'],
-    events: [
-      { type: 'network', method: 'POST', url: 'http://localhost:3000/api/auth/login',
-        status: 200, statusText: 'OK', duration: 312,
-        requestBody: { email: 'user@example.com', password: '***' },
-        requestHeaders: { 'content-type': 'application/json' },
-        responseBody: { token: 'eyJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOiIxMjMifQ.abc', userId: '123' },
-        responseHeaders: { 'content-type': 'application/json' },
-        timestamp: ago(4000) },
-      { type: 'network', method: 'GET', url: 'http://localhost:3000/api/user/profile',
-        status: 401, statusText: 'Unauthorized', duration: 89,
-        requestBody: null, requestHeaders: {}, responseBody: { error: 'No token' },
-        responseHeaders: {}, timestamp: ago(2000) },
-      { type: 'console', level: 'error',
-        args: ["Cannot read properties of null (reading 'userId')", 'at Dashboard.useEffect (dashboard.tsx:42)'],
-        stack: 'TypeError: Cannot read properties of null\n  at Dashboard (dashboard.tsx:42:18)',
-        url: 'http://localhost:5173/dashboard', timestamp: ago(1800) },
-      { type: 'context', trigger: 'error', timestamp: ago(1800),
-        url: 'http://localhost:5173/dashboard', title: 'Dashboard',
-        activeElement: 'body', component: 'Dashboard',
-        localStorage: { theme: 'dark', lastRoute: '/dashboard' },
-        sessionStorage: {} },
-    ],
+    name:           'DROP TABLE in diff → gate returns block with reasons',
+    expect_verdict: 'block',
+    expect_fields:  ['reasons', 'recommendation', 'riskScore'],
+    riskRange:      [70, 100],
+    request: {
+      files:   ['db/drop_users.sql'],
+      diff:    'DROP TABLE users;',
+      prTitle: 'Remove users table',
+      actor:   'agent',
+    },
   },
 
+  // ── Block: rm -rf in diff ────────────────────────────────────────────────
   {
-    name: 'GET /api/products 500 → products.map crash',
-    expect_in_context: ['/api/products', '500', 'undefined'],
-    events: [
-      { type: 'network', method: 'GET', url: 'http://localhost:3000/api/products',
-        status: 500, statusText: 'Internal Server Error', duration: 1204,
-        requestBody: null, requestHeaders: { authorization: 'Bearer tok…abc' },
-        responseBody: { error: 'Database connection timeout' },
-        responseHeaders: {}, timestamp: ago(3000) },
-      { type: 'console', level: 'error',
-        args: ["TypeError: Cannot read properties of undefined (reading 'map')", 'at ProductList (products.tsx:18)'],
-        stack: "TypeError: Cannot read properties of undefined (reading 'map')\n  at ProductList (products.tsx:18:22)",
-        url: 'http://localhost:5173/products', timestamp: ago(2500) },
-      { type: 'context', trigger: 'error', timestamp: ago(2500),
-        url: 'http://localhost:5173/products', title: 'Products',
-        activeElement: null, component: 'ProductList',
-        localStorage: { token: 'eyJhbGci…' }, sessionStorage: {} },
-    ],
+    name:           'rm -rf in diff → gate returns block',
+    expect_verdict: 'block',
+    expect_fields:  ['reasons', 'recommendation', 'riskScore'],
+    riskRange:      [70, 100],
+    request: {
+      files:   ['scripts/cleanup.sh'],
+      diff:    'rm -rf /var/data/production',
+      prTitle: 'Delete old production data',
+      actor:   'agent',
+    },
   },
 
+  // ── Warn: human touching migration files ─────────────────────────────────
   {
-    name: 'localStorage.token cleared between navigation steps',
-    expect_in_context: ['token', '/api/orders', '201'],
-    events: [
-      { type: 'context', trigger: 'warn', timestamp: ago(8000),
-        url: 'http://localhost:5173/checkout', title: 'Checkout',
-        activeElement: null, component: 'CheckoutForm',
-        localStorage: { token: 'eyJhbGci…valid', cartId: 'cart_abc' },
-        sessionStorage: {} },
-      { type: 'network', method: 'POST', url: 'http://localhost:3000/api/orders',
-        status: 201, statusText: 'Created', duration: 450,
-        requestBody: { cartId: 'cart_abc' }, requestHeaders: { authorization: 'Bearer eyJhbGci…' },
-        responseBody: { orderId: 'ord_123' }, responseHeaders: {}, timestamp: ago(4000) },
-      { type: 'context', trigger: 'error', timestamp: ago(1000),
-        url: 'http://localhost:5173/confirmation', title: 'Order Confirmation',
-        activeElement: null, component: 'Confirmation',
-        localStorage: { cartId: 'null' },
-        sessionStorage: {} },
-      { type: 'console', level: 'error',
-        args: ['Unauthorized: token is null'],
-        stack: 'Error: Unauthorized\n  at requireAuth (auth.ts:12:9)',
-        url: 'http://localhost:5173/confirmation', timestamp: ago(900) },
-    ],
+    name:           'Human touching migration files → gate returns warn with reasons',
+    expect_verdict: 'warn',
+    expect_fields:  ['reasons', 'recommendation', 'riskScore'],
+    riskRange:      [1, 69],
+    request: {
+      files:   ['db/migrations/0042_add_column.sql'],
+      diff:    'ALTER TABLE users ADD COLUMN verified BOOLEAN;',
+      prTitle: 'Add verified column',
+      actor:   'human',
+    },
   },
 
+  // ── Pass: safe refactor ───────────────────────────────────────────────────
   {
-    name: 'React key warning spike precedes render crash',
-    expect_in_context: ['key', 'OrderRow', '/orders'],
-    events: [
-      ...Array.from({ length: 7 }, (_, i) => ({
-        type: 'console', level: 'warn',
-        args: ['Warning: Each child in a list should have a unique "key" prop. Check the render method of `OrderRow`.'],
-        url: 'http://localhost:5173/orders', timestamp: ago(6000 - i * 200),
-      })),
-      { type: 'console', level: 'error',
-        args: ['Minified React error #130; visit https://reactjs.org/docs/error-decoder.html?invariant=130'],
-        stack: 'Error: Minified React error #130\n  at OrderList (orders.tsx:31)',
-        url: 'http://localhost:5173/orders', timestamp: ago(4500) },
-      { type: 'context', trigger: 'error', timestamp: ago(4500),
-        url: 'http://localhost:5173/orders', title: 'Orders',
-        activeElement: null, component: 'OrderList',
-        localStorage: { token: 'eyJhbGci…' }, sessionStorage: {} },
-    ],
+    name:           'Safe API handler refactor → gate returns pass with no block reasons',
+    expect_verdict: 'pass',
+    expect_fields:  ['recommendation', 'riskScore'],
+    riskRange:      [0, 30],
+    request: {
+      files:   ['src/api/users.ts'],
+      diff:    'function getUser(id) { return db.findById(id); }',
+      prTitle: 'Refactor getUser handler',
+      actor:   'agent',
+    },
   },
 ];
 
 // ── Scoring ───────────────────────────────────────────────────────────────────
 
-function scoreContextPack(contextPack, keywords) {
-  if (!contextPack) return { pass: false, missing: keywords };
-  const text    = contextPack.toLowerCase();
-  const missing = keywords.filter(k => !text.includes(k.toLowerCase()));
-  return { pass: missing.length === 0, missing };
+function scoreResponse(response, scenario) {
+  const issues = [];
+
+  // 1. Verdict must match
+  if (response.verdict !== scenario.expect_verdict) {
+    issues.push(`verdict: got '${response.verdict}', expected '${scenario.expect_verdict}'`);
+  }
+
+  // 2. Required fields must be present and non-empty
+  for (const field of scenario.expect_fields) {
+    const val = response[field];
+    if (val === undefined || val === null) {
+      issues.push(`missing field: ${field}`);
+    } else if (Array.isArray(val) && field === 'reasons' && scenario.expect_verdict !== 'pass' && val.length === 0) {
+      issues.push(`reasons array is empty for a ${response.verdict} verdict`);
+    } else if (typeof val === 'string' && val.trim() === '') {
+      issues.push(`field '${field}' is an empty string`);
+    }
+  }
+
+  // 3. riskScore in expected range
+  const score = response.riskScore;
+  if (typeof score !== 'number') {
+    issues.push('riskScore is not a number');
+  } else if (score < scenario.riskRange[0] || score > scenario.riskRange[1]) {
+    issues.push(`riskScore ${score} not in expected range [${scenario.riskRange[0]}, ${scenario.riskRange[1]}]`);
+  }
+
+  // 4. For pass: reasons should be empty (no spurious blocks)
+  if (scenario.expect_verdict === 'pass' && (response.reasons ?? []).length > 0) {
+    issues.push(`pass response should have no reasons, got: ${response.reasons.join('; ')}`);
+  }
+
+  return { pass: issues.length === 0, issues };
 }
 
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
@@ -150,7 +142,7 @@ async function post(path, body) {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(5000),
+    signal: AbortSignal.timeout(8000),
   });
   if (!res.ok) throw new Error(`${path} → ${res.status}`);
   return res.json();
@@ -169,36 +161,65 @@ async function get(path) {
 async function runScenario(scenario, index, total) {
   process.stdout.write(`\n${b(`[${index}/${total}]`)} ${scenario.name}\n`);
 
-  await post('/clear', {});
-
-  for (const event of scenario.events) {
-    await post('/ingest', event);
-  }
-
-  const diagnose = await get('/diagnose');
-  const contextPack = diagnose.contextPack ?? '';
+  const response = await post('/ci/gate', scenario.request);
 
   if (VERBOSE) {
-    console.log(d('\n── contextPack (truncated) ──────────────────────────'));
-    console.log(d(contextPack.slice(0, 600) + (contextPack.length > 600 ? '\n…' : '')));
+    console.log(d('\n── Gate response ───────────────────────────────────────'));
+    console.log(d(JSON.stringify(response, null, 2).slice(0, 500)));
   }
 
-  const s = scoreContextPack(contextPack, scenario.expect_in_context);
+  const s = scoreResponse(response, scenario);
 
-  const label = s.pass
-    ? g('✓ PASS') + d(' — all expected keywords present in contextPack')
-    : r(`✗ FAIL — keywords missing from contextPack: ${s.missing.join(', ')}`);
+  const verdictColor = response.verdict === 'block' ? r
+    : response.verdict === 'warn' ? y
+    : g;
+  console.log(`  verdict:   ${verdictColor(response.verdict)} (expected: ${scenario.expect_verdict})`);
+  console.log(`  riskScore: ${response.riskScore}  (expected range: [${scenario.riskRange}])`);
 
-  console.log(`  context score: ${label}`);
+  if (s.pass) {
+    console.log(`  structure: ${g('✓ PASS')} — all required fields present and in range`);
+  } else {
+    for (const issue of s.issues) {
+      console.log(`  structure: ${r(`✗ FAIL — ${issue}`)}`);
+    }
+  }
 
-  return { scenario: scenario.name, pass: s.pass, missing: s.missing };
+  return { scenario: scenario.name, pass: s.pass, issues: s.issues };
+}
+
+async function runBlunderLogCheck(index, total) {
+  process.stdout.write(`\n${b(`[${index}/${total}]`)} Blunder log endpoint returns valid structure\n`);
+
+  const response = await get('/agent-blunders');
+
+  const issues = [];
+
+  // Must return an object with expected fields
+  if (typeof response !== 'object' || response === null) {
+    issues.push('response is not an object');
+  } else {
+    if (typeof response.prevented !== 'number') issues.push('missing numeric field: prevented');
+    if (typeof response.byType !== 'object')    issues.push('missing object field: byType');
+    if (!Array.isArray(response.entries))        issues.push('missing array field: entries');
+  }
+
+  const pass = issues.length === 0;
+  if (pass) {
+    console.log(`  structure: ${g('✓ PASS')} — entries: ${response.entries?.length ?? 0}, prevented: ${response.prevented ?? 0}`);
+  } else {
+    for (const issue of issues) {
+      console.log(`  structure: ${r(`✗ FAIL — ${issue}`)}`);
+    }
+  }
+
+  return { scenario: 'Blunder log endpoint returns valid structure', pass, issues };
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log(b('\n🧪 Mergen Context-Pack Dry Eval (no OpenAI required)'));
-  console.log(d(`   port: ${PORT}   scenarios: ${SCENARIOS.length}\n`));
+  console.log(b('\n🛡️  Mergen AEG Gate Dry Eval (no LLM required)'));
+  console.log(d(`   port: ${PORT}   scenarios: ${SCENARIOS.length + 1}\n`));
 
   try {
     await get('/health');
@@ -210,11 +231,18 @@ async function main() {
   const results = [];
   for (let i = 0; i < SCENARIOS.length; i++) {
     try {
-      results.push(await runScenario(SCENARIOS[i], i + 1, SCENARIOS.length));
+      results.push(await runScenario(SCENARIOS[i], i + 1, SCENARIOS.length + 1));
     } catch (err) {
       console.error(r(`\n✗ Scenario "${SCENARIOS[i].name}" threw: ${err.message}`));
-      results.push({ scenario: SCENARIOS[i].name, pass: false, missing: [], error: err.message });
+      results.push({ scenario: SCENARIOS[i].name, pass: false, issues: [err.message] });
     }
+  }
+
+  // Blunder log structural check
+  try {
+    results.push(await runBlunderLogCheck(SCENARIOS.length + 1, SCENARIOS.length + 1));
+  } catch (err) {
+    results.push({ scenario: 'Blunder log endpoint returns valid structure', pass: false, issues: [err.message] });
   }
 
   const passed = results.filter(r => r.pass).length;
@@ -227,11 +255,10 @@ async function main() {
   for (const res of results) {
     const icon = res.pass ? g('✓') : y('✗');
     console.log(`  ${icon}  ${res.scenario}`);
-    if (!res.pass && res.missing?.length) {
-      console.log(d(`       missing in contextPack: ${res.missing.join(', ')}`));
-    }
-    if (res.error) {
-      console.log(r(`       error: ${res.error}`));
+    if (!res.pass && res.issues?.length) {
+      for (const issue of res.issues) {
+        console.log(d(`       issue: ${issue}`));
+      }
     }
   }
 
@@ -239,12 +266,12 @@ async function main() {
 
   if (failed > 0) {
     console.log(y(`${failed} scenario(s) failed.`));
-    console.log(d('Iterate on: buffer.ts ingest pipeline, contextPack builder, or /diagnose route.'));
+    console.log(d('Iterate on: ci-gate.ts, action-risk.ts, enterprise-policy-engine.ts, or routes/agent-blunders.ts'));
     console.log('');
     process.exit(1);
   } else {
-    console.log(g('All scenarios passed. The contextPack contains the expected signal.'));
-    console.log(d('Run eval.mjs (with OPENAI_API_KEY) to verify LLM output quality.'));
+    console.log(g('All scenarios passed. Gate response structure is correct.'));
+    console.log(d('Run eval.mjs (with ANTHROPIC_API_KEY or OPENAI_API_KEY) to verify guidance quality.'));
     console.log('');
   }
 }
