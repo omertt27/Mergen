@@ -19,7 +19,8 @@
 
 import { randomUUID, randomBytes } from 'crypto';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { evaluateEnterprisePolicy } from './enterprise-policy-engine.js';
+import { evaluateEnterprisePolicy, loadEnterprisePolicy } from './enterprise-policy-engine.js';
+import { computeBlastRadius } from './blast-radius.js';
 import { recordBlunder } from '../sensor/agent-blunder-store.js';
 import {
   recordGateBlock,
@@ -28,6 +29,7 @@ import {
   recordHitlDecision,
 } from './gate-analytics.js';
 import { trackBlock, trackSuccessfulCall } from '../sensor/bypass-tracker.js';
+import { recordActivity } from './activity-feed.js';
 import logger from '../sensor/logger.js';
 
 type McpResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
@@ -190,6 +192,11 @@ async function fireHitlWebhook(
   argsSnapshot: string,
   reason:       string,
   port:         number,
+  opts: {
+    triggeredRules: string[];
+    commandArg:     string;
+    suggestedAlt:   string;
+  },
 ): Promise<void> {
   const webhookUrl = process.env.MERGEN_HITL_WEBHOOK_URL;
   if (!webhookUrl) {
@@ -202,36 +209,64 @@ async function fireHitlWebhook(
     return;
   }
 
-  // In team/cloud mode the server is reachable from the internet but 127.0.0.1
-  // is not. MERGEN_PUBLIC_URL lets operators set the externally-reachable base
-  // URL so Slack can POST the approve/deny callback. Falls back to localhost for
-  // single-developer local mode.
   const baseUrl    = (process.env.MERGEN_PUBLIC_URL ?? '').replace(/\/$/, '') || `http://127.0.0.1:${port}`;
   const approveUrl = `${baseUrl}/hitl/approve?token=${token}`;
   const denyUrl    = `${baseUrl}/hitl/deny?token=${token}`;
 
-  // Slack-compatible payload (works with Incoming Webhooks and generic HTTP endpoints)
+  // Enrich with rule metadata and blast radius
+  const policy = loadEnterprisePolicy();
+  const matchedRules = policy.rules.filter(r => opts.triggeredRules.includes(r.id));
+  const blast = computeBlastRadius(opts.commandArg || toolName);
+
+  const rulesText = matchedRules.length > 0
+    ? matchedRules.map(r => `• *${r.name}*: ${r.description}`).join('\n')
+    : `• ${reason}`;
+
+  const blastText = [
+    `Scope: \`${blast.scope}\``,
+    `Reversible: ${blast.reversible ? 'Yes' : '*No*'}`,
+    blast.dataAtRisk ? '*Data at risk*' : null,
+    blast.summary,
+  ].filter(Boolean).join('  ·  ');
+
   const payload = {
-    text: `⚠️ *Mergen HITL Gate* — tool call \`${toolName}\` is awaiting approval`,
+    text: `⚠️ *Mergen HITL Gate* — \`${toolName}\` is awaiting approval`,
     blocks: [
       {
+        type: 'header',
+        text: { type: 'plain_text', text: '⚠️ Mergen HITL Gate — Approval Required', emoji: true },
+      },
+      {
         type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: [
-            `*⚠️ Mergen HITL Gate — Approval Required*`,
-            `Tool: \`${toolName}\``,
-            `Reason: ${reason}`,
-            `Args: \`${argsSnapshot.slice(0, 200)}\``,
-            '',
-            `▶️ Approve: ${approveUrl}`,
-            `🚫 Deny: ${denyUrl}`,
-            `_Token expires in 15 minutes._`,
-          ].join('\n'),
-        },
+        fields: [
+          { type: 'mrkdwn', text: `*Tool*\n\`${toolName}\`` },
+          { type: 'mrkdwn', text: `*Args*\n\`${argsSnapshot.slice(0, 200)}\`` },
+        ],
+      },
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: `*Why flagged*\n${rulesText}` },
+      },
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: `*Blast radius*\n${blastText}` },
+      },
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: `*Suggested alternative*\n${opts.suggestedAlt}` },
+      },
+      {
+        type: 'actions',
+        elements: [
+          { type: 'button', style: 'primary', text: { type: 'plain_text', text: '▶️ Approve', emoji: true }, url: approveUrl },
+          { type: 'button', style: 'danger',  text: { type: 'plain_text', text: '🚫 Deny',    emoji: true }, url: denyUrl },
+        ],
+      },
+      {
+        type: 'context',
+        elements: [{ type: 'mrkdwn', text: `Token \`${token}\` · expires in 15 minutes` }],
       },
     ],
-    // Also include structured data for non-Slack consumers
     mergen: { type: 'hitl_gate', token, toolName, reason, approveUrl, denyUrl },
   };
 
@@ -322,10 +357,12 @@ async function applyGate(
   if (evaluation.verdict === 'pass') {
     recordGatePass();
     trackSuccessfulCall(toolName);
+    recordActivity({ toolName, commandArg, verdict: 'PASS', triggeredRules: [], ruleNames: [] });
     return next();
   }
 
-  const reason = evaluation.reasons.join('; ');
+  const reason      = evaluation.reasons.join('; ');
+  const alternative = getSuggestedAlternative(evaluation.triggeredRules, commandArg);
 
   if (evaluation.verdict === 'block') {
     recordGateBlock(evaluation.triggeredRules);
@@ -341,8 +378,11 @@ async function applyGate(
       confidenceScore: null,
     });
     logger.warn({ toolName, reason }, 'tool-guard: tool call blocked by local policy');
-    const alternative = getSuggestedAlternative(evaluation.triggeredRules, commandArg);
     const bypassToken = registerBypassBlock(toolName, commandArg, evaluation.triggeredRules);
+    const ruleNames   = loadEnterprisePolicy().rules
+      .filter(r => evaluation.triggeredRules.includes(r.id))
+      .map(r => r.name);
+    recordActivity({ toolName, commandArg, verdict: 'BLOCK', triggeredRules: evaluation.triggeredRules, ruleNames });
     return {
       content: [{
         type: 'text',
@@ -369,7 +409,15 @@ async function applyGate(
   const heldAt = Date.now();
   logger.info({ toolName, token, reason }, 'tool-guard: tool call held for HITL approval');
 
-  void fireHitlWebhook(token, toolName, argsSnapshot, reason, port);
+  const holdRuleNames = loadEnterprisePolicy().rules
+    .filter(r => evaluation.triggeredRules.includes(r.id))
+    .map(r => r.name);
+  recordActivity({ toolName, commandArg, verdict: 'HOLD', triggeredRules: evaluation.triggeredRules, ruleNames: holdRuleNames });
+  void fireHitlWebhook(token, toolName, argsSnapshot, reason, port, {
+    triggeredRules: evaluation.triggeredRules,
+    commandArg,
+    suggestedAlt:   alternative,
+  });
 
   return new Promise<McpResult>((resolve) => {
     const timeoutHandle = setTimeout(() => {

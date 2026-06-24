@@ -134,6 +134,22 @@ export function loadEnterprisePolicy(force = false): EnterprisePolicyConfig {
   return _cachedConfig;
 }
 
+export function saveEnterprisePolicy(config: EnterprisePolicyConfig): void {
+  const result = EnterprisePolicyConfigSchema.safeParse(config);
+  if (!result.success) throw new Error(`Invalid policy: ${JSON.stringify(result.error.issues)}`);
+  const tmp = ENTERPRISE_POLICY_FILE + '.tmp';
+  try {
+    fs.mkdirSync(path.dirname(ENTERPRISE_POLICY_FILE), { recursive: true });
+    fs.writeFileSync(tmp, JSON.stringify(result.data, null, 2), 'utf8');
+    fs.renameSync(tmp, ENTERPRISE_POLICY_FILE);
+    _cachedConfig = result.data;
+    logger.info({ path: ENTERPRISE_POLICY_FILE }, 'policy-engine: enterprise policy saved');
+  } catch (err) {
+    try { fs.unlinkSync(tmp); } catch { /* ignore */ }
+    throw err;
+  }
+}
+
 /** Test-only: force the default policy into the cache without touching disk. */
 export function _resetPolicyCacheForTesting(overrideConfig?: EnterprisePolicyConfig): void {
   _cachedConfig = overrideConfig ?? DEFAULT_ENTERPRISE_POLICY;

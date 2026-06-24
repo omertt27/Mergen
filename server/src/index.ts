@@ -60,6 +60,7 @@ import { isCorpusSeeded, getRealVerdictCount } from './__stubs__/calibration.js'
 import { startSlackDailyDigest } from './intelligence/slack-digest.js';
 import { startSlackOverrideLoop } from './intelligence/slack-override-loop.js';
 import { startGitAdrSync } from './intelligence/git-adr-sync.js';
+import { startPolicySync } from './intelligence/policy-sync.js';
 import { startShadowDigestCron } from './intelligence/shadow-digest-cron.js';
 import { startDegradationWatcher } from './intelligence/degradation-watcher.js';
 import { startHeartbeatMonitor, setHeartbeatAlertFn } from './sensor/heartbeat-monitor.js';
@@ -429,6 +430,16 @@ async function main(): Promise<void> {
   // constraints ("never resize pool on Friday settlement window"), and
   // materialises them as Override Corpus entries automatically.
   if (process.env.MERGEN_GIT_ADR_SYNC === 'true') startGitAdrSync();
+
+  // ── Team-wide policy sync (startup + every 5 min) ─────────────────────────
+  // Fetches policy from MERGEN_POLICY_URL and merges or replaces local policy.
+  // MERGEN_POLICY_MERGE=merge means remote rules append; default is replace.
+  if (process.env.MERGEN_POLICY_URL) {
+    startPolicySync({
+      url:        process.env.MERGEN_POLICY_URL,
+      mergeMode:  (process.env.MERGEN_POLICY_MERGE as 'replace' | 'merge') ?? 'replace',
+    });
+  }
 
   // ── Slack-to-Override Memory Loop (every 6h, auto-builds the corpus) ─────
   // Scans the incident channel for postmortem threads and extracts override

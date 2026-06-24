@@ -482,6 +482,14 @@ function buildDashboardHtml(version: string, nonce: string): string {
         <div id="blunder-content"><div style="font-size:11px;color:var(--muted)">Loading…</div></div>
       </div>
 
+      <div class="card" id="activity-feed-card">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+          <span>Agent Activity Feed</span>
+          <a href="/policies" style="font-size:10px;color:var(--blue);font-weight:400;text-transform:none;letter-spacing:0">Policy Editor →</a>
+        </div>
+        <div id="activity-feed-content"><div style="font-size:11px;color:var(--muted)">Loading…</div></div>
+      </div>
+
       <div class="card" id="corpus-card">
         <div class="card-title">Accuracy Gate</div>
         <div id="corpus-progress">
@@ -1333,6 +1341,33 @@ async function pollRunbooks() {
   } catch(e) {}
 }
 
+async function pollActivityFeed() {
+  try {
+    const d = await fetch('/activity-feed?limit=10').then(r => r.json());
+    const el = document.getElementById('activity-feed-content');
+    if (!el || !d || !d.events) return;
+    if (!d.events.length) {
+      el.innerHTML = '<div style="font-size:11px;color:var(--muted)">No agent activity yet.</div>';
+      return;
+    }
+    const verdictColor = {PASS:'var(--green)',BLOCK:'var(--red)',HOLD:'var(--yellow)'};
+    const verdictIcon  = {PASS:'▶',BLOCK:'🚫',HOLD:'⏸'};
+    el.innerHTML = d.events.map(ev => {
+      const col = verdictColor[ev.verdict] || 'var(--muted)';
+      const icon = verdictIcon[ev.verdict] || '?';
+      const t = new Date(ev.timestamp).toLocaleTimeString();
+      const rules = ev.ruleNames && ev.ruleNames.length ? ' · ' + esc(ev.ruleNames.join(', ')) : '';
+      return '<div style="display:flex;gap:8px;align-items:flex-start;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04)">'
+        + '<span style="color:'+col+';font-size:11px;min-width:14px">'+icon+'</span>'
+        + '<div style="flex:1;min-width:0">'
+        + '<div style="font-size:11px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(ev.toolName)+(ev.commandArg?' <span style="font-weight:400;color:var(--muted)">'+esc(ev.commandArg.slice(0,60))+'</span>':'')+'</div>'
+        + '<div style="font-size:10px;color:var(--muted)">'+t+rules+'</div>'
+        + '</div>'
+        + '</div>';
+    }).join('');
+  } catch(e) {}
+}
+
 poll();
 pollSdkStatus();
 pollValidateState();
@@ -1341,6 +1376,7 @@ pollWarRoom();
 pollCorpusProgress();
 pollMttr();
 pollBlunders();
+pollActivityFeed();
 pollServiceMemory();
 pollRecentIncidents();
 pollRunbooks();
@@ -1352,6 +1388,7 @@ setInterval(pollWarRoom,10000);
 setInterval(pollCorpusProgress,30000);
 setInterval(pollMttr,30000);
 setInterval(pollBlunders,30000);
+setInterval(pollActivityFeed,3000);
 setInterval(pollServiceMemory,30000);
 setInterval(pollRecentIncidents,30000);
 setInterval(pollRunbooks,30000);

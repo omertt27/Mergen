@@ -68,6 +68,8 @@ import { createRunbooksRouter } from './routes/runbooks.js';
 import { createCIGateRouter } from './routes/ci-gate.js';
 import { createHitlRouter } from './routes/hitl.js';
 import { createGateAnalyticsRouter } from './routes/gate-analytics.js';
+import { createPoliciesRouter } from './routes/policies.js';
+import { createActivityFeedRouter } from './routes/activity-feed.js';
 import { cloudAuthMiddleware, CLOUD_MODE } from './sensor/cloud-auth.js';
 import { handleSlackActions, handleFeedbackLink } from './intelligence/slack.js';
 import { getPrometheusMetrics } from './sensor/otel-exporter.js';
@@ -82,7 +84,7 @@ const MUTATING_PATHS = [
   // Incident pipeline — triggers autonomous command execution
   '/incident',
   // Infrastructure mutations
-  '/ci', '/overrides', '/rbac', '/heartbeats', '/slack/routing', '/slack/test', '/runbooks', '/ci/gate', '/hitl',
+  '/ci', '/overrides', '/rbac', '/heartbeats', '/slack/routing', '/slack/test', '/runbooks', '/ci/gate', '/hitl', '/policies',
   // Process / container watchers
   '/watchers',
   // Billing & account mutations
@@ -302,6 +304,8 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
     '/impact-report',         // autonomous resolution rate + MTTR metrics
     '/hitl/pending',          // currently-held gate tokens + policy reasons
     '/gate-analytics',        // retry success rates, coverage gaps, HITL decision patterns
+    '/policies',              // policy rules + trigger counts — reveals enforcement posture
+    '/activity-feed',         // live tool call stream — reveals agent activity patterns
   ];
   if (localSecret) {
     app.use((req, res, next) => {
@@ -368,6 +372,8 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createCIGateRouter());        // CI/CD corpus gate for AI-generated PRs
   app.use(createHitlRouter());          // Human-in-the-Loop approve/deny for held tool calls
   app.use(createGateAnalyticsRouter()); // Gate feedback: retry success, coverage gaps, HITL patterns
+  app.use(createPoliciesRouter());      // Policy authoring UI + JSON CRUD API
+  app.use(createActivityFeedRouter());  // Real-time agent activity feed (JSON + SSE)
 
   // GET /service-graph — in cloud mode, require API key (exposes internal topology)
   app.get('/service-graph', ...(CLOUD_MODE ? [cloudAuthMiddleware] : []), (_req, res) => {
