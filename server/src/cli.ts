@@ -87,7 +87,6 @@ async function setupCommand(): Promise<void> {
   // ── Parse flags ─────────────────────────────────────────────────────────────
   const rawArgs = process.argv.slice(3); // skip 'node', 'cli.js', 'setup'
   const yes            = rawArgs.includes('--yes') || rawArgs.includes('-y');
-  const skipExtension  = yes || rawArgs.includes('--skip-extension');
   const skipGitHub     = yes || rawArgs.includes('--skip-github');
   const ideFlag        = (rawArgs.find(a => a.startsWith('--ide='))?.slice(6)) ??
                          (rawArgs.includes('--ide') ? rawArgs[rawArgs.indexOf('--ide') + 1] : null);
@@ -117,35 +116,7 @@ async function setupCommand(): Promise<void> {
   await configureIDE(ide);
   success(`${ide} configured`);
 
-  // 4. Extension setup (optional — only relevant for browser-side telemetry)
-  log('\nBrowser extension setup (optional):');
-  // The extension ships in the repo but not in the npm package.
-  // Show the local path when running from source; fall back to the GitHub URL.
-  const localExtPath = resolve(__dirname, '../../extension');
-  const hasLocalExt  = existsSync(localExtPath);
-  if (hasLocalExt) {
-    console.log('  1. Open chrome://extensions');
-    console.log('  2. Enable Developer Mode');
-    console.log('  3. Click "Load unpacked"');
-    console.log(`  4. Select: ${localExtPath}`);
-  } else {
-    console.log('  Download the .crx from: https://github.com/omertt27/Mergen/releases');
-    console.log('  Or drag the .vsix into VS Code Extensions view.');
-    console.log('  (The extension adds browser console/network telemetry — skip if not needed.)');
-  }
-
-  if (!skipExtension && !yes) {
-    const installed = await ask('\nHave you installed the extension? (y/n, Enter to skip): ');
-    if (installed.toLowerCase() === 'y') {
-      success('Extension installed');
-    } else {
-      log('Extension skipped — you can add it later. Backend-only triage works without it.', 'ℹ');
-    }
-  } else {
-    log('Extension step skipped', 'ℹ');
-  }
-
-  // 5. Shadow mode — safe first step that needs no PagerDuty
+  // 4. Shadow mode — safe first step that needs no PagerDuty
   hr();
   log('\nShadow mode (recommended starting point):');
   console.log('  Shadow mode runs full diagnosis and posts Slack alerts but never executes fixes.');
@@ -1137,13 +1108,80 @@ async function statusCommand(): Promise<void> {
   hr();
 
   if (!lastAt) {
-    console.log('  ⚠ No events yet — open your app in the browser with the Mergen extension active');
+    console.log('  ⚠ No events yet — send OpenTelemetry events to the gateway to start');
     console.log('    Or for Node apps: node --require mergen-server/sdk/node your-app.js');
   } else if (errors === 0 && netErrors === 0) {
     success(`Healthy — server running, events flowing`);
   } else {
     console.log(`  ⚠ ${errors + netErrors} error(s) in buffer`);
     console.log('    Ask your AI: "quick_check"');
+  }
+}
+
+// ── Approve command ─────────────────────────────────────────────────────────────
+
+async function approveCommand(cmdArgs: string[]): Promise<void> {
+  const token = cmdArgs[0]?.trim();
+  if (!token) {
+    error('Token required. Usage: mergen approve <id>');
+    process.exit(1);
+  }
+
+  // Read the shared secret to authenticate with mutating endpoints
+  let secret = '';
+  const secretPath = join(homedir(), '.mergen', 'secret');
+  if (existsSync(secretPath)) {
+    try {
+      secret = readFileSync(secretPath, 'utf8').trim();
+    } catch {
+      // Ignore and proceed
+    }
+  }
+
+  log('Locating running Mergen gateway server...');
+  let port = 3000;
+  let discovered = false;
+  for (let p = 3000; p <= 3010; p++) {
+    try {
+      const r = await fetch(`http://127.0.0.1:${p}/health`, { signal: AbortSignal.timeout(300) });
+      if (r.ok) {
+        port = p;
+        discovered = true;
+        break;
+      }
+    } catch {}
+  }
+
+  if (!discovered) {
+    error('No active Mergen server detected on local ports 3000-3010.');
+    log('Make sure the server is running: mergen-server start');
+    process.exit(1);
+  }
+
+  log(`Connecting to server on port ${port}...`);
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (secret) {
+      headers['x-mergen-secret'] = secret;
+    }
+
+    const res = await fetch(`http://127.0.0.1:${port}/hitl/bypass/approve`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ token }),
+    });
+
+    const body = await res.json() as { ok: boolean; error?: string; toolName?: string; commandArg?: string };
+    if (res.ok && body.ok) {
+      const cmdMsg = body.commandArg ? ` execution of "${body.commandArg}"` : ` call to ${body.toolName}`;
+      success(`Approved! The next${cmdMsg} will be allowed within 10 minutes.`);
+    } else {
+      error(`Approval failed: ${body.error ?? 'Unknown error'}`);
+      process.exit(1);
+    }
+  } catch (err) {
+    error(`Failed to reach server: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
   }
 }
 
@@ -2850,6 +2888,10 @@ async function main(): Promise<void> {
       await prShadowCommand();
       break;
 
+    case 'approve':
+      await approveCommand(args.slice(1));
+      break;
+
     case 'setup':
       await setupCommand();
       break;
@@ -2934,10 +2976,10 @@ Mergen — production incident intelligence
 Usage:
   mergen-server                    Zero-config demo — loads 50 sample incidents instantly
   mergen-server start              Start server (production mode)
+  mergen-server approve <id>       Temporarily bypass a blocked command block (10 min)
   mergen-server setup              Interactive setup wizard (connect PagerDuty, OTLP, IDE)
   mergen-server setup --yes        Non-interactive setup (skip all prompts, use defaults)
   mergen-server setup --ide cursor Configure a specific IDE (cursor|vscode|claude-code|windsurf)
-  mergen-server setup --skip-extension  Skip browser extension step
   mergen-server setup --skip-github     Skip GitHub connect step
   mergen-server demo               Same as no args — demo with sample incidents
   mergen-server status             Live snapshot: server health, buffer, errors, MCP activity

@@ -1,6 +1,9 @@
 
 import * as vscode from 'vscode';
 import * as http from 'http';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 
 /** Node http.get wrapper that replaces fetch() for VS Code extension host compatibility.
  *  VS Code's Electron Node does not expose the global fetch / AbortSignal.timeout. */
@@ -20,7 +23,7 @@ function httpGet(url: string, timeoutMs: number): Promise<unknown> {
 }
 
 /** POST helper using Node http module — fetch() not available in VS Code extension host. */
-function httpPost(url: string, body: unknown, timeoutMs: number): Promise<unknown> {
+function httpPost(url: string, body: unknown, timeoutMs: number, customHeaders?: Record<string, string>): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const payload = body ? JSON.stringify(body) : '';
     const parsed = new URL(url);
@@ -32,6 +35,7 @@ function httpPost(url: string, body: unknown, timeoutMs: number): Promise<unknow
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(payload),
+        ...(customHeaders || {}),
       },
       timeout: timeoutMs,
     };
@@ -202,6 +206,12 @@ interface ServerState {
   /** PR intent for the currently active file — null until fetched. */
   fileIntent: { file: string; contexts: FilePRContext[] } | null;
   error: string | null;
+  services: Record<string, { sdk: string; lastSeen: number; errorCount: number; spanCount: number }> | null;
+  interactions: {
+    edges: { source: string; target: string; weight: number; lastIncidentAt: number }[];
+    services: string[];
+  } | null;
+  pendingBypasses: Array<{ token: string; toolName: string; commandArg: string; expiresAt: number }> | null;
 }
 
 function getNonce(): string {
@@ -219,6 +229,8 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     connected: false, port: 3000, health: null, usage: null,
     lastPack: null, history: [], calibration: null, timeline: [], rootCause: null,
     account: null, fileIntent: null, error: null,
+    services: null, interactions: null,
+    pendingBypasses: null,
   };
   private _pollTimer?: ReturnType<typeof setTimeout>;
   private _activeFile: string | null = null;
@@ -241,10 +253,13 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     webviewView.webview.html = this._getHtml(webviewView.webview);
 
     // Handle messages from the webview
-    webviewView.webview.onDidReceiveMessage(async (msg: { type: string; tool?: string; text?: string; command?: string; pid?: string; verdict?: string }) => {
+    webviewView.webview.onDidReceiveMessage(async (msg: { type: string; tool?: string; text?: string; command?: string; pid?: string; verdict?: string; token?: string }) => {
       if (msg.type === 'clear') await this.clearBuffer();
       if (msg.type === 'refresh') await this.refresh();
       if (msg.type === 'startCapture') await this.startCapture();
+      if (msg.type === 'approveBypass' && msg.token) {
+        await this.approveBypass(msg.token);
+      }
       if (msg.type === 'connectAccount') {
         await vscode.commands.executeCommand('mergen.connectAccount');
       }
@@ -436,6 +451,12 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     timeline: TimelineRow[];
     rootCause: RootCause | null;
     account: AccountState | null;
+    services: Record<string, { sdk: string; lastSeen: number; errorCount: number; spanCount: number }> | null;
+    interactions: {
+      edges: { source: string; target: string; weight: number; lastIncidentAt: number }[];
+      services: string[];
+    } | null;
+    pendingBypasses: Array<{ token: string; toolName: string; commandArg: string; expiresAt: number }> | null;
   } | null> {
     try {
       const base = `http://127.0.0.1:${port}`;
@@ -447,6 +468,12 @@ export class MergenPanel implements vscode.WebviewViewProvider {
           history: HistoryEntry[];
           calibration: CalibrationOverview;
           timelineUnified: { rows: TimelineRow[]; rootCause: RootCause | null };
+          services: Record<string, { sdk: string; lastSeen: number; errorCount: number; spanCount: number }> | null;
+          interactions: {
+            edges: { source: string; target: string; weight: number; lastIncidentAt: number }[];
+            services: string[];
+          } | null;
+          pendingBypasses: Array<{ token: string; toolName: string; commandArg: string; expiresAt: number }> | null;
         }>,
         (httpGet(`${base}/license`, timeoutMs) as Promise<{
           plan: { id: string; name: string };
@@ -470,7 +497,10 @@ export class MergenPanel implements vscode.WebviewViewProvider {
         calibration: dashData.calibration,
         timeline: dashData.timelineUnified.rows ?? [],
         rootCause: dashData.timelineUnified.rootCause ?? null,
-        account
+        account,
+        services: dashData.services,
+        interactions: dashData.interactions,
+        pendingBypasses: dashData.pendingBypasses ?? [],
       };
     } catch {
       return null;
@@ -489,6 +519,9 @@ export class MergenPanel implements vscode.WebviewViewProvider {
         account: result.account,
         fileIntent: this._state.fileIntent,
         error: null,
+        services: result.services,
+        interactions: result.interactions,
+        pendingBypasses: result.pendingBypasses,
       };
     } else {
       const found = await this._discoverPort(port);
@@ -498,8 +531,12 @@ export class MergenPanel implements vscode.WebviewViewProvider {
           health: null, usage: null,
           lastPack: null, history: [],
           calibration: null, timeline: [], rootCause: null,
+          account: null,
           fileIntent: this._state.fileIntent,
           error: 'Server not running on port ' + port,
+          services: null,
+          interactions: null,
+          pendingBypasses: null,
         };
       }
     }
@@ -515,14 +552,51 @@ export class MergenPanel implements vscode.WebviewViewProvider {
           health: result.health, usage: result.usage,
           lastPack: result.lastPack, history: result.history,
           calibration: result.calibration, timeline: result.timeline, rootCause: result.rootCause,
+          account: result.account,
           fileIntent: this._state.fileIntent,
           error: null,
+          services: result.services,
+          interactions: result.interactions,
+          pendingBypasses: result.pendingBypasses,
         };
         await vscode.workspace.getConfiguration('mergen').update('serverPort', p, vscode.ConfigurationTarget.Workspace);
         return true;
       }
     }
     return false;
+  }
+
+  private _getSharedSecret(): string | null {
+    try {
+      const secretPath = path.join(os.homedir(), '.mergen', 'secret');
+      if (fs.existsSync(secretPath)) {
+        return fs.readFileSync(secretPath, 'utf8').trim() || null;
+      }
+    } catch {}
+    return null;
+  }
+
+  private async approveBypass(token: string): Promise<void> {
+    const port = this._getPort();
+    const secret = this._getSharedSecret();
+    const base = `http://127.0.0.1:${port}`;
+    try {
+      const res = await httpPost(
+        `${base}/hitl/bypass/approve`,
+        { token },
+        2000,
+        secret ? { 'x-mergen-secret': secret } : undefined
+      ) as { ok: boolean; error?: string; toolName?: string; commandArg?: string };
+      
+      if (res && res.ok) {
+        vscode.window.showInformationMessage(`Bypass approved! ${res.commandArg ? `Execution of "${res.commandArg}"` : `Tool call to ${res.toolName}`} is allowed.`);
+        await this._poll();
+      } else {
+        vscode.window.showErrorMessage(`Failed to approve bypass: ${res?.error || 'unknown error'}`);
+      }
+    } catch (err) {
+      vscode.window.showErrorMessage(`Failed to approve bypass: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   private _send(msg: unknown): void {
@@ -1223,6 +1297,33 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     <button class="primary" id="pack-send">→ Send to AI Chat</button>
     <button id="pack-copy">⧉ Copy Pack</button>
   </div>
+</div>
+
+<!-- Pending Bypasses -->
+<div class="card" id="card-bypasses" style="display:none">
+  <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
+    <span>Pending Bypasses</span>
+    <span style="font-size:10px;font-weight:700;background:var(--vscode-charts-red);color:#fff;border-radius:3px;padding:1px 5px" id="bypasses-count">0</span>
+  </div>
+  <div style="font-size:10px;color:var(--vscode-descriptionForeground);margin-bottom:8px">AI agent tool executions requiring manual approval.</div>
+  <div id="bypasses-list" style="display:flex;flex-direction:column;gap:6px"></div>
+</div>
+
+<!-- Service Map (Execution Visualizer) -->
+<div class="card" id="card-services" style="display:none">
+  <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+    <span>Execution Visualizer</span>
+    <span id="service-filter-badge" style="display:none; font-size:10px; font-weight:700; background:var(--vscode-charts-blue); color:#fff; border-radius:3px; padding:1px 5px; cursor:pointer" onclick="onClearServiceFilter()" title="Clear filter">
+      Filter: <span id="service-filter-name"></span> ✕
+    </span>
+  </div>
+  <div style="font-size:10px;color:var(--vscode-descriptionForeground);margin-bottom:8px">Active SDK connections and co-occurrence topology.</div>
+  
+  <div id="service-map-container" style="position:relative; width:100%; height:160px; background:var(--vscode-sideBar-background); border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.1)); border-radius:4px; overflow:hidden">
+    <svg id="service-map-svg" width="100%" height="100%" style="display:block; overflow:visible; cursor:grab"></svg>
+    <div id="service-map-tooltip" style="position:absolute; display:none; background:var(--vscode-editor-background); color:var(--vscode-foreground); padding:4px 8px; border-radius:3px; font-size:10px; font-family:var(--vscode-editor-font-family); pointer-events:none; z-index:10; border:1px solid var(--vscode-widget-border, rgba(127,127,127,.25))"></div>
+  </div>
+  <div id="service-map-summary" style="font-size:9px; color:var(--vscode-descriptionForeground); margin-top:4px; text-align:right"></div>
 </div>
 
 <!-- Unified Timeline -->

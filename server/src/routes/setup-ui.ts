@@ -242,84 +242,209 @@ const SETUP_HTML = `<!DOCTYPE html>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Mergen Setup Wizard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: radial-gradient(circle at 50% 50%, #0f172a 0%, #020617 100%);
+      color: #f1f5f9;
       min-height: 100vh;
-      padding: 20px;
+      padding: 40px 20px;
+      -webkit-font-smoothing: antialiased;
     }
     .container {
       max-width: 800px;
       margin: 0 auto;
-      background: white;
-      border-radius: 16px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      background: rgba(30, 41, 59, 0.45);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 24px;
       overflow: hidden;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
     }
     header {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(139, 92, 246, 0.15) 100%);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
       color: white;
-      padding: 40px;
+      padding: 50px 40px;
       text-align: center;
+      position: relative;
     }
-    header h1 { font-size: 36px; margin-bottom: 10px; }
-    header p { font-size: 18px; opacity: 0.95; }
+    header::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 10%;
+      right: 10%;
+      height: 1px;
+      background: linear-gradient(to right, transparent, rgba(99, 102, 241, 0.4), transparent);
+    }
+    header h1 {
+      font-size: 38px;
+      font-weight: 800;
+      margin-bottom: 10px;
+      letter-spacing: -0.03em;
+      background: linear-gradient(135deg, #a5b4fc 0%, #c084fc 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    header p {
+      font-size: 16px;
+      color: #94a3b8;
+      font-weight: 400;
+      letter-spacing: 0.01em;
+    }
     .content { padding: 40px; }
     .step {
       padding: 30px;
-      border: 2px solid #e2e8f0;
-      border-radius: 12px;
-      margin: 20px 0;
-      transition: all 0.3s;
+      background: rgba(30, 41, 59, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 16px;
+      margin: 24px 0;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     }
-    .step:hover { border-color: #cbd5e0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08); }
-    .step h2 { font-size: 24px; margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }
-    .step p { color: #64748b; margin-bottom: 15px; line-height: 1.6; }
-    .step.complete { background: #f0fdf4; border-color: #86efac; }
-    .step.complete h2 { color: #16a34a; }
-    .step.pending { background: #fefce8; border-color: #fde047; }
-    .step.pending h2 { color: #ca8a04; }
-    .step.error { background: #fef2f2; border-color: #fca5a5; }
-    .step.error h2 { color: #dc2626; }
-    .icon { font-size: 28px; }
-    .btn-group { display: flex; gap: 15px; flex-wrap: wrap; }
+    .step:hover {
+      border-color: rgba(99, 102, 241, 0.3);
+      box-shadow: 0 8px 30px rgba(99, 102, 241, 0.1);
+      transform: translateY(-2px);
+    }
+    .step h2 {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 15px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      letter-spacing: -0.02em;
+    }
+    .step p { color: #94a3b8; margin-bottom: 15px; line-height: 1.6; font-size: 14px; }
+    .step.complete {
+      background: rgba(16, 185, 129, 0.05);
+      border-color: rgba(16, 185, 129, 0.2);
+    }
+    .step.complete h2 { color: #34d399; }
+    .step.pending {
+      background: rgba(245, 158, 11, 0.03);
+      border-color: rgba(245, 158, 11, 0.15);
+    }
+    .step.pending h2 { color: #fbbf24; }
+    .step.error {
+      background: rgba(239, 68, 68, 0.05);
+      border-color: rgba(239, 68, 68, 0.2);
+    }
+    .step.error h2 { color: #f87171; }
+    .icon { font-size: 22px; display: inline-flex; align-items: center; justify-content: center; }
+    .btn-group { display: flex; gap: 12px; flex-wrap: wrap; }
     button {
       padding: 12px 24px;
-      font-size: 16px;
+      font-size: 14px;
       font-weight: 600;
-      border: none;
-      border-radius: 8px;
+      font-family: 'Outfit', sans-serif;
+      border: 1px solid transparent;
+      border-radius: 10px;
       cursor: pointer;
-      transition: all 0.2s;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
       flex: 1;
       min-width: 120px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
     }
-    button:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
-    button.primary { background: #667eea; color: white; }
-    button.primary:hover { background: #5568d3; }
-    button.secondary { background: #e2e8f0; color: #334155; }
-    button.secondary:hover { background: #cbd5e0; }
-    button.success { background: #10b981; color: white; }
-    button.success:hover { background: #059669; }
-    button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-    pre {
-      background: #1e293b;
-      color: #e2e8f0;
-      padding: 20px;
-      border-radius: 8px;
-      overflow-x: auto;
+    button:active { transform: scale(0.97); }
+    button.primary {
+      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+      color: white;
+      box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3);
+    }
+    button.primary:hover {
+      box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+      filter: brightness(1.1);
+    }
+    button.secondary {
+      background: rgba(255, 255, 255, 0.05);
+      color: #f1f5f9;
+      border-color: rgba(255, 255, 255, 0.08);
+    }
+    button.secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+    button.success {
+      background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+      color: white;
+      box-shadow: 0 4px 14px rgba(16, 185, 129, 0.25);
+    }
+    button.success:hover {
+      box-shadow: 0 6px 20px rgba(16, 185, 129, 0.35);
+      filter: brightness(1.1);
+    }
+    button:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none !important; }
+    
+    input {
+      flex: 1;
+      padding: 12px 16px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
       font-size: 14px;
+      min-width: 200px;
+      background: rgba(15, 23, 42, 0.5);
+      color: #f1f5f9;
+      font-family: inherit;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    input:focus {
+      outline: none;
+      border-color: rgba(99, 102, 241, 0.5);
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
+      background: rgba(15, 23, 42, 0.85);
+    }
+    
+    pre {
+      background: #0b0f19;
+      color: #cbd5e1;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      padding: 20px;
+      border-radius: 12px;
+      overflow-x: auto;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 13px;
       line-height: 1.6;
       margin: 15px 0;
     }
-    .alert { padding: 15px; border-radius: 8px; margin: 15px 0; }
-    .alert-success { background: #d1fae5; color: #065f46; border-left: 4px solid #10b981; }
-    .alert-error { background: #fee2e2; color: #991b1b; border-left: 4px solid #ef4444; }
-    a { color: #667eea; text-decoration: none; font-weight: 600; }
-    a:hover { text-decoration: underline; }
-    footer { text-align: center; padding: 30px; color: #64748b; font-size: 14px; }
+    .alert {
+      padding: 16px;
+      border-radius: 10px;
+      margin: 15px 0;
+      font-size: 13px;
+      line-height: 1.5;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border: 1px solid transparent;
+    }
+    .alert-success {
+      background: rgba(16, 185, 129, 0.08);
+      color: #a7f3d0;
+      border-color: rgba(16, 185, 129, 0.25);
+    }
+    .alert-error {
+      background: rgba(239, 68, 68, 0.08);
+      color: #fca5a5;
+      border-color: rgba(239, 68, 68, 0.25);
+    }
+    .alert-info {
+      background: rgba(59, 130, 246, 0.08);
+      color: #bfdbfe;
+      border-color: rgba(59, 130, 246, 0.25);
+    }
+    a { color: #818cf8; text-decoration: none; font-weight: 600; transition: color 0.15s; }
+    a:hover { color: #a5b4fc; text-decoration: underline; }
+    footer { text-align: center; padding: 40px 30px; color: #64748b; font-size: 13px; border-top: 1px solid rgba(255, 255, 255, 0.04); }
   </style>
 </head>
 <body>
@@ -343,18 +468,18 @@ const SETUP_HTML = `<!DOCTYPE html>
           OAuth &amp; Permissions → add scope <code>chat:write</code> → Install → copy Bot Token
         </p>
         <div style="display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap">
-          <input id="slack-token" type="password" placeholder="xoxb-..." style="flex:1;padding:10px 14px;border:2px solid #e2e8f0;border-radius:8px;font-size:14px;min-width:200px">
-          <input id="slack-channel" type="text" placeholder="#incidents" style="width:140px;padding:10px 14px;border:2px solid #e2e8f0;border-radius:8px;font-size:14px">
+          <input id="slack-token" type="password" placeholder="xoxb-..." style="flex:1;padding:12px 16px;border:1px solid rgba(255,255,255,0.1);border-radius:10px;font-size:14px;min-width:200px;background:rgba(15,23,42,0.5);color:#f1f5f9;outline:none">
+          <input id="slack-channel" type="text" placeholder="#incidents" style="width:140px;padding:12px 16px;border:1px solid rgba(255,255,255,0.1);border-radius:10px;font-size:14px;background:rgba(15,23,42,0.5);color:#f1f5f9;outline:none">
           <button class="primary" onclick="testSlack()" style="flex:0;min-width:120px">Test &amp; Connect</button>
         </div>
         <div id="slack-result"></div>
-        <p style="font-size:12px;color:#94a3b8;margin-top:8px">Token is sent only to Slack's API and your own server — never stored in plaintext.</p>
+        <p style="font-size:12px;color:#64748b;margin-top:8px">Token is sent only to Slack's API and your own server — never stored in plaintext.</p>
       </div>
 
       <div class="step pending" id="step-3">
         <h2><span class="icon">⏳</span> Step 3: PagerDuty Webhook</h2>
         <p>Point PagerDuty at Mergen so it can start the autonomous triage loop when an incident fires.</p>
-        <div id="pd-url-box" style="background:#1e293b;color:#e2e8f0;padding:14px 18px;border-radius:8px;font-family:monospace;font-size:13px;margin-bottom:12px;word-break:break-all">
+        <div id="pd-url-box" style="background:#0b0f19;color:#cbd5e1;padding:14px 18px;border:1px solid rgba(255,255,255,0.06);border-radius:10px;font-family:'JetBrains Mono',monospace;font-size:13px;margin-bottom:12px;word-break:break-all">
           Loading webhook URL…
         </div>
         <p style="font-size:13px;color:#64748b;margin-bottom:12px">
@@ -391,13 +516,13 @@ node app.js</pre>
         <h2><span class="icon">✅</span> Step 6: Continuous Flywheel (Compounding Memory)</h2>
         <p>Enable Phase 4 Continuous Flywheel to automatically extract override policies from Slack threads and git decisions.</p>
         <p style="margin-bottom:8px"><strong>Slack Postmortems Webhook:</strong> Point your Slack App's <em>Event Subscriptions</em> to:</p>
-        <div id="slack-events-url-box" style="background:#1e293b;color:#e2e8f0;padding:10px 14px;border-radius:8px;font-family:monospace;font-size:13px;margin-bottom:12px;word-break:break-all">
+        <div id="slack-events-url-box" style="background:#0b0f19;color:#cbd5e1;padding:14px 18px;border:1px solid rgba(255,255,255,0.06);border-radius:10px;font-family:'JetBrains Mono',monospace;font-size:13px;margin-bottom:12px;word-break:break-all">
           Loading slack events URL…
         </div>
         <p style="font-size:13px;color:#64748b;margin-bottom:12px">Subscribe to <code>message.channels</code> events (ensure your bot is added to postmortem channels).</p>
         
         <p style="margin-bottom:8px"><strong>Git ADR Webhook:</strong> Point your repository's commit or ADR webhook to:</p>
-        <div id="adr-events-url-box" style="background:#1e293b;color:#e2e8f0;padding:10px 14px;border-radius:8px;font-family:monospace;font-size:13px;margin-bottom:12px;word-break:break-all">
+        <div id="adr-events-url-box" style="background:#0b0f19;color:#cbd5e1;padding:14px 18px;border:1px solid rgba(255,255,255,0.06);border-radius:10px;font-family:'JetBrains Mono',monospace;font-size:13px;margin-bottom:12px;word-break:break-all">
           Loading ADR webhook URL…
         </div>
         <p style="font-size:13px;color:#64748b;margin-bottom:12px">Submit architectural decisions via JSON to compile override corpus rules automatically.</p>

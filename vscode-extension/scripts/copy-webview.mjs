@@ -33,7 +33,7 @@ function copyIfNewer(src, dst) {
 
 const tasks = [
   // Marketplace tile icon — required by package.json "icon" field.
-  [path.join(REPO, 'extension/icons/icon128.png'), path.join(ROOT, 'icons/icon128.png')],
+  [path.join(REPO, 'mergen-logo-128.png'), path.join(ROOT, 'icons/icon128.png')],
   // Activity-bar icon (already in repo, kept here for completeness).
   [path.join(ROOT, 'icons/icon16.svg'),            path.join(ROOT, 'icons/icon16.svg')],
 ];

@@ -16,7 +16,7 @@
 
 import { Router } from 'express';
 import logger from '../sensor/logger.js';
-import { approveToolCall, denyToolCall, getPendingHolds } from '../intelligence/tool-guard.js';
+import { approveToolCall, denyToolCall, getPendingHolds, approveBypass } from '../intelligence/tool-guard.js';
 
 // Simple in-process rate limiter: 10 resolution attempts per IP per 60 s.
 // Deliberately kept lightweight — HITL endpoints are low-volume by design
@@ -79,6 +79,30 @@ export function createHitlRouter(): Router {
       return;
     }
     res.json({ ok: true, action: 'denied', token });
+  });
+
+  router.post('/hitl/bypass/approve', (req, res) => {
+    const ip = (req.socket.remoteAddress ?? 'unknown').replace(/^::ffff:/, '');
+    if (hitlRateLimited(ip)) {
+      logger.warn({ ip }, 'hitl: rate limit exceeded on /hitl/bypass/approve');
+      res.status(429).json({ error: 'rate limit exceeded' });
+      return;
+    }
+    const isLocal = ip === '127.0.0.1' || ip === '::1' || ip === 'localhost';
+    if (!isLocal) {
+      logger.warn({ ip }, 'hitl: bypass approve rejected - remote IP attempt blocked');
+      res.status(403).json({ error: 'Bypass approval is restricted to localhost callers' });
+      return;
+    }
+    const token = ((req.query.token ?? req.body?.token) as string | undefined)?.trim();
+    if (!token) { res.status(400).json({ error: 'token required' }); return; }
+    const result = approveBypass(token);
+    if (!result.ok) {
+      logger.warn({ ip, token }, 'hitl: bypass approve attempted with unknown or expired token');
+      res.status(404).json({ error: 'token not found or already expired' });
+      return;
+    }
+    res.json({ ok: true, action: 'approved', token, toolName: result.toolName, commandArg: result.commandArg });
   });
 
   // GET /hitl/pending is protected by SENSITIVE_GET_PATHS in app.ts (requires x-mergen-secret).

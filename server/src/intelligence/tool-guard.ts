@@ -17,7 +17,7 @@
  *   registerTools(createGuardedServer(mcp));
  */
 
-import { randomUUID } from 'crypto';
+import { randomUUID, randomBytes } from 'crypto';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { evaluateEnterprisePolicy } from './enterprise-policy-engine.js';
 import { recordBlunder } from '../sensor/agent-blunder-store.js';
@@ -33,6 +33,100 @@ import logger from '../sensor/logger.js';
 type McpResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
 
 const HOLD_TIMEOUT_MS = 15 * 60 * 1_000; // 15 minutes — matches execution-gate.ts
+
+// ── Command Bypass Logic ──────────────────────────────────────────────────────
+
+interface PendingBypass {
+  token: string;
+  toolName: string;
+  commandArg: string;
+  approved: boolean;
+  expiresAt: number;
+}
+
+const _pendingBypasses = new Map<string, PendingBypass>();
+
+function normalizeCommand(cmd: unknown): string {
+  if (typeof cmd !== 'string') return '';
+  return cmd.trim().replace(/\s+/g, ' ');
+}
+
+export function registerBypassBlock(toolName: string, commandArg: string): string {
+  const normalizedCmd = normalizeCommand(commandArg);
+  const now = Date.now();
+  for (const [token, b] of _pendingBypasses.entries()) {
+    if (now > b.expiresAt) _pendingBypasses.delete(token);
+  }
+
+  for (const [token, b] of _pendingBypasses.entries()) {
+    if (b.toolName === toolName && b.commandArg === normalizedCmd && !b.approved) {
+      return token;
+    }
+  }
+
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let token = '';
+  do {
+    const bytes = randomBytes(5);
+    let t = '';
+    for (let i = 0; i < 5; i++) {
+      t += chars[bytes[i] % chars.length];
+    }
+    token = t;
+  } while (_pendingBypasses.has(token));
+
+  _pendingBypasses.set(token, {
+    token,
+    toolName,
+    commandArg: normalizedCmd,
+    approved: false,
+    expiresAt: now + 10 * 60 * 1000, // 10 minutes
+  });
+  return token;
+}
+
+export function approveBypass(token: string): { ok: boolean; toolName?: string; commandArg?: string } {
+  const b = _pendingBypasses.get(token);
+  if (!b || Date.now() > b.expiresAt) return { ok: false };
+  b.approved = true;
+  return { ok: true, toolName: b.toolName, commandArg: b.commandArg };
+}
+
+export function checkAndConsumeBypass(toolName: string, commandArg: string): boolean {
+  const normalizedCmd = normalizeCommand(commandArg);
+  const now = Date.now();
+  for (const [token, b] of _pendingBypasses.entries()) {
+    if (now > b.expiresAt) {
+      _pendingBypasses.delete(token);
+      continue;
+    }
+    if (b.toolName === toolName && b.commandArg === normalizedCmd && b.approved) {
+      _pendingBypasses.delete(token);
+      return true;
+    }
+  }
+  return false;
+}
+
+export function getPendingBypasses(): Array<{ token: string; toolName: string; commandArg: string; expiresAt: number }> {
+  const now = Date.now();
+  const list = [];
+  for (const [token, b] of _pendingBypasses.entries()) {
+    if (now > b.expiresAt) {
+      _pendingBypasses.delete(token);
+      continue;
+    }
+    if (!b.approved) {
+      list.push({
+        token: b.token,
+        toolName: b.toolName,
+        commandArg: b.commandArg,
+        expiresAt: b.expiresAt,
+      });
+    }
+  }
+  return list;
+}
 
 interface PendingHold {
   toolName:       string;
@@ -194,11 +288,16 @@ async function applyGate(
   const t0 = Date.now();
 
   const argsSnapshot = JSON.stringify(args ?? {});
-  // Extract command-like strings from well-known arg shapes only.
-  // Do NOT pass the full argsSnapshot — arbitrary JSON containing user text
-  // (e.g. {"query": "why did the wipe job fail?"}) would trigger false blocks.
+  // Extract command-like shapes
   const argsObj    = (args && typeof args === 'object') ? args as Record<string, unknown> : {};
   const commandArg = (argsObj.command ?? argsObj.cmd ?? argsObj.fix ?? '') as string;
+
+  if (checkAndConsumeBypass(toolName, commandArg)) {
+    logger.info({ toolName, commandArg }, 'tool-guard: approved bypass consumed, tool call passing');
+    recordGatePass();
+    trackSuccessfulCall(toolName);
+    return next();
+  }
 
   const evaluation = evaluateEnterprisePolicy({
     files:    [toolName],
@@ -238,6 +337,7 @@ async function applyGate(
     });
     logger.warn({ toolName, reason }, 'tool-guard: tool call blocked by local policy');
     const alternative = getSuggestedAlternative(evaluation.triggeredRules, commandArg);
+    const bypassToken = registerBypassBlock(toolName, commandArg);
     return {
       content: [{
         type: 'text',
@@ -248,6 +348,9 @@ async function applyGate(
           `**Why:** ${reason}`,
           ``,
           `**What to do instead:** ${alternative}`,
+          ``,
+          `👉 **To approve this execution once, run this command in your terminal:**`,
+          `   \`mergen approve ${bypassToken}\``,
           ``,
           `_Action logged to the Agent Blunder Log. To modify this policy: \`~/.mergen/enterprise-policy.json\`._`,
         ].join('\n'),

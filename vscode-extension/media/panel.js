@@ -9,6 +9,8 @@
   let _currentPort     = 3000;
   let _captureTimer    = null;
   let _intentAbort     = null;
+  let _activeServiceFilter = null;
+  let _lastState = null;
 
   // ── Message passing to extension host ─────────────────────────────────────
   function send(type)                { vscode.postMessage({ type }); }
@@ -35,6 +37,7 @@
   window.runCmd       = runCmd;
   window.onRefresh    = onRefresh;
   window.onClear      = onClear;
+  window.approveBypassToken = (token) => vscode.postMessage({ type: 'approveBypass', token });
 
   // ── Receive messages from extension host ──────────────────────────────────
   window.addEventListener('message', ({ data }) => {
@@ -204,6 +207,7 @@
   // ── Main render — called on every state message from extension host ────────
   function render(state) {
     if (!state) return;
+    _lastState = state;
 
     // Keep port in sync for intent fetches
     if (state.port) _currentPort = state.port;
@@ -237,7 +241,7 @@
     }
 
     if (!connected) {
-      ['card-pack','card-activity','card-signals','card-history','card-detectors','card-usage','card-account'].forEach(id => showEl(id, false));
+      ['card-pack','card-activity','card-signals','card-history','card-detectors','card-usage','card-account','card-services','card-bypasses'].forEach(id => showEl(id, false));
       return;
     }
 
@@ -248,6 +252,36 @@
     setEl('stat-errors', h.errors);
     setEl('stat-warns',  h.warnings);
     setEl('stat-net',    h.networkErrors);
+
+    // ── Pending Bypasses ──────────────────────────────────────────────────────
+    const bypasses = state.pendingBypasses || [];
+    const bypassesCard = document.getElementById('card-bypasses');
+    const bypassesList = document.getElementById('bypasses-list');
+    const bypassesCount = document.getElementById('bypasses-count');
+    
+    if (connected && bypasses.length > 0) {
+      showEl('card-bypasses', true);
+      if (bypassesCount) bypassesCount.textContent = bypasses.length;
+      if (bypassesList) {
+        bypassesList.innerHTML = bypasses.map(b => {
+          const expiresMin = Math.max(1, Math.round((b.expiresAt - Date.now()) / 60000));
+          return `
+            <div style="background:var(--vscode-sideBar-background);border:1px solid var(--vscode-widget-border, rgba(127,127,127,.15));border-radius:4px;padding:8px 10px;font-size:11px">
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-weight:600">
+                <span style="color:var(--vscode-charts-red)">Blocked ${b.toolName}</span>
+                <span style="color:var(--vscode-descriptionForeground);font-size:9px">Expires in ${expiresMin}m</span>
+              </div>
+              <div style="font-family:var(--vscode-editor-font-family, monospace);font-size:10px;background:var(--vscode-editor-background);padding:4px 6px;border-radius:2px;margin-bottom:6px;word-break:break-all;white-space:pre-wrap">${escapeHtml(b.commandArg || '')}</div>
+              <div style="display:flex;gap:6px">
+                <button class="primary" style="flex:1;padding:3px 6px;font-size:10px;border:1px solid var(--vscode-button-border,transparent);border-radius:4px;background:var(--vscode-button-background);color:var(--vscode-button-foreground);cursor:pointer" onclick="approveBypassToken('${b.token}')">Approve (${b.token})</button>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+    } else {
+      showEl('card-bypasses', false);
+    }
 
     // ── Unified timeline ──────────────────────────────────────────────────────
     const timeline  = state.timeline  || [];
@@ -300,20 +334,34 @@
 
       const activityList = document.getElementById('activity-list');
       if (activityList) {
-        activityList.innerHTML = timeline.slice(-12).reverse().map(r => {
-          const age    = Date.now() - r.ts;
-          const ageStr = age < 60000    ? Math.max(1, Math.floor(age / 1000)) + 's ago'
-                       : age < 3600000 ? Math.floor(age / 60000) + 'm ago'
-                       :                 Math.floor(age / 3600000) + 'h ago';
-          const src = r.source || '';
-          const sha = r.sha ? ' <span style="font-size:9px;opacity:.6">[' + escHtml(r.sha) + ']</span>' : '';
-          return '<div class="activity-row">' +
-            '<span style="flex-shrink:0;width:18px;text-align:center;display:flex;align-items:center;justify-content:center">' + getIconHtml(r.kind) + '</span>' +
-            (src ? '<span class="activity-source ' + src + '">' + src + '</span>' : '') +
-            '<span class="activity-summary">' + escHtml(r.summary) + sha + '</span>' +
-            '<span class="activity-time">' + ageStr + '</span>' +
-            '</div>';
-        }).join('');
+        let filteredTimeline = timeline;
+        if (_activeServiceFilter) {
+          const filterLower = _activeServiceFilter.toLowerCase();
+          filteredTimeline = timeline.filter(r => 
+            r.summary.toLowerCase().includes('[' + filterLower + ']') ||
+            r.summary.toLowerCase().includes('(' + filterLower + ')') ||
+            r.summary.toLowerCase().includes(filterLower)
+          );
+        }
+
+        if (filteredTimeline.length === 0) {
+          activityList.innerHTML = '<div class="empty">No events match filter.</div>';
+        } else {
+          activityList.innerHTML = filteredTimeline.slice(-12).reverse().map(r => {
+            const age    = Date.now() - r.ts;
+            const ageStr = age < 60000    ? Math.max(1, Math.floor(age / 1000)) + 's ago'
+                         : age < 3600000 ? Math.floor(age / 60000) + 'm ago'
+                         :                 Math.floor(age / 3600000) + 'h ago';
+            const src = r.source || '';
+            const sha = r.sha ? ' <span style="font-size:9px;opacity:.6">[' + escHtml(r.sha) + ']</span>' : '';
+            return '<div class="activity-row">' +
+              '<span style="flex-shrink:0;width:18px;text-align:center;display:flex;align-items:center;justify-content:center">' + getIconHtml(r.kind) + '</span>' +
+              (src ? '<span class="activity-source ' + src + '">' + src + '</span>' : '') +
+              '<span class="activity-summary">' + escHtml(r.summary) + sha + '</span>' +
+              '<span class="activity-time">' + ageStr + '</span>' +
+              '</div>';
+          }).join('');
+        }
       }
     } else { showEl('card-activity', false); }
 
@@ -503,6 +551,289 @@
         }
       }
     }
+
+    // Render the interactive SVG service topology map
+    renderServiceMap(state.services, state.interactions);
+  }
+
+  let _simulationNodes = [];
+  let _simulationLinks = [];
+  let _simulationInterval = null;
+
+  function renderServiceMap(services, interactions) {
+    const svg = document.getElementById('service-map-svg');
+    const container = document.getElementById('service-map-container');
+    const summaryEl = document.getElementById('service-map-summary');
+    if (!svg || !container) return;
+
+    const badge = document.getElementById('service-filter-badge');
+    const nameEl = document.getElementById('service-filter-name');
+    if (badge && nameEl) {
+      if (_activeServiceFilter) {
+        nameEl.textContent = _activeServiceFilter;
+        badge.style.display = 'inline';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+
+    const nodeNames = new Set();
+    const sdkByService = {};
+    const statsByService = {};
+
+    if (services) {
+      Object.keys(services).forEach(key => {
+        const s = services[key];
+        const name = key.split('/').pop() || '';
+        nodeNames.add(name);
+        sdkByService[name] = s.sdk;
+        statsByService[name] = s;
+      });
+    }
+
+    if (interactions && interactions.services) {
+      interactions.services.forEach(name => nodeNames.add(name));
+    }
+
+    const nodesList = Array.from(nodeNames);
+    if (nodesList.length === 0) {
+      showEl('card-services', false);
+      return;
+    }
+    showEl('card-services', true);
+
+    if (summaryEl) {
+      const edgesCount = (interactions && interactions.edges) ? interactions.edges.length : 0;
+      summaryEl.textContent = `${nodesList.length} service${nodesList.length !== 1 ? 's' : ''} connected · ${edgesCount} link${edgesCount !== 1 ? 's' : ''}`;
+    }
+
+    const prevNodes = {};
+    _simulationNodes.forEach(n => { prevNodes[n.id] = n; });
+
+    const width = container.clientWidth || 280;
+    const height = 160;
+    
+    _simulationNodes = nodesList.map(name => {
+      const prev = prevNodes[name];
+      return {
+        id: name,
+        x: prev ? prev.x : width / 2 + (Math.random() - 0.5) * 40,
+        y: prev ? prev.y : height / 2 + (Math.random() - 0.5) * 40,
+        vx: prev ? prev.vx : 0,
+        vy: prev ? prev.vy : 0,
+        sdk: sdkByService[name] || 'unknown',
+        errorCount: statsByService[name] ? statsByService[name].errorCount : 0,
+        spanCount: statsByService[name] ? statsByService[name].spanCount : 0,
+      };
+    });
+
+    const nodeIndexMap = {};
+    _simulationNodes.forEach((n, idx) => { nodeIndexMap[n.id] = idx; });
+
+    const rawEdges = (interactions && interactions.edges) || [];
+    _simulationLinks = [];
+    rawEdges.forEach(e => {
+      if (nodeIndexMap[e.source] !== undefined && nodeIndexMap[e.target] !== undefined) {
+        _simulationLinks.push({
+          source: e.source,
+          target: e.target,
+          weight: e.weight || 1,
+        });
+      }
+    });
+
+    if (_simulationInterval) clearInterval(_simulationInterval);
+
+    const centerForce = 0.03;
+    const repelForce = 400;
+    const linkForce = 0.12;
+
+    function step() {
+      _simulationNodes.forEach(n => {
+        n.vx += (width / 2 - n.x) * centerForce;
+        n.vy += (height / 2 - n.y) * centerForce;
+      });
+
+      for (let i = 0; i < _simulationNodes.length; i++) {
+        const n1 = _simulationNodes[i];
+        for (let j = i + 1; j < _simulationNodes.length; j++) {
+          const n2 = _simulationNodes[j];
+          const dx = n2.x - n1.x;
+          const dy = n2.y - n1.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          if (dist < 75) {
+            const force = repelForce / (dist * dist);
+            const fx = (dx / dist) * force;
+            const fy = (dy / dist) * force;
+            n1.vx -= fx;
+            n1.vy -= fy;
+            n2.vx += fx;
+            n2.vy += fy;
+          }
+        }
+      }
+
+      _simulationLinks.forEach(l => {
+        const n1 = _simulationNodes[nodeIndexMap[l.source]];
+        const n2 = _simulationNodes[nodeIndexMap[l.target]];
+        if (!n1 || !n2) return;
+        const dx = n2.x - n1.x;
+        const dy = n2.y - n1.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const diff = dist - 55;
+        const force = diff * linkForce;
+        const fx = (dx / dist) * force;
+        const fy = (dy / dist) * force;
+        n1.vx += fx;
+        n1.vy += fy;
+        n2.vx -= fx;
+        n2.vy -= fy;
+      });
+
+      _simulationNodes.forEach(n => {
+        n.x += n.vx;
+        n.y += n.vy;
+        const pad = 15;
+        n.x = Math.max(pad, Math.min(width - pad, n.x));
+        n.y = Math.max(pad, Math.min(height - pad, n.y));
+        n.vx *= 0.72;
+        n.vy *= 0.72;
+      });
+
+      draw();
+    }
+
+    function draw() {
+      let html = '';
+
+      _simulationLinks.forEach(l => {
+        const n1 = _simulationNodes[nodeIndexMap[l.source]];
+        const n2 = _simulationNodes[nodeIndexMap[l.target]];
+        if (!n1 || !n2) return;
+        
+        let strokeColor = 'var(--vscode-widget-border, rgba(127,127,127,0.2))';
+        let strokeWidth = Math.min(4, 1 + l.weight * 0.5);
+        let opacity = 0.6;
+
+        if (_activeServiceFilter) {
+          if (l.source === _activeServiceFilter || l.target === _activeServiceFilter) {
+            strokeColor = 'var(--vscode-charts-blue)';
+            opacity = 1.0;
+          } else {
+            opacity = 0.15;
+          }
+        } else if (l.weight > 5) {
+          strokeColor = 'var(--vscode-charts-red)';
+        } else if (l.weight > 2) {
+          strokeColor = 'var(--vscode-charts-yellow)';
+        }
+
+        html += `<line x1="${n1.x}" y1="${n1.y}" x2="${n2.x}" y2="${n2.y}" stroke="${strokeColor}" stroke-width="${strokeWidth}" opacity="${opacity}" />`;
+      });
+
+      _simulationNodes.forEach(n => {
+        const isFiltered = _activeServiceFilter === n.id;
+        const hasActiveFilter = !!_activeServiceFilter;
+        let opacity = 1.0;
+        if (hasActiveFilter) {
+          if (isFiltered) {
+            opacity = 1.0;
+          } else {
+            const isConnected = _simulationLinks.some(l => 
+              (l.source === _activeServiceFilter && l.target === n.id) ||
+              (l.target === _activeServiceFilter && l.source === n.id)
+            );
+            opacity = isConnected ? 0.75 : 0.25;
+          }
+        }
+
+        let fill = 'var(--vscode-sideBar-background)';
+        let stroke = 'var(--vscode-widget-border, rgba(127,127,127,0.4))';
+        if (n.errorCount > 0) {
+          stroke = 'var(--vscode-charts-red)';
+          if (isFiltered) fill = 'rgba(239, 68, 68, 0.15)';
+        } else if (isFiltered) {
+          stroke = 'var(--vscode-charts-blue)';
+          fill = 'rgba(59, 130, 246, 0.15)';
+        } else if (n.sdk === 'node') {
+          stroke = 'var(--vscode-charts-green)';
+        } else if (n.sdk === 'python') {
+          stroke = 'var(--vscode-charts-yellow)';
+        }
+
+        const warningDot = n.errorCount > 0 
+          ? `<circle cx="${n.x + 7}" cy="${n.y - 7}" r="3.5" fill="var(--vscode-charts-red)" />` 
+          : '';
+
+        html += `
+          <g class="node-group" style="cursor:pointer" onclick="onServiceNodeClick('${n.id}')" onmousemove="showTooltip(event, '${n.id}', '${n.sdk}', ${n.errorCount}, ${n.spanCount})" onmouseleave="hideTooltip()">
+            <circle cx="${n.x}" cy="${n.y}" r="9" fill="${fill}" stroke="${stroke}" stroke-width="2" opacity="${opacity}" />
+            ${warningDot}
+            <text x="${n.x}" y="${n.y + 18}" font-size="9px" font-weight="600" fill="var(--vscode-foreground)" text-anchor="middle" opacity="${opacity}" style="font-family:var(--vscode-font-family); pointer-events:none">${n.id}</text>
+          </g>
+        `;
+      });
+
+      svg.innerHTML = html;
+    }
+
+    for (let i = 0; i < 100; i++) step();
+
+    let count = 0;
+    _simulationInterval = setInterval(() => {
+      step();
+      if (++count > 30) clearInterval(_simulationInterval);
+    }, 30);
+  }
+
+  window.onServiceNodeClick = function(serviceName) {
+    if (_activeServiceFilter === serviceName) {
+      _activeServiceFilter = null;
+    } else {
+      _activeServiceFilter = serviceName;
+    }
+    if (_lastState) render(_lastState);
+  };
+
+  window.onClearServiceFilter = function() {
+    _activeServiceFilter = null;
+    if (_lastState) render(_lastState);
+  };
+
+  window.showTooltip = function(event, id, sdk, errors, spans) {
+    const tooltip = document.getElementById('service-map-tooltip');
+    if (!tooltip) return;
+    const container = document.getElementById('service-map-container');
+    const rect = container.getBoundingClientRect();
+    
+    const x = event.clientX - rect.left + 12;
+    const y = event.clientY - rect.top + 12;
+
+    tooltip.style.left = `${x}px`;
+    tooltip.style.top = `${y}px`;
+    tooltip.style.display = 'block';
+    
+    tooltip.innerHTML = `
+      <div style="font-weight:700;margin-bottom:2px">${id}</div>
+      <div style="opacity:0.8">SDK: ${sdk}</div>
+      <div style="opacity:0.8;color:${errors > 0 ? 'var(--vscode-charts-red)' : 'inherit'}">Errors: ${errors}</div>
+      <div style="opacity:0.8">Spans: ${spans}</div>
+    `;
+  };
+
+  window.hideTooltip = function() {
+    const tooltip = document.getElementById('service-map-tooltip');
+    if (tooltip) tooltip.style.display = 'none';
+  };
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   }
 
 })();

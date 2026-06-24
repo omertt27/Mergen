@@ -15,6 +15,7 @@ import { startProcessWatcher, stopProcessWatcher, listProcessWatchers } from '..
 import { startDockerLogStream, stopDockerLogStream, listStreamedContainers } from '../sensor/docker-log-stream.js';
 import { saveSessionToHistory } from '../sensor/session-history.js';
 import { historyStore } from '../sensor/sqlite-store.js';
+import { incidentStore } from '../sensor/incident-store.js';
 import { buildCausalChain } from '../intelligence/causal.js';
 import { buildCausalGraph } from '../intelligence/causal-graph.js';
 import { serviceTopology } from '../sensor/service-topology.js';
@@ -26,6 +27,7 @@ import { listActiveSessions } from '../intelligence/debug-sessions.js';
 import { getTeamState, isTeamEnabled } from '../intelligence/team.js';
 import { getStats } from '../intelligence/calibration.js';
 import { getDegradationState } from '../intelligence/degradation-watcher.js';
+import { getPendingBypasses } from '../intelligence/tool-guard.js';
 
 export function createSensorRouter(serverVersion: string): Router {
   const router = Router();
@@ -683,6 +685,14 @@ export function createSensorRouter(serverVersion: string): Router {
       rows: rows.slice(-limit),
     };
 
+    const edges = incidentStore.getInteractionGraph();
+    const interactionServices = [...new Set(edges.flatMap((e) => [e.source, e.target]))];
+    const interactions = {
+      edges,
+      services: interactionServices,
+    };
+    const services = getSdkServices();
+
     res.json({
       health,
       usage,
@@ -690,8 +700,43 @@ export function createSensorRouter(serverVersion: string): Router {
       history,
       calibration,
       timelineUnified,
+      services,
+      interactions,
+      pendingBypasses: getPendingBypasses(),
     });
   });
+
+  function getSdkServices(): Record<string, { sdk: string; lastSeen: number; errorCount: number; spanCount: number }> {
+    const logs = store.getLogs(500);
+    const spans = store.getBackendSpans(200);
+    const services = new Map<string, { sdk: string; lastSeen: number; errorCount: number; spanCount: number }>();
+
+    for (const e of logs) {
+      if (!e.url?.startsWith('mergen://node/') && !e.url?.startsWith('mergen://python/')) continue;
+      const parts = e.url.split('/');
+      const sdk  = parts[2] ?? 'unknown';
+      const name = parts[3] ?? 'unknown';
+      const key  = `${sdk}/${name}`;
+      const prev = services.get(key);
+      services.set(key, {
+        sdk,
+        lastSeen: Math.max(e.timestamp, prev?.lastSeen ?? 0),
+        errorCount: (prev?.errorCount ?? 0) + (e.level === 'error' ? 1 : 0),
+        spanCount: prev?.spanCount ?? 0,
+      });
+    }
+    for (const s of spans) {
+      const key = `${s.sdk}/${s.service}`;
+      const prev = services.get(key);
+      services.set(key, {
+        sdk: s.sdk,
+        lastSeen: Math.max(s.timestamp, prev?.lastSeen ?? 0),
+        errorCount: (prev?.errorCount ?? 0) + (s.statusCode >= 400 ? 1 : 0),
+        spanCount: (prev?.spanCount ?? 0) + 1,
+      });
+    }
+    return Object.fromEntries(services);
+  }
 
   // ── Process watchers ─────────────────────────────────────────────────────
   // Start/stop/list process watchers — lets the AI or VS Code panel
@@ -916,36 +961,7 @@ export function createSensorRouter(serverVersion: string): Router {
   // Returns active backend SDK connections (Node.js / Python services).
   // Scans recent console events for mergen://node/* and mergen://python/* URLs.
   router.get('/sdk-status', (_req, res) => {
-    const logs = store.getLogs(500);
-    const spans = store.getBackendSpans(200);
-    const services = new Map<string, { sdk: string; lastSeen: number; errorCount: number; spanCount: number }>();
-
-    for (const e of logs) {
-      if (!e.url?.startsWith('mergen://node/') && !e.url?.startsWith('mergen://python/')) continue;
-      const parts = e.url.split('/');
-      const sdk  = parts[2] ?? 'unknown';
-      const name = parts[3] ?? 'unknown';
-      const key  = `${sdk}/${name}`;
-      const prev = services.get(key);
-      services.set(key, {
-        sdk,
-        lastSeen: Math.max(e.timestamp, prev?.lastSeen ?? 0),
-        errorCount: (prev?.errorCount ?? 0) + (e.level === 'error' ? 1 : 0),
-        spanCount: prev?.spanCount ?? 0,
-      });
-    }
-    for (const s of spans) {
-      const key = `${s.sdk}/${s.service}`;
-      const prev = services.get(key);
-      services.set(key, {
-        sdk: s.sdk,
-        lastSeen: Math.max(s.timestamp, prev?.lastSeen ?? 0),
-        errorCount: (prev?.errorCount ?? 0) + (s.statusCode >= 400 ? 1 : 0),
-        spanCount: (prev?.spanCount ?? 0) + 1,
-      });
-    }
-
-    res.json({ ok: true, services: Object.fromEntries(services) });
+    res.json({ ok: true, services: getSdkServices() });
   });
 
   // ── Trace detail ─────────────────────────────────────────────────────────
