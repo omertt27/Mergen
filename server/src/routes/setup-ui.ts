@@ -535,6 +535,8 @@ node app.js</pre>
   </div>
 
   <script>
+    function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
     let _webhookUrl = '';
 
     async function testSlack() {
@@ -551,13 +553,13 @@ node app.js</pre>
         });
         const d = await r.json();
         if (d.ok) {
-          result.innerHTML = '<div class="alert alert-success">✓ Connected to workspace <strong>' + (d.team||'') + '</strong>' + (channel ? ' — test message posted to ' + channel : '') + '</div>';
+          result.innerHTML = '<div class="alert alert-success">✓ Connected to workspace <strong>' + escHtml(d.team||'') + '</strong>' + (channel ? ' — test message posted to ' + escHtml(channel) : '') + '</div>';
           document.getElementById('step-2').className = 'step complete';
           document.getElementById('step-2').querySelector('.icon').textContent = '✅';
         } else {
-          result.innerHTML = '<div class="alert alert-error">✗ ' + d.error + ' — check your token has <code>chat:write</code> scope.</div>';
+          result.innerHTML = '<div class="alert alert-error">✗ ' + escHtml(d.error) + ' — check your token has <code>chat:write</code> scope.</div>';
         }
-      } catch(e) { result.innerHTML = '<div class="alert alert-error">✗ ' + e.message + '</div>'; }
+      } catch(e) { result.innerHTML = '<div class="alert alert-error">✗ ' + escHtml(e.message) + '</div>'; }
     }
 
     function copyWebhookUrl() {
@@ -580,10 +582,10 @@ node app.js</pre>
           body: JSON.stringify({ type: 'network', method: 'GET', url: 'http://api:8080/api/users', status: 503, duration: 30421, error: 'upstream connect error', timestamp: ts + 100 }) });
         await new Promise(r => setTimeout(r, 600));
         const h = await fetch('/health').then(r => r.json());
-        result.innerHTML = '<div class="alert alert-success">✓ Demo incident injected — ' + (h.buffered||0) + ' events in buffer.<br><strong>In your AI IDE:</strong> "triage the latest incident"<br>Or check the <a href="/dashboard">dashboard →</a></div>';
+        result.innerHTML = '<div class="alert alert-success">✓ Demo incident injected — ' + escHtml(h.buffered||0) + ' events in buffer.<br><strong>In your AI IDE:</strong> "triage the latest incident"<br>Or check the <a href="/dashboard">dashboard →</a></div>';
         document.getElementById('step-4').className = 'step complete';
         document.getElementById('step-4').querySelector('.icon').textContent = '✅';
-      } catch(e) { result.innerHTML = '<div class="alert alert-error">✗ ' + e.message + '</div>'; }
+      } catch(e) { result.innerHTML = '<div class="alert alert-error">✗ ' + escHtml(e.message) + '</div>'; }
     }
 
     async function configureIDE(ide) {
@@ -593,13 +595,13 @@ node app.js</pre>
         const r = await fetch('/api/setup/ide', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ide }) });
         const d = await r.json();
         if (r.ok) {
-          result.innerHTML = '<div class="alert alert-success">✓ ' + d.message + ' — restart your IDE, then ask: <strong>"Triage the latest incident"</strong></div>';
+          result.innerHTML = '<div class="alert alert-success">✓ ' + escHtml(d.message) + ' — restart your IDE, then ask: <strong>"Triage the latest incident"</strong></div>';
           document.getElementById('step-5').className = 'step complete';
           document.getElementById('step-5').querySelector('.icon').textContent = '✅';
         } else {
-          result.innerHTML = '<div class="alert alert-error">✗ ' + d.error + '</div>';
+          result.innerHTML = '<div class="alert alert-error">✗ ' + escHtml(d.error) + '</div>';
         }
-      } catch(e) { result.innerHTML = '<div class="alert alert-error">✗ ' + e.message + '</div>'; }
+      } catch(e) { result.innerHTML = '<div class="alert alert-error">✗ ' + escHtml(e.message) + '</div>'; }
     }
 
     window.addEventListener('load', async () => {

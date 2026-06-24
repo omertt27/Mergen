@@ -40,6 +40,8 @@ interface PendingBypass {
   token: string;
   toolName: string;
   commandArg: string;
+  triggeredRules: string[];
+  registeredAt: number;
   approved: boolean;
   expiresAt: number;
 }
@@ -51,7 +53,7 @@ function normalizeCommand(cmd: unknown): string {
   return cmd.trim().replace(/\s+/g, ' ');
 }
 
-export function registerBypassBlock(toolName: string, commandArg: string): string {
+export function registerBypassBlock(toolName: string, commandArg: string, triggeredRules: string[]): string {
   const normalizedCmd = normalizeCommand(commandArg);
   const now = Date.now();
   for (const [token, b] of _pendingBypasses.entries()) {
@@ -67,9 +69,9 @@ export function registerBypassBlock(toolName: string, commandArg: string): strin
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
   let token = '';
   do {
-    const bytes = randomBytes(5);
+    const bytes = randomBytes(8);
     let t = '';
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 8; i++) {
       t += chars[bytes[i] % chars.length];
     }
     token = t;
@@ -79,6 +81,8 @@ export function registerBypassBlock(toolName: string, commandArg: string): strin
     token,
     toolName,
     commandArg: normalizedCmd,
+    triggeredRules,
+    registeredAt: now,
     approved: false,
     expiresAt: now + 10 * 60 * 1000, // 10 minutes
   });
@@ -89,6 +93,7 @@ export function approveBypass(token: string): { ok: boolean; toolName?: string; 
   const b = _pendingBypasses.get(token);
   if (!b || Date.now() > b.expiresAt) return { ok: false };
   b.approved = true;
+  recordHitlDecision(b.triggeredRules, 'approve', b.registeredAt);
   return { ok: true, toolName: b.toolName, commandArg: b.commandArg };
 }
 
@@ -337,7 +342,7 @@ async function applyGate(
     });
     logger.warn({ toolName, reason }, 'tool-guard: tool call blocked by local policy');
     const alternative = getSuggestedAlternative(evaluation.triggeredRules, commandArg);
-    const bypassToken = registerBypassBlock(toolName, commandArg);
+    const bypassToken = registerBypassBlock(toolName, commandArg, evaluation.triggeredRules);
     return {
       content: [{
         type: 'text',
