@@ -82,15 +82,85 @@ function eventFingerprint(event: BrowserEvent): string | null {
   return null;
 }
 
-export const ingestRouter = Router();
+// ── Per-tenant rate buckets (cloud mode) ──────────────────────────────────────
+// In cloud mode, each tenant gets an independent token bucket so one noisy
+// tenant cannot starve incident analysis for others. In local mode the global
+// bucket below is used instead.
+const _tenantBuckets = new Map<string, TokenBucket>();
 
-const SHARED_SECRET = process.env.MERGEN_SECRET;
-if (!SHARED_SECRET) {
-  logger.warn(
-    'ingest: MERGEN_SECRET is not set — /ingest endpoint accepts events from ANY caller. ' +
-    'Set MERGEN_SECRET=<random-string> to restrict ingest to authenticated sources.',
-  );
+function getTenantBucket(tenantId: string): TokenBucket {
+  let bucket = _tenantBuckets.get(tenantId);
+  if (!bucket) {
+    bucket = new TokenBucket(100, 1_000);
+    _tenantBuckets.set(tenantId, bucket);
+  }
+  return bucket;
 }
+
+/**
+ * Build the /ingest router.
+ *
+ * @param localSecret - The server's local shared secret (from ~/.mergen/secret or
+ *   MERGEN_SECRET env var). Always required; an event without a valid
+ *   x-mergen-secret header is rejected with 401.
+ */
+export function createIngestRouter(localSecret: string): Router {
+  const router = Router();
+  // Prefer the explicitly configured MERGEN_SECRET for backwards-compat; fall
+  // back to the auto-generated localSecret so auth is always enforced.
+  const effectiveSecret = process.env.MERGEN_SECRET ?? localSecret;
+
+  router.post('/ingest', (req: Request, res: Response): void => {
+    if (!timingSafeSecretEqualAny(req.headers['x-mergen-secret'], effectiveSecret)) {
+      res.status(401).json({ error: 'unauthorized' });
+      return;
+    }
+
+    // Per-tenant rate limiting in cloud mode; global bucket otherwise.
+    const tenantId = req.tenantId;
+    const limited  = tenantId
+      ? getTenantBucket(tenantId).isRateLimited()
+      : _bucket.isRateLimited();
+    if (limited) {
+      res.status(429).json({ error: 'rate limit exceeded' });
+      return;
+    }
+
+    const result = BrowserEventSchema.safeParse(req.body);
+    if (!result.success) {
+      res.status(400).json({ error: 'invalid event', details: result.error.flatten() });
+      return;
+    }
+
+    // Reject events with timestamps that are unreasonably far in the future.
+    const tsFutureMs = result.data.timestamp - Date.now();
+    if (tsFutureMs > 10 * 60 * 1_000) {
+      // BrowserEvent is a union — not all members have `url`, so we use 'in' narrowing.
+      const eventUrl = 'url' in result.data ? result.data.url : undefined;
+      logger.warn({ tsFutureMs, url: eventUrl }, 'ingest: event timestamp is too far in the future — rejected');
+      res.status(400).json({ error: 'event timestamp too far in the future' });
+      return;
+    }
+
+    const event = redactEvent(clampNetworkBodies(result.data));
+    const fp = eventFingerprint(event);
+    if (fp && _dedup.isDuplicate(fp, event.timestamp)) {
+      res.status(204).end();
+      return;
+    }
+
+    // Respond immediately so the extension is never blocked on sourcemap I/O
+    res.status(204).end();
+
+    _processEvent(event, req.tenantId);
+  });
+
+  return router;
+}
+
+// ── Legacy named export (backwards compat for any imports not yet updated) ────
+// Will be removed in a future version. Prefer createIngestRouter(secret).
+export const ingestRouter = Router();
 
 // ── Rate limiter: token-bucket, max 100 events / second ──────────────────────
 // P1.3: Replaced the leaky O(n) Array.shift() approach with an O(1)
@@ -214,89 +284,35 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
-ingestRouter.post('/ingest', (req: Request, res: Response): void => {
-  if (SHARED_SECRET) {
-    if (!timingSafeSecretEqualAny(req.headers['x-mergen-secret'], SHARED_SECRET)) {
-      res.status(401).json({ error: 'unauthorized' });
-      return;
-    }
-  }
+// ── Shared event processing ───────────────────────────────────────────────────
+// Extracted so both createIngestRouter and any future ingest paths share one
+// implementation without duplicating the burst-detection / layer logic.
+function _processEvent(event: BrowserEvent, tenantId: string | undefined): void {
+  const isError    = event.type === 'console' && event.level === 'error';
+  const isPageload = event.type === 'context' && event.trigger === 'pageload';
+  const isHmr      = event.type === 'context' && event.trigger === 'hmr';
+  const isFailedNet = event.type === 'network' && (event.status >= 400 || event.status === 0 || !!event.error);
+  const isSlowNet   = event.type === 'network' && event.duration > 500;
 
-  if (isRateLimited()) {
-    res.status(429).json({ error: 'rate limit exceeded' });
-    return;
-  }
-
-  const result = BrowserEventSchema.safeParse(req.body);
-  if (!result.success) {
-    res.status(400).json({ error: 'invalid event', details: result.error.flatten() });
-    return;
-  }
-
-  // Reject events with timestamps that are unreasonably far in the future.
-  // Future-dated events could shift blast-radius "recent" windows; past events cannot.
-  const tsFutureMs = result.data.timestamp - Date.now();
-  if (tsFutureMs > 10 * 60 * 1_000) {
-    logger.warn({ tsFutureMs, url: result.data.url }, 'ingest: event timestamp is too far in the future — rejected');
-    res.status(400).json({ error: 'event timestamp too far in the future' });
-    return;
-  }
-
-  const event = redactEvent(clampNetworkBodies(result.data));
-  const fp = eventFingerprint(event);
-  if (fp && _dedup.isDuplicate(fp, event.timestamp)) {
-    res.status(204).end();
-    return;
-  }
-
-  // Respond immediately so the extension is never blocked on sourcemap I/O
-  res.status(204).end();
-
-  // ── Continuous diagnostic triggers ────────────────────────────────────────
-  // The original product fired the causal engine ONLY on console.error.
-  // That made Mergen a fire alarm. We now fire on every meaningful change so
-  // it becomes a continuous watcher — see hypothesis-history.RebuildReason.
-  //
-  //   • console.error                → 'error'
-  //   • context.trigger === 'pageload' → 'pageload' (baseline analysis)
-  //   • context.trigger === 'hmr'      → 'hmr'      (post-save analysis)
-  //   • network failure                → checked via burst detector below
-  //   • slow request (> 500 ms)        → checked via burst detector below
-  const isError =
-    event.type === 'console' && event.level === 'error';
-  const isPageload =
-    event.type === 'context' && event.trigger === 'pageload';
-  const isHmr =
-    event.type === 'context' && event.trigger === 'hmr';
-  const isFailedNet =
-    event.type === 'network' && (event.status >= 400 || event.status === 0 || !!event.error);
-  const isSlowNet =
-    event.type === 'network' && event.duration > 500;
-
-  // Burst detection: count failures / slow requests in the last 10 s window.
-  // Fires once per burst — the debounce in hypothesis-history collapses
-  // multiple notifications inside the 2 s window into a single rebuild.
-  const burstReason = (() => {
+  const burstReason = (): 'net_burst' | 'slow_burst' | null => {
     if (isFailedNet) {
-      const window = store.getNetwork(50, undefined, Date.now() - 10_000);
-      const fails = window.filter(n => n.status >= 400 || n.status === 0 || !!n.error).length;
-      if (fails >= 3) return 'net_burst' as const;
+      const w = store.getNetwork(50, undefined, Date.now() - 10_000);
+      if (w.filter(n => n.status >= 400 || n.status === 0 || !!n.error).length >= 3) return 'net_burst';
     }
     if (isSlowNet) {
-      const window = store.getNetwork(50, undefined, Date.now() - 10_000);
-      const slow = window.filter(n => n.duration > 500).length;
-      if (slow >= 3) return 'slow_burst' as const;
+      const w = store.getNetwork(50, undefined, Date.now() - 10_000);
+      if (w.filter(n => n.duration > 500).length >= 3) return 'slow_burst';
     }
     return null;
-  });
+  };
 
   const triggerActivity = (): void => {
     if (!_notifier) return;
-    if (isError) { _notifier.notifyError(); return; }
+    if (isError)    { _notifier.notifyError();              return; }
     if (isPageload) { _notifier.notifyActivity('pageload'); return; }
-    if (isHmr)      { _notifier.notifyActivity('hmr'); return; }
+    if (isHmr)      { _notifier.notifyActivity('hmr');      return; }
     const burst = burstReason();
-    if (burst)      { _notifier.notifyActivity(burst); return; }
+    if (burst)      { _notifier.notifyActivity(burst);      return; }
   };
 
   // Layer 2: Index events for replay
@@ -304,15 +320,11 @@ ingestRouter.post('/ingest', (req: Request, res: Response): void => {
 
   // Layer 3: Check breakpoints and mocks
   const breakpoint = layer3Store.checkBreakpoint(event);
-  if (breakpoint) {
-    logger.info({ breakpoint: breakpoint.id, eventId }, 'Breakpoint hit');
-  }
+  if (breakpoint) logger.info({ breakpoint: breakpoint.id, eventId }, 'Breakpoint hit');
 
   // Layer 4: Record errors for history
   if (event.type === 'console' && event.level === 'error') {
-    const message = event.args
-      .map((a) => (typeof a === 'string' ? a : JSON.stringify(a)))
-      .join(' ');
+    const message = event.args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
     layer4Store.recordError(message, event.stack);
   }
 
@@ -324,28 +336,28 @@ ingestRouter.post('/ingest', (req: Request, res: Response): void => {
           stack: resolvedStack,
           ...(primaryFrame?.gitSuspect ? { gitSuspect: primaryFrame.gitSuspect } : {}),
         };
-        store.push(resolved_event, req.tenantId);
+        store.push(resolved_event, tenantId);
         historyStore.push(resolved_event);
         maybeTeamBroadcast(resolved_event);
         exportToOtel(resolved_event);
       })
       .catch((err) => {
         logger.warn({ err }, 'sourcemap resolution failed or timed out, storing raw event');
-        store.push(event, req.tenantId);
+        store.push(event, tenantId);
         historyStore.push(event);
         maybeTeamBroadcast(event);
         exportToOtel(event);
       })
       .finally(triggerActivity);
   } else {
-    store.push(event, req.tenantId);
+    store.push(event, tenantId);
     historyStore.push(event);
     maybeTeamBroadcast(event);
     exportToOtel(event);
     updateTopology(event);
     triggerActivity();
   }
-});
+}
 
 function updateTopology(event: BrowserEvent): void {
   if (event.type === 'backend_span') {

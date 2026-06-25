@@ -32,11 +32,24 @@ import {
 import { trackBlock, trackSuccessfulCall } from '../sensor/bypass-tracker.js';
 import { recordActivity } from './activity-feed.js';
 import logger from '../sensor/logger.js';
-import { BYPASS_PENDING_FILE, DATA_DIR, zeroRetentionMode } from '../sensor/paths.js';
+import { BYPASS_PENDING_FILE, HITL_HOLDS_FILE, DATA_DIR, zeroRetentionMode } from '../sensor/paths.js';
 
 type McpResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
 
 const HOLD_TIMEOUT_MS = 15 * 60 * 1_000; // 15 minutes — matches execution-gate.ts
+
+// ── Bypass file signing secret ────────────────────────────────────────────────
+// Set from index.ts once the local secret is loaded. Used to HMAC-sign the
+// bypass persistence file so it can't be tampered with while the server is down.
+let _bypassSigningSecret = '';
+export function setBypassSecret(secret: string): void {
+  _bypassSigningSecret = secret;
+}
+
+function _signBypassPayload(payload: string): string {
+  if (!_bypassSigningSecret) return '';
+  return createHmac('sha256', _bypassSigningSecret).update(payload).digest('hex');
+}
 
 // ── Command Bypass Logic ──────────────────────────────────────────────────────
 
@@ -137,16 +150,19 @@ export function invalidateBypassToken(token: string): void {
 
 // ── Bypass token persistence (survives server restarts within validity window) ──
 
-interface BypassFile { version: 1; bypasses: PendingBypass[] }
+interface BypassFile { version: 1; bypasses: PendingBypass[]; sig?: string }
 
 export function persistBypasses(): void {
   if (zeroRetentionMode()) return;
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
-    const now = Date.now();
+    const now    = Date.now();
     const active = [..._pendingBypasses.values()].filter((b) => b.expiresAt > now);
-    const tmp = `${BYPASS_PENDING_FILE}.tmp.${process.pid}`;
-    fs.writeFileSync(tmp, JSON.stringify({ version: 1, bypasses: active } satisfies BypassFile), 'utf8');
+    const payload = JSON.stringify({ version: 1, bypasses: active } satisfies Omit<BypassFile, 'sig'>);
+    const sig     = _signBypassPayload(payload);
+    const final   = sig ? JSON.stringify({ version: 1, bypasses: active, sig } satisfies BypassFile) : payload;
+    const tmp     = `${BYPASS_PENDING_FILE}.tmp.${process.pid}`;
+    fs.writeFileSync(tmp, final, { encoding: 'utf8', mode: 0o600 });
     fs.renameSync(tmp, BYPASS_PENDING_FILE);
   } catch (err) {
     logger.warn({ err }, 'tool-guard: bypass persist failed');
@@ -156,8 +172,33 @@ export function persistBypasses(): void {
 export function loadBypasses(): void {
   if (zeroRetentionMode() || !fs.existsSync(BYPASS_PENDING_FILE)) return;
   try {
-    const raw = JSON.parse(fs.readFileSync(BYPASS_PENDING_FILE, 'utf8')) as BypassFile;
+    const fileContent = fs.readFileSync(BYPASS_PENDING_FILE, 'utf8');
+    const raw = JSON.parse(fileContent) as BypassFile;
     if (raw?.version !== 1 || !Array.isArray(raw.bypasses)) return;
+
+    // Verify HMAC if we have a signing secret. Reject the file if it fails.
+    if (_bypassSigningSecret && raw.sig !== undefined) {
+      const { sig, ...rest } = raw;
+      const expectedPayload = JSON.stringify(rest);
+      const expected = _signBypassPayload(expectedPayload);
+      const sigBuf      = Buffer.from(sig,      'hex');
+      const expectedBuf = Buffer.from(expected, 'hex');
+      const valid = sigBuf.length === expectedBuf.length &&
+        createHmac('sha256', _bypassSigningSecret).update(expectedPayload).digest().equals(expectedBuf);
+      if (!valid) {
+        logger.error(
+          { path: BYPASS_PENDING_FILE },
+          'tool-guard: bypass file HMAC mismatch — file may have been tampered with. Discarding.',
+        );
+        try { fs.unlinkSync(BYPASS_PENDING_FILE); } catch { /* ignore */ }
+        return;
+      }
+    } else if (_bypassSigningSecret && raw.sig === undefined) {
+      // Secret is set but file has no sig — written before signing was enabled.
+      // Accept once and re-sign on next persist (migration path).
+      logger.warn({ path: BYPASS_PENDING_FILE }, 'tool-guard: bypass file has no signature — accepting once and re-signing');
+    }
+
     const now = Date.now();
     for (const b of raw.bypasses) {
       if (b.expiresAt > now) _pendingBypasses.set(b.token, b);
@@ -180,6 +221,70 @@ interface PendingHold {
 
 const _pendingHolds = new Map<string, PendingHold>();
 
+// ── Hold metadata persistence (dead-letter on restart) ───────────────────────
+// Promise resolve/reject functions can't be serialized, so we persist only
+// the metadata needed to identify stale holds after a restart and deny them.
+
+interface HoldRecord {
+  token:          string;
+  toolName:       string;
+  policyReason:   string;
+  triggeredRules: string[];
+  heldAt:         number;
+  expiresAt:      number;
+}
+
+interface HoldsFile { version: 1; holds: HoldRecord[] }
+
+function _persistHolds(): void {
+  if (zeroRetentionMode()) return;
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    const now    = Date.now();
+    const active = [..._pendingHolds.entries()]
+      .filter(([, h]) => now < h.heldAt + HOLD_TIMEOUT_MS)
+      .map(([token, h]): HoldRecord => ({
+        token,
+        toolName:       h.toolName,
+        policyReason:   h.policyReason,
+        triggeredRules: h.triggeredRules,
+        heldAt:         h.heldAt,
+        expiresAt:      h.heldAt + HOLD_TIMEOUT_MS,
+      }));
+    const tmp = `${HITL_HOLDS_FILE}.tmp.${process.pid}`;
+    fs.writeFileSync(tmp, JSON.stringify({ version: 1, holds: active } satisfies HoldsFile), 'utf8');
+    fs.renameSync(tmp, HITL_HOLDS_FILE);
+  } catch (err) {
+    logger.warn({ err }, 'tool-guard: hold persist failed');
+  }
+}
+
+/**
+ * On startup, load stale hold records from the previous run and immediately
+ * deny them. The MCP client that initiated those tool calls is gone — the
+ * Promise resolver no longer exists — but we log the tokens so an operator
+ * can understand why a HITL approval window expired during a restart.
+ */
+export function denyStaleHoldsOnStartup(): void {
+  if (zeroRetentionMode() || !fs.existsSync(HITL_HOLDS_FILE)) return;
+  try {
+    const raw = JSON.parse(fs.readFileSync(HITL_HOLDS_FILE, 'utf8')) as HoldsFile;
+    if (raw?.version !== 1 || !Array.isArray(raw.holds)) return;
+    const now   = Date.now();
+    const stale = raw.holds.filter((h) => h.expiresAt > now);
+    if (stale.length === 0) return;
+    logger.warn(
+      { count: stale.length, tokens: stale.map((h) => h.token) },
+      'tool-guard: denying stale HITL holds from previous server run — ' +
+      'the MCP client must resubmit these tool calls.',
+    );
+    // Clear the file so the tokens aren't re-processed on the next restart.
+    try { fs.unlinkSync(HITL_HOLDS_FILE); } catch { /* ignore */ }
+  } catch (err) {
+    logger.warn({ err }, 'tool-guard: failed to load stale holds file');
+  }
+}
+
 // ── Public resolution API (called by routes/hitl.ts) ─────────────────────────
 
 export function approveToolCall(token: string): boolean {
@@ -187,6 +292,7 @@ export function approveToolCall(token: string): boolean {
   if (!hold) return false;
   clearTimeout(hold.timeoutHandle);
   _pendingHolds.delete(token);
+  _persistHolds();
   recordHitlDecision(hold.triggeredRules, 'approve', hold.heldAt);
   logger.info({ token, toolName: hold.toolName }, 'tool-guard: HITL approved');
   hold.resolve({
@@ -200,6 +306,7 @@ export function denyToolCall(token: string): boolean {
   if (!hold) return false;
   clearTimeout(hold.timeoutHandle);
   _pendingHolds.delete(token);
+  _persistHolds();
   recordHitlDecision(hold.triggeredRules, 'deny', hold.heldAt);
   logger.info({ token, toolName: hold.toolName }, 'tool-guard: HITL denied');
   hold.resolve({
@@ -372,10 +479,12 @@ async function applyGate(
     return next();
   }
 
+  // Actor identity is always 'agent' for MCP tool calls — it must not be derived
+  // from agent-supplied arguments, which the agent can forge to bypass AI-specific rules.
   const evaluation = evaluateEnterprisePolicy({
     files:    [toolName],
     commands: [toolName, commandArg].filter(Boolean),
-    actor:    (argsObj.actor as string | undefined) ?? 'agent',
+    actor:    'agent',
     service:  'mcp',
     timestamp: Date.now(),
   });
@@ -455,6 +564,7 @@ async function applyGate(
   return new Promise<McpResult>((resolve) => {
     const timeoutHandle = setTimeout(() => {
       _pendingHolds.delete(token);
+      _persistHolds();
       logger.info({ token, toolName }, 'tool-guard: HITL approval window expired');
       resolve({
         content: [{
@@ -475,6 +585,8 @@ async function applyGate(
       resolve,
       timeoutHandle,
     });
+    // Persist hold metadata so a server restart can inform operators of stale holds.
+    _persistHolds();
   });
 }
 

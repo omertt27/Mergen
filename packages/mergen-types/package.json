@@ -1,0 +1,14 @@
+{
+  "name": "@mergen/types",
+  "version": "1.0.0",
+  "description": "Shared TypeScript types for the Mergen server API — consumed by the VS Code extension and future clients.",
+  "types": "dist/index.d.ts",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}

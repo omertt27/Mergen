@@ -22,7 +22,7 @@
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "node build.mjs",
     "prepublishOnly": "npm run build"
   },
   "engines": {
@@ -31,7 +31,10 @@
   "keywords": ["mergen", "mcp", "observability", "debugging", "ai", "telemetry"],
   "license": "MIT",
   "devDependencies": {
+    "@types/express": "^4.17.21",
     "@types/node": "^20.0.0",
+    "esbuild": "^0.20.0",
+    "express": "^4.19.2",
     "typescript": "^5.0.0"
   }
 }

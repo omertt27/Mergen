@@ -9,7 +9,9 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 
-export const DATA_DIR     = path.join(os.homedir(), '.mergen');
+// MERGEN_DATA_DIR overrides the default so Docker deployments can mount a named
+// volume at a known path (e.g. /app/.mergen) regardless of the container's HOME.
+export const DATA_DIR     = process.env.MERGEN_DATA_DIR ?? path.join(os.homedir(), '.mergen');
 export const LICENSE_FILE = path.join(DATA_DIR, 'license.json');
 export const USAGE_FILE   = path.join(DATA_DIR, 'usage.json');
 export const TEAM_FILE    = path.join(DATA_DIR, 'team.json');
@@ -90,6 +92,9 @@ export const SAFETY_POLICY_FILE = path.join(DATA_DIR, 'safety-policy.json');
 
 /** Pending bypass tokens — survives server restarts within the 10-min validity window. */
 export const BYPASS_PENDING_FILE = path.join(DATA_DIR, 'bypass-pending.json');
+
+/** Active HITL hold metadata (no Promise refs) — used to deny stale holds after restart. */
+export const HITL_HOLDS_FILE = path.join(DATA_DIR, 'hitl-holds.json');
 
 export function zeroRetentionMode(): boolean {
   return process.env.MERGEN_ZERO_RETENTION === 'true';

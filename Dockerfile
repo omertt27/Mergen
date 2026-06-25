@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM node:20-alpine AS builder
+FROM node:20.19-alpine3.21 AS builder
 
 WORKDIR /app
 
@@ -13,7 +13,7 @@ RUN cd server && npm run build
 
 # ── Production image ────────────────────────────────────────
 
-FROM node:20-alpine
+FROM node:20.19-alpine3.21
 
 LABEL org.opencontainers.image.title="Mergen" \
       org.opencontainers.image.description="Local-first browser observability for AI" \
@@ -34,6 +34,10 @@ COPY extension ./extension
 # Create data directory with explicit permissions — 700 so only the node user
 # can read/write secrets and SQLite databases stored there.
 RUN mkdir -p /app/.mergen && chown -R node:node /app && chmod 700 /app/.mergen
+
+# Override DATA_DIR so Mergen writes to the mounted volume path rather than
+# /home/node/.mergen (the default derived from os.homedir() inside the container).
+ENV MERGEN_DATA_DIR=/app/.mergen
 
 # Switch to non-root user
 USER node

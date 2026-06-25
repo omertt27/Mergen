@@ -42,24 +42,31 @@ export interface SafetyPolicy {
   blockedServices: string[];
 }
 
-const DEFAULT_SAFETY_POLICY: SafetyPolicy = {
-  version: 1,
+export const DEFAULT_SAFETY_POLICY: SafetyPolicy = {
+  // version 2: replaced overbroad bare-word 'delete' and 'truncate' with precise
+  // multi-word patterns ('delete from', 'truncate table') that don't false-positive
+  // on service names like 'delete-cache' or make targets like 'truncate-logs'.
+  // Database service names (postgres, mysql, redis, mongo) remain as they correctly
+  // block commands that target known production data stores by name.
+  version: 2,
   blockedKeywords: [
     'rm -rf',
     'drop table',
-    'truncate',
-    'delete',
+    'drop database',
+    'truncate table',
+    'delete from',
+    'kubectl delete',
     'production-db',
     'postgres',
     'mysql',
     'redis',
-    'mongo'
+    'mongo',
   ],
   blockedServices: [
     'payments',
     'auth-service',
-    'database'
-  ]
+    'database',
+  ],
 };
 
 let _safetyPolicy: SafetyPolicy | null = null;
@@ -74,10 +81,15 @@ function _watchSafetyPolicy(): void {
   });
 }
 
+/** Test-only: reset the in-memory policy cache to force a reload on next call. */
+export function _resetSafetyPolicyForTesting(override?: SafetyPolicy): void {
+  _safetyPolicy = override ?? null;
+}
+
 export function loadSafetyPolicy(force = false): SafetyPolicy {
   if (_safetyPolicy && !force) return _safetyPolicy;
   _watchSafetyPolicy();
-  
+
   if (!fs.existsSync(SAFETY_POLICY_FILE)) {
     try {
       fs.mkdirSync(path.dirname(SAFETY_POLICY_FILE), { recursive: true });
@@ -94,7 +106,22 @@ export function loadSafetyPolicy(force = false): SafetyPolicy {
     const raw = fs.readFileSync(SAFETY_POLICY_FILE, 'utf8');
     const parsed = JSON.parse(raw) as SafetyPolicy;
     if (parsed && Array.isArray(parsed.blockedKeywords) && Array.isArray(parsed.blockedServices)) {
-      _safetyPolicy = parsed;
+      // Auto-upgrade stale versions to current defaults so operators don't carry
+      // overbroad keyword lists (e.g. bare 'delete') from before the v2 schema.
+      if ((parsed.version ?? 0) < DEFAULT_SAFETY_POLICY.version) {
+        logger.info(
+          { oldVersion: parsed.version ?? 0, newVersion: DEFAULT_SAFETY_POLICY.version, path: SAFETY_POLICY_FILE },
+          'autonomy: safety-policy.json is outdated — upgrading to current defaults',
+        );
+        _safetyPolicy = DEFAULT_SAFETY_POLICY;
+        try {
+          fs.writeFileSync(SAFETY_POLICY_FILE, JSON.stringify(DEFAULT_SAFETY_POLICY, null, 2), 'utf8');
+        } catch (err) {
+          logger.warn({ err }, 'autonomy: failed to write upgraded safety policy');
+        }
+      } else {
+        _safetyPolicy = parsed;
+      }
     } else {
       _safetyPolicy = DEFAULT_SAFETY_POLICY;
     }
@@ -245,7 +272,7 @@ function _auditExecution(cmd: string, result: RemediationResult, actor = 'unknow
       actor,
       cmd: cmd.slice(0, 500),
       ok: result.ok,
-      exitCode: result.exitCode,
+      exitCode: result.exitCode ?? -1,
       durationMs: result.durationMs,
       blocked: result.blocked,
       blockReason: result.blockReason ?? '',
@@ -342,9 +369,20 @@ export async function executeRemediation(
     let stderr = '';
     let timedOut = false;
 
+    // Explicit minimal env — never pass integration secrets (API keys, tokens,
+    // MERGEN_SECRET, etc.) to the child process. Only the essentials for shell
+    // execution are forwarded.
     const proc = spawn('/bin/sh', ['-c', command], {
       cwd: safeCwd,
-      env: { ...process.env, NO_COLOR: '1', TERM: 'dumb' },
+      env: {
+        PATH:    process.env.PATH    ?? '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+        HOME:    process.env.HOME    ?? os.homedir(),
+        USER:    process.env.USER    ?? os.userInfo().username,
+        LOGNAME: process.env.LOGNAME ?? os.userInfo().username,
+        TMPDIR:  process.env.TMPDIR  ?? os.tmpdir(),
+        NO_COLOR: '1',
+        TERM:     'dumb',
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 

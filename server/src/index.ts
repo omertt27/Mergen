@@ -50,7 +50,7 @@ import { initTeam, broadcastToTeam } from './intelligence/team.js';
 import { initTelemetry, maybeSendTelemetry } from './intelligence/telemetry.js';
 import { getPlan } from './intelligence/plans.js';
 import { registerTools, toolCallCounts } from './intelligence/tools.js';
-import { createGuardedServer, loadBypasses, persistBypasses } from './intelligence/tool-guard.js';
+import { createGuardedServer, loadBypasses, persistBypasses, setBypassSecret, denyStaleHoldsOnStartup } from './intelligence/tool-guard.js';
 import { flushApprovals } from './intelligence/execution-gate.js';
 import { registerResources } from './intelligence/mcp-resources.js';
 import { registerPrompts } from './intelligence/mcp-prompts.js';
@@ -168,6 +168,17 @@ function validateConfig(): void {
     );
   }
 
+  // MERGEN_POLICY_URL must use HTTPS — policy-sync.ts enforces this at runtime,
+  // but surfacing it here at startup gives a clearer error before the first sync.
+  if (process.env.MERGEN_POLICY_URL && !process.env.MERGEN_POLICY_URL.startsWith('https://')) {
+    logger.error(
+      'FATAL: MERGEN_POLICY_URL must use HTTPS (got a plain HTTP URL). ' +
+      'A plain HTTP policy URL allows MITM injection of permissive policy rules that disable safety gates. ' +
+      'Update MERGEN_POLICY_URL to an https:// address and restart.',
+    );
+    process.exit(1);
+  }
+
   // Team mode + no public URL: HITL webhook approve/deny links will contain
   // http://127.0.0.1 which Slack can't reach. Warn so operators don't get
   // silently-broken HITL flows in production.
@@ -270,9 +281,18 @@ async function main(): Promise<void> {
   // which can take minutes on a freshly restarted server.
   serviceGraph.loadPersisted();
 
+  // Wire the local secret into the bypass signing mechanism before loading from disk.
+  // This must happen before loadBypasses() so the HMAC verification has the key.
+  setBypassSecret(localSecret);
+
   // Restore pending bypass tokens so a server restart doesn't strand in-flight
   // `mergen approve <token>` commands issued just before shutdown.
   loadBypasses();
+
+  // Deny any HITL holds that were active when the previous server run ended.
+  // The Promise resolvers are gone, but we log stale tokens so operators know
+  // which tool calls were cancelled and need to be resubmitted.
+  denyStaleHoldsOnStartup();
 
   setBufferSizeGetter(() => getPlan(getActivePlanId()).bufferSize);
 
@@ -347,11 +367,18 @@ async function main(): Promise<void> {
         logger.info({ port, host: BIND_HOST }, `HTTPS ingest listening on https://${BIND_HOST}:${port}`);
       });
     } catch (err) {
-      if (process.env.MERGEN_CLOUD_MODE === 'true') {
-        logger.error({ err }, 'TLS: failed to read cert/key files — refusing to start in plain HTTP (MERGEN_CLOUD_MODE=true requires TLS)');
+      // Refuse to run without TLS whenever the server is network-reachable.
+      // Plain HTTP on any non-loopback interface exposes x-mergen-secret on every
+      // mutating request and allows credential exfiltration by a passive observer.
+      if (BIND_HOST !== '127.0.0.1') {
+        logger.error(
+          { err },
+          'TLS: failed to read cert/key files — refusing to start without TLS on a network-accessible interface. ' +
+          'Fix the cert/key paths, or set MERGEN_BIND=127.0.0.1 for local-only mode.',
+        );
         process.exit(1);
       }
-      logger.error({ err }, 'TLS: failed to read cert/key files — falling back to HTTP');
+      logger.error({ err }, 'TLS: failed to read cert/key files — falling back to plain HTTP (local-only mode, 127.0.0.1 only)');
       httpServer = http.createServer(app).listen(port, BIND_HOST, () => {
         logger.info({ port, host: BIND_HOST }, `HTTP ingest listening on http://${BIND_HOST}:${port}`);
       });
@@ -431,31 +458,32 @@ async function main(): Promise<void> {
   startShadowDigestCron();
 
   // ── Daily operational digest (09:00 UTC, opt-in MERGEN_SLACK_DIGEST=true) ──
-  if (process.env.MERGEN_SLACK_DIGEST === 'true') startSlackDailyDigest();
+  if (process.env.MERGEN_SLACK_DIGEST === 'true') {
+    try { startSlackDailyDigest(); } catch (err) { logger.error({ err }, 'startup: startSlackDailyDigest failed — Slack digest disabled'); }
+  }
 
   // ── Git ADR → corpus sync (once at startup + every 24h) ─────────────────
-  // Reads git commit history and accepted ADR records, extracts operational
-  // constraints ("never resize pool on Friday settlement window"), and
-  // materialises them as Override Corpus entries automatically.
-  if (process.env.MERGEN_GIT_ADR_SYNC === 'true') startGitAdrSync();
+  if (process.env.MERGEN_GIT_ADR_SYNC === 'true') {
+    try { startGitAdrSync(); } catch (err) { logger.error({ err }, 'startup: startGitAdrSync failed — ADR sync disabled'); }
+  }
 
   // ── Team-wide policy sync (startup + every 5 min) ─────────────────────────
-  // Fetches policy from MERGEN_POLICY_URL and merges or replaces local policy.
-  // MERGEN_POLICY_MERGE=merge means remote rules append; default is replace.
   if (process.env.MERGEN_POLICY_URL) {
-    startPolicySync({
-      url:        process.env.MERGEN_POLICY_URL,
-      mergeMode:  (process.env.MERGEN_POLICY_MERGE as 'replace' | 'merge') ?? 'replace',
-    });
+    try {
+      startPolicySync({
+        url:       process.env.MERGEN_POLICY_URL,
+        mergeMode: (process.env.MERGEN_POLICY_MERGE as 'replace' | 'merge') ?? 'replace',
+      });
+    } catch (err) { logger.error({ err }, 'startup: startPolicySync failed — remote policy sync disabled'); }
   }
 
   // ── Slack-to-Override Memory Loop (every 6h, auto-builds the corpus) ─────
-  // Scans the incident channel for postmortem threads and extracts override
-  // patterns automatically — no manual POST /postmortem/from-slack required.
-  if (process.env.MERGEN_SLACK_OVERRIDE_LOOP === 'true') startSlackOverrideLoop();
+  if (process.env.MERGEN_SLACK_OVERRIDE_LOOP === 'true') {
+    try { startSlackOverrideLoop(); } catch (err) { logger.error({ err }, 'startup: startSlackOverrideLoop failed — override loop disabled'); }
+  }
 
   // ── Graduated urgency — local desktop notification on sustained degradation ─
-  startDegradationWatcher();
+  try { startDegradationWatcher(); } catch (err) { logger.error({ err }, 'startup: startDegradationWatcher failed — degradation watcher disabled'); }
 
   // ── Continuous watcher ────────────────────────────────────────────────────
   startWatcher();
@@ -536,7 +564,14 @@ async function main(): Promise<void> {
       stopFileWatch();
       stopRedisStore();
       httpServer.close(() => { logger.info('HTTP server closed'); process.exit(0); });
-      setTimeout(() => process.exit(1), 5_000).unref();
+      // 30-second hard timeout: enough time for Redis flush + pending writes while
+      // still bounding the shutdown window. Exits with code 1 so process managers
+      // (systemd, Docker) know the shutdown was not clean.
+      const _hardExit = setTimeout(() => {
+        logger.error('shutdown: graceful shutdown timed out after 30s — forcing exit');
+        process.exit(1);
+      }, 30_000);
+      _hardExit.unref();
     });
   }
   process.on('SIGTERM', () => shutdown('SIGTERM'));

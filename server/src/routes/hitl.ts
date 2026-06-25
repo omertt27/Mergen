@@ -6,9 +6,15 @@
  * the link (or POSTs programmatically) to release or cancel the hold.
  *
  * Endpoints:
- *   POST /hitl/approve?token=<uuid>  — release the held tool call (returns tool result)
- *   POST /hitl/deny?token=<uuid>     — cancel the held tool call (returns MCP error)
+ *   GET  /hitl/approve?token=<uuid>  — confirmation page (Slack url: button → browser GET)
+ *   POST /hitl/approve?token=<uuid>  — release the held tool call (requires x-mergen-secret)
+ *   GET  /hitl/deny?token=<uuid>     — confirmation page
+ *   POST /hitl/deny?token=<uuid>     — cancel the held tool call (requires x-mergen-secret)
  *   GET  /hitl/pending               — list all currently held tool calls (requires secret)
+ *
+ * Slack `url:` buttons open the GET endpoints in the user's browser. The page
+ * renders a minimal confirmation form that POSTs back — so a single click in
+ * Slack triggers a two-step: GET shows the confirmation, POST executes the action.
  *
  * Rate limiting: 10 token-resolution attempts per IP per minute to prevent
  * UUID brute-force. Failed lookups are logged for audit.
@@ -19,14 +25,11 @@ import logger from '../sensor/logger.js';
 import { approveToolCall, denyToolCall, getPendingHolds, approveBypass, invalidateBypassToken } from '../intelligence/tool-guard.js';
 
 // Simple in-process rate limiter: 10 resolution attempts per IP per 60 s.
-// Deliberately kept lightweight — HITL endpoints are low-volume by design
-// (one call per queued tool approval), so a Map is sufficient.
 const HITL_RATE_LIMIT = 10;
 const HITL_RATE_WINDOW_MS = 60_000;
 const _hitlBuckets = new Map<string, { count: number; resetAt: number }>();
 
 // Per-token attempt counter: max 3 failed attempts before the token is invalidated.
-// Prevents brute-force even when the same token is attacked from multiple IPs.
 const TOKEN_ATTEMPT_LIMIT = 3;
 const _tokenAttempts = new Map<string, number>();
 
@@ -47,7 +50,6 @@ function hitlRateLimited(ip: string): boolean {
   return ++b.count > HITL_RATE_LIMIT;
 }
 
-/** Tracks a failed token attempt. Returns true if the token has exceeded the attempt limit. */
 function recordFailedTokenAttempt(token: string): boolean {
   const attempts = (_tokenAttempts.get(token) ?? 0) + 1;
   _tokenAttempts.set(token, attempts);
@@ -59,9 +61,68 @@ function recordFailedTokenAttempt(token: string): boolean {
   return false;
 }
 
+// Minimal HTML confirmation page so Slack `url:` button clicks (which open the
+// URL in the operator's browser as a GET request) show a confirmation step
+// before the action executes, rather than silently failing with 404.
+function confirmationPage(action: 'approve' | 'deny', token: string): string {
+  const label     = action === 'approve' ? 'Approve' : 'Deny';
+  const btnColor  = action === 'approve' ? '#28a745' : '#dc3545';
+  const emoji     = action === 'approve' ? '✅' : '❌';
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mergen HITL — ${label} tool call</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 480px; margin: 80px auto; padding: 0 20px; color: #1a1a1a; }
+    h1   { font-size: 1.4rem; margin-bottom: .5rem; }
+    p    { color: #555; margin-bottom: 1.5rem; }
+    form { display: inline; }
+    button {
+      background: ${btnColor}; color: #fff; border: none; border-radius: 6px;
+      padding: 12px 28px; font-size: 1rem; cursor: pointer; font-weight: 600;
+    }
+    button:hover { opacity: .88; }
+    .token { font-family: monospace; font-size: .85rem; color: #666; margin-top: 1.5rem; }
+    .alt { margin-top: 1.5rem; font-size: .85rem; color: #888; }
+    code { background: #f4f4f4; border-radius: 4px; padding: 2px 6px; }
+  </style>
+</head>
+<body>
+  <h1>${emoji} ${label} Mergen HITL gate?</h1>
+  <p>Clicking the button below will ${action} the held tool call and release it ${action === 'approve' ? 'for execution' : 'with a cancellation error'}.</p>
+  <form method="POST" action="/hitl/${action}?token=${token}">
+    <button type="submit">${emoji} Confirm ${label}</button>
+  </form>
+  <p class="token">Token: <code>${token}</code></p>
+  <p class="alt">Alternatively, run: <code>mergen ${action} ${token}</code></p>
+</body>
+</html>`;
+}
+
 export function createHitlRouter(): Router {
   const router = Router();
 
+  // ── GET /hitl/approve — confirmation page (Slack url: button → browser opens this) ──
+  router.get('/hitl/approve', (req, res) => {
+    const token = (req.query.token as string | undefined)?.trim();
+    if (!token) { res.status(400).send('token required'); return; }
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(confirmationPage('approve', token));
+  });
+
+  // ── GET /hitl/deny — confirmation page ───────────────────────────────────────
+  router.get('/hitl/deny', (req, res) => {
+    const token = (req.query.token as string | undefined)?.trim();
+    if (!token) { res.status(400).send('token required'); return; }
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(confirmationPage('deny', token));
+  });
+
+  // ── POST /hitl/approve — execute approval (requires x-mergen-secret via MUTATING_PATHS) ──
   router.post('/hitl/approve', (req, res) => {
     const ip = (req.socket.remoteAddress ?? 'unknown').replace(/^::ffff:/, '');
     if (hitlRateLimited(ip)) {
@@ -80,9 +141,21 @@ export function createHitlRouter(): Router {
       return;
     }
     _tokenAttempts.delete(token);
+    // If the request came from a browser form POST (Accept: text/html), redirect
+    // to a simple success page rather than returning JSON.
+    if ((req.headers.accept ?? '').includes('text/html')) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Approved</title></head>
+<body style="font-family:system-ui,sans-serif;max-width:480px;margin:80px auto;padding:0 20px">
+<h1>✅ Tool call approved</h1><p>The held tool call has been released for execution.</p>
+<p style="color:#888;font-size:.85rem">Token: <code>${token}</code></p>
+</body></html>`);
+      return;
+    }
     res.json({ ok: true, action: 'approved', token });
   });
 
+  // ── POST /hitl/deny — execute denial (requires x-mergen-secret via MUTATING_PATHS) ──
   router.post('/hitl/deny', (req, res) => {
     const ip = (req.socket.remoteAddress ?? 'unknown').replace(/^::ffff:/, '');
     if (hitlRateLimited(ip)) {
@@ -101,13 +174,17 @@ export function createHitlRouter(): Router {
       return;
     }
     _tokenAttempts.delete(token);
+    if ((req.headers.accept ?? '').includes('text/html')) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Denied</title></head>
+<body style="font-family:system-ui,sans-serif;max-width:480px;margin:80px auto;padding:0 20px">
+<h1>❌ Tool call denied</h1><p>The held tool call has been cancelled. The agent will receive a cancellation error.</p>
+<p style="color:#888;font-size:.85rem">Token: <code>${token}</code></p>
+</body></html>`);
+      return;
+    }
     res.json({ ok: true, action: 'denied', token });
   });
-
-  // POST /hitl/bypass/approve is intentionally removed.
-  // The `mergen approve <token>` CLI now calls POST /hitl/approve (requires x-mergen-secret),
-  // so bypass approval goes through the same authenticated path as HITL holds.
-  // Keeping a localhost-only shortcut here was a no-auth bypass in cloud/container deployments.
 
   // GET /hitl/pending is protected by SENSITIVE_GET_PATHS in app.ts (requires x-mergen-secret).
   router.get('/hitl/pending', (_req, res) => {

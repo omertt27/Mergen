@@ -174,10 +174,27 @@ function _watchPolicyFile(): void {
 // e.g. "humanbot_ops" would match 'bot' without boundary guards.
 const AI_ACTOR_PATTERNS = [/\bbot\b/, /\bclaude\b/, /\bcursor\b/, /\bagent\b/, /\bai\b/, /\bgithub-actions\b/, /\bwindsurf\b/, /\bcopilot\b/];
 
+// Explicitly trusted human actors — loaded once from MERGEN_TRUSTED_HUMANS env var
+// (comma-separated list, e.g. "alice,bob,on-call-eng").
+// Unknown actors default to AI (fail-secure) so new agent tools don't silently bypass rules.
+const _trustedHumans: Set<string> = new Set(
+  (process.env.MERGEN_TRUSTED_HUMANS ?? '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean),
+);
+
 export function isAiActor(actorName: string): boolean {
-  if (!actorName) return false;
+  if (!actorName) return true; // unknown actor → treat as AI (fail-secure)
   const name = actorName.toLowerCase();
-  return AI_ACTOR_PATTERNS.some((re) => re.test(name));
+  // Explicitly whitelisted human → not AI
+  if (_trustedHumans.has(name)) return false;
+  // Name matches a known human pattern → not AI
+  if (name === 'human' || name.startsWith('human_') || name.startsWith('human-')) return false;
+  // Name matches a known AI pattern → AI
+  if (AI_ACTOR_PATTERNS.some((re) => re.test(name))) return true;
+  // Unknown → default to AI (fail-secure: unknown callers get AI restrictions applied)
+  return true;
 }
 
 export interface EvaluationInput {

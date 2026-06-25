@@ -122,9 +122,14 @@
     }
   }
 
-  // ── Utilities ──────────────────────────────────────────────────────────────
   function escHtml(s) {
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    if (!s) return '';
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   }
 
   function fmtRel(ms) {
@@ -271,7 +276,7 @@
                 <span style="color:var(--vscode-charts-red)">Blocked ${b.toolName}</span>
                 <span style="color:var(--vscode-descriptionForeground);font-size:9px">Expires in ${expiresMin}m</span>
               </div>
-              <div style="font-family:var(--vscode-editor-font-family, monospace);font-size:10px;background:var(--vscode-editor-background);padding:4px 6px;border-radius:2px;margin-bottom:6px;word-break:break-all;white-space:pre-wrap">${escapeHtml(b.commandArg || '')}</div>
+              <div style="font-family:var(--vscode-editor-font-family, monospace);font-size:10px;background:var(--vscode-editor-background);padding:4px 6px;border-radius:2px;margin-bottom:6px;word-break:break-all;white-space:pre-wrap">${escHtml(b.commandArg)}</div>
               <div style="display:flex;gap:6px">
                 <button class="primary" style="flex:1;padding:3px 6px;font-size:10px;border:1px solid var(--vscode-button-border,transparent);border-radius:4px;background:var(--vscode-button-background);color:var(--vscode-button-foreground);cursor:pointer" onclick="approveBypassToken('${b.token}')">Approve (${b.token})</button>
               </div>
@@ -826,14 +831,5 @@
     if (tooltip) tooltip.style.display = 'none';
   };
 
-  function escapeHtml(str) {
-    if (!str) return '';
-    return str
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
-  }
 
 })();

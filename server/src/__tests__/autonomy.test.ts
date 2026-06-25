@@ -1,10 +1,18 @@
-import { describe, it, expect } from 'vitest';
-import { ALLOWED_COMMAND_DESCRIPTIONS } from '../intelligence/autonomy.js';
+import { describe, it, expect, beforeEach } from 'vitest';
+import {
+  ALLOWED_COMMAND_DESCRIPTIONS,
+  DEFAULT_SAFETY_POLICY,
+  _resetSafetyPolicyForTesting,
+} from '../intelligence/autonomy.js';
 
 // We can't import checkAllowlist directly (it's not exported) so we test via
 // executeRemediation in dry-run mode, which runs all safety gates including
 // the allowlist check but never spawns a process.
 import { executeRemediation } from '../intelligence/autonomy.js';
+
+// Pin the safety policy to the in-memory default before each test so tests
+// are independent of whatever ~/.mergen/safety-policy.json happens to contain.
+beforeEach(() => { _resetSafetyPolicyForTesting(DEFAULT_SAFETY_POLICY); });
 
 async function allowed(cmd: string): Promise<boolean> {
   const result = await executeRemediation(cmd, { dryRun: true, actor: 'responder' });

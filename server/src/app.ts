@@ -21,7 +21,7 @@ import logger from './sensor/logger.js';
 import { timingSafeSecretEqual, timingSafeSecretEqualAny } from './sensor/security-utils.js';
 import { billingRouter } from './intelligence/billing.js';
 import { teamRouter } from './intelligence/team.js';
-import { ingestRouter } from './sensor/ingest.js';
+import { createIngestRouter } from './sensor/ingest.js';
 import { createSensorRouter } from './routes/sensor.js';
 import { createLicenseRouter } from './routes/license.js';
 import { createCalibrationRouter } from './routes/calibration.js';
@@ -136,9 +136,35 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(auditMiddleware);
 
   // ── Security headers ──────────────────────────────────────────────────────
-  // helmet sets X-Content-Type-Options, X-Frame-Options, Referrer-Policy, etc.
-  // CSP and COEP are disabled — the dashboard/setup UI embed third-party scripts.
+  // Apply helmet globally. CSP is handled per-route below so we can be strict
+  // on API paths while allowing the dashboard/setup UI to embed third-party scripts.
   app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
+
+  // ── Route-scoped Content-Security-Policy ──────────────────────────────────
+  // Pure-API paths (incidents, overrides, hitl, ingest, webhooks …) serve only
+  // JSON / plain text and never need inline scripts or external origins.
+  // Applying a strict CSP here limits the blast radius of any XSS that may exist
+  // in error messages or dynamic content surfaced through these endpoints.
+  //
+  // Dashboard / setup / demo routes are excluded because they embed third-party
+  // scripts (charts, analytics, CDN assets); those continue with no CSP.
+  const STRICT_CSP = "default-src 'none'; frame-ancestors 'none'";
+  const CSP_EXEMPT_PREFIXES = [
+    '/dashboard', '/setup', '/demo', '/sdk',   // UI with external scripts
+    '/feedback',  '/billing',                   // pages with external embeds
+    '/slack/actions',                           // form redirect targets
+    '/hitl/approve', '/hitl/deny',              // HTML confirmation pages
+  ];
+
+  app.use((req, res, next) => {
+    const isExempt = CSP_EXEMPT_PREFIXES.some(
+      (p) => req.path === p || req.path.startsWith(p + '/') || req.path.startsWith(p + '?'),
+    );
+    if (!isExempt) {
+      res.setHeader('Content-Security-Policy', STRICT_CSP);
+    }
+    next();
+  });
 
   // ── Local-secret endpoint ─────────────────────────────────────────────────
   // Browser extension popup reads this once to obtain the shared secret.
@@ -332,7 +358,10 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   // ── Cloud-mode API key auth — guards ingest in MERGEN_CLOUD_MODE=true ────────
   app.use('/ingest', cloudAuthMiddleware);
   app.use('/v1', cloudAuthMiddleware);   // OTLP paths
-  app.use(ingestRouter);
+  // localSecret is always set (generated on first start); createIngestRouter uses it
+  // as a fallback when MERGEN_SECRET env var is not configured, ensuring /ingest is
+  // always authenticated regardless of whether the operator set MERGEN_SECRET.
+  app.use(createIngestRouter(localSecret));
   app.use(layersRouter); // Layer 2-4 routes
   app.use(otelRouter);         // OpenTelemetry export config
   app.use(otlpReceiverRouter); // OTLP HTTP receiver (also served on port 4318)

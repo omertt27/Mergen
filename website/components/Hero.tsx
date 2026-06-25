@@ -32,8 +32,36 @@ export default function Hero() {
 
   return (
     <section className="hero">
-      <span className="hero-eyebrow">
-        ⚡️ The first Agent Execution Governance (AEG) platform
+      <span className="hero-eyebrow" style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+        <span>⚡️ The first Agent Execution Governance (AEG) platform</span>
+        {stars !== null && (
+          <a
+            href="https://github.com/omertt27/Mergen"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '2px 8px',
+              borderRadius: '100px',
+              background: 'rgba(255, 255, 255, 0.05)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              color: 'var(--white)',
+              textTransform: 'none',
+              letterSpacing: 'normal',
+              fontSize: '0.65rem',
+              fontWeight: 500,
+              verticalAlign: 'middle',
+              transition: 'all 0.2s',
+            }}
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style={{ color: 'var(--accent-text)' }}>
+              <path d="M12 .587l3.668 7.431 8.2 1.192-5.934 5.787 1.4 8.168L12 18.896l-7.334 3.87 1.4-8.168L.132 9.21l8.2-1.192z" />
+            </svg>
+            <span>Star {formatStars(stars)}</span>
+          </a>
+        )}
       </span>
       <h1>Secure Every AI Agent Action Before It Executes</h1>
       <p className="hero-sub">
@@ -42,7 +70,18 @@ export default function Hero() {
       <div className="hero-actions">
         <a href="mailto:hello@mergen.dev?subject=Request%20Early%20Access" className="btn btn-white">Request Early Access</a>
         <a href="mailto:hello@mergen.dev?subject=Join%20Design%20Partner%20Program" className="btn btn-outline">Join Design Partner Program</a>
-        <div className="hero-command" onClick={handleCopyInstall} role="button" tabIndex={0}>
+        <div 
+          className="hero-command" 
+          onClick={handleCopyInstall} 
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              handleCopyInstall();
+              e.preventDefault();
+            }
+          }}
+          role="button" 
+          tabIndex={0}
+        >
           <code>npx mergen-server</code>
           {copied ? (
             <span className="hero-copy-ok">Copied!</span>

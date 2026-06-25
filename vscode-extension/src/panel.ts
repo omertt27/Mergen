@@ -4,6 +4,13 @@ import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import type {
+  ActivityEvent, SessionSignal, HealthResponse, UsageSnapshot,
+  CalibrationStats, Hypothesis, LastPack, HistoryEntry,
+  CalibrationOverview, TimelineRow, RootCause, FilePRContext,
+  AccountState, ServiceInfo, ServiceInteractions, PendingBypass,
+  UnifiedDashboardResponse,
+} from '@mergen/types';
 
 /** Node http.get wrapper that replaces fetch() for VS Code extension host compatibility.
  *  VS Code's Electron Node does not expose the global fetch / AbortSignal.timeout. */
@@ -57,161 +64,27 @@ function httpPost(url: string, body: unknown, timeoutMs: number, customHeaders?:
   });
 }
 
-interface SessionSignal {
-  kind: string;
-  message: string;
-  action: string;
-  count: number;
-  confidence: number;
-  suggestedTool: string;
-}
-
-interface HealthResponse {
-  ok: boolean;
-  buffered: number;
-  errors: number;
-  warnings: number;
-  networkErrors: number;
-  signals: SessionSignal[];
-  version: string;
-}
-
-interface UsageSnapshot {
-  planName: string;
-  month: string;
-  resetsAt: string;
-  used: number;
-  included: number | null;
-  remaining: number | null;
-  lowCredits: boolean;
-  overage: number;
-  billingStatus: 'pending' | 'confirmed';
-  overagePendingCredits: number;
-  overageCentsPerCredit: number;
-  estimatedOverageCents: number;
-  toolCallCounts?: Record<string, number>;
-  /** Watcher KPI — automatic causal-chain rebuilds today / 7-day avg. */
-  analysesToday?: number;
-  analysesAvgPerDay7d?: number;
-}
-
-/** Per-detector accuracy snapshot returned alongside each hypothesis.
- *  Mirrors `TagStats` in `server/src/calibration.ts`. We keep this loose
- *  (all fields optional) so older servers without calibration still render. */
-interface CalibrationStats {
-  tag: string;
-  predictions: number;
-  verdicts: number;
-  accuracy: number;
-  trusted: boolean;
-  shouldInterrupt: boolean;
-  accuracy7d: number | null;
-  trendDelta: number | null;
-  commonFailureModes?: Array<{ note: string; count: number }>;
-}
-
-interface Hypothesis {
-  tag: string;
-  summary: string;
-  confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT';
-  confidenceScore: number;
-  evidence: string[];
-  causalPath: string[];
-  fixHint: string | null;
-  /** Stable id for /feedback. Required for the verdict buttons to work. */
-  pid?: string;
-  /** Empirical accuracy of this detector — drives the inline badge. */
-  calibration?: CalibrationStats | null;
-}
-
-interface LastPack {
-  hasPack: boolean;
-  builtAt?: number;
-  builtAtIso?: string;
-  triggerMessage?: string;
-  /** New: why the pack was built — pageload, hmr, error, periodic, … */
-  reason?: string;
-  topHypothesis?: Hypothesis | null;
-  hypotheses?: Hypothesis[];
-  contextPack?: string;
-  hypothesesCount?: number;
-  errorsCount?: number;
-}
-
-interface HistoryEntry {
-  builtAt: number;
-  builtAtIso: string;
-  triggerMessage: string;
-  reason?: string;
-  topHypothesis: Hypothesis | null;
-}
-
-interface CalibrationOverview {
-  ok: boolean;
-  overallAccuracy: number | null;
-  trustedDetectors: number;
-  totalDetectors: number;
-  perDetector: CalibrationStats[];
-}
-
-interface TimelineRow {
-  ts: number;
-  isoTs: string;
-  kind: 'log' | 'warn' | 'error' | 'request' | 'context' | 'terminal' | 'process_exit' | 'ci_failure' | 'ci_success' | 'deployment';
-  summary: string;
-  source?: 'browser' | 'backend' | 'ci' | 'deploy';
-  sha?: string;
-}
-
-interface RootCause {
-  hypothesis: string;
-  tag: string;
-  confidence: number;
-  fixHint: string | null;
-  builtAt?: number;
-}
-
-interface FilePRContext {
-  sha: string;
-  prNumber: number | null;
-  prTitle: string | null;
-  author: string | null;
-  approvers: string[];
-  linkedIssues: Array<{ ref: string }>;
-  aiGenerated: boolean;
-  aiTool: string | null;
-  mergedAt: number | null;
-  capturedAt: number;
-}
-
-interface AccountState {
-  email:   string | null;
-  name:    string | null;
-  planId:  string;
-  planName: string;
-  status:  'active' | 'inactive' | null;
-}
+// SessionSignal, HealthResponse, UsageSnapshot, CalibrationStats, Hypothesis,
+// LastPack, HistoryEntry, CalibrationOverview, TimelineRow, RootCause,
+// FilePRContext, AccountState, ServiceInfo, ServiceInteractions, PendingBypass
+// are imported from '@mergen/types' above — single source of truth.
 
 interface ServerState {
-  connected: boolean;
-  port: number;
-  health: HealthResponse | null;
-  usage: UsageSnapshot | null;
-  lastPack: LastPack | null;
-  history: HistoryEntry[];
-  calibration: CalibrationOverview | null;
-  timeline: TimelineRow[];
-  rootCause: RootCause | null;
-  account: AccountState | null;
-  /** PR intent for the currently active file — null until fetched. */
-  fileIntent: { file: string; contexts: FilePRContext[] } | null;
-  error: string | null;
-  services: Record<string, { sdk: string; lastSeen: number; errorCount: number; spanCount: number }> | null;
-  interactions: {
-    edges: { source: string; target: string; weight: number; lastIncidentAt: number }[];
-    services: string[];
-  } | null;
-  pendingBypasses: Array<{ token: string; toolName: string; commandArg: string; expiresAt: number }> | null;
+  connected:      boolean;
+  port:           number;
+  health:         HealthResponse | null;
+  usage:          UsageSnapshot | null;
+  lastPack:       LastPack | null;
+  history:        HistoryEntry[];
+  calibration:    CalibrationOverview | null;
+  timeline:       TimelineRow[];
+  rootCause:      RootCause | null;
+  account:        AccountState | null;
+  fileIntent:     { file: string; contexts: FilePRContext[] } | null;
+  error:          string | null;
+  services:       Record<string, ServiceInfo> | null;
+  interactions:   ServiceInteractions | null;
+  pendingBypasses: PendingBypass[] | null;
 }
 
 function getNonce(): string {
@@ -234,6 +107,19 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   };
   private _pollTimer?: ReturnType<typeof setTimeout>;
   private _activeFile: string | null = null;
+
+  // Backoff: consecutive failure count — reset on success, increments on miss.
+  private _failCount = 0;
+
+  // Account data is static (plan, email) — cached per port to skip the
+  // /license round-trip on every 2s poll tick.
+  private _cachedAccount: AccountState | null = null;
+  private _cachedAccountPort: number | null = null;
+
+  // SSE: persistent connection to /activity-feed/stream for push events
+  // (HOLD/BLOCK verdicts surface instantly without waiting for the next poll).
+  private _sseReq: http.ClientRequest | null = null;
+  private _ssePort: number | null = null;
 
   constructor(private readonly _context: vscode.ExtensionContext) {}
 
@@ -433,73 +319,74 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     this._stopPolling();
     const tick = async () => {
       await this._poll();
-      this._pollTimer = setTimeout(tick, this._getInterval());
+      // Exponential backoff when disconnected: 2s → 4s → 8s → 16s → 30s cap.
+      // Reset to normal interval the moment the server responds.
+      const delay = this._state.connected
+        ? this._getInterval()
+        : Math.min(2 ** Math.min(this._failCount, 5) * 1000, 30_000);
+      this._pollTimer = setTimeout(tick, delay);
     };
     tick();
   }
 
   private _stopPolling(): void {
     if (this._pollTimer) { clearTimeout(this._pollTimer); this._pollTimer = undefined; }
+    this._disconnectSSE();
   }
 
   private async _fetchAll(port: number, timeoutMs: number): Promise<{
-    health: HealthResponse;
-    usage: UsageSnapshot;
-    lastPack: LastPack;
-    history: HistoryEntry[];
-    calibration: CalibrationOverview | null;
-    timeline: TimelineRow[];
-    rootCause: RootCause | null;
-    account: AccountState | null;
-    services: Record<string, { sdk: string; lastSeen: number; errorCount: number; spanCount: number }> | null;
-    interactions: {
-      edges: { source: string; target: string; weight: number; lastIncidentAt: number }[];
-      services: string[];
-    } | null;
-    pendingBypasses: Array<{ token: string; toolName: string; commandArg: string; expiresAt: number }> | null;
+    health:          HealthResponse;
+    usage:           UsageSnapshot;
+    lastPack:        LastPack;
+    history:         HistoryEntry[];
+    calibration:     CalibrationOverview | null;
+    timeline:        TimelineRow[];
+    rootCause:       RootCause | null;
+    account:         AccountState | null;
+    services:        Record<string, ServiceInfo> | null;
+    interactions:    ServiceInteractions | null;
+    pendingBypasses: PendingBypass[] | null;
   } | null> {
     try {
       const base = `http://127.0.0.1:${port}`;
+
+      // Only fetch /license when the port changed or we haven't fetched yet.
+      // Account/plan data is static between sessions — no need to re-request
+      // it on every 2s poll tick.
+      const needsAccount = this._cachedAccountPort !== port || this._cachedAccount === null;
+
       const [dashData, licenseData] = await Promise.all([
-        httpGet(`${base}/unified-dashboard`, timeoutMs) as Promise<{
-          health: HealthResponse;
-          usage: UsageSnapshot;
-          lastPack: LastPack;
-          history: HistoryEntry[];
-          calibration: CalibrationOverview;
-          timelineUnified: { rows: TimelineRow[]; rootCause: RootCause | null };
-          services: Record<string, { sdk: string; lastSeen: number; errorCount: number; spanCount: number }> | null;
-          interactions: {
-            edges: { source: string; target: string; weight: number; lastIncidentAt: number }[];
-            services: string[];
-          } | null;
-          pendingBypasses: Array<{ token: string; toolName: string; commandArg: string; expiresAt: number }> | null;
-        }>,
-        (httpGet(`${base}/license`, timeoutMs) as Promise<{
-          plan: { id: string; name: string };
-          license: { status: string; email: string | null; name: string | null } | null;
-        }>).catch(() => null),
+        httpGet(`${base}/unified-dashboard`, timeoutMs) as Promise<UnifiedDashboardResponse>,
+        needsAccount
+          ? (httpGet(`${base}/license`, timeoutMs) as Promise<{
+              plan: { id: string; name: string };
+              license: { status: string; email: string | null; name: string | null } | null;
+            }>).catch(() => null)
+          : Promise.resolve(null),
       ]);
 
-      const account: AccountState | null = licenseData ? {
-        email:    licenseData.license?.email ?? null,
-        name:     licenseData.license?.name  ?? null,
-        planId:   licenseData.plan?.id   ?? 'free',
-        planName: licenseData.plan?.name ?? 'Free',
-        status:   (licenseData.license?.status as AccountState['status']) ?? null,
-      } : null;
+      if (licenseData) {
+        this._cachedAccount = {
+          email:    licenseData.license?.email ?? null,
+          name:     licenseData.license?.name  ?? null,
+          planId:   licenseData.plan?.id   ?? 'free',
+          planName: licenseData.plan?.name ?? 'Free',
+          status:   (licenseData.license?.status as AccountState['status']) ?? null,
+        };
+        this._cachedAccountPort = port;
+      }
 
       return {
-        health: dashData.health,
-        usage: dashData.usage,
-        lastPack: dashData.lastPack,
-        history: dashData.history,
-        calibration: dashData.calibration,
-        timeline: dashData.timelineUnified.rows ?? [],
-        rootCause: dashData.timelineUnified.rootCause ?? null,
-        account,
-        services: dashData.services,
-        interactions: dashData.interactions,
+        health:          dashData.health,
+        usage:           dashData.usage,
+        lastPack:        dashData.lastPack,
+        history:         dashData.history,
+        calibration:     dashData.calibration,
+        timeline:        dashData.timelineUnified.rows ?? [],
+        rootCause:       dashData.timelineUnified.rootCause ?? null,
+        account:         this._cachedAccount,
+        services:        dashData.services,
+        interactions:    dashData.interactions,
         pendingBypasses: dashData.pendingBypasses ?? [],
       };
     } catch {
@@ -511,6 +398,8 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     const port = this._getPort();
     const result = await this._fetchAll(port, 1500);
     if (result) {
+      this._failCount = 0;
+      this._connectSSE(port);
       this._state = {
         connected: true, port,
         health: result.health, usage: result.usage,
@@ -526,6 +415,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     } else {
       const found = await this._discoverPort(port);
       if (!found) {
+        this._failCount++;
         this._state = {
           connected: false, port,
           health: null, usage: null,
@@ -564,6 +454,65 @@ export class MergenPanel implements vscode.WebviewViewProvider {
       }
     }
     return false;
+  }
+
+  // ── SSE connection ───────────────────────────────────────────────────────────
+
+  /** Open a persistent SSE connection to /activity-feed/stream.
+   *  HOLD and BLOCK events trigger an immediate poll so the HITL card and
+   *  blunder log appear in the sidebar without waiting for the next tick. */
+  private _connectSSE(port: number): void {
+    if (this._ssePort === port && this._sseReq) return; // already connected
+    this._disconnectSSE();
+    this._ssePort = port;
+
+    const req = http.get(
+      {
+        hostname: '127.0.0.1',
+        port,
+        path: '/activity-feed/stream',
+        headers: { Accept: 'text/event-stream' },
+      },
+      (res) => {
+        if (res.statusCode !== 200) { req.destroy(); return; }
+        let buf = '';
+        res.on('data', (chunk: Buffer) => {
+          buf += chunk.toString('utf8');
+          const parts = buf.split('\n\n');
+          buf = parts.pop() ?? '';
+          for (const part of parts) {
+            for (const line of part.split('\n')) {
+              if (!line.startsWith('data: ')) continue;
+              try {
+                const ev = JSON.parse(line.slice(6)) as ActivityEvent;
+                if (ev.verdict === 'HOLD' || ev.verdict === 'BLOCK') {
+                  // Immediately surface the HITL card / blunder entry.
+                  void this._poll();
+                }
+              } catch { /* ignore malformed events */ }
+            }
+          }
+        });
+        res.on('end', () => {
+          // Server closed the stream — retry after a short delay.
+          if (this._ssePort === port) {
+            this._sseReq = null;
+            setTimeout(() => this._connectSSE(port), 5_000);
+          }
+        });
+      },
+    );
+    req.on('error', () => {
+      // Connection refused or reset — polling will handle reconnect.
+      if (this._ssePort === port) this._sseReq = null;
+    });
+    req.setTimeout(0); // disable timeout — keep-alive stream
+    this._sseReq = req;
+  }
+
+  private _disconnectSSE(): void {
+    if (this._sseReq) { this._sseReq.destroy(); this._sseReq = null; }
+    this._ssePort = null;
   }
 
   private _getSharedSecret(): string | null {
