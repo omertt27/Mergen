@@ -86,7 +86,7 @@ export default function EvalProof() {
             const pct = Math.round((c.passed / c.total) * 100)
             const isFail = pct === 0
             return (
-              <div key={c.label} className="eval-table-row" style={isFail ? { background: 'rgba(239,68,68,0.03)' } : undefined}>
+              <div key={c.label} className="eval-table-row" style={isFail ? { background: 'rgba(255,102,0,0.03)' } : undefined}>
                 <div>
                   <span className="eval-table-label" style={isFail ? { color: 'var(--gray-400)' } : undefined}>{c.label}</span>
                   {'note' in c && c.note && (
@@ -101,10 +101,10 @@ export default function EvalProof() {
                     className="eval-bar-fill"
                     style={{
                       width: `${pct}%`,
-                      background: isFail ? 'rgba(239,68,68,0.4)' : undefined,
+                      background: isFail ? 'rgba(255,102,0,0.35)' : undefined,
                     }}
                   />
-                  <span className="eval-bar-pct" style={isFail ? { color: '#f87171' } : undefined}>{pct}%</span>
+                  <span className="eval-bar-pct" style={isFail ? { color: '#ff8c42' } : undefined}>{pct}%</span>
                 </div>
               </div>
             )

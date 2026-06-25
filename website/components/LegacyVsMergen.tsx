@@ -69,11 +69,11 @@ export default function LegacyVsMergen() {
           </div>
         </div>
         <div style={{ background: 'rgba(46, 125, 50, 0.02)', padding: '2.5rem', borderLeft: '1px solid var(--gray-800)' }}>
-          <h3 style={{ marginBottom: '1.5rem', letterSpacing: '-0.01em', fontSize: '0.95rem', fontWeight: 700, color: '#2e7d32' }}>With Mergen</h3>
+          <h3 style={{ marginBottom: '1.5rem', letterSpacing: '-0.01em', fontSize: '0.95rem', fontWeight: 700, color: '#ff6600' }}>With Mergen</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             {soloMergenSteps.map((s, i) => (
               <div key={i} style={{ display: 'flex', gap: '1.25rem' }}>
-                <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '35px', color: '#2e7d32', fontWeight: 700 }}>{s.time}</span>
+                <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '35px', color: '#ff6600', fontWeight: 700 }}>{s.time}</span>
                 <div>
                   <div style={{ fontSize: '0.88rem', fontWeight: 700, marginBottom: '0.2rem', color: 'var(--white)' }}>{s.action}</div>
                   <div style={{ fontSize: '0.8rem', color: 'var(--gray-400)' }}>{s.detail}</div>
@@ -84,15 +84,15 @@ export default function LegacyVsMergen() {
           <div style={{
             marginTop: '2rem',
             padding: '1rem 1.25rem',
-            background: '#edf6ec',
-            borderLeft: '4px solid #2e7d32',
+            background: 'rgba(255, 102, 0, 0.07)',
+            borderLeft: '4px solid #ff6600',
             borderRadius: '6px',
             display: 'flex',
             gap: '10px',
             alignItems: 'flex-start'
           }}>
             <span style={{ fontSize: '1.1rem', lineHeight: '1' }}>✅</span>
-            <p style={{ fontSize: '0.8rem', color: '#2e7d32', lineHeight: 1.5, margin: 0 }}>
+            <p style={{ fontSize: '0.8rem', color: '#ff6600', lineHeight: 1.5, margin: 0 }}>
               <strong>Result:</strong> The bug never ships. Incident history is your reviewer — working silently at commit time.
             </p>
           </div>
@@ -131,13 +131,13 @@ export default function LegacyVsMergen() {
         </div>
 
         <div style={{ background: 'rgba(46, 125, 50, 0.02)', padding: '2.5rem', borderLeft: '1px solid var(--gray-800)' }}>
-          <h3 style={{ marginBottom: '1.5rem', letterSpacing: '-0.01em', fontSize: '0.95rem', fontWeight: 700, color: '#2e7d32' }}>
+          <h3 style={{ marginBottom: '1.5rem', letterSpacing: '-0.01em', fontSize: '0.95rem', fontWeight: 700, color: '#ff6600' }}>
             With Mergen
           </h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             {mergenSteps.map((s, i) => (
               <div key={i} style={{ display: 'flex', gap: '1.25rem' }}>
-                <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '35px', color: '#2e7d32', fontWeight: 700 }}>{s.time}</span>
+                <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '35px', color: '#ff6600', fontWeight: 700 }}>{s.time}</span>
                 <div>
                   <div style={{ fontSize: '0.88rem', fontWeight: 700, marginBottom: '0.2rem', color: 'var(--white)' }}>{s.action}</div>
                   <div style={{ fontSize: '0.8rem', color: 'var(--gray-400)' }}>{s.detail}</div>
@@ -149,15 +149,15 @@ export default function LegacyVsMergen() {
           <div style={{
             marginTop: '2rem',
             padding: '1rem 1.25rem',
-            background: '#edf6ec',
-            borderLeft: '4px solid #2e7d32',
+            background: 'rgba(255, 102, 0, 0.07)',
+            borderLeft: '4px solid #ff6600',
             borderRadius: '6px',
             display: 'flex',
             gap: '10px',
             alignItems: 'flex-start'
           }}>
             <span style={{ fontSize: '1.1rem', lineHeight: '1' }}>✅</span>
-            <p style={{ fontSize: '0.8rem', color: '#2e7d32', lineHeight: 1.5, margin: 0 }}>
+            <p style={{ fontSize: '0.8rem', color: '#ff6600', lineHeight: 1.5, margin: 0 }}>
               <strong>Result:</strong> Living map generated in real-time. You immediately see the exact files, environment variables, and system commands changed by the agent.
             </p>
           </div>
@@ -198,7 +198,7 @@ export default function LegacyVsMergen() {
           </div>
         </div>
         <div style={{ background: 'rgba(46, 125, 50, 0.02)', padding: '2.5rem', borderLeft: '1px solid var(--gray-800)' }}>
-          <h3 style={{ marginBottom: '1.5rem', letterSpacing: '-0.01em', fontSize: '0.95rem', fontWeight: 700, color: '#2e7d32' }}>With Mergen</h3>
+          <h3 style={{ marginBottom: '1.5rem', letterSpacing: '-0.01em', fontSize: '0.95rem', fontWeight: 700, color: '#ff6600' }}>With Mergen</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             {[
               { time: '0ms',  action: 'Agent calls execute_fix',       detail: '{ command: "terraform destroy prod" }' },
@@ -207,7 +207,7 @@ export default function LegacyVsMergen() {
               { time: '<1ms', action: 'Blunder logged',                 detail: 'Recorded to agent-blunders.json with hash chain.' },
             ].map((s, i) => (
               <div key={i} style={{ display: 'flex', gap: '1.25rem' }}>
-                <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '40px', color: '#2e7d32', fontWeight: 700, flexShrink: 0 }}>{s.time}</span>
+                <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '40px', color: '#ff6600', fontWeight: 700, flexShrink: 0 }}>{s.time}</span>
                 <div>
                   <div style={{ fontSize: '0.88rem', fontWeight: 700, marginBottom: '0.2rem', color: 'var(--white)' }}>{s.action}</div>
                   <div style={{ fontSize: '0.8rem', color: 'var(--gray-400)', fontFamily: 'var(--font-geist-mono), monospace' }}>{s.detail}</div>
@@ -224,23 +224,23 @@ export default function LegacyVsMergen() {
             fontFamily: 'var(--font-geist-mono), monospace',
             fontSize: '0.72rem',
           }}>
-            <div style={{ color: '#ef4444', marginBottom: '6px' }}>🚫 Tool call blocked by Mergen local policy gate.</div>
-            <div style={{ color: '#94a3b8' }}>Tool: <span style={{ color: '#e2e8f0' }}>execute_fix</span></div>
-            <div style={{ color: '#94a3b8' }}>Reason: <span style={{ color: '#fbbf24' }}>Destructive command pattern matched.</span></div>
-            <div style={{ color: '#94a3b8', marginTop: '6px' }}>See: GET /agent-blunders</div>
+            <div style={{ color: '#ff6600', marginBottom: '6px' }}>🚫 Tool call blocked by Mergen local policy gate.</div>
+            <div style={{ color: '#888888' }}>Tool: <span style={{ color: '#ffffff' }}>execute_fix</span></div>
+            <div style={{ color: '#888888' }}>Reason: <span style={{ color: '#ff8c42' }}>Destructive command pattern matched.</span></div>
+            <div style={{ color: '#888888', marginTop: '6px' }}>See: GET /agent-blunders</div>
           </div>
           <div style={{
             marginTop: '1rem',
             padding: '1rem 1.25rem',
-            background: '#edf6ec',
-            borderLeft: '4px solid #2e7d32',
+            background: 'rgba(255, 102, 0, 0.07)',
+            borderLeft: '4px solid #ff6600',
             borderRadius: '6px',
             display: 'flex',
             gap: '10px',
             alignItems: 'flex-start'
           }}>
             <span style={{ fontSize: '1.1rem', lineHeight: '1' }}>✅</span>
-            <p style={{ fontSize: '0.8rem', color: '#2e7d32', lineHeight: 1.5, margin: 0 }}>
+            <p style={{ fontSize: '0.8rem', color: '#ff6600', lineHeight: 1.5, margin: 0 }}>
               <strong>Result:</strong> Production never touched. The gate runs before the handler — deterministically, in under 1ms, with no LLM involved.
             </p>
           </div>
@@ -280,7 +280,7 @@ export default function LegacyVsMergen() {
           </div>
         </div>
         <div style={{ background: 'rgba(46, 125, 50, 0.02)', padding: '2.5rem', borderLeft: '1px solid var(--gray-800)' }}>
-          <h3 style={{ marginBottom: '1.5rem', letterSpacing: '-0.01em', fontSize: '0.95rem', fontWeight: 700, color: '#2e7d32' }}>With Mergen</h3>
+          <h3 style={{ marginBottom: '1.5rem', letterSpacing: '-0.01em', fontSize: '0.95rem', fontWeight: 700, color: '#ff6600' }}>With Mergen</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             {[
               { time: '0m',  action: 'Policy registered',     detail: 'Register override: "Block automated commits to auth_middleware.ts."' },
@@ -289,7 +289,7 @@ export default function LegacyVsMergen() {
               { time: '3mo', action: 'Agent edit blocked',    detail: 'Agent tries to edit file. Git hook blocks commit instantly.' },
             ].map((s, i) => (
               <div key={i} style={{ display: 'flex', gap: '1.25rem' }}>
-                <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '35px', color: '#2e7d32', fontWeight: 700 }}>{s.time}</span>
+                <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '35px', color: '#ff6600', fontWeight: 700 }}>{s.time}</span>
                 <div>
                   <div style={{ fontSize: '0.88rem', fontWeight: 700, marginBottom: '0.2rem', color: 'var(--white)' }}>{s.action}</div>
                   <div style={{ fontSize: '0.8rem', color: 'var(--gray-400)' }}>{s.detail}</div>
@@ -300,15 +300,15 @@ export default function LegacyVsMergen() {
           <div style={{
             marginTop: '2rem',
             padding: '1rem 1.25rem',
-            background: '#edf6ec',
-            borderLeft: '4px solid #2e7d32',
+            background: 'rgba(255, 102, 0, 0.07)',
+            borderLeft: '4px solid #ff6600',
             borderRadius: '6px',
             display: 'flex',
             gap: '10px',
             alignItems: 'flex-start'
           }}>
             <span style={{ fontSize: '1.1rem', lineHeight: '1' }}>✅</span>
-            <p style={{ fontSize: '0.8rem', color: '#2e7d32', lineHeight: 1.5, margin: 0 }}>
+            <p style={{ fontSize: '0.8rem', color: '#ff6600', lineHeight: 1.5, margin: 0 }}>
               <strong>Result:</strong> Overrides persist as machine-enforceable rules. The execution gate blocks agent violations even when you forget they exist.
             </p>
           </div>

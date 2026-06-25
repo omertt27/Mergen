@@ -2,21 +2,21 @@ const SlackAuditTrail = () => (
   <div style={{
     marginTop: '2rem',
     background: '#ffffff',
-    border: '1px solid #e2e8f0',
+    border: '1px solid #dddddd',
     borderRadius: '8px',
     padding: '1.25rem',
     fontSize: '0.8rem',
-    color: '#1d1c1d',
-    boxShadow: '0 10px 30px rgba(0,0,0,0.03)',
+    color: '#111111',
+    boxShadow: '0 10px 30px rgba(0,0,0,0.06)',
   }}>
     <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-      <div style={{ width: '36px', height: '36px', background: 'var(--accent)', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 800, fontSize: '0.6rem' }}>MRG</div>
+      <div style={{ width: '36px', height: '36px', background: '#ff6600', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontWeight: 800, fontSize: '0.6rem' }}>MRG</div>
       <div>
-        <div style={{ fontWeight: 900, marginBottom: '4px', color: '#1d1c1d' }}>Mergen <span style={{ fontWeight: 400, fontSize: '0.7rem', color: '#64748b', marginLeft: '6px' }}>APP 3:17 PM</span></div>
-        <div style={{ marginBottom: '8px', color: '#1d1c1d' }}>🚫 <b>Agent Tool Call Intercepted (Blocked)</b></div>
-        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '12px', borderLeft: '4px solid #ef4444' }}>
-          <div style={{ color: '#64748b', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', fontWeight: 700 }}>Security Intercept Summary</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', color: '#334155' }}>
+        <div style={{ fontWeight: 900, marginBottom: '4px', color: '#111111' }}>Mergen <span style={{ fontWeight: 400, fontSize: '0.7rem', color: '#666666', marginLeft: '6px' }}>APP 3:17 PM</span></div>
+        <div style={{ marginBottom: '8px', color: '#111111' }}>🚫 <b>Agent Tool Call Intercepted (Blocked)</b></div>
+        <div style={{ background: '#f5f5f5', border: '1px solid #dddddd', borderRadius: '6px', padding: '12px', borderLeft: '4px solid #ff6600' }}>
+          <div style={{ color: '#666666', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', fontWeight: 700 }}>Security Intercept Summary</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', color: '#222222' }}>
             <div>• <b>Actor:</b> cursor-agent-server</div>
             <div>• <b>Action:</b> rm -rf /var/log/nginx/*</div>
             <div>• <b>Rule Matched:</b> block_destructive_commands</div>
@@ -39,17 +39,17 @@ const GateTerminal = () => (
     fontSize: '0.72rem',
     lineHeight: 1.8,
   }}>
-    <div style={{ color: '#666', marginBottom: '8px' }}># agent calls execute_fix with "terraform destroy prod"</div>
-    <div style={{ color: '#94a3b8' }}>→ <span style={{ color: '#e2e8f0' }}>tool-guard</span>: evaluating in <span style={{ color: '#4ade80' }}>&lt;1ms</span></div>
-    <div style={{ color: '#94a3b8' }}>→ pattern matched: <span style={{ color: '#fbbf24' }}>&quot;terraform destroy&quot;</span> → rule <span style={{ color: '#e2e8f0' }}>block_destructive_commands</span></div>
-    <div style={{ color: '#94a3b8' }}>→ handler: <span style={{ color: '#ef4444' }}>BLOCKED</span> (never invoked)</div>
-    <div style={{ color: '#94a3b8' }}>→ blunder logged: <span style={{ color: '#e2e8f0' }}>agent-blunders.json</span></div>
-    <div style={{ marginTop: '8px', color: '#ef4444' }}>🚫 Mergen policy gate blocked this tool call.</div>
-    <div style={{ marginTop: '4px', color: '#94a3b8' }}><span style={{ color: '#e2e8f0' }}>Why:</span> Local Gate: Destructive command pattern matched.</div>
-    <div style={{ marginTop: '4px', color: '#94a3b8' }}><span style={{ color: '#4ade80' }}>What to do instead:</span> Run `terraform plan -destroy` to preview</div>
-    <div style={{ color: '#94a3b8' }}>&nbsp;&nbsp;the blast radius, then request human approval before proceeding.</div>
-    <div style={{ marginTop: '8px', color: '#666' }}># agent reformulates → calls analyze_runtime → requests HITL approval</div>
-    <div style={{ color: '#4ade80' }}>✅ Handler runs within policy.</div>
+    <div style={{ color: '#666666', marginBottom: '8px' }}># agent calls execute_fix with "terraform destroy prod"</div>
+    <div style={{ color: '#888888' }}>→ <span style={{ color: '#ffffff' }}>tool-guard</span>: evaluating in <span style={{ color: '#ff6600' }}>&lt;1ms</span></div>
+    <div style={{ color: '#888888' }}>→ pattern matched: <span style={{ color: '#ff8c42' }}>&quot;terraform destroy&quot;</span> → rule <span style={{ color: '#ffffff' }}>block_destructive_commands</span></div>
+    <div style={{ color: '#888888' }}>→ handler: <span style={{ color: '#ff6600' }}>BLOCKED</span> (never invoked)</div>
+    <div style={{ color: '#888888' }}>→ blunder logged: <span style={{ color: '#ffffff' }}>agent-blunders.json</span></div>
+    <div style={{ marginTop: '8px', color: '#ff6600' }}>🚫 Mergen policy gate blocked this tool call.</div>
+    <div style={{ marginTop: '4px', color: '#888888' }}><span style={{ color: '#ffffff' }}>Why:</span> Local Gate: Destructive command pattern matched.</div>
+    <div style={{ marginTop: '4px', color: '#888888' }}><span style={{ color: '#ff6600' }}>What to do instead:</span> Run `terraform plan -destroy` to preview</div>
+    <div style={{ color: '#888888' }}>&nbsp;&nbsp;the blast radius, then request human approval before proceeding.</div>
+    <div style={{ marginTop: '8px', color: '#666666' }}># agent reformulates → calls analyze_runtime → requests HITL approval</div>
+    <div style={{ color: '#ff6600' }}>✅ Handler runs within policy.</div>
   </div>
 )
 
@@ -64,13 +64,13 @@ const HitlTerminal = () => (
     fontSize: '0.72rem',
     lineHeight: 1.8,
   }}>
-    <div style={{ color: '#666', marginBottom: '8px' }}># agent calls execute_fix with "prisma migrate deploy"</div>
-    <div style={{ color: '#94a3b8' }}>→ pattern matched: <span style={{ color: '#fbbf24' }}>&quot;prisma migrate&quot;</span> → rule <span style={{ color: '#e2e8f0' }}>hold_schema_mutations</span></div>
-    <div style={{ color: '#94a3b8' }}>→ <span style={{ color: '#fbbf24' }}>HOLD</span>: Promise suspended, token issued</div>
-    <div style={{ color: '#94a3b8' }}>→ webhook fired → <span style={{ color: '#e2e8f0' }}>MERGEN_HITL_WEBHOOK_URL</span></div>
-    <div style={{ color: '#64748b', marginTop: '8px', fontSize: '0.68rem' }}># operator clicks approve in Slack...</div>
-    <div style={{ color: '#94a3b8' }}>→ POST /hitl/approve?token=a3f9… → <span style={{ color: '#4ade80' }}>Promise resolved</span></div>
-    <div style={{ color: '#4ade80' }}>✅ Tool call approved. Handler now executing.</div>
+    <div style={{ color: '#666666', marginBottom: '8px' }}># agent calls execute_fix with "prisma migrate deploy"</div>
+    <div style={{ color: '#888888' }}>→ pattern matched: <span style={{ color: '#ff8c42' }}>&quot;prisma migrate&quot;</span> → rule <span style={{ color: '#ffffff' }}>hold_schema_mutations</span></div>
+    <div style={{ color: '#888888' }}>→ <span style={{ color: '#ff8c42' }}>HOLD</span>: Promise suspended, token issued</div>
+    <div style={{ color: '#888888' }}>→ webhook fired → <span style={{ color: '#ffffff' }}>MERGEN_HITL_WEBHOOK_URL</span></div>
+    <div style={{ color: '#666666', marginTop: '8px', fontSize: '0.68rem' }}># operator clicks approve in Slack...</div>
+    <div style={{ color: '#888888' }}>→ POST /hitl/approve?token=a3f9… → <span style={{ color: '#ff6600' }}>Promise resolved</span></div>
+    <div style={{ color: '#ff6600' }}>✅ Tool call approved. Handler now executing.</div>
   </div>
 )
 
@@ -78,28 +78,28 @@ const IDEHint = () => (
   <div style={{
     marginTop: '2rem',
     background: '#ffffff',
-    border: '1px solid var(--gray-800)',
+    border: '1px solid #dddddd',
     borderRadius: '6px',
     padding: '0',
     overflow: 'hidden',
-    boxShadow: '0 10px 30px rgba(0,0,0,0.03)',
+    boxShadow: '0 10px 30px rgba(0,0,0,0.06)',
   }}>
-    <div style={{ background: '#f8fafc', padding: '8px 12px', fontSize: '0.65rem', color: '#64748b', borderBottom: '1px solid var(--gray-800)', display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
+    <div style={{ background: '#f5f5f5', padding: '8px 12px', fontSize: '0.65rem', color: '#666666', borderBottom: '1px solid #dddddd', display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
       <span>auth_middleware.ts — Mergen Context</span>
       <span>mcp.json</span>
     </div>
-    <div style={{ padding: '12px', fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.72rem', color: '#24292f' }}>
-      <div style={{ color: '#8e8e93' }}>// Mergen: Historical Context found</div>
+    <div style={{ padding: '12px', fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.72rem', color: '#111111' }}>
+      <div style={{ color: '#888888' }}>// Mergen: Historical Context found</div>
       <div style={{
         display: 'flex',
         gap: '10px',
-        color: '#37352f',
-        background: '#fef3d6',
+        color: '#111111',
+        background: 'rgba(255, 102, 0, 0.07)',
         padding: '10px 14px',
         margin: '8px 0',
         borderRadius: '6px',
         lineHeight: 1.5,
-        borderLeft: '4px solid #ea580c'
+        borderLeft: '4px solid #ff6600'
       }}>
         <span style={{ fontSize: '1rem' }}>⚠️</span>
         <div>
@@ -108,9 +108,9 @@ const IDEHint = () => (
           <br/>Constraint: Do not increase stack depth &gt; 4.
         </div>
       </div>
-      <div style={{ opacity: 0.6 }}>
-        <span style={{ color: '#0550ae' }}>export const</span> <span style={{ color: '#8250df' }}>validateToken</span> = (token: <span style={{ color: '#953800' }}>string</span>) =&gt; &#123;
-        <br/>&nbsp;&nbsp;<span style={{ color: '#8e8e93' }}>// checking depth...</span>
+      <div style={{ opacity: 0.65 }}>
+        <span style={{ color: '#ff6600' }}>export const</span> <span style={{ color: '#ffffff' }}>validateToken</span> = (token: <span style={{ color: '#ff8c42' }}>string</span>) =&gt; &#123;
+        <br/>&nbsp;&nbsp;<span style={{ color: '#888888' }}>// checking depth...</span>
       </div>
     </div>
   </div>

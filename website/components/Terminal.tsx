@@ -81,8 +81,8 @@ export default function Terminal() {
             onClick={handlePlayPause} 
             style={{ 
               background: 'transparent', 
-              border: '1px solid #27272a', 
-              color: '#a1a1aa', 
+              border: '1px solid #2a2a2a', 
+              color: '#888888', 
               fontSize: '10px', 
               padding: '2px 8px', 
               borderRadius: '2px', 
@@ -97,8 +97,8 @@ export default function Terminal() {
               onClick={handleStep} 
               style={{ 
                 background: 'transparent', 
-                border: '1px solid #27272a', 
-                color: '#a1a1aa', 
+                border: '1px solid #2a2a2a', 
+                color: '#888888', 
                 fontSize: '10px', 
                 padding: '2px 8px', 
                 borderRadius: '2px', 
@@ -113,8 +113,8 @@ export default function Terminal() {
             onClick={handleRestart} 
             style={{ 
               background: 'transparent', 
-              border: '1px solid #27272a', 
-              color: '#a1a1aa', 
+              border: '1px solid #2a2a2a', 
+              color: '#888888', 
               fontSize: '10px', 
               padding: '2px 8px', 
               borderRadius: '2px', 
@@ -128,9 +128,9 @@ export default function Terminal() {
             value={speed} 
             onChange={(e) => setSpeed(Number(e.target.value))}
             style={{ 
-              background: '#18181b', 
-              border: '1px solid #27272a', 
-              color: '#a1a1aa', 
+              background: '#111111',
+              border: '1px solid #2a2a2a',
+              color: '#888888',
               fontSize: '10px', 
               padding: '1px 4px', 
               borderRadius: '4px', 
@@ -147,7 +147,7 @@ export default function Terminal() {
       </div>
       <div className="terminal-body" style={{ minHeight: '450px' }}>
         {visibleLines.map((line, i) => (
-          <div key={i} className={`terminal-line ${line.type}`} style={(line as any).isError ? { color: '#ef4444' } : undefined}>
+          <div key={i} className={`terminal-line ${line.type}`} style={(line as any).isError ? { color: '#ff6600' } : undefined}>
             {line.text}
             {i === visibleLines.length - 1 && <span className="terminal-cursor">_</span>}
           </div>

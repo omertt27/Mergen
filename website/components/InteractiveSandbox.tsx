@@ -287,15 +287,15 @@ export default function InteractiveSandbox() {
           </div>
 
           {/* Terminal Output */}
-          <div style={{ background: '#09090b', padding: '2rem', fontFamily: 'var(--font-geist-mono), monospace', display: 'flex', flexDirection: 'column', gap: '1.5rem', minHeight: '320px' }}>
-            <div style={{ color: '#71717a', fontSize: '0.75rem', borderBottom: '1px solid #27272a', paddingBottom: '1rem', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+          <div style={{ background: '#0a0a0a', padding: '2rem', fontFamily: 'var(--font-geist-mono), monospace', display: 'flex', flexDirection: 'column', gap: '1.5rem', minHeight: '320px' }}>
+            <div style={{ color: '#777777', fontSize: '0.75rem', borderBottom: '1px solid #2a2a2a', paddingBottom: '1rem', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
               <span>// Telemetry context pack:</span>
-              <span style={{ color: '#4ade80' }}>{telemetry}</span>
+              <span style={{ color: '#ff6600' }}>{telemetry}</span>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', flex: 1 }}>
               {output.length === 0 && (
-                <div style={{ color: '#52525b', fontStyle: 'italic', fontSize: '0.85rem' }}>
+                <div style={{ color: '#666666', fontStyle: 'italic', fontSize: '0.85rem' }}>
                   Adjust parameters on the left, then click "Run Detector" to see Mergen's diagnostic check in action.
                 </div>
               )}
@@ -304,10 +304,10 @@ export default function InteractiveSandbox() {
                 const isHalted = line.startsWith('> HALTED')
                 const isHeading = line.startsWith('>') && !isSuccess && !isHalted
                 
-                let textColor = '#71717a'
-                if (isSuccess) textColor = '#4ade80'
-                else if (isHalted) textColor = '#ef4444'
-                else if (isHeading) textColor = '#38bdf8'
+                let textColor = '#777777'
+                if (isSuccess) textColor = '#ff6600'
+                else if (isHalted) textColor = '#ff6600'
+                else if (isHeading) textColor = '#ff8c42'
 
                 return (
                   <div key={i} style={{
@@ -328,34 +328,34 @@ export default function InteractiveSandbox() {
               alignItems: 'center',
               justifyContent: 'space-between',
               padding: '0.75rem 1rem',
-              border: '1px solid #27272a',
-              background: '#18181b',
+              border: '1px solid #2a2a2a',
+              background: '#111111',
               borderRadius: '4px',
               fontSize: '0.75rem',
             }}>
-              <span style={{ color: '#a1a1aa' }}>Gateway Policy Match:</span>
+              <span style={{ color: '#888888' }}>Gateway Policy Match:</span>
               {isMatched ? (
-                <span style={{ color: '#4ade80', fontWeight: 800 }}>✓ MATCHED (Blocked)</span>
+                <span style={{ color: '#ff6600', fontWeight: 800 }}>✓ MATCHED (Blocked)</span>
               ) : (
-                <span style={{ color: '#71717a' }}>✗ UNMATCHED (Allowed)</span>
+                <span style={{ color: '#777777' }}>✗ UNMATCHED (Allowed)</span>
               )}
             </div>
 
             {output.length > 0 && !running && isMatched && (
               <div style={{
-                border: '1px solid #1a3a1a',
-                background: '#0a1a0a',
+                border: '1px solid #1a1a0a',
+                background: '#0a0a00',
                 borderRadius: '4px',
                 overflow: 'hidden',
                 fontSize: '0.75rem',
               }}>
                 <div style={{
-                  background: '#4a1d96',
+                  background: '#2a1a00',
                   padding: '0.5rem 0.75rem',
                   fontSize: '0.65rem',
                   fontWeight: 700,
                   letterSpacing: '0.08em',
-                  color: '#c4b5fd',
+                  color: '#ff8c42',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '0.5rem',
@@ -364,30 +364,30 @@ export default function InteractiveSandbox() {
                 </div>
                 <div style={{ padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
-                    <span style={{ color: '#f87171', minWidth: '16px' }}>🚨</span>
+                    <span style={{ color: '#ff6600', minWidth: '16px' }}>🚨</span>
                     <div>
-                      <span style={{ color: '#f1f5f9', fontWeight: 700 }}>Security Gateway Block</span>
-                      <span style={{ color: '#64748b' }}> — {selected.name.toLowerCase().replace(' ', '-')}</span>
+                      <span style={{ color: '#ffffff', fontWeight: 700 }}>Security Gateway Block</span>
+                      <span style={{ color: '#666666' }}> — {selected.name.toLowerCase().replace(' ', '-')}</span>
                     </div>
                   </div>
-                  <div style={{ paddingLeft: '1.5rem', color: '#94a3b8', lineHeight: 1.7 }}>
-                    <div>🚫 <span style={{ color: '#f87171', fontWeight: 600 }}>Command Intercepted — Local Gate Engine</span></div>
-                    <div style={{ color: '#64748b' }}>→ Action: <span style={{ color: '#e2e8f0' }}>{
+                  <div style={{ paddingLeft: '1.5rem', color: '#888888', lineHeight: 1.7 }}>
+                    <div>🚫 <span style={{ color: '#ff6600', fontWeight: 600 }}>Command Intercepted — Local Gate Engine</span></div>
+                    <div style={{ color: '#666666' }}>→ Action: <span style={{ color: '#e2e8f0' }}>{
                       selected.key === 'destructive_cmd' ? `terraform destroy prod (danger=${dangerLevel}/10, blast=${blastRadius}%)` :
                       selected.key === 'secret_leak' ? `Read credential file: .env (depth=${accessDepth}/10, cred=${isCredential.toString()})` :
                       `Prisma schema migration stack depth ${stackDepth}/10 (risk=${riskScore.toFixed(1)}/3.0)`
                     }</span></div>
-                    <div style={{ color: '#64748b' }}>→ Rule: <code style={{ color: '#38bdf8', background: 'rgba(255,255,255,0.05)', padding: '1px 4px', borderRadius: '2px' }}>{selected.remedy}</code></div>
+                    <div style={{ color: '#666666' }}>→ Rule: <code style={{ color: '#ff8c42', background: 'rgba(255,255,255,0.05)', padding: '1px 4px', borderRadius: '2px' }}>{selected.remedy}</code></div>
                   </div>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
                     <span style={{ minWidth: '16px' }}>🔒</span>
-                    <span style={{ color: '#94a3b8' }}>Gate intercept executed in <code style={{ color: '#4ade80' }}>&lt; 1ms</code></span>
+                    <span style={{ color: '#888888' }}>Gate intercept executed in <code style={{ color: '#ff6600' }}>&lt; 1ms</code></span>
                   </div>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
                     <span style={{ minWidth: '16px' }}>✅</span>
-                    <span style={{ color: '#4ade80', fontWeight: 700 }}>PREVENTED — Production protected. Blunder logged to git.</span>
+                    <span style={{ color: '#ff6600', fontWeight: 700 }}>PREVENTED — Production protected. Blunder logged to git.</span>
                   </div>
-                  <div style={{ color: '#334155', fontSize: '0.65rem', borderTop: '1px solid #1e293b', paddingTop: '0.5rem' }}>
+                  <div style={{ color: '#333333', fontSize: '0.65rem', borderTop: '1px solid #2a2a2a', paddingTop: '0.5rem' }}>
                     actionBlocked=true · executionBlocked=true · logPath=~/.mergen/agent-blunders.json
                   </div>
                 </div>
@@ -397,11 +397,11 @@ export default function InteractiveSandbox() {
             {output.length > 0 && !running && !isMatched && (
               <div style={{
                 padding: '1rem',
-                border: '1px solid #27272a',
-                background: '#18181b',
+                border: '1px solid #2a2a2a',
+                background: '#111111',
                 borderRadius: '4px',
                 fontSize: '0.75rem',
-                color: '#a1a1aa',
+                color: '#888888',
                 lineHeight: 1.6,
               }}>
                 <span style={{ color: 'var(--accent)' }}>Gate passed:</span>{' '}
