@@ -58,11 +58,20 @@ export default function GuidePage() {
   return (
     <>
       <Nav />
-      <main className="wrap" style={{ paddingTop: '8rem', paddingBottom: '8rem', minHeight: '100vh' }}>
+      <div className="notion-page-container">
+        {/* Cover Photo */}
+        <div className="notion-page-cover" style={{ background: 'linear-gradient(135deg, #a1c4fd 0%, #c2e9fb 100%)' }} />
         
-        {/* ── Header ── */}
-        <div style={{ marginBottom: '5rem' }}>
-          <span className="section-label">Developer Hub</span>
+        {/* Emoji overlay */}
+        <div className="notion-page-emoji-container">
+          <span className="notion-page-emoji">📖</span>
+        </div>
+
+        <main className="wrap notion-page-content" style={{ minHeight: '100vh' }}>
+          
+          {/* ── Header ── */}
+          <div style={{ marginBottom: '4rem' }}>
+            <span className="section-label">Developer Hub</span>
           <h1 style={{ fontSize: 'clamp(2.5rem, 8vw, 6rem)', marginBottom: '1.5rem', lineHeight: 0.95 }}>
             Mergen<br />Developer Guide
           </h1>
@@ -187,21 +196,18 @@ export default function GuidePage() {
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1.5rem', marginBottom: '3rem' }}>
                   <div style={{ border: '1px solid var(--gray-800)', borderRadius: '4px', padding: '1.5rem', background: 'var(--surface)' }}>
-                    <div style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>⚡</div>
                     <h4 style={{ color: 'var(--white)', marginBottom: '0.5rem' }}>Production Telemetry</h4>
                     <p style={{ color: 'var(--gray-400)', fontSize: '0.85rem', lineHeight: 1.5 }}>
                       OTel traces, Docker logs, PagerDuty webhooks, and CI results stream into the ring buffer. Every event is tagged, fingerprinted, and made queryable by your AI IDE.
                     </p>
                   </div>
                   <div style={{ border: '1px solid var(--gray-800)', borderRadius: '4px', padding: '1.5rem', background: 'var(--surface)' }}>
-                    <div style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>💬</div>
                     <h4 style={{ color: 'var(--white)', marginBottom: '0.5rem' }}>Slack Postmortems</h4>
                     <p style={{ color: 'var(--gray-400)', fontSize: '0.85rem', lineHeight: 1.5 }}>
                       The Slack override loop scans your incident channel every 6 hours, extracting operational constraints from postmortem threads and converting them into Override Corpus entries automatically.
                     </p>
                   </div>
                   <div style={{ border: '1px solid var(--gray-800)', borderRadius: '4px', padding: '1.5rem', background: 'var(--surface)' }}>
-                    <div style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>🗂️</div>
                     <h4 style={{ color: 'var(--white)', marginBottom: '0.5rem' }}>Git History & ADRs</h4>
                     <p style={{ color: 'var(--gray-400)', fontSize: '0.85rem', lineHeight: 1.5 }}>
                       The git ADR sync scans commit history and Architecture Decision Records daily, materialising operational constraints as durable override policies without engineers doing extra work.
@@ -252,7 +258,7 @@ export default function GuidePage() {
                   {/* Docker */}
                   <div style={{ border: '1px solid var(--gray-800)', padding: '2rem', borderRadius: '4px', background: 'var(--surface)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                      <h3 style={{ color: 'var(--white)', margin: 0 }}>🐋 Docker Daemon</h3>
+                      <h3 style={{ color: 'var(--white)', margin: 0 }}>Docker Daemon</h3>
                       <span className="install-tag">Easiest</span>
                     </div>
                     <p style={{ color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 1.6, marginBottom: '1.25rem' }}>
@@ -266,7 +272,7 @@ export default function GuidePage() {
 
                   {/* OpenTelemetry */}
                   <div style={{ border: '1px solid var(--gray-800)', padding: '2rem', borderRadius: '4px', background: 'var(--surface)' }}>
-                    <h3 style={{ color: 'var(--white)', marginBottom: '1.5rem' }}>📊 OpenTelemetry (OTLP)</h3>
+                    <h3 style={{ color: 'var(--white)', marginBottom: '1.5rem' }}>OpenTelemetry (OTLP)</h3>
                     <p style={{ color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 1.6, marginBottom: '1.25rem' }}>
                       Configure standard OTel log exporters in your microservices to transmit traces directly to localhost:
                     </p>
@@ -278,7 +284,7 @@ export default function GuidePage() {
 
                   {/* PagerDuty */}
                   <div style={{ border: '1px solid var(--gray-800)', padding: '2rem', borderRadius: '4px', background: 'var(--surface)' }}>
-                    <h3 style={{ color: 'var(--white)', marginBottom: '1.5rem' }}>🚨 PagerDuty Alerts</h3>
+                    <h3 style={{ color: 'var(--white)', marginBottom: '1.5rem' }}>PagerDuty Alerts</h3>
                     <p style={{ color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 1.6, marginBottom: '1.25rem' }}>
                       To trigger automatic triage whenever a P1 incident fires, configure a webhook inside PagerDuty:
                     </p>
@@ -293,7 +299,7 @@ export default function GuidePage() {
                   {/* Slack Override Loop */}
                   <div style={{ border: '1px solid var(--gray-800)', padding: '2rem', borderRadius: '4px', background: 'var(--surface)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                      <h3 style={{ color: 'var(--white)', margin: 0 }}>💬 Slack Postmortem Loop</h3>
+                      <h3 style={{ color: 'var(--white)', margin: 0 }}>Slack Postmortem Loop</h3>
                       <span className="install-tag">Knowledge Compounding</span>
                     </div>
                     <p style={{ color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 1.6, marginBottom: '1.25rem' }}>
@@ -308,7 +314,7 @@ export default function GuidePage() {
                   {/* Git ADR Sync */}
                   <div style={{ border: '1px solid var(--gray-800)', padding: '2rem', borderRadius: '4px', background: 'var(--surface)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                      <h3 style={{ color: 'var(--white)', margin: 0 }}>🗂️ Git History & ADR Sync</h3>
+                      <h3 style={{ color: 'var(--white)', margin: 0 }}>Git History & ADR Sync</h3>
                       <span className="install-tag">Knowledge Compounding</span>
                     </div>
                     <p style={{ color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 1.6, marginBottom: '1.25rem' }}>
@@ -473,7 +479,6 @@ export default function GuidePage() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', marginBottom: '3rem' }}>
                   <div style={{ border: '1px solid var(--gray-800)', padding: '2rem', borderRadius: '4px', background: 'var(--surface)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-                      <span style={{ color: '#4ade80', fontSize: '1.2rem' }}>🕵️</span>
                       <h3 style={{ color: 'var(--white)', margin: 0, fontSize: '1.1rem' }}>Shadow Mode</h3>
                     </div>
                     <p style={{ color: 'var(--gray-400)', fontSize: '0.85rem', lineHeight: 1.6, marginBottom: '1rem' }}>
@@ -487,7 +492,6 @@ export default function GuidePage() {
 
                   <div style={{ border: '1px solid var(--gray-800)', padding: '2rem', borderRadius: '4px', background: 'var(--surface)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-                      <span style={{ color: '#f59e0b', fontSize: '1.2rem' }}>⚡</span>
                       <h3 style={{ color: 'var(--white)', margin: 0, fontSize: '1.1rem' }}>Autopilot</h3>
                     </div>
                     <p style={{ color: 'var(--gray-400)', fontSize: '0.85rem', lineHeight: 1.6, marginBottom: '1rem' }}>
@@ -658,6 +662,7 @@ export default function GuidePage() {
 
       </main>
       <Footer />
+      </div>
     </>
   )
 }

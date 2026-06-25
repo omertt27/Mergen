@@ -127,16 +127,25 @@ export default function AccountPage() {
   return (
     <>
       <Nav />
-      <main className="wrap" style={{ paddingTop: '8rem', paddingBottom: '8rem' }}>
-        <div style={{ maxWidth: 680 }}>
+      <div className="notion-page-container">
+        {/* Cover Photo */}
+        <div className="notion-page-cover" style={{ background: 'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)' }} />
+        
+        {/* Emoji overlay */}
+        <div className="notion-page-emoji-container">
+          <span className="notion-page-emoji">👤</span>
+        </div>
 
-          {/* Header */}
-          <p style={{ fontFamily: 'var(--font-geist-mono)', fontSize: '0.6rem', letterSpacing: '0.5em', textTransform: 'uppercase', color: 'var(--gray-600)', marginBottom: '1.5rem' }}>
-            Account
-          </p>
-          <h1 style={{ fontSize: 'clamp(1.8rem, 4vw, 2.5rem)', fontWeight: 800, lineHeight: 1.1, marginBottom: '2.5rem' }}>
-            My Mergen
-          </h1>
+        <main className="wrap notion-page-content">
+          <div style={{ maxWidth: 680 }}>
+
+            {/* Header */}
+            <p style={{ fontFamily: 'var(--font-geist-mono)', fontSize: '0.6rem', letterSpacing: '0.5em', textTransform: 'uppercase', color: 'var(--gray-600)', marginBottom: '1.5rem' }}>
+              Account
+            </p>
+            <h1 style={{ fontSize: 'clamp(1.8rem, 4vw, 2.5rem)', fontWeight: 800, lineHeight: 1.1, marginBottom: '2.5rem' }}>
+              My Mergen
+            </h1>
 
           {/* Connection status bar */}
           <div style={{ ...card, display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem', padding: '1rem 1.5rem' }}>
@@ -313,6 +322,7 @@ export default function AccountPage() {
         </div>
       </main>
       <Footer />
+      </div>
     </>
   )
 }

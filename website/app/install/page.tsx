@@ -99,19 +99,28 @@ export default function InstallPage() {
   return (
     <>
       <Nav />
-      <main className="wrap" style={{ paddingTop: '8rem', paddingBottom: '8rem' }}>
-
-        {/* ── Header ── */}
-        <div style={{ marginBottom: '6rem' }}>
-          <span className="section-label">Install</span>
-          <h1 style={{ fontSize: 'clamp(2.5rem, 8vw, 6rem)', marginBottom: '2rem' }}>
-            Choose Your<br />Method
-          </h1>
-          <p style={{ maxWidth: 600, color: 'var(--gray-400)', fontSize: '1.15rem', lineHeight: 1.7 }}>
-            Multiple ways to install Mergen depending on your preferences and environment.
-            Start with Method 1 for the smoothest experience.
-          </p>
+      <div className="notion-page-container">
+        {/* Cover Photo */}
+        <div className="notion-page-cover" style={{ background: 'linear-gradient(135deg, #fbc2eb 0%, #a6c1ee 100%)' }} />
+        
+        {/* Emoji overlay */}
+        <div className="notion-page-emoji-container">
+          <span className="notion-page-emoji">🏁</span>
         </div>
+
+        <main className="wrap notion-page-content">
+          
+          {/* ── Header ── */}
+          <div style={{ marginBottom: '4rem' }}>
+            <span className="section-label">Install</span>
+            <h1 style={{ fontSize: 'clamp(2.5rem, 8vw, 6rem)', marginBottom: '2rem' }}>
+              Choose Your<br />Method
+            </h1>
+            <p style={{ maxWidth: 600, color: 'var(--gray-400)', fontSize: '1.15rem', lineHeight: 1.7 }}>
+              Multiple ways to install Mergen depending on your preferences and environment.
+              Start with Method 1 for the smoothest experience.
+            </p>
+          </div>
 
         {/* ── Method cards ── */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginBottom: '8rem' }}>
@@ -265,6 +274,7 @@ export default function InstallPage() {
 
       </main>
       <Footer />
+      </div>
     </>
   )
 }

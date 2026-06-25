@@ -5,7 +5,7 @@ const sources = [
   { name: 'Git',           type: 'Policy',      tag: 'ADR → corpus' },
   { name: 'Kubernetes',    type: 'Infra',       tag: 'Events + Manifests' },
   { name: 'Prometheus',    type: 'Metrics',     tag: 'OpenTelemetry' },
-  { name: 'GitHub',        type: 'CI/CD',       tag: 'AEG safety gate' },
+  { name: 'GitHub',        type: 'CI/CD',       tag: 'PR security gate' },
   { name: 'AWS/GCP',       type: 'Cloud',       tag: 'Config + Topology' },
 ]
 

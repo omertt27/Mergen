@@ -37,7 +37,7 @@ const howSteps = [
 
 export default function Architecture() {
   return (
-    <section id="how">
+    <section id="arch">
       <span className="section-label">03 // How It Works</span>
       <h2>
         Four steps from tool call

@@ -19,23 +19,34 @@ export default function Home() {
     <>
       <CausalCanvas />
       <Nav />
-      <main className="wrap">
-        <Hero />
-        <Terminal />
-        <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-          <QuickStartVideo />
+      <div className="notion-page-container">
+        {/* Cover Photo */}
+        <div className="notion-page-cover" />
+        
+        {/* Emoji overlay */}
+        <div className="notion-page-emoji-container">
+          <span className="notion-page-emoji">🛡️</span>
         </div>
-        <LegacyVsMergen />
-        <Architecture />
-        <EvalProof />
-        <MacroThesis />
-        <Features />
-        <InteractiveSandbox />
-        <Integrations />
-        <UserGuide />
-        <Pricing />
-      </main>
-      <Footer />
+
+        {/* Main Content Area */}
+        <main className="wrap notion-page-content">
+          <Hero />
+          <Terminal />
+          <div style={{ maxWidth: '800px', margin: '2rem auto' }}>
+            <QuickStartVideo />
+          </div>
+          <LegacyVsMergen />
+          <Architecture />
+          <EvalProof />
+          <MacroThesis />
+          <Features />
+          <InteractiveSandbox />
+          <Integrations />
+          <UserGuide />
+          <Pricing />
+        </main>
+        <Footer />
+      </div>
     </>
   )
 }

@@ -103,6 +103,7 @@ export default function CausalCanvas() {
   return (
     <canvas
       ref={canvasRef}
+      className="causal-canvas"
       style={{
         position: 'fixed',
         top: 0,
@@ -110,7 +111,6 @@ export default function CausalCanvas() {
         width: '100%',
         height: '100%',
         zIndex: -1,
-        opacity: 0.3,
         pointerEvents: 'none',
       }}
     />

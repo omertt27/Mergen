@@ -31,47 +31,68 @@ export default function Hero() {
   }
 
   return (
-    <section className="hero">
-      <span className="hero-eyebrow" style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-        <span>⚡️ The first Agent Execution Governance (AEG) platform</span>
+    <div className="notion-hero-section">
+      {/* Page Title */}
+      <h1 className="notion-page-title">Secure Every AI Agent Action Before It Executes</h1>
+
+      {/* Notion Page Properties Table */}
+      <div className="notion-properties-panel">
+        <div className="property-row">
+          <span className="property-name">Status</span>
+          <span className="property-value">Active Release</span>
+        </div>
         {stars !== null && (
-          <a
-            href="https://github.com/omertt27/Mergen"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '2px 8px',
-              borderRadius: '100px',
-              background: 'rgba(255, 255, 255, 0.05)',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
-              color: 'var(--white)',
-              textTransform: 'none',
-              letterSpacing: 'normal',
-              fontSize: '0.65rem',
-              fontWeight: 500,
-              verticalAlign: 'middle',
-              transition: 'all 0.2s',
-            }}
-          >
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style={{ color: 'var(--accent-text)' }}>
-              <path d="M12 .587l3.668 7.431 8.2 1.192-5.934 5.787 1.4 8.168L12 18.896l-7.334 3.87 1.4-8.168L.132 9.21l8.2-1.192z" />
-            </svg>
-            <span>Star {formatStars(stars)}</span>
-          </a>
+          <div className="property-row">
+            <span className="property-name">GitHub Stars</span>
+            <span className="property-value">
+              <a
+                href="https://github.com/omertt27/Mergen"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="property-link"
+              >
+                {formatStars(stars)} stars
+              </a>
+            </span>
+          </div>
         )}
-      </span>
-      <h1>Secure Every AI Agent Action Before It Executes</h1>
-      <p className="hero-sub">
-        Sentry and Datadog tell you after an AI agent has corrupted your database or leaked credentials. Mergen is the inline Execution and Security Gateway that physically blocks hazardous agent actions before they reach your runtime, databases, or cloud infrastructure.
-      </p>
-      <div className="hero-actions">
-        <a href="mailto:hello@mergen.dev?subject=Request%20Early%20Access" className="btn btn-white">Request Early Access</a>
-        <a href="mailto:hello@mergen.dev?subject=Join%20Design%20Partner%20Program" className="btn btn-outline">Join Design Partner Program</a>
+        <div className="property-row">
+          <span className="property-name">License</span>
+          <span className="property-value">Apache 2.0</span>
+        </div>
+        <div className="property-row">
+          <span className="property-name">Command</span>
+          <span className="property-value code-inline">npx mergen-server</span>
+        </div>
+      </div>
+
+      {/* Notion Callout Box (Main description) */}
+      <div className="notion-callout warning">
+        <div className="callout-icon-container">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="callout-svg">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+        </div>
+        <div className="callout-text">
+          <strong>The Security Boundary:</strong> Sentry and Datadog tell you <em>after</em> an AI agent has corrupted your database or leaked credentials. Mergen is the inline Execution and Security Gateway that physically blocks hazardous agent actions before they reach your runtime, databases, or cloud infrastructure.
+        </div>
+      </div>
+
+      {/* Action Buttons & Install Code */}
+      <div className="notion-hero-actions-container">
+        <div className="notion-actions">
+          <a href="mailto:hello@mergen.dev?subject=Request%20Early%20Access" className="btn btn-notion-primary">
+            Request Early Access
+          </a>
+          <a href="mailto:hello@mergen.dev?subject=Join%20Design%20Partner%20Program" className="btn btn-notion-secondary">
+            Join Design Partner Program
+          </a>
+        </div>
+
+        {/* Copy command box */}
         <div 
-          className="hero-command" 
+          className="notion-install-command-box" 
           onClick={handleCopyInstall} 
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {
@@ -82,38 +103,49 @@ export default function Hero() {
           role="button" 
           tabIndex={0}
         >
+          <span className="terminal-prompt">$</span>
           <code>npx mergen-server</code>
           {copied ? (
-            <span className="hero-copy-ok">Copied!</span>
+            <span className="copy-ok-badge">Copied!</span>
           ) : (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="copy-icon">
               <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
               <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
             </svg>
           )}
         </div>
       </div>
-      <div className="hero-badges">
+
+      {/* Checklist / Features list */}
+      <div className="notion-checklist">
         {[
-          'Deterministic local policy gate',
-          'Human-in-the-loop (HITL) approval',
+          'Deterministic local policy gate (<1ms)',
+          'Human-in-the-loop (HITL) approval gates',
           'Every blocked action logged & hash-chained',
-          'Override corpus: your infrastructure DNA',
-          'Agent safety CI gate',
-          'All data on your infrastructure',
+          'Override corpus: operational DNA definition',
+          'Agent safety validation CI/CD gate',
+          'All execution telemetry stays on your hardware',
         ].map((b) => (
-          <span key={b} className="hero-badge">✓ {b}</span>
-        ))}
-      </div>
-      <div className="hero-stats">
-        {heroStats.map((s) => (
-          <div key={s.val} className="hero-stat">
-            <span className="hero-stat-val">{s.val}</span>
-            <span className="hero-stat-label">{s.label}</span>
-            <span className="hero-stat-sub">{s.sub}</span>
+          <div key={b} className="checklist-item">
+            <span className="check-box">✓</span>
+            <span className="check-label">{b}</span>
           </div>
         ))}
       </div>
-    </section>
+
+      {/* Database Board for Stats */}
+      <div className="notion-stats-board">
+        <span className="board-title">Key Metrics</span>
+        <div className="board-cards">
+          {heroStats.map((s) => (
+            <div key={s.val} className="board-card">
+              <span className="card-val">{s.val}</span>
+              <span className="card-label">{s.label}</span>
+              <span className="card-sub">{s.sub}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   )
 }

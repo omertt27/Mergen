@@ -42,6 +42,18 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                var theme = localStorage.getItem('mergen-theme') || 'light';
+                document.documentElement.className = document.documentElement.className + ' notion-' + theme;
+              })();
+            `,
+          }}
+        />
+      </head>
       <body>{children}</body>
     </html>
   )
