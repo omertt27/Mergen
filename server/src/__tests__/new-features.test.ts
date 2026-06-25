@@ -81,7 +81,7 @@ describe('New Features - Phase 4 & Enterprise Integration', () => {
       const friday15 = new Date('2026-06-26T15:00:00Z').getTime();
       const result = evaluateEnterprisePolicy({
         files: ['src/auth_middleware.ts'],
-        actor: 'alice-developer',
+        actor: 'human-alice-developer',
         service: 'api-service',
         timestamp: friday15,
       });
@@ -92,7 +92,7 @@ describe('New Features - Phase 4 & Enterprise Integration', () => {
     it('should warn when human touches database migration files', () => {
       const result = evaluateEnterprisePolicy({
         files: ['src/db/migrations/123_schema.sql'],
-        actor: 'alice-developer',
+        actor: 'human-alice-developer',
         service: 'api-service',
       });
 
@@ -200,6 +200,61 @@ describe('New Features - Phase 4 & Enterprise Integration', () => {
       expect(data.overrideCompiled).toBe(true);
       expect(data.overrideId).toBeDefined();
       expect(data.adr.id).toBeDefined();
+    });
+  });
+
+  describe('Risk Report Endpoint & Blunder Ingestion', () => {
+    it('serves risk report in JSON format', async () => {
+      const resp = await fetch(`${baseURL}/risk-report`, {
+        headers: { 'x-mergen-secret': secret },
+      });
+      expect(resp.status).toBe(200);
+      const data = await resp.json() as any;
+      expect(data.ok).toBe(true);
+      expect(data.report).toBeDefined();
+      expect(data.report.riskScore).toBeDefined();
+    });
+
+    it('serves risk report in Markdown format', async () => {
+      const resp = await fetch(`${baseURL}/risk-report?format=md`, {
+        headers: { 'x-mergen-secret': secret },
+      });
+      expect(resp.status).toBe(200);
+      expect(resp.headers.get('content-type')).toContain('text/markdown');
+      const text = await resp.text();
+      expect(text).toContain('# Mergen — AI Agent Security Risk Report');
+    });
+
+    it('rejects unauthenticated risk report requests', async () => {
+      const resp = await fetch(`${baseURL}/risk-report`);
+      expect(resp.status).toBe(401);
+    });
+
+    it('ingests blunder events through /ingest', async () => {
+      const resp = await fetch(`${baseURL}/ingest`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-mergen-secret': secret,
+        },
+        body: JSON.stringify({
+          type: 'blunder',
+          blunderType: 'pipeline_block',
+          command: 'rm -rf /var/important-data',
+          blockReason: 'destructive command',
+          service: 'test-service',
+          actor: 'test-agent',
+        }),
+      });
+      expect(resp.status).toBe(204);
+
+      // Now query risk-report to verify the blunder counts got updated!
+      const reportResp = await fetch(`${baseURL}/risk-report`, {
+        headers: { 'x-mergen-secret': secret },
+      });
+      const data = await reportResp.json() as any;
+      expect(data.report.totalBlocked).toBeGreaterThan(0);
+      expect(data.report.topBlockedCommands.some((c: any) => c.command.includes('rm -rf'))).toBe(true);
     });
   });
 });

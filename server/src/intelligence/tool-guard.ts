@@ -31,6 +31,7 @@ import {
 } from './gate-analytics.js';
 import { trackBlock, trackSuccessfulCall } from '../sensor/bypass-tracker.js';
 import { recordActivity } from './activity-feed.js';
+import { checkAgentProfile } from './agent-profiles.js';
 import logger from '../sensor/logger.js';
 import { BYPASS_PENDING_FILE, HITL_HOLDS_FILE, DATA_DIR, zeroRetentionMode } from '../sensor/paths.js';
 
@@ -479,14 +480,42 @@ async function applyGate(
     return next();
   }
 
+  // Per-agent profile check — enforced before enterprise policy
+  const profileBlock = checkAgentProfile(toolName);
+  if (profileBlock) {
+    recordGateBlock([]);
+    recordBlunder({
+      blunderType:     'rbac_block',
+      command:         toolName,
+      blockReason:     profileBlock,
+      service:         'mcp',
+      tag:             'agent_profile',
+      actor:           process.env.MERGEN_AGENT_ID ?? 'agent',
+      pid:             null,
+      confidenceScore: null,
+    });
+    recordActivity({ toolName, commandArg, verdict: 'BLOCK', triggeredRules: ['agent_profile'], ruleNames: ['Agent Profile Block'] });
+    return {
+      content: [{
+        type: 'text',
+        text: `🚫 **Mergen agent profile gate blocked this tool call.**\n\n**Tool:** \`${toolName}\`\n**Why:** ${profileBlock}\n\n_Adjust permissions at: mergen-server agent-update ${process.env.MERGEN_AGENT_ID ?? ''}_`,
+      }],
+      isError: true,
+    };
+  }
+
   // Actor identity is always 'agent' for MCP tool calls — it must not be derived
   // from agent-supplied arguments, which the agent can forge to bypass AI-specific rules.
+  // Environment, repo, and agentId come from server-side env vars set by the operator.
   const evaluation = evaluateEnterprisePolicy({
-    files:    [toolName],
-    commands: [toolName, commandArg].filter(Boolean),
-    actor:    'agent',
-    service:  'mcp',
-    timestamp: Date.now(),
+    files:       [toolName],
+    commands:    [toolName, commandArg].filter(Boolean),
+    actor:       'agent',
+    service:     'mcp',
+    timestamp:   Date.now(),
+    environment: process.env.MERGEN_ENVIRONMENT ?? undefined,
+    repo:        process.env.MERGEN_REPO ?? undefined,
+    agentId:     process.env.MERGEN_AGENT_ID ?? undefined,
   });
 
   const evalMs = Date.now() - t0;

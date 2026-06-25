@@ -13,12 +13,18 @@ const EnterprisePolicyRuleSchema = z.object({
   action:      z.enum(['block', 'warn', 'pass']),
   reason:      z.string(),
   conditions:  z.object({
-    files:      z.array(z.string()).optional(),
-    commands:   z.array(z.string()).optional(),
-    actorType:  z.enum(['ai', 'human', 'all']).optional(),
-    daysOfWeek: z.array(z.number().int().min(0).max(6)).optional(),
-    hourWindow: z.tuple([z.number().int().min(0).max(23), z.number().int().min(0).max(24)]).optional(),
-    services:   z.array(z.string()).optional(),
+    files:        z.array(z.string()).optional(),
+    commands:     z.array(z.string()).optional(),
+    actorType:    z.enum(['ai', 'human', 'all']).optional(),
+    daysOfWeek:   z.array(z.number().int().min(0).max(6)).optional(),
+    hourWindow:   z.tuple([z.number().int().min(0).max(23), z.number().int().min(0).max(24)]).optional(),
+    services:     z.array(z.string()).optional(),
+    /** e.g. ['production', 'prod'] — only enforce this rule in matching environments */
+    environments: z.array(z.string()).optional(),
+    /** e.g. ['acme/payments-api'] — only enforce in matching repos (owner/repo or bare name) */
+    repos:        z.array(z.string()).optional(),
+    /** e.g. ['claude-alice', 'ci-bot'] — only enforce for these registered agent IDs */
+    agentIds:     z.array(z.string()).optional(),
   }),
 });
 
@@ -32,7 +38,7 @@ export type EnterprisePolicyConfig = z.infer<typeof EnterprisePolicyConfigSchema
 
 export const ENTERPRISE_POLICY_FILE = path.join(DATA_DIR, 'enterprise-policy.json');
 
-const DEFAULT_ENTERPRISE_POLICY: EnterprisePolicyConfig = {
+export const DEFAULT_ENTERPRISE_POLICY: EnterprisePolicyConfig = {
   enabled: true,
   rules: [
     // ── Local gate: destructive command patterns (block immediately) ───────────
@@ -204,6 +210,12 @@ export interface EvaluationInput {
   actor: string;
   service: string;
   timestamp?: number;
+  /** e.g. 'production', 'staging', 'dev' — matched against conditions.environments */
+  environment?: string;
+  /** e.g. 'acme/payments-api' — matched against conditions.repos */
+  repo?: string;
+  /** Registered agent ID (e.g. 'claude-alice') — matched against conditions.agentIds */
+  agentId?: string;
 }
 
 export interface PolicyEvaluationResult {
@@ -247,7 +259,7 @@ export function evaluateEnterprisePolicy(input: EvaluationInput): PolicyEvaluati
     return result;
   }
 
-  const { files, commands = [], actor, service, timestamp = Date.now() } = input;
+  const { files, commands = [], actor, service, timestamp = Date.now(), environment, repo, agentId } = input;
   const isAi = isAiActor(actor);
   const date = new Date(timestamp);
   const dayOfWeek = date.getUTCDay();
@@ -261,6 +273,9 @@ export function evaluateEnterprisePolicy(input: EvaluationInput): PolicyEvaluati
     let dayMatched     = true;
     let hourMatched    = true;
     let serviceMatched = true;
+    let envMatched     = true;
+    let repoMatched    = true;
+    let agentMatched   = true;
 
     // 1. Files Condition
     if (cond.files && cond.files.length > 0) {
@@ -306,7 +321,28 @@ export function evaluateEnterprisePolicy(input: EvaluationInput): PolicyEvaluati
       serviceMatched = cond.services.some(s => s.toLowerCase() === service.toLowerCase());
     }
 
-    if (fileMatched && commandMatched && actorMatched && dayMatched && hourMatched && serviceMatched) {
+    // 7. Environment Condition — rule only fires in matching environments
+    if (cond.environments && cond.environments.length > 0) {
+      envMatched = environment
+        ? cond.environments.some(e => e.toLowerCase() === environment.toLowerCase())
+        : false; // no environment provided → rule doesn't apply
+    }
+
+    // 8. Repo Condition — rule only fires in matching repos
+    if (cond.repos && cond.repos.length > 0) {
+      repoMatched = repo
+        ? cond.repos.some(r => repo.toLowerCase().endsWith(r.toLowerCase()))
+        : false;
+    }
+
+    // 9. Agent ID Condition — rule only fires for specific registered agents
+    if (cond.agentIds && cond.agentIds.length > 0) {
+      agentMatched = agentId
+        ? cond.agentIds.some(a => a.toLowerCase() === agentId.toLowerCase())
+        : false;
+    }
+
+    if (fileMatched && commandMatched && actorMatched && dayMatched && hourMatched && serviceMatched && envMatched && repoMatched && agentMatched) {
       result.triggeredRules.push(rule.id);
       result.reasons.push(rule.reason);
       

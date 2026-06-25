@@ -32,11 +32,26 @@ describe('E2E System Tests', () => {
   let server: HttpServer;
   let baseURL: string;
 
+  const originalFetch = global.fetch;
+
   beforeEach(async () => {
     store.clear();
     resetForTesting();
     const port = await findFreePort();
     app = createApp({ serverVersion: TEST_VERSION, localSecret: TEST_SECRET, port, bindHost: '127.0.0.1' });
+
+    global.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const urlStr = typeof input === 'string' ? input : (input instanceof URL ? input.toString() : input.url);
+      if (urlStr.includes('/ingest') && init) {
+        const headers = new Headers(init.headers);
+        if (!headers.has('x-mergen-secret')) {
+          headers.set('x-mergen-secret', TEST_SECRET);
+        }
+        init = { ...init, headers };
+      }
+      return originalFetch(input, init);
+    };
+
     await new Promise<void>((resolve, reject) => {
       server = app.listen(port, '127.0.0.1', () => {
         baseURL = `http://127.0.0.1:${port}`;
@@ -47,7 +62,7 @@ describe('E2E System Tests', () => {
         // slow CI machines where the TCP stack isn't ready the instant listen fires.
         for (let i = 0; i < 40; i++) {
           try {
-            const res = await fetch(`http://127.0.0.1:${port}/health`);
+            const res = await originalFetch(`http://127.0.0.1:${port}/health`);
             if (res.ok) { resolve(); return; }
           } catch {}
           await new Promise(r => setTimeout(r, 25));
@@ -58,6 +73,7 @@ describe('E2E System Tests', () => {
   });
 
   afterEach(async () => {
+    global.fetch = originalFetch;
     if (server) {
       await new Promise<void>((resolve) => {
         server.close(() => resolve());

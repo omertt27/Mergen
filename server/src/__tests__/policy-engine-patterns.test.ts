@@ -137,7 +137,7 @@ describe('evaluateEnterprisePolicy — word-boundary command matching', () => {
     const result = evaluateEnterprisePolicy({
       files: [],
       commands: ['deploy', 'prisma migrate deploy'],
-      actor: 'omer',
+      actor: 'human-omer',
       service: 'api',
     });
     // human actors: not matched by hold_schema_mutations (actorType: 'ai')

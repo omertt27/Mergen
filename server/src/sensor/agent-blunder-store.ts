@@ -170,10 +170,18 @@ export function _injectRawForTesting(entry: Partial<BlunderEvent> & Pick<Blunder
   });
 }
 
-export function recordBlunder(event: Omit<BlunderEvent, 'id' | 'recordedAt' | 'hash' | 'previousHash'>): void {
+export function recordBlunder(event: Omit<BlunderEvent, 'hash' | 'previousHash'> & { id?: string; recordedAt?: number }): void {
   return lockAndExecute(`${BLUNDER_FILE}.lock`, () => {
     load(true);
-    const base = { id: randomUUID(), recordedAt: Date.now(), ...event };
+    const id = event.id ?? randomUUID();
+    if (_blunders.some((b) => b.id === id)) {
+      return; // replay deduplication
+    }
+    const base = {
+      ...event,
+      id,
+      recordedAt: event.recordedAt ?? Date.now(),
+    };
     // Use || not ?? — v1 legacy entries have hash='' (empty string), which is
     // falsy but not nullish. ?? would leave previousHash as '' and corrupt the
     // chain when a v2 entry immediately follows a v1 preamble entry.

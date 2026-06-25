@@ -110,7 +110,7 @@ export function createIngestRouter(localSecret: string): Router {
   // back to the auto-generated localSecret so auth is always enforced.
   const effectiveSecret = process.env.MERGEN_SECRET ?? localSecret;
 
-  router.post('/ingest', (req: Request, res: Response): void => {
+  router.post('/ingest', async (req: Request, res: Response): Promise<void> => {
     if (!timingSafeSecretEqualAny(req.headers['x-mergen-secret'], effectiveSecret)) {
       res.status(401).json({ error: 'unauthorized' });
       return;
@@ -128,6 +128,34 @@ export function createIngestRouter(localSecret: string): Router {
 
     const result = BrowserEventSchema.safeParse(req.body);
     if (!result.success) {
+      if (req.body && req.body.type === 'blunder') {
+        const { id, recordedAt, blunderType, command, blockReason, service, tag, actor, pid, confidenceScore } = req.body;
+        if (typeof blunderType !== 'string' || typeof blockReason !== 'string' || typeof actor !== 'string') {
+          res.status(400).json({ error: 'invalid blunder event fields' });
+          return;
+        }
+        const { recordBlunder } = await import('./agent-blunder-store.js');
+        try {
+          recordBlunder({
+            id: typeof id === 'string' ? id : undefined,
+            recordedAt: typeof recordedAt === 'number' ? recordedAt : undefined,
+            blunderType,
+            command: typeof command === 'string' ? command : undefined,
+            blockReason,
+            service: typeof service === 'string' ? service : null,
+            tag: typeof tag === 'string' ? tag : null,
+            actor,
+            pid: typeof pid === 'number' ? pid : null,
+            confidenceScore: typeof confidenceScore === 'number' ? confidenceScore : null,
+          });
+          res.status(204).end();
+          return;
+        } catch (err) {
+          logger.warn({ err }, 'ingest: failed to record blunder');
+          res.status(500).json({ error: 'failed to record blunder' });
+          return;
+        }
+      }
       res.status(400).json({ error: 'invalid event', details: result.error.flatten() });
       return;
     }

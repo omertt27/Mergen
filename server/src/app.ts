@@ -69,6 +69,11 @@ import { createCIGateRouter } from './routes/ci-gate.js';
 import { createHitlRouter } from './routes/hitl.js';
 import { createGateAnalyticsRouter } from './routes/gate-analytics.js';
 import { createPoliciesRouter } from './routes/policies.js';
+import { createRiskReportRouter } from './routes/risk-report.js';
+import { createSafetyTestRouter } from './routes/safety-test.js';
+import { createAgentActivityRouter } from './routes/agent-activity.js';
+import { createPolicyNlRouter } from './routes/policy-nl.js';
+import { createAgentsRouter } from './routes/agents.js';
 import { createActivityFeedRouter } from './routes/activity-feed.js';
 import { cloudAuthMiddleware, CLOUD_MODE } from './sensor/cloud-auth.js';
 import { handleSlackActions, handleFeedbackLink } from './intelligence/slack.js';
@@ -333,6 +338,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
     '/gate-analytics',        // retry success rates, coverage gaps, HITL decision patterns
     '/policies',              // policy rules + trigger counts — reveals enforcement posture
     '/activity-feed',         // live tool call stream — reveals agent activity patterns
+    '/risk-report',           // CISO-grade security risk report — reveals incident rates & rules
   ];
   if (localSecret) {
     app.use((req, res, next) => {
@@ -403,6 +409,11 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createHitlRouter());          // Human-in-the-Loop approve/deny for held tool calls
   app.use(createGateAnalyticsRouter()); // Gate feedback: retry success, coverage gaps, HITL patterns
   app.use(createPoliciesRouter());      // Policy authoring UI + JSON CRUD API
+  app.use(createRiskReportRouter());    // CISO-grade security risk report
+  app.use(createSafetyTestRouter());    // Adversarial bypass test suite
+  app.use(createAgentActivityRouter()); // Live agent activity dashboard
+  app.use(createPolicyNlRouter());      // Natural language policy authoring
+  app.use(createAgentsRouter());        // Per-agent identity and permissions
   app.use(createActivityFeedRouter());  // Real-time agent activity feed (JSON + SSE)
 
   // GET /service-graph — in cloud mode, require API key (exposes internal topology)

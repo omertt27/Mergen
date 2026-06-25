@@ -2848,6 +2848,410 @@ async function quickstartCommand(): Promise<void> {
   await watchCommand(['watch', ...parts]);
 }
 
+// ── Policy GitOps commands ─────────────────────────────────────────────────────
+
+async function policyPushCommand(): Promise<void> {
+  // Save current server policy → .mergen/policy.json in cwd (for git tracking)
+  const port = await findPort();
+  if (!port) { error('Server not running. Start it first: mergen-server start'); process.exit(1); }
+
+  const resp = await fetch(`http://127.0.0.1:${port}/policies/export`, { signal: AbortSignal.timeout(5000) });
+  if (!resp.ok) { error(`Policy fetch failed: ${resp.status}`); process.exit(1); }
+  const policy = await resp.json() as object;
+
+  const { mkdirSync: mkd, writeFileSync: wf } = await import('fs');
+  const dir = resolve(process.cwd(), '.mergen');
+  mkd(dir, { recursive: true });
+  const file = resolve(dir, 'policy.json');
+  wf(file, JSON.stringify(policy, null, 2) + '\n', 'utf8');
+  success(`Policy saved to .mergen/policy.json`);
+  log('Commit this file to track policy changes in git:');
+  log('  git add .mergen/policy.json && git commit -m "chore: update mergen policy"');
+}
+
+async function policyPullCommand(args: string[]): Promise<void> {
+  // Load .mergen/policy.json from cwd → push to running server
+  const mode = args.includes('--merge') ? 'merge' : 'replace';
+  const { readFileSync: rf, existsSync: ex } = await import('fs');
+  const file = resolve(process.cwd(), '.mergen', 'policy.json');
+  if (!ex(file)) { error('No .mergen/policy.json found. Run: mergen-server policy-push first.'); process.exit(1); }
+
+  let policy: unknown;
+  try { policy = JSON.parse(rf(file, 'utf8')); } catch { error('Failed to parse .mergen/policy.json'); process.exit(1); }
+
+  const port = await findPort();
+  if (!port) { error('Server not running. Start it first: mergen-server start'); process.exit(1); }
+
+  const resp = await fetch(`http://127.0.0.1:${port}/policies/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ policy, mode }),
+    signal: AbortSignal.timeout(5000),
+  });
+  const data = await resp.json() as { ok: boolean; ruleCount?: number; mode?: string; error?: unknown };
+  if (!resp.ok || !data.ok) { error(`Policy import failed: ${JSON.stringify(data.error)}`); process.exit(1); }
+  success(`Policy applied (${mode}): ${data.ruleCount} rules active`);
+}
+
+async function policyDiffCommand(): Promise<void> {
+  const { readFileSync: rf, existsSync: ex } = await import('fs');
+  const file = resolve(process.cwd(), '.mergen', 'policy.json');
+
+  const port = await findPort();
+  if (!port) { error('Server not running.'); process.exit(1); }
+
+  const resp = await fetch(`http://127.0.0.1:${port}/policies/export`, { signal: AbortSignal.timeout(5000) });
+  if (!resp.ok) { error('Could not fetch live policy.'); process.exit(1); }
+  const live = await resp.json() as { rules?: Array<{ id: string; action: string }> };
+  const liveIds = new Set((live.rules ?? []).map((r) => r.id));
+
+  if (!ex(file)) {
+    log('No .mergen/policy.json — run mergen-server policy-push to create it');
+    process.exit(0);
+  }
+  let disk: { rules?: Array<{ id: string; action: string }> };
+  try { disk = JSON.parse(rf(file, 'utf8')); } catch { error('Cannot parse .mergen/policy.json'); process.exit(1); return; }
+  const diskIds = new Set((disk.rules ?? []).map((r) => r.id));
+
+  hr();
+  console.log('⬡ Mergen — Policy Diff (.mergen/policy.json vs live server)\n');
+
+  const onlyLive  = [...liveIds].filter((id) => !diskIds.has(id));
+  const onlyDisk  = [...diskIds].filter((id) => !liveIds.has(id));
+  const inBoth    = [...liveIds].filter((id) => diskIds.has(id));
+
+  if (onlyLive.length === 0 && onlyDisk.length === 0) {
+    success('Policy files are in sync — no differences');
+  } else {
+    if (onlyLive.length > 0)  console.log(`  + Live only (not in file): ${onlyLive.join(', ')}`);
+    if (onlyDisk.length > 0)  console.log(`  - File only (not in live): ${onlyDisk.join(', ')}`);
+    console.log(`  = Matching rules: ${inBoth.length}`);
+    log('\nTo sync file → server: mergen-server policy-pull');
+    log('To sync server → file: mergen-server policy-push');
+  }
+  hr();
+}
+
+// ── Export risk report command ──────────────────────────────────────────────────
+
+async function exportRiskReportCommand(args: string[]): Promise<void> {
+  const fmt = args.includes('--markdown') || args.includes('--md') ? 'md' : 'json';
+  let port = 3000;
+  for (let p = 3000; p <= 3010; p++) {
+    try {
+      const r = await fetch(`http://127.0.0.1:${p}/health`, { signal: AbortSignal.timeout(600) });
+      if (r.ok) { port = p; break; }
+    } catch {}
+  }
+
+  const { join } = await import('path');
+  const { homedir } = await import('os');
+  const { existsSync, readFileSync } = await import('fs');
+  let secret = '';
+  const secretPath = join(homedir(), '.mergen', 'secret');
+  if (existsSync(secretPath)) {
+    try { secret = readFileSync(secretPath, 'utf8').trim(); } catch {}
+  }
+  const headers: Record<string, string> = {};
+  if (secret) headers['x-mergen-secret'] = secret;
+
+  let resp: Response;
+  try {
+    resp = await fetch(`http://127.0.0.1:${port}/risk-report${fmt === 'md' ? '?format=md' : ''}`, {
+      headers,
+      signal: AbortSignal.timeout(5000),
+    });
+  } catch {
+    error('Mergen server is not running. Start it first: mergen-server start');
+    process.exit(1);
+    return;
+  }
+
+  if (!resp.ok) {
+    error(`Risk report request failed: ${resp.status}`);
+    process.exit(1);
+  }
+
+  if (fmt === 'md') {
+    const { writeFileSync: wf } = await import('fs');
+    const filename = `mergen-risk-report-${new Date().toISOString().slice(0, 10)}.md`;
+    const body = await resp.text();
+    wf(filename, body, 'utf8');
+    success(`CISO risk report saved: ${filename}`);
+    log('Share this with your security team — all data sourced from your local infrastructure.');
+  } else {
+    const data = await resp.json() as { ok: boolean; report: Record<string, unknown> };
+    if (!data.ok) { error('Failed to generate risk report.'); process.exit(1); }
+    const { report } = data;
+    hr();
+    console.log('⬡ Mergen — AI Agent Security Risk Report\n');
+    console.log(`  Risk Level  : ${String(report.riskScore ?? '').toUpperCase()}`);
+    console.log(`  Assessment  : ${report.riskRationale}`);
+    console.log(`  Total blocked (all time) : ${report.totalBlocked}`);
+    console.log(`  Blocked — last 7 days   : ${report.last7Days}`);
+    console.log(`  Blocked — last 30 days  : ${report.last30Days}`);
+    console.log(`  Active block rules       : ${report.activeRules}`);
+    console.log(`  Override corpus entries  : ${report.overrideCorpusSize}`);
+    console.log('');
+    log('For a shareable CISO document: mergen-server export-risk-report --markdown');
+    hr();
+  }
+}
+
+// ── Exec command (second interception surface — protocol-agnostic CLI proxy) ──
+
+async function execCommand(args: string[]): Promise<void> {
+  // Usage: mergen-server exec [--actor <name>] [--service <name>] -- <command> [args...]
+  let actor = 'claude';
+  let service = 'cli';
+  let dashDash = args.indexOf('--');
+  const flagArgs = dashDash >= 0 ? args.slice(0, dashDash) : args;
+
+  for (let i = 0; i < flagArgs.length; i++) {
+    if (flagArgs[i] === '--actor' && flagArgs[i + 1]) actor = flagArgs[++i];
+    else if (flagArgs[i] === '--service' && flagArgs[i + 1]) service = flagArgs[++i];
+  }
+
+  const cmdParts = dashDash >= 0 ? args.slice(dashDash + 1) : args;
+  if (cmdParts.length === 0) {
+    error('Usage: mergen-server exec [--actor <name>] [--service <name>] -- <command> [args...]');
+    process.exit(1);
+  }
+
+  const fullCommand = cmdParts.join(' ');
+
+  // Evaluate against enterprise policy.
+  // Always check the built-in default rules first (immutable layer), then the
+  // user's on-disk policy. Verdict is the stricter of the two.
+  const {
+    evaluateEnterprisePolicy,
+    loadEnterprisePolicy,
+    DEFAULT_ENTERPRISE_POLICY: DEFAULT_POLICY,
+    _resetPolicyCacheForTesting: _resetPolicy,
+  } = await import('./intelligence/enterprise-policy-engine.js');
+
+  const evalInput = { files: [], commands: [fullCommand], actor, service };
+
+  const savedPolicy = loadEnterprisePolicy();
+  _resetPolicy(DEFAULT_POLICY);
+  const defaultResult = evaluateEnterprisePolicy(evalInput);
+  _resetPolicy(savedPolicy);
+  const userResult = evaluateEnterprisePolicy(evalInput);
+
+  // Merge: block > warn > pass
+  const verdictRank = (v: string) => v === 'block' ? 2 : v === 'warn' ? 1 : 0;
+  const result = verdictRank(defaultResult.verdict) >= verdictRank(userResult.verdict)
+    ? defaultResult
+    : userResult;
+
+  if (result.verdict === 'block') {
+    hr();
+    console.error('⬡ Mergen — BLOCKED\n');
+    console.error(`  Command : ${fullCommand}`);
+    console.error(`  Reason  : ${result.reasons[0] ?? 'Destructive pattern matched'}`);
+    console.error('');
+    console.error('  What to do instead:');
+    console.error('    1. Check your runbooks: mergen-server status');
+    console.error('    2. Request human approval: mergen-server approve --request');
+    console.error('    3. Override (audit logged): set MERGEN_TRUSTED_HUMANS=<your-name>');
+    hr();
+
+    // Record to blunder log via server if available
+    const { randomUUID } = await import('crypto');
+    const blunder = {
+      id: randomUUID(),
+      recordedAt: Date.now(),
+      type: 'blunder',
+      blunderType: 'pipeline_block',
+      command: fullCommand,
+      blockReason: result.reasons[0] ?? 'Destructive pattern matched',
+      service,
+      actor,
+    };
+
+    let success = false;
+    try {
+      const port = await findPort();
+      if (port) {
+        const { join } = await import('path');
+        const { homedir } = await import('os');
+        const { existsSync, readFileSync } = await import('fs');
+        let secret = '';
+        const secretPath = join(homedir(), '.mergen', 'secret');
+        if (existsSync(secretPath)) {
+          try { secret = readFileSync(secretPath, 'utf8').trim(); } catch {}
+        }
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (secret) headers['x-mergen-secret'] = secret;
+
+        const resp = await fetch(`http://127.0.0.1:${port}/ingest`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(blunder),
+          signal: AbortSignal.timeout(1000),
+        });
+        if (resp.ok) success = true;
+      }
+    } catch {}
+
+    if (!success) {
+      // Save locally as offline blunder
+      try {
+        const { appendFileSync, mkdirSync } = await import('fs');
+        const { join, dirname } = await import('path');
+        const { homedir } = await import('os');
+        const file = join(homedir(), '.mergen', 'offline-blunders.jsonl');
+        mkdirSync(dirname(file), { recursive: true });
+        appendFileSync(file, JSON.stringify(blunder) + '\n', 'utf8');
+      } catch {}
+    }
+
+    process.exit(1);
+  }
+
+  if (result.verdict === 'warn') {
+    console.warn(`⬡ Mergen — WARNING: ${result.reasons[0] ?? 'Action requires review'}`);
+    console.warn('  Proceeding — but this action has been flagged for audit.');
+  }
+
+  // Execute the command
+  const { spawn: sp } = await import('child_process');
+  const child = sp(cmdParts[0], cmdParts.slice(1), { stdio: 'inherit', shell: false });
+  child.on('close', (code) => process.exit(code ?? 0));
+  child.on('error', (err) => { error(`exec failed: ${err.message}`); process.exit(1); });
+}
+
+async function maybeFlushOfflineBlunders(port: number): Promise<void> {
+  const { existsSync, readFileSync, writeFileSync } = await import('fs');
+  const { join } = await import('path');
+  const { homedir } = await import('os');
+  const file = join(homedir(), '.mergen', 'offline-blunders.jsonl');
+  if (!existsSync(file)) return;
+
+  let secret = '';
+  const secretPath = join(homedir(), '.mergen', 'secret');
+  if (existsSync(secretPath)) {
+    try { secret = readFileSync(secretPath, 'utf8').trim(); } catch {}
+  }
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (secret) headers['x-mergen-secret'] = secret;
+
+  let lines: string[];
+  try {
+    lines = readFileSync(file, 'utf8').split('\n').filter(Boolean);
+  } catch {
+    return;
+  }
+
+  const remaining: string[] = [];
+  for (const line of lines) {
+    try {
+      const blunder = JSON.parse(line);
+      const resp = await fetch(`http://127.0.0.1:${port}/ingest`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(blunder),
+        signal: AbortSignal.timeout(2000),
+      });
+      if (!resp.ok) {
+        remaining.push(line);
+      }
+    } catch {
+      remaining.push(line);
+    }
+  }
+
+  try {
+    if (remaining.length > 0) {
+      writeFileSync(file, remaining.join('\n') + '\n', 'utf8');
+    } else {
+      const { unlinkSync } = await import('fs');
+      unlinkSync(file);
+    }
+  } catch {}
+}
+
+async function findPort(): Promise<number | null> {
+  for (let p = 3000; p <= 3010; p++) {
+    try {
+      const r = await fetch(`http://127.0.0.1:${p}/health`, { signal: AbortSignal.timeout(300) });
+      if (r.ok) {
+        maybeFlushOfflineBlunders(p).catch(() => {});
+        return p;
+      }
+    } catch {}
+  }
+  return null;
+}
+
+// ── Test-safety command (adversarial bypass test suite) ──────────────────────
+
+async function testSafetyCommand(): Promise<void> {
+  const port = await findPort();
+  let results: Array<{ name: string; passed: boolean; expected: string; got: string; description?: string }>;
+
+  if (port) {
+    try {
+      const resp = await fetch(`http://127.0.0.1:${port}/safety-test?verbose=1`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      const data = await resp.json() as {
+        allPassed: boolean;
+        passed: number;
+        failed: number;
+        total: number;
+        cases?: typeof results;
+      };
+      hr();
+      console.log('⬡ Mergen — Safety Test Suite\n');
+      console.log(`  ${data.passed}/${data.total} tests passed`);
+      if (data.cases) {
+        for (const c of data.cases) {
+          const icon = c.passed ? '✓' : '✗';
+          console.log(`  ${icon} ${c.name}`);
+          if (!c.passed) console.log(`      expected=${c.expected} got=${c.got}`);
+        }
+      }
+      hr();
+      process.exit(data.allPassed ? 0 : 1);
+      return;
+    } catch { /* fall through to local evaluation */ }
+  }
+
+  // Server not running — evaluate locally
+  log('Server not running — running safety tests locally');
+  const { evaluateEnterprisePolicy, loadEnterprisePolicy, DEFAULT_ENTERPRISE_POLICY, _resetPolicyCacheForTesting } = await import('./intelligence/enterprise-policy-engine.js');
+  const saved = loadEnterprisePolicy();
+  _resetPolicyCacheForTesting(DEFAULT_ENTERPRISE_POLICY);
+
+  const TEST_CASES = [
+    { name: 'block_rm_rf', cmd: 'rm -rf /var/data', expected: 'block' },
+    { name: 'block_terraform_destroy', cmd: 'terraform destroy prod', expected: 'block' },
+    { name: 'block_drop_database', cmd: 'drop database production', expected: 'block' },
+    { name: 'block_drop_table', cmd: 'drop table users', expected: 'block' },
+    { name: 'block_kubectl_delete', cmd: 'kubectl delete namespace production', expected: 'block' },
+    { name: 'hold_alter_table', cmd: 'alter table users add column x boolean', expected: 'warn' },
+    { name: 'pass_safe_deploy', cmd: 'kubectl rollout status deployment/api', expected: 'pass' },
+    { name: 'pass_git_commit', cmd: 'git commit -m "fix"', expected: 'pass' },
+  ];
+
+  let passed = 0;
+  hr();
+  console.log('⬡ Mergen — Safety Test Suite\n');
+  for (const tc of TEST_CASES) {
+    const r = evaluateEnterprisePolicy({ files: [], commands: [tc.cmd], actor: 'claude', service: 'test' });
+    const ok = r.verdict === tc.expected;
+    if (ok) passed++;
+    const icon = ok ? '✓' : '✗';
+    console.log(`  ${icon} ${tc.name}`);
+    if (!ok) console.log(`      expected=${tc.expected} got=${r.verdict}`);
+  }
+  console.log(`\n  ${passed}/${TEST_CASES.length} tests passed`);
+  hr();
+  _resetPolicyCacheForTesting(saved);
+  process.exit(passed === TEST_CASES.length ? 0 : 1);
+}
+
 // ── Main ───────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -2947,6 +3351,30 @@ async function main(): Promise<void> {
       await exportCommand(args);
       break;
 
+    case 'export-risk-report':
+      await exportRiskReportCommand(args.slice(1));
+      break;
+
+    case 'exec':
+      await execCommand(args.slice(1));
+      break;
+
+    case 'test-safety':
+      await testSafetyCommand();
+      break;
+
+    case 'policy-push':
+      await policyPushCommand();
+      break;
+
+    case 'policy-pull':
+      await policyPullCommand(args.slice(1));
+      break;
+
+    case 'policy-diff':
+      await policyDiffCommand();
+      break;
+
     case 'guard':
       await guardCommand(args);
       break;
@@ -2996,6 +3424,14 @@ Usage:
   mergen-server postmortem [h]     Generate a postmortem document (default: last 1 hour)
   mergen-server timeline [seconds] Unified causal timeline
   mergen-server export [label]     Export session as JSON + HTML report
+  mergen-server export-risk-report Print CISO security risk report
+  mergen-server export-risk-report --markdown  Save as shareable Markdown file
+  mergen-server exec -- <cmd>      Run a command through the Mergen policy gate
+  mergen-server test-safety        Run adversarial bypass test suite against the gate
+  mergen-server policy-push        Save live server policy → .mergen/policy.json (for git)
+  mergen-server policy-pull        Apply .mergen/policy.json → live server
+  mergen-server policy-pull --merge  Merge (add new rules only, keep existing)
+  mergen-server policy-diff        Show diff between .mergen/policy.json and live server
   mergen-server replay <dir>       Score historical incidents against the detector pipeline
   mergen-server guard              Pre-commit runtime check
   mergen-server guard --install    Install as git pre-commit hook
