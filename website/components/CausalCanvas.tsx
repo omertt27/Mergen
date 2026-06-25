@@ -40,8 +40,8 @@ export default function CausalCanvas() {
 
     function draw() {
       ctx.clearRect(0, 0, width, height)
-      ctx.fillStyle = 'rgba(55, 53, 47, 0.25)'
-      ctx.strokeStyle = 'rgba(55, 53, 47, 0.07)'
+      ctx.fillStyle = 'rgba(0, 242, 254, 0.4)'
+      ctx.strokeStyle = 'rgba(0, 242, 254, 0.09)'
       ctx.lineWidth = 0.5
 
       for (let i = 0; i < nodes.length; i++) {
