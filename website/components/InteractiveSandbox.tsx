@@ -360,18 +360,18 @@ export default function InteractiveSandbox() {
                   alignItems: 'center',
                   gap: '0.5rem',
                 }}>
-                  <span>⚡</span> SLACK THREAD — what your team would see
+                  SLACK THREAD — what your team would see
                 </div>
                 <div style={{ padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
-                    <span style={{ color: '#ff6600', minWidth: '16px' }}>🚨</span>
+                    <span style={{ color: '#ff6600', minWidth: '16px' }}>[!]</span>
                     <div>
                       <span style={{ color: '#ffffff', fontWeight: 700 }}>Security Gateway Block</span>
                       <span style={{ color: '#666666' }}> — {selected.name.toLowerCase().replace(' ', '-')}</span>
                     </div>
                   </div>
                   <div style={{ paddingLeft: '1.5rem', color: '#888888', lineHeight: 1.7 }}>
-                    <div>🚫 <span style={{ color: '#ff6600', fontWeight: 600 }}>Command Intercepted — Local Gate Engine</span></div>
+                    <div><span style={{ color: '#ff6600', fontWeight: 600 }}>Command Intercepted — Local Gate Engine</span></div>
                     <div style={{ color: '#666666' }}>→ Action: <span style={{ color: '#e2e8f0' }}>{
                       selected.key === 'destructive_cmd' ? `terraform destroy prod (danger=${dangerLevel}/10, blast=${blastRadius}%)` :
                       selected.key === 'secret_leak' ? `Read credential file: .env (depth=${accessDepth}/10, cred=${isCredential.toString()})` :
@@ -380,11 +380,11 @@ export default function InteractiveSandbox() {
                     <div style={{ color: '#666666' }}>→ Rule: <code style={{ color: '#ff8c42', background: 'rgba(255,255,255,0.05)', padding: '1px 4px', borderRadius: '2px' }}>{selected.remedy}</code></div>
                   </div>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
-                    <span style={{ minWidth: '16px' }}>🔒</span>
+                    <span style={{ color: '#22c55e', minWidth: '16px' }}>✓</span>
                     <span style={{ color: '#888888' }}>Gate intercept executed in <code style={{ color: '#ff6600' }}>&lt; 1ms</code></span>
                   </div>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
-                    <span style={{ minWidth: '16px' }}>✅</span>
+                    <span style={{ color: '#22c55e', minWidth: '16px' }}>✓</span>
                     <span style={{ color: '#ff6600', fontWeight: 700 }}>PREVENTED — Production protected. Blunder logged to git.</span>
                   </div>
                   <div style={{ color: '#333333', fontSize: '0.65rem', borderTop: '1px solid #2a2a2a', paddingTop: '0.5rem' }}>

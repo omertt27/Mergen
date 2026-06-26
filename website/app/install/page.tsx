@@ -25,7 +25,7 @@ interface InstallMethod {
 
 const methods: InstallMethod[] = [
   {
-    icon: '🤖',
+    icon: '',
     num: '01',
     title: 'Claude Code',
     tag: 'Easiest — Recommended',
@@ -37,7 +37,7 @@ const methods: InstallMethod[] = [
     ],
   },
   {
-    icon: '🚀',
+    icon: '',
     num: '02',
     title: 'NPM / NPX',
     tag: 'Universal',
@@ -49,7 +49,7 @@ const methods: InstallMethod[] = [
     ],
   },
   {
-    icon: '🐳',
+    icon: '',
     num: '03',
     title: 'Docker',
     tag: 'Zero Dependencies',
@@ -60,7 +60,7 @@ const methods: InstallMethod[] = [
     ],
   },
   {
-    icon: '🔧',
+    icon: '',
     num: '04',
     title: 'Manual Setup',
     tag: 'Developers',
@@ -103,11 +103,6 @@ export default function InstallPage() {
         {/* Cover Photo */}
         <div className="notion-page-cover" style={{ background: 'linear-gradient(135deg, #fbc2eb 0%, #a6c1ee 100%)' }} />
         
-        {/* Emoji overlay */}
-        <div className="notion-page-emoji-container">
-          <span className="notion-page-emoji">🏁</span>
-        </div>
-
         <main className="wrap notion-page-content">
           
           {/* ── Header ── */}
@@ -177,7 +172,7 @@ export default function InstallPage() {
                 { cls: 'success', text: '✓ Event ingestion works' },
                 { cls: 'success', text: '✓ IDE configured correctly' },
                 { cls: 'system', text: '' },
-                { cls: 'system', text: '✨ Mergen is ready to use!' },
+                { cls: 'system', text: 'Mergen is ready to use!' },
               ].map((l, i) => (
                 <div key={i} className={`terminal-line ${l.cls}`}>{l.text}</div>
               ))}

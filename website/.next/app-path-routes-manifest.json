@@ -1,7 +1,7 @@
 {
+  "/_not-found/page": "/_not-found",
   "/robots.txt/route": "/robots.txt",
   "/sitemap.xml/route": "/sitemap.xml",
-  "/_not-found/page": "/_not-found",
   "/about/page": "/about",
   "/account/page": "/account",
   "/architecture/page": "/architecture",

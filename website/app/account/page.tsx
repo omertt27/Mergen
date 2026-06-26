@@ -131,11 +131,6 @@ export default function AccountPage() {
         {/* Cover Photo */}
         <div className="notion-page-cover" style={{ background: 'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)' }} />
         
-        {/* Emoji overlay */}
-        <div className="notion-page-emoji-container">
-          <span className="notion-page-emoji">👤</span>
-        </div>
-
         <main className="wrap notion-page-content">
           <div style={{ maxWidth: 680 }}>
 

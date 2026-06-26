@@ -91,7 +91,7 @@ export default function LegacyVsMergen() {
             gap: '10px',
             alignItems: 'flex-start'
           }}>
-            <span style={{ fontSize: '1.1rem', lineHeight: '1' }}>✅</span>
+            <span style={{ fontSize: '1.1rem', lineHeight: '1', color: '#ff6600' }}>✓</span>
             <p style={{ fontSize: '0.8rem', color: '#ff6600', lineHeight: 1.5, margin: 0 }}>
               <strong>Result:</strong> The bug never ships. Incident history is your reviewer — working silently at commit time.
             </p>
@@ -156,7 +156,7 @@ export default function LegacyVsMergen() {
             gap: '10px',
             alignItems: 'flex-start'
           }}>
-            <span style={{ fontSize: '1.1rem', lineHeight: '1' }}>✅</span>
+            <span style={{ fontSize: '1.1rem', lineHeight: '1', color: '#ff6600' }}>✓</span>
             <p style={{ fontSize: '0.8rem', color: '#ff6600', lineHeight: 1.5, margin: 0 }}>
               <strong>Result:</strong> Living map generated in real-time. You immediately see the exact files, environment variables, and system commands changed by the agent.
             </p>
@@ -224,7 +224,7 @@ export default function LegacyVsMergen() {
             fontFamily: 'var(--font-geist-mono), monospace',
             fontSize: '0.72rem',
           }}>
-            <div style={{ color: '#ff6600', marginBottom: '6px' }}>🚫 Tool call blocked by Mergen local policy gate.</div>
+            <div style={{ color: '#ff6600', marginBottom: '6px' }}>Tool call blocked by Mergen local policy gate.</div>
             <div style={{ color: '#888888' }}>Tool: <span style={{ color: '#ffffff' }}>execute_fix</span></div>
             <div style={{ color: '#888888' }}>Reason: <span style={{ color: '#ff8c42' }}>Destructive command pattern matched.</span></div>
             <div style={{ color: '#888888', marginTop: '6px' }}>See: GET /agent-blunders</div>
@@ -239,7 +239,7 @@ export default function LegacyVsMergen() {
             gap: '10px',
             alignItems: 'flex-start'
           }}>
-            <span style={{ fontSize: '1.1rem', lineHeight: '1' }}>✅</span>
+            <span style={{ fontSize: '1.1rem', lineHeight: '1', color: '#ff6600' }}>✓</span>
             <p style={{ fontSize: '0.8rem', color: '#ff6600', lineHeight: 1.5, margin: 0 }}>
               <strong>Result:</strong> Production never touched. The gate runs before the handler — deterministically, in under 1ms, with no LLM involved.
             </p>
@@ -307,7 +307,7 @@ export default function LegacyVsMergen() {
             gap: '10px',
             alignItems: 'flex-start'
           }}>
-            <span style={{ fontSize: '1.1rem', lineHeight: '1' }}>✅</span>
+            <span style={{ fontSize: '1.1rem', lineHeight: '1', color: '#ff6600' }}>✓</span>
             <p style={{ fontSize: '0.8rem', color: '#ff6600', lineHeight: 1.5, margin: 0 }}>
               <strong>Result:</strong> Overrides persist as machine-enforceable rules. The execution gate blocks agent violations even when you forget they exist.
             </p>

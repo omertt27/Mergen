@@ -62,11 +62,6 @@ export default function GuidePage() {
         {/* Cover Photo */}
         <div className="notion-page-cover" style={{ background: 'linear-gradient(135deg, #a1c4fd 0%, #c2e9fb 100%)' }} />
         
-        {/* Emoji overlay */}
-        <div className="notion-page-emoji-container">
-          <span className="notion-page-emoji">📖</span>
-        </div>
-
         <main className="wrap notion-page-content" style={{ minHeight: '100vh' }}>
           
           {/* ── Header ── */}
@@ -176,7 +171,7 @@ export default function GuidePage() {
                 </div>
 
                 <div style={{ background: 'rgba(255, 85, 0, 0.03)', border: '1px solid rgba(255, 85, 0, 0.15)', borderRadius: '4px', padding: '1.5rem', marginTop: '2rem' }}>
-                  <h4 style={{ color: 'var(--accent-text)', fontSize: '0.95rem', marginBottom: '0.5rem', fontWeight: 600 }}>💡 Pilot Success Goal</h4>
+                  <h4 style={{ color: 'var(--accent-text)', fontSize: '0.95rem', marginBottom: '0.5rem', fontWeight: 600 }}>Pilot Success Goal</h4>
                   <p style={{ color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 1.6 }}>
                     The primary objective of a trial is <strong>one successful local triage of a real production/staging failure</strong>. Once Mergen maps a real incident inside your system, the verification phase is complete.
                   </p>

@@ -78,11 +78,6 @@ export default function PrivacyPage() {
         {/* Cover Photo */}
         <div className="notion-page-cover" style={{ background: 'linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%)' }} />
         
-        {/* Emoji overlay */}
-        <div className="notion-page-emoji-container">
-          <span className="notion-page-emoji">📋</span>
-        </div>
-
         <main className="wrap notion-page-content">
           <div style={{ maxWidth: 720 }}>
             <p style={{ fontFamily: 'var(--font-geist-mono)', fontSize: '0.6rem', letterSpacing: '0.5em', textTransform: 'uppercase', color: 'var(--gray-600)', marginBottom: '1.5rem' }}>

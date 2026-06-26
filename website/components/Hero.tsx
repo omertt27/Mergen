@@ -32,11 +32,6 @@ export default function Hero() {
 
   return (
     <section className="hero-section">
-      <div className="hero-badge">
-        <span className="badge-dot" />
-        Execution &amp; Security Gateway
-      </div>
-
       <h1 className="hero-headline">
         Secure every AI agent action
         <br />

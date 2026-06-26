@@ -65,7 +65,6 @@ export default function CausalCanvas() {
               onMouseEnter={() => setHoveredNode('scraper')}
               onMouseLeave={() => setHoveredNode(null)}
             >
-              <div className="node-icon">🔍</div>
               <div className="node-text">
                 <span className="node-label">Web Scraper</span>
                 <span className="node-sub">Tool Request</span>
@@ -77,7 +76,6 @@ export default function CausalCanvas() {
               onMouseEnter={() => setHoveredNode('fs')}
               onMouseLeave={() => setHoveredNode(null)}
             >
-              <div className="node-icon">📁</div>
               <div className="node-text">
                 <span className="node-label">File System</span>
                 <span className="node-sub">Local Writes</span>
@@ -89,7 +87,6 @@ export default function CausalCanvas() {
               onMouseEnter={() => setHoveredNode('api')}
               onMouseLeave={() => setHoveredNode(null)}
             >
-              <div className="node-icon">🔌</div>
               <div className="node-text">
                 <span className="node-label">API Integrations</span>
                 <span className="node-sub">Webhooks</span>
@@ -105,7 +102,6 @@ export default function CausalCanvas() {
               onMouseLeave={() => setHoveredNode(null)}
             >
               <div className="agent-glow-ring" />
-              <div className="node-icon agent-icon">🤖</div>
               <div className="node-text">
                 <span className="node-label font-bold text-cyan">AI Agent</span>
                 <span className="node-sub">Target Monitor</span>
@@ -120,7 +116,6 @@ export default function CausalCanvas() {
               onMouseEnter={() => setHoveredNode('cmd')}
               onMouseLeave={() => setHoveredNode(null)}
             >
-              <div className="node-icon">🚫</div>
               <div className="node-text">
                 <span className="node-label alert-title">SHELL_COMMAND</span>
                 <span className="node-sub highlight-red">BLOCKED</span>
@@ -132,7 +127,6 @@ export default function CausalCanvas() {
               onMouseEnter={() => setHoveredNode('net')}
               onMouseLeave={() => setHoveredNode(null)}
             >
-              <div className="node-icon">⚠️</div>
               <div className="node-text">
                 <span className="node-label alert-title">NETWORK_REQUEST</span>
                 <span className="node-sub highlight-yellow">HOLD &amp; REDACT</span>
