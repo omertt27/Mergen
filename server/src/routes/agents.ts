@@ -18,6 +18,8 @@ import {
   deleteProfile,
   AgentProfile,
 } from '../intelligence/agent-profiles.js';
+import { getGateEvents } from '../intelligence/gate-analytics.js';
+import { getBlunders } from '../sensor/agent-blunder-store.js';
 
 const ProfileSchema = z.object({
   id:              z.string().min(1).max(60).regex(/^[a-z0-9_-]+$/, 'id must be lowercase alphanumeric, hyphens, underscores'),
@@ -77,6 +79,72 @@ export function createAgentsRouter(): Router {
   router.delete('/agents/:id', (req, res) => {
     if (!deleteProfile(req.params.id)) { res.status(404).json({ error: 'Agent profile not found' }); return; }
     res.json({ ok: true });
+  });
+
+  // ── GET /agents/:id/timeline — per-agent forensics timeline ─────────────────
+  // Returns a unified chronological view of every gate decision + blunder for
+  // the given agent. Use this for post-mortems: "what exactly did this agent do
+  // during the incident, and what did the gate block?"
+  //
+  // Gate events: from the in-memory ring buffer (last 500 calls); filtered by agentId.
+  // Blunders: from the hash-chained blunder log; filtered by actor == agentId.
+  // Query params:
+  //   limit  — max events to return (default 100, max 500)
+  //   from   — Unix ms start (default: 24h ago)
+  //   to     — Unix ms end (default: now)
+  router.get('/agents/:id/timeline', (req, res) => {
+    const agentId = req.params.id;
+    const now     = Date.now();
+    const from    = Number(req.query.from ?? now - 24 * 60 * 60 * 1_000);
+    const to      = Number(req.query.to   ?? now);
+    const limit   = Math.min(500, Math.max(1, Number(req.query.limit ?? 100)));
+
+    // Gate events from ring buffer
+    const gateEntries = getGateEvents()
+      .filter((e) => e.agentId === agentId && e.ts >= from && e.ts <= to)
+      .map((e) => ({
+        type:           'gate' as const,
+        ts:             e.ts,
+        toolName:       e.toolName,
+        command:        e.command,
+        verdict:        e.verdict,
+        triggeredRules: e.triggeredRules,
+        guidedAlternative: e.guidedAlternative,
+        service:        e.service,
+        environment:    e.environment,
+      }));
+
+    // Blunders from hash-chained log
+    const blunderEntries = getBlunders()
+      .filter((b) => b.actor === agentId && b.recordedAt >= from && b.recordedAt <= to)
+      .map((b) => ({
+        type:        'blunder' as const,
+        ts:          b.recordedAt,
+        toolName:    null as string | null,
+        command:     b.command,
+        verdict:     'block' as const,
+        blunderType: b.blunderType,
+        blockReason: b.blockReason,
+        service:     b.service,
+        hash:        b.hash,
+      }));
+
+    // Merge and sort chronologically, newest first
+    const timeline = [...gateEntries, ...blunderEntries]
+      .sort((a, b) => b.ts - a.ts)
+      .slice(0, limit);
+
+    const profile = getProfile(agentId);
+
+    res.json({
+      ok: true,
+      agentId,
+      profile: profile ?? null,
+      from,
+      to,
+      total: timeline.length,
+      timeline,
+    });
   });
 
   return router;

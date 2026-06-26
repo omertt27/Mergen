@@ -23,6 +23,7 @@
 import { Router } from 'express';
 import logger from '../sensor/logger.js';
 import { approveToolCall, denyToolCall, getPendingHolds, approveBypass, invalidateBypassToken } from '../intelligence/tool-guard.js';
+import { getHitlFatigueStatus } from '../intelligence/gate-analytics.js';
 
 // Simple in-process rate limiter: 10 resolution attempts per IP per 60 s.
 const HITL_RATE_LIMIT = 10;
@@ -189,6 +190,14 @@ export function createHitlRouter(): Router {
   // GET /hitl/pending is protected by SENSITIVE_GET_PATHS in app.ts (requires x-mergen-secret).
   router.get('/hitl/pending', (_req, res) => {
     res.json({ ok: true, pending: getPendingHolds() });
+  });
+
+  // ── GET /hitl/fatigue — HITL approval fatigue status ─────────────────────────
+  // Returns whether the HITL hold rate has exceeded the fatigue threshold in the
+  // last hour, and a recommendation to convert noisy HOLD rules to BLOCK rules.
+  router.get('/hitl/fatigue', (_req, res) => {
+    const status = getHitlFatigueStatus();
+    res.json({ ok: true, ...status });
   });
 
   return router;

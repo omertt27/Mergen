@@ -45,6 +45,7 @@ import { getAutopilotLevel, autopilotLevelPermits, classifyCommandRisk, autopilo
 import { recordBlunder } from '../sensor/agent-blunder-store.js';
 import { getStatsForTag } from './calibration.js';
 import { runAgentPipeline } from './agent-pipeline.js';
+import { detectCascade } from './cascade-detector.js';
 import { planningGate } from './planning-gate.js';
 import { plattScale } from './platt-scaling.js';
 import { formatValidatedFactsForLLM } from './llm-spokesperson.js';
@@ -226,6 +227,13 @@ export async function runIncidentAutopilot(opts: AutopilotOpts): Promise<void> {
 
   _activeCalls++;
   if (_activeCalls > _stats.concurrentPeak) _stats.concurrentPeak = _activeCalls;
+
+  // Cascade detection: if multiple services are failing simultaneously, identify
+  // the root and note in the Slack thread so engineers aren't flooded with HITL.
+  const cascade = detectCascade(service, pid);
+  if (cascade.isCascade) {
+    await replyToThread(pid, cascade.summary);
+  }
 
   return _runAutopilotCore(service, pid, firedAt, cwd, opts.tenantId).finally(() => {
     _activeCalls--;

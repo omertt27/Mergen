@@ -15,7 +15,10 @@ import {
   getUngardedCounts,
   getRuleFirings,
   getHitlStats,
+  getReformulationRates,
+  getHitlFatigueStatus,
 } from '../intelligence/gate-analytics.js';
+import { computePolicySuggestions } from '../intelligence/policy-suggester.js';
 
 function retryAssessment(passRate: number): string {
   if (passRate >= 75) return 'guidance working — agent reformulates successfully';
@@ -98,11 +101,34 @@ export function createGateAnalyticsRouter(): Router {
       };
     }
 
+    // ── 4. Guided-alternative reformulation rates ──────────────────────────
+    const reformRates = getReformulationRates();
+    const reformByRule: Record<string, unknown> = {};
+    for (const [ruleId, data] of reformRates) {
+      reformByRule[ruleId] = {
+        fired:         data.fired,
+        reformulated:  data.reformulated,
+        rate:          Math.round(data.rate * 100),
+        assessment:    data.rate >= 0.75
+          ? 'guided alternative is working — agent reformulates successfully'
+          : data.rate >= 0.4
+            ? 'partial success — consider refining the suggested alternative text'
+            : 'guided alternative ineffective — agent cannot reformulate from this hint',
+      };
+    }
+
+    // ── 5. HITL fatigue status ─────────────────────────────────────────────
+    const fatigue = getHitlFatigueStatus();
+
     res.json({
       note: 'In-memory since last restart.',
       retrySuccessRate: {
         description: 'After a BLOCK, did the agent reformulate and pass on the next call? (60s attribution window)',
         byRule: retryByRule,
+      },
+      guidedAlternativeEffectiveness: {
+        description: 'What fraction of blocked calls resulted in a successful reformulation? Measures whether the "what to do instead" hint is actionable.',
+        byRule: reformByRule,
       },
       policyCoverage: {
         description: 'Tool calls with no matching policy rule (unguarded) and rules that have never fired (dead).',
@@ -116,6 +142,10 @@ export function createGateAnalyticsRouter(): Router {
       hitlPatterns: {
         description: 'Approve/deny ratios and latency per rule. High approval rate → candidate for auto-approve. High denial rate → candidate for hard block.',
         byRule: hitlByRule,
+      },
+      hitlFatigue: {
+        description: 'Approval fatigue detection — when too many HOLDs fire in a short window, engineers stop responding promptly.',
+        ...fatigue,
       },
     });
   });

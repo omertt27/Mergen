@@ -36,6 +36,7 @@ import { plattScale } from '../intelligence/platt-scaling.js';
 import logger from '../sensor/logger.js';
 
 const DEFAULT_REVENUE_PER_MINUTE_USD = 100;
+const DEFAULT_DOWNTIME_COST_PER_HOUR_USD = 10_000;
 
 // Conservative autonomous MTTR estimate: buffer fill + analysis + exec + validation
 const ESTIMATED_AUTONOMOUS_MTTR_MS = 2 * 60 * 1000; // 2 minutes
@@ -150,6 +151,9 @@ interface ImpactData {
   deckSummary: string;
   // Y5: outcome-based billing evidence
   estimatedRevenuePreservedUsd: number | null;
+  /** Dollar cost of downtime prevented — (manualMttr - autonomousMttr) × incidents × hourly cost.
+   *  Configure via MERGEN_DOWNTIME_COST_PER_HOUR (default: $10,000). */
+  estimatedDowntimeSavedUsd: number | null;
   corpusPostmortems: number;
   // Human-readable ROI — "4.2h saved across 11 incidents"
   timeSavedHours: number | null;
@@ -307,6 +311,13 @@ function computeImpactData(windowDays: number): ImpactData {
     ? Math.round((mttrSavedMs / 60_000) * revenuePerMinute * wouldResolve.length)
     : null;
 
+  // Dollar cost of downtime prevented: (mttr_delta) × autonomous_count × hourly_cost
+  const downtimeCostPerHour =
+    parseFloat(process.env.MERGEN_DOWNTIME_COST_PER_HOUR ?? '') || DEFAULT_DOWNTIME_COST_PER_HOUR_USD;
+  const estimatedDowntimeSavedUsd = mttrSavedMs != null && wouldResolve.length > 0
+    ? Math.round((mttrSavedMs / 3_600_000) * downtimeCostPerHour * wouldResolve.length)
+    : null;
+
   // Corpus size
   const corpusPostmortems = postmortemStore.count();
 
@@ -455,6 +466,7 @@ function computeImpactData(windowDays: number): ImpactData {
     comparisonRows,
     deckSummary,
     estimatedRevenuePreservedUsd,
+    estimatedDowntimeSavedUsd,
     corpusPostmortems,
     timeSavedHours,
     hoursPerIncident,
@@ -617,6 +629,11 @@ function buildHtml(d: ImpactData): string {
   <div class="hero-item">
     <div class="big-number green">${d.timeSavedHours}h</div>
     <div class="big-label">Engineer time saved${d.hoursPerIncident !== null ? ` · ${d.hoursPerIncident}h per incident` : ''}</div>
+  </div>` : ''}
+  ${d.estimatedDowntimeSavedUsd !== null ? `
+  <div class="hero-item">
+    <div class="big-number green">$${d.estimatedDowntimeSavedUsd.toLocaleString()}</div>
+    <div class="big-label">Estimated downtime cost prevented</div>
   </div>` : ''}
   <div class="hero-item">
     <div class="big-number green">${fmtMs(d.avgAutonomousMttrMs ?? d.estimatedAutonomousMttrMs)}</div>

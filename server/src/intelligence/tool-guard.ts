@@ -28,6 +28,8 @@ import {
   recordGatePass,
   recordGateCoverage,
   recordHitlDecision,
+  recordGateEvent,
+  recordHitlHold,
 } from './gate-analytics.js';
 import { trackBlock, trackSuccessfulCall } from '../sensor/bypass-tracker.js';
 import { recordActivity } from './activity-feed.js';
@@ -529,6 +531,12 @@ async function applyGate(
     recordGatePass();
     trackSuccessfulCall(toolName);
     recordActivity({ toolName, commandArg, verdict: 'PASS', triggeredRules: [], ruleNames: [] });
+    recordGateEvent({
+      ts: Date.now(), toolName, command: commandArg || null,
+      actor: 'agent', agentId: process.env.MERGEN_AGENT_ID ?? null,
+      service: 'mcp', environment: process.env.MERGEN_ENVIRONMENT ?? null,
+      verdict: 'pass', triggeredRules: [], guidedAlternative: null,
+    });
     return next();
   }
 
@@ -549,6 +557,12 @@ async function applyGate(
       confidenceScore: null,
     });
     logger.warn({ toolName, reason }, 'tool-guard: tool call blocked by local policy');
+    recordGateEvent({
+      ts: Date.now(), toolName, command: commandArg || null,
+      actor: 'agent', agentId: process.env.MERGEN_AGENT_ID ?? null,
+      service: 'mcp', environment: process.env.MERGEN_ENVIRONMENT ?? null,
+      verdict: 'block', triggeredRules: evaluation.triggeredRules, guidedAlternative: alternative,
+    });
     const bypassToken = registerBypassBlock(toolName, commandArg, evaluation.triggeredRules);
     const ruleNames   = loadEnterprisePolicy().rules
       .filter(r => evaluation.triggeredRules.includes(r.id))
@@ -579,6 +593,14 @@ async function applyGate(
   const token  = randomUUID();
   const heldAt = Date.now();
   logger.info({ toolName, token, reason }, 'tool-guard: tool call held for HITL approval');
+
+  recordGateEvent({
+    ts: heldAt, toolName, command: commandArg || null,
+    actor: 'agent', agentId: process.env.MERGEN_AGENT_ID ?? null,
+    service: 'mcp', environment: process.env.MERGEN_ENVIRONMENT ?? null,
+    verdict: 'hold', triggeredRules: evaluation.triggeredRules, guidedAlternative: alternative,
+  });
+  recordHitlHold();
 
   const holdRuleNames = loadEnterprisePolicy().rules
     .filter(r => evaluation.triggeredRules.includes(r.id))

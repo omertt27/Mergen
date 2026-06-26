@@ -6,7 +6,9 @@ import {
   EnterprisePolicyRule,
   EnterprisePolicyConfig,
 } from '../intelligence/enterprise-policy-engine.js';
-import { getRuleFirings } from '../intelligence/gate-analytics.js';
+import { getRuleFirings, getGateEvents } from '../intelligence/gate-analytics.js';
+import { evaluateEnterprisePolicy } from '../intelligence/enterprise-policy-engine.js';
+import { computePolicySuggestions } from '../intelligence/policy-suggester.js';
 
 export function createPoliciesRouter(): Router {
   const router = Router();
@@ -138,6 +140,145 @@ export function createPoliciesRouter(): Router {
     } catch (err) {
       res.status(400).json({ error: String(err) });
     }
+  });
+
+  // ── GET /policy-suggestions — auto-discovered uncovered blunder patterns ──────
+  // Returns command patterns that have been blocked 5+ times in 30 days but have
+  // no matching named policy rule. Use this to formalise organic patterns into
+  // explicit enforcement policy.
+  router.get('/policy-suggestions', (_req, res) => {
+    const suggestions = computePolicySuggestions();
+    const uncovered = suggestions.filter((s) => !s.alreadyCovered);
+    res.json({
+      ok: true,
+      total: suggestions.length,
+      uncoveredCount: uncovered.length,
+      suggestions,
+      note: uncovered.length > 0
+        ? `${uncovered.length} pattern${uncovered.length !== 1 ? 's' : ''} blocked repeatedly without a named policy rule. POST /policies/rules to formalise them.`
+        : 'All frequent blunder patterns are already covered by named rules.',
+    });
+  });
+
+  // ── POST /policies/simulate — replay a rule against recent gate events ────────
+  // Accepts a partial or full rule JSON. Runs it against the in-memory gate event
+  // ring (last 500 calls) and returns how many would have been blocked/held/passed,
+  // with up to 5 example matches. Use this before activating a new rule to
+  // understand its blast radius against your actual traffic.
+  router.post('/policies/simulate', (req, res) => {
+    const RuleSchema = z.object({
+      id:          z.string().default('__simulate__'),
+      name:        z.string().default('Simulation'),
+      description: z.string().default(''),
+      action:      z.enum(['block', 'warn', 'pass']).default('block'),
+      reason:      z.string().default('Simulated block'),
+      conditions:  z.object({
+        files:        z.array(z.string()).optional(),
+        commands:     z.array(z.string()).optional(),
+        actorType:    z.enum(['ai', 'human', 'all']).optional(),
+        daysOfWeek:   z.array(z.number().int().min(0).max(6)).optional(),
+        hourWindow:   z.tuple([z.number().int().min(0).max(23), z.number().int().min(0).max(24)]).optional(),
+        services:     z.array(z.string()).optional(),
+        environments: z.array(z.string()).optional(),
+        repos:        z.array(z.string()).optional(),
+        agentIds:     z.array(z.string()).optional(),
+      }),
+    });
+
+    const parsed = RuleSchema.safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ error: parsed.error.issues }); return; }
+
+    const rule = parsed.data as PolicyRule;
+    const events = getGateEvents();
+
+    let wouldBlock = 0;
+    let wouldHold  = 0;
+    let wouldPass  = 0;
+    const examples: Array<{ ts: number; toolName: string; command: string | null; verdict: string }> = [];
+
+    // Simulate with a policy that contains only this single rule
+    const simulationPolicy = { enabled: true, rules: [rule] };
+
+    for (const ev of events) {
+      const result = evaluateEnterprisePolicy({
+        files:       [ev.toolName],
+        commands:    [ev.toolName, ev.command ?? ''].filter(Boolean),
+        actor:       ev.actor,
+        service:     ev.service,
+        timestamp:   ev.ts,
+        environment: ev.environment ?? undefined,
+        agentId:     ev.agentId ?? undefined,
+      }, simulationPolicy);
+
+      if (result.verdict === 'pass') {
+        wouldPass++;
+      } else if (result.verdict === 'block') {
+        wouldBlock++;
+        if (examples.length < 5) examples.push({ ts: ev.ts, toolName: ev.toolName, command: ev.command, verdict: 'block' });
+      } else {
+        wouldHold++;
+        if (examples.length < 5) examples.push({ ts: ev.ts, toolName: ev.toolName, command: ev.command, verdict: 'hold' });
+      }
+    }
+
+    const total = events.length;
+    res.json({
+      ok: true,
+      rule: { id: rule.id, name: rule.name, action: rule.action },
+      eventsInWindow: total,
+      wouldBlock,
+      wouldHold,
+      wouldPass,
+      blockRate: total > 0 ? Math.round((wouldBlock / total) * 100) : 0,
+      holdRate:  total > 0 ? Math.round((wouldHold  / total) * 100) : 0,
+      examples,
+      note: total === 0
+        ? 'No gate events in memory yet — start using MCP tools to populate the window.'
+        : `Simulated against ${total} recent gate events (rolling window, capped at 500).`,
+    });
+  });
+
+  // ── GET /policies/rules/:id/simulate — replay an existing rule ────────────────
+  router.get('/policies/rules/:id/simulate', (req, res) => {
+    const policy = loadEnterprisePolicy();
+    const rule = policy.rules.find(r => r.id === req.params.id);
+    if (!rule) { res.status(404).json({ error: `Rule '${req.params.id}' not found` }); return; }
+
+    const events = getGateEvents();
+    const simulationPolicy = { enabled: true, rules: [rule] };
+    let wouldBlock = 0, wouldHold = 0, wouldPass = 0;
+    const examples: Array<{ ts: number; toolName: string; command: string | null; verdict: string }> = [];
+
+    for (const ev of events) {
+      const result = evaluateEnterprisePolicy({
+        files:       [ev.toolName],
+        commands:    [ev.toolName, ev.command ?? ''].filter(Boolean),
+        actor:       ev.actor,
+        service:     ev.service,
+        timestamp:   ev.ts,
+        environment: ev.environment ?? undefined,
+        agentId:     ev.agentId ?? undefined,
+      }, simulationPolicy);
+
+      if (result.verdict === 'pass') { wouldPass++; }
+      else if (result.verdict === 'block') {
+        wouldBlock++;
+        if (examples.length < 5) examples.push({ ts: ev.ts, toolName: ev.toolName, command: ev.command, verdict: 'block' });
+      } else {
+        wouldHold++;
+        if (examples.length < 5) examples.push({ ts: ev.ts, toolName: ev.toolName, command: ev.command, verdict: 'hold' });
+      }
+    }
+
+    const total = events.length;
+    res.json({
+      ok: true,
+      rule: { id: rule.id, name: rule.name, action: rule.action, triggerCount: getRuleFirings().get(rule.id) ?? 0 },
+      eventsInWindow: total,
+      wouldBlock, wouldHold, wouldPass,
+      blockRate: total > 0 ? Math.round((wouldBlock / total) * 100) : 0,
+      examples,
+    });
   });
 
   return router;
