@@ -156,10 +156,31 @@ async function setupCommand(): Promise<void> {
     log('GitHub step skipped. Run later: mergen-server connect github --repo <owner/repo>', 'ℹ');
   }
 
-  // 7. Seed built-in runbooks
+  // 7. Git Pre-commit Hook (Recommended for Codex / non-VS Code users)
+  hr();
+  log('\nGit Pre-commit Hook (Recommended):');
+  console.log('  Enforces safety rules before each git commit, protecting your repo from');
+  console.log('  staged file errors regardless of the editor or AI autocomplete tool you use.');
+
+  if (!yes) {
+    const installHook = await ask('\nInstall Git pre-commit guard hook now? (y/n): ');
+    if (installHook.toLowerCase() === 'y') {
+      try {
+        await guardCommand(['--install']);
+      } catch (err) {
+        error(`Failed to install hook: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  } else {
+    try {
+      await guardCommand(['--install']);
+    } catch {}
+  }
+
+  // 8. Seed built-in runbooks
   await seedBuiltinRunbooks();
 
-  // 8. Summary + start server
+  // 9. Summary + start server
   hr();
   log('\n✨ Setup complete!\n');
   console.log('Next steps:');
