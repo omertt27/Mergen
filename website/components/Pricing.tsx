@@ -3,7 +3,7 @@ const plans = [
     name: 'Solo / Open Source',
     price: '$0',
     period: '/forever',
-    pitch: 'Full agent execution governance on a single machine. Local execution gate, override corpus, pre-commit guard, Agent Blunder Log. No cloud, no card.',
+    pitch: 'Deterministic agent execution gateway on a workstation. Local execution gate, override corpus, pre-commit guard, Agent Blunder Log. No cloud, no card.',
     pilotCondition: null,
     cta: 'Get Started',
     ctaClass: 'btn btn-outline',

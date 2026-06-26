@@ -34,7 +34,7 @@ export default function Hero() {
     <section className="hero-section">
       <div className="hero-badge">
         <span className="badge-dot" />
-        Agent Execution Governance (AEG)
+        Execution &amp; Security Gateway
       </div>
 
       <h1 className="hero-headline">

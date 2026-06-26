@@ -19,10 +19,10 @@ export default function AboutPage() {
               marginBottom: '1rem',
               marginTop: '0.75rem',
             }}>
-              The Case for Agent Execution Governance
+              The Case for Agent Execution Gateways
             </h1>
             <p style={{ color: 'var(--gray-600)', fontSize: '1.05rem', lineHeight: 1.7, maxWidth: 580 }}>
-              Why the Agent Execution Governance category exists, why it&apos;s non-discretionary,
+              Why the Agent Execution Gateway category exists, why it&apos;s non-discretionary,
               and where Mergen sits in the progression from local gate to enterprise IAM.
             </p>
           </div>

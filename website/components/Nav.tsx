@@ -53,7 +53,6 @@ export default function Nav() {
       <header className={`site-nav${scrolled ? ' scrolled' : ''}`}>
         <div className="nav-inner">
           <a href="/" className="nav-logo">
-            <span className="nav-logo-icon">M</span>
             <span className="nav-logo-text">Mergen</span>
           </a>
 

@@ -17,7 +17,7 @@ const problems = [
     num: '03',
     title: 'Monitoring is reactive — the breach already happened',
     sub: 'Datadog fires after the agent destroyed the environment.',
-    desc: 'PagerDuty pages a human. Datadog shows what the agent did. By then the schema is migrated, the infrastructure is torn down, or the credentials are in the logs. An alert after the fact is not governance. Mergen is the inline gate that intercepts the tool call before any of that happens.',
+    desc: 'PagerDuty pages a human. Datadog shows what the agent did. By then the schema is migrated, the infrastructure is torn down, or the credentials are in the logs. An alert after the fact is not protection. Mergen is the inline gate that intercepts the tool call before any of that happens.',
   },
 ]
 
@@ -117,7 +117,7 @@ export default function MacroThesis() {
             marginBottom: '0.5rem',
             lineHeight: 1.3,
           }}>
-            CI pipelines have no agent governance layer
+            CI pipelines have no agent security layer
           </h3>
           <p style={{
             fontSize: '0.75rem',
@@ -129,7 +129,7 @@ export default function MacroThesis() {
           </p>
         </div>
         <p style={{ color: 'var(--gray-400)', fontSize: '0.95rem', lineHeight: 1.7, paddingTop: '2.5rem' }}>
-          As agents generate pull requests and trigger deployments autonomously, your CI pipeline becomes a production mutation surface with no mandatory human checkpoint. Mergen&rsquo;s CI gate enforces deterministic blast-radius analysis and HITL approval before any autonomous change merges — the governance layer your pipeline is missing.
+          As agents generate pull requests and trigger deployments autonomously, your CI pipeline becomes a production mutation surface with no mandatory human checkpoint. Mergen&rsquo;s CI gate enforces deterministic blast-radius analysis and HITL approval before any autonomous change merges — the safety layer your pipeline is missing.
         </p>
       </div>
 
