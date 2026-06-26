@@ -1,9 +1,12 @@
 {
   "/_not-found/page": "app/_not-found/page.js",
-  "/robots.txt/route": "app/robots.txt/route.js",
   "/sitemap.xml/route": "app/sitemap.xml/route.js",
+  "/robots.txt/route": "app/robots.txt/route.js",
+  "/about/page": "app/about/page.js",
   "/account/page": "app/account/page.js",
   "/page": "app/page.js",
+  "/architecture/page": "app/architecture/page.js",
+  "/sandbox/page": "app/sandbox/page.js",
   "/privacy/page": "app/privacy/page.js",
   "/install/page": "app/install/page.js",
   "/guide/page": "app/guide/page.js",

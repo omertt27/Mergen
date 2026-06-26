@@ -2,20 +2,20 @@
 
 import { useState, useEffect } from 'react'
 
-const heroStats = [
-  { val: '< 1ms',  label: 'Gate evaluation latency',  sub: 'deterministic, zero network I/O' },
-  { val: '94%',    label: 'Threat block rate',        sub: '33-threat validation harness' },
-  { val: '99.9%',  label: 'Gate reliability',         sub: 'strict deterministic policy match' },
-  { val: '100%',   label: 'Local execution',           sub: 'no cloud credentials exposed' },
-]
-
 function formatStars(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
 }
 
+const stats = [
+  { val: '< 1ms',  label: 'Gate latency' },
+  { val: '94%',    label: 'Threat block rate' },
+  { val: '100%',   label: 'Local execution' },
+  { val: '0',      label: 'Cloud credentials exposed' },
+]
+
 export default function Hero() {
   const [copied, setCopied] = useState(false)
-  const [stars, setStars] = useState<number | null>(null)
+  const [stars, setStars]   = useState<number | null>(null)
 
   useEffect(() => {
     fetch('https://api.github.com/repos/omertt27/Mergen')
@@ -24,128 +24,87 @@ export default function Hero() {
       .catch(() => {})
   }, [])
 
-  function handleCopyInstall() {
+  function handleCopy() {
     navigator.clipboard.writeText('npx mergen-server')
     setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
+    setTimeout(() => setCopied(false), 1800)
   }
 
   return (
-    <div className="notion-hero-section">
-      {/* Page Title */}
-      <h1 className="notion-page-title">Secure Every AI Agent Action Before It Executes</h1>
-
-      {/* Notion Page Properties Table */}
-      <div className="notion-properties-panel">
-        <div className="property-row">
-          <span className="property-name">Status</span>
-          <span className="property-value">Active Release</span>
-        </div>
-        {stars !== null && (
-          <div className="property-row">
-            <span className="property-name">GitHub Stars</span>
-            <span className="property-value">
-              <a
-                href="https://github.com/omertt27/Mergen"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="property-link"
-              >
-                {formatStars(stars)} stars
-              </a>
-            </span>
-          </div>
-        )}
-        <div className="property-row">
-          <span className="property-name">License</span>
-          <span className="property-value">Apache 2.0</span>
-        </div>
-        <div className="property-row">
-          <span className="property-name">Command</span>
-          <span className="property-value code-inline">npx mergen-server</span>
-        </div>
+    <section className="hero-section">
+      <div className="hero-badge">
+        <span className="badge-dot" />
+        Agent Execution Governance (AEG)
       </div>
 
-      {/* Notion Callout Box (Main description) */}
-      <div className="notion-callout warning">
-        <div className="callout-icon-container">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="callout-svg">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-          </svg>
-        </div>
-        <div className="callout-text">
-          <strong>The Security Boundary:</strong> Sentry and Datadog tell you <em>after</em> an AI agent has corrupted your database or leaked credentials. Mergen is the inline Execution and Security Gateway that physically blocks hazardous agent actions before they reach your runtime, databases, or cloud infrastructure.
-        </div>
-      </div>
+      <h1 className="hero-headline">
+        Secure every AI agent action
+        <br />
+        <span className="hero-headline-accent">before it executes.</span>
+      </h1>
 
-      {/* Action Buttons & Install Code */}
-      <div className="notion-hero-actions-container">
-        <div className="notion-actions">
-          <a href="mailto:hello@mergen.dev?subject=Request%20Early%20Access" className="btn btn-notion-primary">
-            Request Early Access
-          </a>
-          <a href="mailto:hello@mergen.dev?subject=Join%20Design%20Partner%20Program" className="btn btn-notion-secondary">
-            Join Design Partner Program
-          </a>
-        </div>
+      <p className="hero-sub">
+        Prompts are not boundaries — they are suggestions. Mergen is the inline execution
+        gateway that physically blocks hazardous agent actions in under 1ms. No probabilistic
+        guardrails. No LLM in the critical path. All data stays on your infrastructure.
+      </p>
 
-        {/* Copy command box */}
-        <div 
-          className="notion-install-command-box" 
-          onClick={handleCopyInstall} 
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              handleCopyInstall();
-              e.preventDefault();
-            }
-          }}
-          role="button" 
-          tabIndex={0}
+      <div className="hero-actions">
+        <a
+          href="mailto:hello@mergen.dev?subject=Request%20Early%20Access"
+          className="btn-primary"
         >
-          <span className="terminal-prompt">$</span>
-          <code>npx mergen-server</code>
+          Get Early Access
+        </a>
+        <a
+          href="https://github.com/omertt27/Mergen"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn-secondary"
+        >
+          {stars !== null ? (
+            <>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style={{ opacity: 0.7 }}>
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+              </svg>
+              {formatStars(stars)} on GitHub
+            </>
+          ) : 'View on GitHub'}
+        </a>
+      </div>
+
+      <div
+        className="hero-install"
+        onClick={handleCopy}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleCopy() }}
+        role="button"
+        tabIndex={0}
+        aria-label="Copy install command"
+      >
+        <span className="install-prompt">$</span>
+        <code>npx mergen-server</code>
+        <span className="install-copy">
           {copied ? (
-            <span className="copy-ok-badge">Copied!</span>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
           ) : (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="copy-icon">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
             </svg>
           )}
-        </div>
+        </span>
       </div>
 
-      {/* Checklist / Features list */}
-      <div className="notion-checklist">
-        {[
-          'Deterministic local policy gate (<1ms)',
-          'Human-in-the-loop (HITL) approval gates',
-          'Every blocked action logged & hash-chained',
-          'Override corpus: operational DNA definition',
-          'Agent safety validation CI/CD gate',
-          'All execution telemetry stays on your hardware',
-        ].map((b) => (
-          <div key={b} className="checklist-item">
-            <span className="check-box">✓</span>
-            <span className="check-label">{b}</span>
+      <div className="hero-stats">
+        {stats.map((s) => (
+          <div key={s.val} className="hero-stat">
+            <span className="stat-val">{s.val}</span>
+            <span className="stat-label">{s.label}</span>
           </div>
         ))}
       </div>
-
-      {/* Database Board for Stats */}
-      <div className="notion-stats-board">
-        <span className="board-title">Key Metrics</span>
-        <div className="board-cards">
-          {heroStats.map((s) => (
-            <div key={s.val} className="board-card">
-              <span className="card-val">{s.val}</span>
-              <span className="card-label">{s.label}</span>
-              <span className="card-sub">{s.sub}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
+    </section>
   )
 }
