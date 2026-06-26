@@ -67,6 +67,8 @@ vi.mock('../../intelligence/gate-analytics.js', () => ({
   recordGatePass:     mockRecordPass,
   recordGateCoverage: mockRecordCoverage,
   recordHitlDecision: mockHitlDecision,
+  recordGateEvent:    vi.fn(),
+  recordHitlHold:     vi.fn(),
 }));
 
 vi.mock('../../sensor/bypass-tracker.js', () => ({

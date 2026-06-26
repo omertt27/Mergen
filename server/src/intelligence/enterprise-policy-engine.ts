@@ -247,8 +247,8 @@ function matchesCommandPattern(haystack: string, pattern: string): boolean {
   return new RegExp(`\\b${escaped}\\b`).test(haystack);
 }
 
-export function evaluateEnterprisePolicy(input: EvaluationInput): PolicyEvaluationResult {
-  const config = loadEnterprisePolicy();
+export function evaluateEnterprisePolicy(input: EvaluationInput, policyOverride?: EnterprisePolicyConfig): PolicyEvaluationResult {
+  const config = policyOverride ?? loadEnterprisePolicy();
   const result: PolicyEvaluationResult = {
     verdict: 'pass',
     triggeredRules: [],

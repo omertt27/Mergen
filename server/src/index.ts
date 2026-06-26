@@ -107,6 +107,27 @@ function validateConfig(): void {
 
   // ── Hard failures — refuse to start in dangerous configurations ─────────────
 
+  // Cloud mode requires both Postgres and Redis — without them the stateless API
+  // and BullMQ workers have no durable backend.
+  if (CLOUD_MODE) {
+    if (!process.env.MERGEN_PG_URL) {
+      logger.error(
+        'FATAL: MERGEN_CLOUD_MODE=true but MERGEN_PG_URL is not set. ' +
+        'Cloud mode requires a Postgres connection for durable storage. ' +
+        'Set MERGEN_PG_URL=postgres://user:pass@host:5432/mergen and restart.',
+      );
+      process.exit(1);
+    }
+    if (!process.env.MERGEN_REDIS_URL) {
+      logger.error(
+        'FATAL: MERGEN_CLOUD_MODE=true but MERGEN_REDIS_URL is not set. ' +
+        'Cloud mode requires Redis for BullMQ job queues and distributed state. ' +
+        'Set MERGEN_REDIS_URL=redis://host:6379 and restart.',
+      );
+      process.exit(1);
+    }
+  }
+
   // Autopilot + no PagerDuty secret: any caller can forge an incident.triggered
   // event and trigger autonomous command execution.
   if (AUTOPILOT && !process.env.MERGEN_PAGERDUTY_SECRET) {
@@ -456,6 +477,12 @@ async function main(): Promise<void> {
 
   // ── Shadow mode weekly Slack digest (Monday 09:00 UTC) ────────────────────
   startShadowDigestCron();
+
+  // ── Policy suggestion engine (Monday 09:05 UTC — surfaces uncovered blunder patterns) ──
+  try {
+    const { startPolicySuggesterCron } = await import('./intelligence/policy-suggester.js');
+    startPolicySuggesterCron();
+  } catch (err) { logger.error({ err }, 'startup: policy suggester cron failed to start'); }
 
   // ── Daily operational digest (09:00 UTC, opt-in MERGEN_SLACK_DIGEST=true) ──
   if (process.env.MERGEN_SLACK_DIGEST === 'true') {

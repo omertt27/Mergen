@@ -1,6 +1,43 @@
 version: '3.8'
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mergen-postgres
+    environment:
+      POSTGRES_USER: mergen
+      POSTGRES_PASSWORD: mergen
+      POSTGRES_DB: mergen
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mergen"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mergen-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: mergen-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mergen-network
+
   mergen:
     build: .
     image: mergen/server:latest
@@ -11,9 +48,16 @@ services:
       - NODE_ENV=production
       - NO_UPDATE_NOTIFIER=1
       - MERGEN_DATA_DIR=/app/.mergen
+      - MERGEN_CLOUD_MODE=true
+      - MERGEN_PG_URL=postgres://mergen:mergen@postgres:5432/mergen
+      - MERGEN_REDIS_URL=redis://redis:6379
     volumes:
-      # Persist data directory — matches MERGEN_DATA_DIR so nothing writes to the ephemeral container FS
       - mergen-data:/app/.mergen
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r=>r.ok?process.exit(0):process.exit(1))"]
@@ -33,6 +77,10 @@ services:
 
 volumes:
   mergen-data:
+    driver: local
+  postgres-data:
+    driver: local
+  redis-data:
     driver: local
 
 networks:

@@ -75,6 +75,7 @@ import { createAgentActivityRouter } from './routes/agent-activity.js';
 import { createPolicyNlRouter } from './routes/policy-nl.js';
 import { createAgentsRouter } from './routes/agents.js';
 import { createActivityFeedRouter } from './routes/activity-feed.js';
+import { createAuditExportRouter } from './routes/audit-export.js';
 import { cloudAuthMiddleware, CLOUD_MODE } from './sensor/cloud-auth.js';
 import { handleSlackActions, handleFeedbackLink } from './intelligence/slack.js';
 import { getPrometheusMetrics } from './sensor/otel-exporter.js';
@@ -335,8 +336,12 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
     '/shadow-report/entries', // shadow log entries with proposed commands
     '/impact-report',         // autonomous resolution rate + MTTR metrics
     '/hitl/pending',          // currently-held gate tokens + policy reasons
+    '/hitl/fatigue',          // HITL fatigue status — operational posture signal
     '/gate-analytics',        // retry success rates, coverage gaps, HITL decision patterns
     '/policies',              // policy rules + trigger counts — reveals enforcement posture
+    '/policy-suggestions',    // auto-discovered blunder patterns — reveals enforcement gaps
+    '/audit/export',          // full compliance export — tamper-evident audit log
+    '/agents',                // per-agent identity + forensics timeline
     '/activity-feed',         // live tool call stream — reveals agent activity patterns
     '/risk-report',           // CISO-grade security risk report — reveals incident rates & rules
   ];
@@ -415,6 +420,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createPolicyNlRouter());      // Natural language policy authoring
   app.use(createAgentsRouter());        // Per-agent identity and permissions
   app.use(createActivityFeedRouter());  // Real-time agent activity feed (JSON + SSE)
+  app.use(createAuditExportRouter());   // Compliance-grade audit export (SOC 2 / ISO 27001)
 
   // GET /service-graph — in cloud mode, require API key (exposes internal topology)
   app.get('/service-graph', ...(CLOUD_MODE ? [cloudAuthMiddleware] : []), (_req, res) => {
