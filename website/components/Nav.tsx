@@ -52,7 +52,10 @@ export default function Nav() {
     <>
       <header className={`site-nav${scrolled ? ' scrolled' : ''}`}>
         <div className="nav-inner">
-          <a href="/" className="nav-logo">
+          <a href="/" className="nav-logo" aria-label="Mergen home">
+            <svg className="nav-logo-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M 3 13 L 3 3 L 5 3 L 8 8 L 11 3 L 13 3 L 13 13 L 11.4 13 L 11.4 6.2 L 8.6 10.6 L 7.4 10.6 L 4.6 6.2 L 4.6 13 Z"/>
+            </svg>
             <span className="nav-logo-text">Mergen</span>
           </a>
 
