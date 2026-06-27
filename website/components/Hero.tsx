@@ -6,12 +6,7 @@ function formatStars(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
 }
 
-const stats = [
-  { val: '< 1ms',  label: 'Gate latency' },
-  { val: '94%',    label: 'Threat block rate' },
-  { val: '100%',   label: 'Local execution' },
-  { val: '0',      label: 'Cloud credentials exposed' },
-]
+
 
 export default function Hero() {
   const [copied, setCopied] = useState(false)
@@ -92,14 +87,7 @@ export default function Hero() {
         </span>
       </div>
 
-      <div className="hero-stats">
-        {stats.map((s) => (
-          <div key={s.val} className="hero-stat">
-            <span className="stat-val">{s.val}</span>
-            <span className="stat-label">{s.label}</span>
-          </div>
-        ))}
-      </div>
+
     </section>
   )
 }

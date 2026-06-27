@@ -27,6 +27,7 @@ const OverrideSchema = z.object({
   proposedCommand: z.string().min(1).max(500),
   overrideReason:  z.enum(OVERRIDE_REASONS as [OverrideReason, ...OverrideReason[]]),
   note:            z.string().max(200).optional(),
+  rationale:       z.string().max(300).optional(),
   service:         z.string().min(1).max(100),
   environment:     z.string().max(50).default('production'),
   manualAction:    z.string().max(500).optional(),

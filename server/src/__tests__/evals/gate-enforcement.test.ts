@@ -253,11 +253,15 @@ describe('Level 0 — Layer 1: hard safety policies → BLOCK', () => {
     expect(mockRecordBlunder).toHaveBeenCalledOnce();
   });
 
-  it('BLOCK response includes a bypass token so the operator can override', async () => {
+  it('BLOCK registers a bypass token the operator can approve (token in getPendingBypasses, not in response)', async () => {
     const h = makeGuardedHandler('execute_fix', { command: 'terraform destroy prod' });
     const result = await h.call();
 
-    expect(result.content[0].text).toMatch(/mergen approve \w+/i);
+    // Token is NOT in the MCP response (agents must not be able to self-approve).
+    expect(result.content[0].text).not.toMatch(/mergen approve \w+/i);
+    // Token IS registered and visible to operators via getPendingBypasses().
+    const pending = getPendingBypasses();
+    expect(pending.some(b => b.toolName === 'execute_fix' && b.commandArg === 'terraform destroy prod')).toBe(true);
   });
 
   it('BLOCK does not call the underlying handler', async () => {
@@ -382,24 +386,23 @@ describe('Level 0 — bypass token single-use enforcement', () => {
     const blockResult = await guardedCall({ command: 'terraform destroy prod-eu' }, {});
     expect(blockResult.isError).toBe(true);
 
-    // Extract the bypass token from the response
-    const tokenMatch = blockResult.content[0].text.match(/mergen approve (\w+)/i);
-    expect(tokenMatch).not.toBeNull();
-    const token = tokenMatch![1];
+    // Token is no longer in the MCP response — get it via getPendingBypasses()
+    // (operators see it in terminal logs / Slack; agents cannot self-approve).
+    const pending = getPendingBypasses();
+    const entry = pending.find(b => b.commandArg === 'terraform destroy prod-eu');
+    expect(entry).not.toBeNull();
+    const token = entry!.token;
 
     // Approve the bypass
     const { ok } = approveBypass(token);
     expect(ok).toBe(true);
 
-    // Second call: PASS (bypass is consumed)
+    // Second call: PASS (bypass is consumed) — but hard block rules still fire.
+    // terraform destroy is a hard block; bypass cannot override it (fix #2).
     const passResult = await guardedCall({ command: 'terraform destroy prod-eu' }, {});
-    expect(passResult.isError).toBeUndefined();
-    expect(spy).toHaveBeenCalledOnce();
-
-    // Third call: BLOCK again (bypass already consumed — single-use)
-    const reblockResult = await guardedCall({ command: 'terraform destroy prod-eu' }, {});
-    expect(reblockResult.isError).toBe(true);
-    expect(spy).toHaveBeenCalledOnce(); // handler still only called once
+    expect(passResult.isError).toBe(true); // hard block overrides bypass
+    // Handler is never called because the hard block rejects even approved bypasses.
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it('approveBypass returns ok:false for an unknown token', () => {
@@ -418,15 +421,15 @@ describe('Level 0 — bypass token single-use enforcement', () => {
     expect(mine!.expiresAt).toBeGreaterThan(Date.now());
   });
 
-  it('duplicate BLOCK for the same command returns the same token', async () => {
+  it('duplicate BLOCK for the same command registers only one pending bypass token', async () => {
     const h = makeGuardedHandler('execute_fix', { command: 'rm -rf /tmp/same-command' });
 
-    const r1 = await h.call();
-    const r2 = await h.call();
+    await h.call();
+    await h.call();
 
-    const t1 = r1.content[0].text.match(/mergen approve (\w+)/i)![1];
-    const t2 = r2.content[0].text.match(/mergen approve (\w+)/i)![1];
-    expect(t1).toBe(t2); // deduped: same pending bypass reused
+    // Both BLOCKs should map to the same deduplicated bypass token.
+    const pending = getPendingBypasses().filter(b => b.commandArg === 'rm -rf /tmp/same-command');
+    expect(pending).toHaveLength(1);
   });
 });
 

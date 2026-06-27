@@ -4,6 +4,7 @@ import Terminal from '@/components/Terminal'
 import CausalCanvas from '@/components/CausalCanvas'
 import LegacyVsMergen from '@/components/LegacyVsMergen'
 import Features from '@/components/Features'
+import EvalProof from '@/components/EvalProof'
 import Integrations from '@/components/Integrations'
 import Pricing from '@/components/Pricing'
 import Footer from '@/components/Footer'
@@ -34,6 +35,7 @@ export default function Home() {
 
           <LegacyVsMergen />
           <Features />
+          <EvalProof />
           <Integrations />
           <Pricing />
         </div>

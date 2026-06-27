@@ -88,8 +88,19 @@ async function setupCommand(): Promise<void> {
   const rawArgs = process.argv.slice(3); // skip 'node', 'cli.js', 'setup'
   const yes            = rawArgs.includes('--yes') || rawArgs.includes('-y');
   const skipGitHub     = yes || rawArgs.includes('--skip-github');
+  const showTiming     = rawArgs.includes('--time');
   const ideFlag        = (rawArgs.find(a => a.startsWith('--ide='))?.slice(6)) ??
                          (rawArgs.includes('--ide') ? rawArgs[rawArgs.indexOf('--ide') + 1] : null);
+
+  // ── Step timing ─────────────────────────────────────────────────────────────
+  const _setupStart = performance.now();
+  const _stepTimes: { label: string; ms: number }[] = [];
+  let _stepStart = _setupStart;
+  function _markStep(label: string): void {
+    const ms = performance.now() - _stepStart;
+    _stepTimes.push({ label, ms });
+    _stepStart = performance.now();
+  }
 
   console.log('🚀 Mergen Setup Wizard\n');
   if (yes) log('Non-interactive mode (--yes)\n', 'ℹ');
@@ -105,16 +116,19 @@ async function setupCommand(): Promise<void> {
     process.exit(1);
   }
   success(`Node.js ${process.versions.node}`);
+  _markStep('Prerequisites');
 
   // 2. Detect IDE
   log('\nDetecting IDE...');
   const ide = ideFlag ?? await detectIDE();
   success(`Found: ${ide}`);
+  _markStep('IDE detection');
 
   // 3. Configure IDE
   log(`\nConfiguring ${ide}...`);
   await configureIDE(ide);
   success(`${ide} configured`);
+  _markStep('MCP configuration');
 
   // 4. Shadow mode — safe first step that needs no PagerDuty
   hr();
@@ -155,6 +169,7 @@ async function setupCommand(): Promise<void> {
   } else {
     log('GitHub step skipped. Run later: mergen-server connect github --repo <owner/repo>', 'ℹ');
   }
+  _markStep('GitHub integration');
 
   // 7. Git Pre-commit Hook (Recommended for Codex / non-VS Code users)
   hr();
@@ -176,13 +191,25 @@ async function setupCommand(): Promise<void> {
       await guardCommand(['--install']);
     } catch {}
   }
+  _markStep('Pre-commit hook');
 
   // 8. Seed built-in runbooks
   await seedBuiltinRunbooks();
+  _markStep('Runbook seed');
 
   // 9. Summary + start server
   hr();
   log('\n✨ Setup complete!\n');
+
+  if (showTiming) {
+    const totalMs = performance.now() - _setupStart;
+    const pad = (s: string, n: number) => s + ' '.repeat(Math.max(0, n - s.length));
+    console.log('Setup timing:');
+    for (const { label, ms } of _stepTimes) {
+      console.log(`  ${pad(label + ':', 26)} ${(ms / 1000).toFixed(1)}s`);
+    }
+    console.log(`  ${'Total:'.padEnd(26)} ${(totalMs / 1000).toFixed(1)}s\n`);
+  }
   console.log('Next steps:');
   console.log('  1. Start server:          mergen-server start');
   console.log('  2. Verify everything:     mergen-server doctor');

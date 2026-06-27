@@ -66,6 +66,8 @@ export interface OverrideEvent {
   overrideReason: OverrideReason;
   /** Required when reason is 'other'. Optional context otherwise. Clamped to 200 chars. */
   note?: string;
+  /** Why past-you made this call — plain language rationale preserved for future on-call. Clamped to 300 chars. */
+  rationale?: string;
   service: string;
   environment: string;
   /** 0=Sunday … 6=Saturday, captured at record time in UTC. */
@@ -77,6 +79,8 @@ export interface OverrideEvent {
   outcome?: OverrideOutcome;
   recordedAt: number;
   actor: string;
+  /** 'community' = pre-seeded default; 'team' (or undefined) = recorded by this team. */
+  source?: 'team' | 'community';
 }
 
 interface CorpusFile {
@@ -157,6 +161,7 @@ export function recordOverride(input: Omit<OverrideEvent, 'id' | 'dayOfWeek' | '
     id: randomUUID(),
     proposedCommand: input.proposedCommand.slice(0, 500),
     note: input.note?.slice(0, 200),
+    rationale: input.rationale?.slice(0, 300),
     manualAction: input.manualAction?.slice(0, 500),
     dayOfWeek: now.getUTCDay(),
     hourOfDay: now.getUTCHours(),

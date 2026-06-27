@@ -51,6 +51,7 @@ import { initTelemetry, maybeSendTelemetry } from './intelligence/telemetry.js';
 import { getPlan } from './intelligence/plans.js';
 import { registerTools, toolCallCounts } from './intelligence/tools.js';
 import { createGuardedServer, loadBypasses, persistBypasses, setBypassSecret, denyStaleHoldsOnStartup } from './intelligence/tool-guard.js';
+import { setPolicySigningSecret } from './intelligence/enterprise-policy-engine.js';
 import { flushApprovals } from './intelligence/execution-gate.js';
 import { registerResources } from './intelligence/mcp-resources.js';
 import { registerPrompts } from './intelligence/mcp-prompts.js';
@@ -69,8 +70,11 @@ import { startK8sEventsPoller } from './sensor/k8s-events.js';
 import { loadPlugins } from './intelligence/detector-plugins.js';
 import { notify } from './intelligence/notifications.js';
 import { serviceGraph } from './sensor/service-graph.js';
+import { createStores } from './storage/store-factory.js';
+import { setStores } from './storage/store-registry.js';
 import { createApp } from './app.js';
 import { checkForUpdates, formatUpdateMessage } from './update-checker.js';
+import { loadCommunityCorpus } from './seeds/community-corpus.js';
 
 const _require = createRequire(import.meta.url);
 const { version: SERVER_VERSION } = _require('../package.json') as { version: string };
@@ -265,11 +269,24 @@ async function main(): Promise<void> {
   setInterval(() => { void revalidateLicense(); }, 24 * 60 * 60 * 1000).unref();
   await initTeam();
   await initTelemetry();
-  await historyStore.init();
-  // Prune expired events once per minute via indexed DELETE instead of on every
-  // push — keeps the push path O(1) without accumulating stale rows indefinitely.
-  setInterval(() => historyStore.pruneOld(), 60_000).unref();
-  await incidentStore.init();
+
+  // ── Storage layer ──────────────────────────────────────────────────────────
+  // Cloud mode: run Postgres migrations before instantiating stores so the
+  // schema is guaranteed to exist on first boot. Local mode: no-op.
+  if (process.env.MERGEN_CLOUD_MODE === 'true') {
+    const { runMigrations } = await import('./storage/pg/pg-migrations.js');
+    await runMigrations();
+    logger.info('startup: Postgres migrations applied');
+  }
+  const stores = await createStores();
+  setStores(stores);
+  // init() is called on the event and incident stores so the SQLite wrappers
+  // can load the WASM engine; Postgres stores treat this as a no-op.
+  await stores.events.init();
+  await stores.incidents.init();
+
+  // Prune expired events once per minute.
+  setInterval(() => stores.events.pruneOld().catch(() => {}), 60_000).unref();
   await postmortemStore.init();
   void syncMarkdownFilesFromDisk().catch((err) => logger.warn({ err }, 'startup: markdown sync failed'));
   await complianceLedgerStore.init();
@@ -302,9 +319,10 @@ async function main(): Promise<void> {
   // which can take minutes on a freshly restarted server.
   serviceGraph.loadPersisted();
 
-  // Wire the local secret into the bypass signing mechanism before loading from disk.
-  // This must happen before loadBypasses() so the HMAC verification has the key.
+  // Wire the local secret into both the bypass and policy HMAC signing mechanisms
+  // before loading from disk, so verification has the key on first read.
   setBypassSecret(localSecret);
+  setPolicySigningSecret(localSecret);
 
   // Restore pending bypass tokens so a server restart doesn't strand in-flight
   // `mergen approve <token>` commands issued just before shutdown.
@@ -314,6 +332,10 @@ async function main(): Promise<void> {
   // The Promise resolvers are gone, but we log stale tokens so operators know
   // which tool calls were cancelled and need to be resubmitted.
   denyStaleHoldsOnStartup();
+
+  // Seed community corpus — common operational override patterns that make the
+  // corpus-block gate useful on day 1 before the team has accumulated real overrides.
+  loadCommunityCorpus();
 
   setBufferSizeGetter(() => getPlan(getActivePlanId()).bufferSize);
 
@@ -598,14 +620,18 @@ async function main(): Promise<void> {
           ? import('./workers/worker-registry.js').then(({ stopWorkers }) => stopWorkers()).catch(() => {})
           : Promise.resolve();
 
-      void workerShutdown.finally(() => {
+      const pgShutdown = process.env.MERGEN_CLOUD_MODE === 'true'
+        ? import('./storage/pg/pg-client.js').then(({ closeSql }) => closeSql()).catch(() => {})
+        : Promise.resolve();
+
+      void workerShutdown.finally(() => void pgShutdown.finally(() => {
         stopDockerMonitor();
         stopDockerLogStream();
         stopAllProcessWatchers();
         stopFileWatch();
         stopRedisStore();
         httpServer.close(() => { logger.info('HTTP server closed'); process.exit(0); });
-      });
+      }));
       // 30-second hard timeout: enough time for Redis flush + pending writes while
       // still bounding the shutdown window. Exits with code 1 so process managers
       // (systemd, Docker) know the shutdown was not clean.

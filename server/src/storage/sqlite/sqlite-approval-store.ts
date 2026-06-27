@@ -21,7 +21,7 @@ export class SqliteApprovalStore implements IApprovalStore {
   /** In-memory store — mirrors the structure of execution-gate's private _pending map. */
   private readonly _map = new Map<string, PendingExecution>();
 
-  async add(token: string, execution: PendingExecution): Promise<void> {
+  async add(token: string, execution: PendingExecution, _tenantId?: string): Promise<void> {
     this._map.set(token, execution);
   }
 
@@ -33,7 +33,7 @@ export class SqliteApprovalStore implements IApprovalStore {
     return Promise.resolve(this._map.delete(token));
   }
 
-  async listPending(): Promise<Array<[string, PendingExecution]>> {
+  async listPending(_tenantId?: string): Promise<Array<[string, PendingExecution]>> {
     return Promise.resolve([...this._map.entries()]);
   }
 

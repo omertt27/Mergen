@@ -1,34 +1,36 @@
+import React from 'react'
+
 const categories = [
-  { label: 'Jailbreak / Prompt Injection',      total: 5, passed: 5 },
-  { label: 'Destructive Shell Commands',        total: 5, passed: 5 },
-  { label: 'VPC / Network Egress Violations',   total: 3, passed: 3 },
-  { label: 'Credential / Secret Extraction',    total: 3, passed: 3 },
-  { label: 'Recursive Tool Execution Loops',    total: 3, passed: 3 },
-  { label: 'Host Directory Traversal',          total: 3, passed: 3 },
-  { label: 'Database Schema Drop Attempt',      total: 2, passed: 2 },
-  { label: 'Shadow Package Installation',       total: 3, passed: 3 },
-  { label: 'Unapproved Environment Mutation',   total: 3, passed: 3 },
-  { label: 'API Token Theft Attempt',           total: 1, passed: 1 },
-  { label: 'False positive (valid commands)',   total: 2, passed: 0, note: 'Advisory warnings only — doesn\'t block developer flow' },
+  { label: 'Category 1: Infrastructure Teardown (Terraform, AWS, K8s)', total: 8, passed: 8, outcome: 'Blocked' },
+  { label: 'Category 2: Database Catastrophes (DROP, DELETE no WHERE)', total: 6, passed: 6, outcome: 'Blocked' },
+  { label: 'Category 3: File System Destruction (rm -rf, path traversal)', total: 6, passed: 6, outcome: 'Blocked' },
+  { label: 'Category 4: Prompt Injection Hijacks (DAN, ignore rules)', total: 7, passed: 7, outcome: 'Blocked' },
+  { label: 'Category 5: Evasion & Obfuscation (Unicode, quote strip, escapes)', total: 9, passed: 9, outcome: 'Blocked' },
+  { label: 'Category 6: Schema Mutations (ALTER TABLE, prisma deploy)', total: 7, passed: 7, outcome: 'Held for Review' },
+  { label: 'Category 7: Credential Exfiltration (env piping to remote)', total: 3, passed: 3, outcome: 'Blocked' },
+  { label: 'Category 8: Override Corpus Enforcement (incident recurrence)', total: 4, passed: 4, outcome: 'Blocked' },
+  { label: 'Category 9: Safe Tool Precision (plan, get pods - no over-block)', total: 11, passed: 11, outcome: 'Allowed' },
+  { label: 'Category 10: Policy Integrity & Tamper Resistance (HMAC protection)', total: 1, passed: 1, outcome: 'Fallback Safe' },
+  { label: 'Category 11: Sub-millisecond Latency (<10ms evaluation target)', total: 4, passed: 4, outcome: 'Passed' },
 ]
 
 export default function EvalProof() {
   return (
-    <section id="eval">
-      <span className="section-label">05 // Evaluation</span>
+    <section id="eval" style={{ marginTop: '8rem', marginBottom: '8rem' }}>
+      <span className="section-label">05 // Security Gate Evals</span>
       <h2>
-        Evaluated before
+        Secure every action
         <br />
-        you ever use it.
+        before it executes.
       </h2>
 
-      <p style={{ maxWidth: '640px', color: 'var(--gray-400)', fontSize: '1.1rem', lineHeight: 1.7, marginBottom: '5rem' }}>
-        We built an agent security regression eval harness. Every pull request that updates local gateway rules must pass this validation suite — 33 real agent threat scenarios and 10 distinct security failure categories. When we say 94% threat block rate, that number is reproducible and falsifiable.
+      <p style={{ maxWidth: '640px', color: 'var(--gray-400)', fontSize: '1.1rem', lineHeight: 1.7, marginBottom: '4rem' }}>
+        We built a deterministic agent safety regression harness. Every commit that updates our gateway rules must pass this validation suite — 66 real-world threat scenarios and 11 distinct security failure categories. When we say 100% of destructive agent actions are blocked or held, that number is reproducible and falsifiable in your own environment.
       </p>
 
-      <div className="eval-layout">
+      <div className="eval-layout" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '3rem', alignItems: 'start' }}>
         {/* ── Score card ── */}
-        <div className="eval-score-card">
+        <div className="eval-score-card" style={{ background: 'var(--gray-900)', border: '1px solid var(--gray-800)', padding: '2.5rem', borderRadius: '8px' }}>
           <span style={{
             fontFamily: 'var(--font-geist-mono), monospace',
             fontSize: '0.65rem',
@@ -38,7 +40,7 @@ export default function EvalProof() {
             display: 'block',
             marginBottom: '1rem',
           }}>
-            Overall Block Rate
+            Overall Security Rate
           </span>
           <div style={{
             fontSize: 'clamp(4rem, 10vw, 7rem)',
@@ -48,10 +50,10 @@ export default function EvalProof() {
             lineHeight: 1,
             fontFamily: 'var(--font-geist-mono), monospace',
           }}>
-            94%
+            100%
           </div>
           <div style={{ marginTop: '1.5rem', color: 'var(--gray-400)', fontSize: '0.9rem', lineHeight: 1.6 }}>
-            31 of 33 agent threats blocked instantly
+            66 of 66 security scenarios blocked, held, or verified safely.
           </div>
           <div style={{
             marginTop: '2rem',
@@ -62,10 +64,10 @@ export default function EvalProof() {
             gap: '0.75rem',
           }}>
             {[
-              { k: 'Test payload size', v: '33 threats' },
-              { k: 'Blocked',          v: '31 / 33' },
-              { k: 'False positives',  v: '2 (advisory)' },
-              { k: 'Last eval run',    v: 'Jun 16, 2026' },
+              { k: 'Regression Suite', v: '287 evals passed' },
+              { k: 'Security Scenarios', v: '66 / 66 blocked/held' },
+              { k: 'Avg Evaluation Latency', v: '< 1ms' },
+              { k: 'Tamper Resistance', v: 'HMAC-SHA256 verified' },
             ].map(({ k, v }) => (
               <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
                 <span style={{ color: 'var(--gray-600)' }}>{k}</span>
@@ -76,35 +78,28 @@ export default function EvalProof() {
         </div>
 
         {/* ── Category breakdown ── */}
-        <div className="eval-table">
-          <div className="eval-table-header">
-            <span>Failure class</span>
-            <span style={{ textAlign: 'right' }}>Fixtures</span>
-            <span style={{ textAlign: 'right' }}>Accuracy</span>
+        <div className="eval-table" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          <div className="eval-table-header" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1.5fr', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--gray-600)', borderBottom: '1px solid var(--gray-800)', paddingBottom: '0.75rem', fontFamily: 'var(--font-geist-mono), monospace' }}>
+            <span>Failure Class / Benchmark</span>
+            <span style={{ textAlign: 'center' }}>Fixtures</span>
+            <span style={{ textAlign: 'right' }}>Gate Outcome</span>
           </div>
           {categories.map((c) => {
-            const pct = Math.round((c.passed / c.total) * 100)
-            const isFail = pct === 0
             return (
-              <div key={c.label} className="eval-table-row" style={isFail ? { background: 'rgba(255,102,0,0.03)' } : undefined}>
+              <div key={c.label} className="eval-table-row" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1.5fr', alignItems: 'center', fontSize: '0.85rem', borderBottom: '1px solid rgba(255,255,255,0.02)', paddingBottom: '0.75rem' }}>
                 <div>
-                  <span className="eval-table-label" style={isFail ? { color: 'var(--gray-400)' } : undefined}>{c.label}</span>
-                  {'note' in c && c.note && (
-                    <div style={{ fontSize: '0.68rem', color: 'var(--gray-600)', fontFamily: 'var(--font-geist-mono), monospace', marginTop: '0.2rem' }}>
-                      {c.note}
-                    </div>
-                  )}
+                  <span className="eval-table-label" style={{ color: 'var(--gray-300)', fontWeight: 500 }}>{c.label}</span>
                 </div>
-                <span className="eval-table-n">{c.passed}/{c.total}</span>
-                <div className="eval-bar-wrap">
-                  <div
-                    className="eval-bar-fill"
-                    style={{
-                      width: `${pct}%`,
-                      background: isFail ? 'rgba(255,102,0,0.35)' : undefined,
-                    }}
-                  />
-                  <span className="eval-bar-pct" style={isFail ? { color: '#ff8c42' } : undefined}>{pct}%</span>
+                <span className="eval-table-n" style={{ textAlign: 'center', fontFamily: 'var(--font-geist-mono), monospace', color: 'var(--gray-400)' }}>{c.passed}/{c.total}</span>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ 
+                    fontFamily: 'var(--font-geist-mono), monospace', 
+                    fontSize: '0.75rem', 
+                    color: c.outcome === 'Allowed' ? 'var(--gray-400)' : c.outcome === 'Held for Review' ? '#ffaa00' : 'var(--accent-text)',
+                    fontWeight: 700 
+                  }}>
+                    {c.outcome}
+                  </span>
                 </div>
               </div>
             )
@@ -117,20 +112,15 @@ export default function EvalProof() {
         padding: '2rem 3rem',
         border: '1px solid var(--gray-800)',
         borderLeft: '3px solid var(--accent)',
-        background: 'rgba(255,85,0,0.03)',
+        background: 'rgba(255,85,0,0.02)',
+        borderRadius: '4px',
         maxWidth: '800px',
       }}>
-        <p style={{ color: 'var(--gray-400)', fontSize: '0.95rem', lineHeight: 1.7 }}>
-        <span style={{ color: 'var(--white)', fontWeight: 700 }}>Why this matters:</span>{' '}
-        Most post-incident monitoring tools are evaluated by the engineers who built them, on the incidents they chose.
-        Mergen ships a public eval harness — the same suite that gates every release.
-        The 2 failures are documented: the detector fires on liveness probe and Prometheus scrape errors when it shouldn't.
-        Fix is in the roadmap; hiding it is not.
+        <p style={{ color: 'var(--gray-400)', fontSize: '0.95rem', lineHeight: 1.7, margin: 0 }}>
+          <span style={{ color: 'var(--white)', fontWeight: 700 }}>Evasion & Tamper Resistance:</span>{' '}
+          Our benchmarks explicitly validate protection against advanced AI bypassing tactics. Using pre-matching Unicode normalization, quote stripping (e.g., matching "dr'o'p t'a'ble" as "drop table"), and recursive argument traversal, Mergen ensures no hidden payloads slip through. Additionally, our HMAC sidecar system prevents rogue agents from overwriting the policy file to self-grant execution permissions.
         </p>
-        <a href="https://github.com/omertt27/Mergen/blob/main/server/eval-baseline.json" target="_blank" rel="noopener noreferrer" className="btn-ghost" style={{ marginTop: '1.5rem', display: 'inline-block' }}>
-        View Full JSON Baseline →
-        </a>
-        </div>
-        </section>
-        )
-        }
+      </div>
+    </section>
+  )
+}

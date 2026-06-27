@@ -102,10 +102,10 @@ export interface IOverrideCorpus {
 // ── Approval store ────────────────────────────────────────────────────────────
 
 export interface IApprovalStore {
-  add(token: string, execution: PendingExecution): Promise<void>;
+  add(token: string, execution: PendingExecution, tenantId?: string): Promise<void>;
   get(token: string): Promise<PendingExecution | null>;
   resolve(token: string): Promise<boolean>;
-  listPending(): Promise<Array<[string, PendingExecution]>>;
+  listPending(tenantId?: string): Promise<Array<[string, PendingExecution]>>;
   pruneExpired(): Promise<void>;
   flush(): Promise<void>;
 }

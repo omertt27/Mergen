@@ -791,3 +791,41 @@ export let store: BufferStore = new RingBuffer();
 export function setStore(s: BufferStore): void {
   store = s;
 }
+
+export interface StaleError {
+  message: string;
+  firstSeenAt: number;
+  ageMs: number;
+  count: number;
+}
+
+/**
+ * Returns error log entries that have been in the buffer for longer than
+ * thresholdMs without being triaged. Used by the doctor health check to
+ * surface "this started failing N hours ago" — the passive monitoring signal
+ * a solo dev would otherwise miss.
+ */
+export function getStaleErrors(thresholdMs = 60 * 60 * 1000): StaleError[] {
+  const cutoff = Date.now() - thresholdMs;
+  const logs = store.getLogs(500, 'error');
+  const grouped = new Map<string, { firstSeenAt: number; count: number }>();
+  for (const ev of logs) {
+    const key = String(ev.args[0] ?? '').slice(0, 120);
+    if (!key) continue;
+    const existing = grouped.get(key);
+    if (!existing) {
+      grouped.set(key, { firstSeenAt: ev.timestamp, count: 1 });
+    } else {
+      if (ev.timestamp < existing.firstSeenAt) existing.firstSeenAt = ev.timestamp;
+      existing.count += 1;
+    }
+  }
+  const now = Date.now();
+  const stale: StaleError[] = [];
+  for (const [message, { firstSeenAt, count }] of grouped) {
+    if (firstSeenAt < cutoff) {
+      stale.push({ message, firstSeenAt, ageMs: now - firstSeenAt, count });
+    }
+  }
+  return stale.sort((a, b) => a.firstSeenAt - b.firstSeenAt);
+}

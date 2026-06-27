@@ -29,6 +29,7 @@ import { randomUUID } from 'crypto';
 import { Router } from 'express';
 import { getShadowLog } from '../intelligence/shadow-log.js';
 import { getOverrideSummary, getOverrideById } from '../intelligence/override-corpus.js';
+import { getBlunderStats, verifyChain, type BlunderType } from '../sensor/agent-blunder-store.js';
 import { getStats } from '../intelligence/calibration.js';
 import { incidentStore } from '../sensor/incident-store.js';
 import { postmortemStore } from '../intelligence/postmortem-store.js';
@@ -159,6 +160,12 @@ interface ImpactData {
   timeSavedHours: number | null;
   hoursPerIncident: number | null;
   timeSavedLabel: string | null;
+  // AEG gate enforcement — the board-deck answer to "why trust an AI agent with prod?"
+  agentBlunderSummary: {
+    totalPrevented: number;
+    byType: Partial<Record<BlunderType, number>>;
+    chainVerified: boolean;
+  };
 }
 
 function fmtMs(ms: number): string {
@@ -321,6 +328,15 @@ function computeImpactData(windowDays: number): ImpactData {
   // Corpus size
   const corpusPostmortems = postmortemStore.count();
 
+  // AEG gate enforcement summary
+  const blunderStats = getBlunderStats();
+  const chainResult = verifyChain();
+  const agentBlunderSummary = {
+    totalPrevented: blunderStats.total,
+    byType: blunderStats.byType as Partial<Record<BlunderType, number>>,
+    chainVerified: chainResult.valid,
+  };
+
   // Time saved — human-readable ROI metric for design-partner reports and deck slides.
   // Uses actual MTTR when available; falls back to conservative estimates.
   const savedPerIncidentMs = Math.max(
@@ -471,6 +487,7 @@ function computeImpactData(windowDays: number): ImpactData {
     timeSavedHours,
     hoursPerIncident,
     timeSavedLabel,
+    agentBlunderSummary,
   };
 }
 
@@ -644,7 +661,30 @@ function buildHtml(d: ImpactData): string {
     <div class="big-number">${fmtMs(d.avgActualMttrMs)}</div>
     <div class="big-label">Avg. manual MTTR</div>
   </div>` : ''}
+  <div class="hero-item">
+    <div class="big-number ${d.agentBlunderSummary.totalPrevented > 0 ? 'green' : ''}">${num(d.agentBlunderSummary.totalPrevented)}</div>
+    <div class="big-label">Destructive actions blocked by gate</div>
+  </div>
 </div>
+
+${(() => {
+  const blunder = d.agentBlunderSummary;
+  const chainBadge = blunder.chainVerified
+    ? `<span class="badge badge-green">chain verified</span>`
+    : `<span class="badge badge-yellow">unverified</span>`;
+  const typeRows = (Object.entries(blunder.byType) as [string, number][])
+    .sort((a, b) => b[1] - a[1])
+    .map(([t, n]) => `<tr><td class="mono">${t.replace(/_/g, ' ')}</td><td class="val">${num(n)}</td></tr>`)
+    .join('');
+  return `
+<div class="card" style="margin-bottom:32px">
+  <div class="card-title">Gate Enforcement (Agent Blunder Log) ${chainBadge}</div>
+  <table>
+    <tr><td>Total actions blocked by Mergen enforcement gate</td><td class="val ${blunder.totalPrevented > 0 ? 'green' : 'muted'}">${num(blunder.totalPrevented)}</td></tr>
+    ${typeRows || '<tr><td class="muted" colspan="2">No blocked actions recorded in this period — gate active, no agent attempted a destructive action</td></tr>'}
+  </table>
+</div>`;
+})()}
 
 <div class="grid">
   <div class="card">

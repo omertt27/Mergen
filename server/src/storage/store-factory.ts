@@ -2,12 +2,16 @@
  * store-factory.ts — Instantiates the correct store implementations based on
  * environment configuration.
  *
- * Phase 1: only SQLite implementations are available.
- * Phase 2: Postgres implementations will be added here behind the
- *   MERGEN_CLOUD_MODE=true guard.
+ * Local mode (default): SQLite wrappers around the existing singletons.
+ * Cloud mode (MERGEN_CLOUD_MODE=true): Postgres implementations.
  *
- * Call createStores() once at boot (in index.ts or app.ts) and hand the result
- * to setStores() so every module can reach it via getStores().
+ * createStores() is async in cloud mode because Postgres modules are loaded via
+ * dynamic import() to avoid importing `postgres` (and requiring MERGEN_PG_URL)
+ * when running in local SQLite mode.
+ *
+ * Call once at boot:
+ *   const stores = await createStores();
+ *   setStores(stores);
  */
 
 import type { IEventStore, IIncidentStore, IOverrideCorpus, IApprovalStore } from './interfaces.js';
@@ -23,20 +27,34 @@ export interface Stores {
   approvals: IApprovalStore;
 }
 
-export function createStores(): Stores {
+export async function createStores(): Promise<Stores> {
   const cloudMode = process.env.MERGEN_CLOUD_MODE === 'true';
 
   if (cloudMode) {
-    // Postgres implementations will be dropped in here in Phase 2.
-    // For now, throw to enforce the boot guard in index.ts.
-    throw new Error(
-      'MERGEN_CLOUD_MODE=true requires Postgres stores — not yet implemented. ' +
-      'Remove MERGEN_CLOUD_MODE or wait for Phase 2.',
-    );
+    // Dynamic import avoids loading the postgres package (and requiring
+    // MERGEN_PG_URL) when running in local SQLite mode.
+    const [
+      { PgEventStore },
+      { PgIncidentStore },
+      { PgOverrideCorpus },
+      { PgApprovalStore },
+    ] = await Promise.all([
+      import('./pg/pg-event-store.js'),
+      import('./pg/pg-incident-store.js'),
+      import('./pg/pg-override-corpus.js'),
+      import('./pg/pg-approval-store.js'),
+    ]);
+
+    return {
+      events:    new PgEventStore(),
+      incidents: new PgIncidentStore(),
+      overrides: new PgOverrideCorpus(),
+      approvals: new PgApprovalStore(),
+    };
   }
 
   return {
-    events: new SqliteEventStore(),
+    events:    new SqliteEventStore(),
     incidents: new SqliteIncidentStore(),
     overrides: new SqliteOverrideCorpus(),
     approvals: new SqliteApprovalStore(),

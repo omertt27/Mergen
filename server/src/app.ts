@@ -90,7 +90,10 @@ const MUTATING_PATHS = [
   // Incident pipeline — triggers autonomous command execution
   '/incident',
   // Infrastructure mutations
-  '/ci', '/overrides', '/rbac', '/heartbeats', '/slack/routing', '/slack/test', '/runbooks', '/ci/gate', '/hitl', '/policies',
+  '/ci', '/overrides', '/rbac', '/heartbeats', '/slack/routing', '/slack/test', '/runbooks', '/ci/gate', '/policies',
+  // /hitl/approve and /hitl/deny are self-authenticated (HMAC nonce or x-mergen-secret
+  // handled inside createHitlRouter). Only /hitl/pending requires the global secret guard.
+  '/hitl/pending',
   // Process / container watchers
   '/watchers',
   // Billing & account mutations
@@ -411,7 +414,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createArchRouter());          // Arch boundary enforcement, risk scoring, graph, critic
   app.use(createRunbooksRouter());      // Pre-approved runbook library
   app.use(createCIGateRouter());        // CI/CD corpus gate for AI-generated PRs
-  app.use(createHitlRouter());          // Human-in-the-Loop approve/deny for held tool calls
+  app.use(createHitlRouter(localSecret)); // Human-in-the-Loop approve/deny for held tool calls
   app.use(createGateAnalyticsRouter()); // Gate feedback: retry success, coverage gaps, HITL patterns
   app.use(createPoliciesRouter());      // Policy authoring UI + JSON CRUD API
   app.use(createRiskReportRouter());    // CISO-grade security risk report

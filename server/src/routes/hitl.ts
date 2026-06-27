@@ -20,10 +20,40 @@
  * UUID brute-force. Failed lookups are logged for audit.
  */
 
+import { createHmac, timingSafeEqual } from 'crypto';
+import type { Request } from 'express';
 import { Router } from 'express';
 import logger from '../sensor/logger.js';
 import { approveToolCall, denyToolCall, getPendingHolds, approveBypass, invalidateBypassToken } from '../intelligence/tool-guard.js';
 import { getHitlFatigueStatus } from '../intelligence/gate-analytics.js';
+import { timingSafeSecretEqualAny } from '../sensor/security-utils.js';
+
+// ── HITL-specific auth helpers ────────────────────────────────────────────────
+// Fix #8: Browser form POSTs (from Slack confirmation pages) cannot send custom
+// headers, so they cannot carry x-mergen-secret. Instead, the confirmation page
+// embeds an HMAC nonce derived from (localSecret, token). The POST handler
+// accepts either the header OR the nonce, so both API callers and browser flows
+// are authenticated without exposing the localSecret in HTML.
+
+function _generateNonce(token: string, secret: string): string {
+  return createHmac('sha256', secret).update(`hitl-csrf:${token}`).digest('hex');
+}
+
+function _isHitlAuthorized(req: Request, token: string, localSecret: string): boolean {
+  // Accept x-mergen-secret header (programmatic access, CLI, VS Code extension)
+  if (timingSafeSecretEqualAny(req.headers['x-mergen-secret'], localSecret)) return true;
+  // Accept HMAC nonce embedded in the browser confirmation form
+  const nonce = req.body?._nonce;
+  if (typeof nonce === 'string' && nonce.length > 0) {
+    try {
+      const expected = _generateNonce(token, localSecret);
+      const a = Buffer.from(nonce,    'hex');
+      const b = Buffer.from(expected, 'hex');
+      return a.length === b.length && timingSafeEqual(a, b);
+    } catch { return false; }
+  }
+  return false;
+}
 
 // Simple in-process rate limiter: 10 resolution attempts per IP per 60 s.
 const HITL_RATE_LIMIT = 10;
@@ -62,10 +92,13 @@ function recordFailedTokenAttempt(token: string): boolean {
   return false;
 }
 
-// Minimal HTML confirmation page so Slack `url:` button clicks (which open the
-// URL in the operator's browser as a GET request) show a confirmation step
-// before the action executes, rather than silently failing with 404.
-function confirmationPage(action: 'approve' | 'deny', token: string): string {
+function _escHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Confirmation page embeds an HMAC nonce so the browser form POST is
+// self-authenticated without requiring a custom x-mergen-secret header.
+function confirmationPage(action: 'approve' | 'deny', token: string, nonce: string): string {
   const label     = action === 'approve' ? 'Approve' : 'Deny';
   const btnColor  = action === 'approve' ? '#28a745' : '#dc3545';
   const emoji     = action === 'approve' ? '✅' : '❌';
@@ -93,37 +126,51 @@ function confirmationPage(action: 'approve' | 'deny', token: string): string {
 <body>
   <h1>${emoji} ${label} Mergen HITL gate?</h1>
   <p>Clicking the button below will ${action} the held tool call and release it ${action === 'approve' ? 'for execution' : 'with a cancellation error'}.</p>
-  <form method="POST" action="/hitl/${action}?token=${token}">
+  <form method="POST" action="/hitl/${action}?token=${_escHtml(token)}">
+    <input type="hidden" name="_nonce" value="${nonce}">
     <button type="submit">${emoji} Confirm ${label}</button>
   </form>
-  <p class="token">Token: <code>${token}</code></p>
-  <p class="alt">Alternatively, run: <code>mergen ${action} ${token}</code></p>
+  <p class="token">Token: <code>${_escHtml(token)}</code></p>
+  <p class="alt">Alternatively, run: <code>mergen ${action} ${_escHtml(token)}</code></p>
 </body>
 </html>`;
 }
 
-export function createHitlRouter(): Router {
+export function createHitlRouter(localSecret: string): Router {
   const router = Router();
 
   // ── GET /hitl/approve — confirmation page (Slack url: button → browser opens this) ──
   router.get('/hitl/approve', (req, res) => {
     const token = (req.query.token as string | undefined)?.trim();
     if (!token) { res.status(400).send('token required'); return; }
+    // Only generate a nonce for tokens that correspond to an actual pending hold.
+    // Without this check the endpoint is a nonce oracle — any caller can get a
+    // valid HMAC for an arbitrary token string and use it to POST-approve.
+    if (!getPendingHolds().some(h => h.token === token)) {
+      res.status(404).send('token not found'); return;
+    }
+    const nonce = _generateNonce(token, localSecret);
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
-    res.send(confirmationPage('approve', token));
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'");
+    res.send(confirmationPage('approve', token, nonce));
   });
 
   // ── GET /hitl/deny — confirmation page ───────────────────────────────────────
   router.get('/hitl/deny', (req, res) => {
     const token = (req.query.token as string | undefined)?.trim();
     if (!token) { res.status(400).send('token required'); return; }
+    if (!getPendingHolds().some(h => h.token === token)) {
+      res.status(404).send('token not found'); return;
+    }
+    const nonce = _generateNonce(token, localSecret);
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
-    res.send(confirmationPage('deny', token));
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'");
+    res.send(confirmationPage('deny', token, nonce));
   });
 
-  // ── POST /hitl/approve — execute approval (requires x-mergen-secret via MUTATING_PATHS) ──
+  // ── POST /hitl/approve — self-authenticated via token+nonce or x-mergen-secret ──
   router.post('/hitl/approve', (req, res) => {
     const ip = (req.socket.remoteAddress ?? 'unknown').replace(/^::ffff:/, '');
     if (hitlRateLimited(ip)) {
@@ -133,6 +180,11 @@ export function createHitlRouter(): Router {
     }
     const token = ((req.query.token ?? req.body?.token) as string | undefined)?.trim();
     if (!token) { res.status(400).json({ error: 'token required' }); return; }
+    if (!_isHitlAuthorized(req, token, localSecret)) {
+      logger.warn({ ip, token }, 'hitl: approve rejected — missing or invalid auth');
+      res.status(401).json({ error: 'unauthorized' });
+      return;
+    }
     const released = approveToolCall(token);
     if (!released) {
       logger.warn({ ip, token }, 'hitl: approve attempted with unknown or expired token');
@@ -142,8 +194,6 @@ export function createHitlRouter(): Router {
       return;
     }
     _tokenAttempts.delete(token);
-    // If the request came from a browser form POST (Accept: text/html), redirect
-    // to a simple success page rather than returning JSON.
     if ((req.headers.accept ?? '').includes('text/html')) {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Approved</title></head>
@@ -156,7 +206,7 @@ export function createHitlRouter(): Router {
     res.json({ ok: true, action: 'approved', token });
   });
 
-  // ── POST /hitl/deny — execute denial (requires x-mergen-secret via MUTATING_PATHS) ──
+  // ── POST /hitl/deny — self-authenticated via token+nonce or x-mergen-secret ──
   router.post('/hitl/deny', (req, res) => {
     const ip = (req.socket.remoteAddress ?? 'unknown').replace(/^::ffff:/, '');
     if (hitlRateLimited(ip)) {
@@ -166,6 +216,11 @@ export function createHitlRouter(): Router {
     }
     const token = ((req.query.token ?? req.body?.token) as string | undefined)?.trim();
     if (!token) { res.status(400).json({ error: 'token required' }); return; }
+    if (!_isHitlAuthorized(req, token, localSecret)) {
+      logger.warn({ ip, token }, 'hitl: deny rejected — missing or invalid auth');
+      res.status(401).json({ error: 'unauthorized' });
+      return;
+    }
     const denied = denyToolCall(token);
     if (!denied) {
       logger.warn({ ip, token }, 'hitl: deny attempted with unknown or expired token');

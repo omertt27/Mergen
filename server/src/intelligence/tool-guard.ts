@@ -428,6 +428,38 @@ async function fireHitlWebhook(
   }
 }
 
+// ── Recursive arg string extractor (fix: agents can hide commands in non-standard keys) ──
+// Scans every string value in the args tree, not just command/cmd/fix.
+// Depth-limited to prevent DoS via deeply-nested payloads.
+function extractAllStrings(obj: unknown, depth = 0): string[] {
+  if (depth > 6) return [];
+  if (typeof obj === 'string') return obj.length > 0 ? [obj] : [];
+  if (Array.isArray(obj)) return obj.flatMap(v => extractAllStrings(v, depth + 1));
+  if (obj !== null && typeof obj === 'object') {
+    return Object.values(obj as Record<string, unknown>).flatMap(v => extractAllStrings(v, depth + 1));
+  }
+  return [];
+}
+
+// ── Prompt injection detection ────────────────────────────────────────────────
+const INJECTION_PATTERNS: RegExp[] = [
+  /ignore\s+(all\s+)?previous\s+instructions?/i,
+  /disregard\s+(the\s+)?(above|previous|prior)/i,
+  /forget\s+(all\s+)?previous\s+instructions?/i,
+  /you\s+are\s+now\s+(?:a|an)\s+/i,
+  /new\s+system\s+prompt/i,
+  /\bjailbreak\b/i,
+  /\bdan\s+mode\b/i,
+  /override\s+(all\s+)?(?:safety|security|policy)\s+(rules?|constraints?|restrictions?)/i,
+];
+
+function detectInjection(text: string): string | null {
+  for (const pattern of INJECTION_PATTERNS) {
+    if (pattern.test(text)) return pattern.source;
+  }
+  return null;
+}
+
 // ── Suggested alternatives for blocked tool calls ─────────────────────────────
 
 const COMMAND_ALTERNATIVES: Array<[RegExp, string]> = [
@@ -471,11 +503,81 @@ async function applyGate(
   const t0 = Date.now();
 
   const argsSnapshot = JSON.stringify(args ?? {});
-  // Extract command-like shapes
+  // Extract the primary command arg (for bypass matching, alternatives, blast radius).
   const argsObj    = (args && typeof args === 'object') ? args as Record<string, unknown> : {};
   const commandArg = (argsObj.command ?? argsObj.cmd ?? argsObj.fix ?? '') as string;
+  // All string values in args — passed to policy engine so destructive payloads in
+  // non-standard keys (script, input, query, payload, …) are also evaluated.
+  const allArgStrings = extractAllStrings(args);
 
+  // ── Fix #6: Prompt injection detection ───────────────────────────────────────
+  const injectionMatch = detectInjection(argsSnapshot);
+  if (injectionMatch) {
+    recordGateBlock(['injection_attempt']);
+    recordBlunder({
+      blunderType:     'injection_attempt',
+      command:         toolName,
+      blockReason:     `Prompt injection pattern detected in tool arguments: ${injectionMatch}`,
+      service:         'mcp',
+      tag:             'injection',
+      actor:           process.env.MERGEN_AGENT_ID ?? 'agent',
+      pid:             null,
+      confidenceScore: null,
+    });
+    logger.warn({ toolName, injectionMatch }, 'tool-guard: prompt injection attempt detected in args');
+    recordActivity({ toolName, commandArg, verdict: 'BLOCK', triggeredRules: ['injection_attempt'], ruleNames: ['Prompt Injection'] });
+    return {
+      content: [{
+        type: 'text',
+        text: `🚫 **Mergen blocked this tool call: prompt injection pattern detected.**\n\n**Tool:** \`${toolName}\`\n\n_This event has been logged to the Agent Blunder Log._`,
+      }],
+      isError: true,
+    };
+  }
+
+  // ── Fix #2: Bypass approved — still enforce hard block rules ─────────────────
+  // A bypass token only overrides 'warn' (HOLD) rules. Hard 'block' rules are
+  // immutable and cannot be bypassed by operator approval.
   if (checkAndConsumeBypass(toolName, commandArg)) {
+    const hardEval = evaluateEnterprisePolicy({
+      files:       [toolName],
+      commands:    [toolName, ...allArgStrings],
+      actor:       'agent',
+      service:     'mcp',
+      timestamp:   Date.now(),
+      environment: process.env.MERGEN_ENVIRONMENT ?? undefined,
+      repo:        process.env.MERGEN_REPO ?? undefined,
+      agentId:     process.env.MERGEN_AGENT_ID ?? undefined,
+    });
+    if (hardEval.verdict === 'block') {
+      const hardReason = hardEval.reasons.join('; ');
+      recordGateBlock(hardEval.triggeredRules);
+      recordBlunder({
+        blunderType:     'pipeline_block',
+        command:         toolName,
+        blockReason:     `Hard policy block — bypass cannot override: ${hardReason}`,
+        service:         'mcp',
+        tag:             'tool_guard',
+        actor:           'agent',
+        pid:             null,
+        confidenceScore: null,
+      });
+      logger.warn({ toolName, reason: hardReason }, 'tool-guard: hard block rule rejected bypass approval');
+      return {
+        content: [{
+          type: 'text',
+          text: [
+            `🚫 **Hard policy block — this action cannot be bypassed by operator approval.**`,
+            ``,
+            `**Tool:** \`${toolName}\``,
+            `**Why:** ${hardReason}`,
+            ``,
+            `_Hard blocks are immutable safety guardrails. Modify \`~/.mergen/enterprise-policy.json\` to change the rule itself._`,
+          ].join('\n'),
+        }],
+        isError: true,
+      };
+    }
     logger.info({ toolName, commandArg }, 'tool-guard: approved bypass consumed, tool call passing');
     recordGatePass();
     trackSuccessfulCall(toolName);
@@ -509,9 +611,10 @@ async function applyGate(
   // Actor identity is always 'agent' for MCP tool calls — it must not be derived
   // from agent-supplied arguments, which the agent can forge to bypass AI-specific rules.
   // Environment, repo, and agentId come from server-side env vars set by the operator.
+  // Fix #3: pass ALL extracted strings as commands so non-standard arg keys are evaluated.
   const evaluation = evaluateEnterprisePolicy({
     files:       [toolName],
-    commands:    [toolName, commandArg].filter(Boolean),
+    commands:    [toolName, ...allArgStrings],
     actor:       'agent',
     service:     'mcp',
     timestamp:   Date.now(),
@@ -528,16 +631,27 @@ async function applyGate(
   recordGateCoverage(toolName, evaluation.triggeredRules);
 
   if (evaluation.verdict === 'pass') {
-    recordGatePass();
-    trackSuccessfulCall(toolName);
-    recordActivity({ toolName, commandArg, verdict: 'PASS', triggeredRules: [], ruleNames: [] });
-    recordGateEvent({
-      ts: Date.now(), toolName, command: commandArg || null,
-      actor: 'agent', agentId: process.env.MERGEN_AGENT_ID ?? null,
-      service: 'mcp', environment: process.env.MERGEN_ENVIRONMENT ?? null,
-      verdict: 'pass', triggeredRules: [], guidedAlternative: null,
-    });
-    return next();
+    // Fix #7: Blast radius upgrade — only for explicitly data-destructive scope
+    // (DROP TABLE / TRUNCATE) that somehow cleared all policy rules. Scoped to
+    // 'data-destructive' so generic unknown-scope commands are never held.
+    const blast = computeBlastRadius(commandArg || toolName);
+    if (!blast.reversible && blast.dataAtRisk && blast.scope === 'data-destructive') {
+      evaluation.verdict = 'warn';
+      evaluation.triggeredRules.push('blast_radius_gate');
+      evaluation.reasons.push(`Auto-hold: irreversible data operation detected (scope: ${blast.scope})`);
+      logger.info({ toolName, scope: blast.scope }, 'tool-guard: blast radius gate upgraded pass → hold');
+    } else {
+      recordGatePass();
+      trackSuccessfulCall(toolName);
+      recordActivity({ toolName, commandArg, verdict: 'PASS', triggeredRules: [], ruleNames: [] });
+      recordGateEvent({
+        ts: Date.now(), toolName, command: commandArg || null,
+        actor: 'agent', agentId: process.env.MERGEN_AGENT_ID ?? null,
+        service: 'mcp', environment: process.env.MERGEN_ENVIRONMENT ?? null,
+        verdict: 'pass', triggeredRules: [], guidedAlternative: null,
+      });
+      return next();
+    }
   }
 
   const reason      = evaluation.reasons.join('; ');
@@ -563,7 +677,14 @@ async function applyGate(
       service: 'mcp', environment: process.env.MERGEN_ENVIRONMENT ?? null,
       verdict: 'block', triggeredRules: evaluation.triggeredRules, guidedAlternative: alternative,
     });
+    // Fix #1: Register bypass but do NOT expose the token in the MCP response.
+    // The token is logged to the operator terminal only — the agent cannot see it
+    // and therefore cannot self-approve via a bash tool call.
     const bypassToken = registerBypassBlock(toolName, commandArg, evaluation.triggeredRules);
+    logger.info(
+      { bypassToken, toolName, commandArg },
+      `tool-guard: bypass approval required — operator can run: mergen approve ${bypassToken}`,
+    );
     const ruleNames   = loadEnterprisePolicy().rules
       .filter(r => evaluation.triggeredRules.includes(r.id))
       .map(r => r.name);
@@ -579,10 +700,7 @@ async function applyGate(
           ``,
           `**What to do instead:** ${alternative}`,
           ``,
-          `👉 **To approve this execution once, run this command in your terminal:**`,
-          `   \`mergen approve ${bypassToken}\``,
-          ``,
-          `_Action logged to the Agent Blunder Log. To modify this policy: \`~/.mergen/enterprise-policy.json\`._`,
+          `_Action logged to the Agent Blunder Log. An operator must approve this action via the Mergen terminal or Slack. To modify this policy: \`~/.mergen/enterprise-policy.json\`._`,
         ].join('\n'),
       }],
       isError: true,

@@ -19,6 +19,7 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { getAuditHealth } from '../sensor/audit-log.js';
+import { getStaleErrors } from '../sensor/buffer.js';
 
 export interface IntegrationHealth {
   id:       string;
@@ -212,6 +213,17 @@ export function createHealthIntegrationsRouter(): Router {
       checkDatadog(),
     ]);
 
+    const staleErrors = getStaleErrors();
+    const staleCheck: IntegrationHealth = staleErrors.length > 0
+      ? {
+          id: 'stale_errors',
+          name: 'Active Errors',
+          status: 'warn',
+          detail: `${staleErrors.length} error pattern${staleErrors.length !== 1 ? 's' : ''} active for >1 hour without triage`,
+          fix: 'Run: curl http://127.0.0.1:3000/health/integrations | jq .staleErrors',
+        }
+      : { id: 'stale_errors', name: 'Active Errors', status: 'ok', detail: 'No untriaged errors older than 1 hour' };
+
     const integrations: IntegrationHealth[] = [
       slack,
       pagerduty,
@@ -222,6 +234,7 @@ export function createHealthIntegrationsRouter(): Router {
       checkSentry(),
       checkRedis(),
       checkAutopilot(),
+      staleCheck,
     ];
 
     const ok      = integrations.filter((i) => i.status === 'ok').length;
@@ -232,6 +245,8 @@ export function createHealthIntegrationsRouter(): Router {
       ok: true,
       summary: { ok, warn, missing, total: integrations.length },
       integrations,
+      staleErrors,
+      staleErrorCount: staleErrors.length,
     });
   });
 

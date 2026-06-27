@@ -22,6 +22,7 @@
 import { Router } from 'express';
 import { getBlunders, getBlunderStats, verifyChain } from '../sensor/agent-blunder-store.js';
 import { getRefinementCandidates, getBypassStats } from '../sensor/bypass-tracker.js';
+import { getGateCoverageSummary } from '../intelligence/enterprise-policy-engine.js';
 
 export function createAgentBlundersRouter(): Router {
   const router = Router();
@@ -32,10 +33,12 @@ export function createAgentBlundersRouter(): Router {
     const recent = getBlunders().slice(-limit).reverse();
     const policyRefinementCandidates = getRefinementCandidates();
     const bypassStats = getBypassStats();
+    const gateCovers = getGateCoverageSummary();
     res.json({
       ok: true,
       prevented: stats.total,
       ...stats,
+      gateCovers,
       recentBlunders: recent,
       bypassStats,
       policyRefinementCandidates,
