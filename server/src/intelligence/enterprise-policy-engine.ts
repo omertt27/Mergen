@@ -320,8 +320,36 @@ function _normalizeForMatching(s: string): string {
     .toLowerCase();
 }
 
+// Natural-language synonyms LLMs commonly generate for destructive operations.
+// Each entry maps a phrase regex → canonical blocked token so existing rules catch it.
+const SEMANTIC_EQUIVALENTS: Array<[pattern: RegExp, canonical: string]> = [
+  [/\bblow\s+away\b/,        'terraform destroy'],
+  [/\btear\s+down\b/,        'terraform destroy'],
+  [/\brip\s+out\b/,          'destroy'],
+  [/\bobliterate\b/,         'destroy'],
+  [/\bwipe\s+clean\b/,       'truncate table'],
+  [/\bzero\s+out\b/,         'truncate table'],
+  [/\berase\s+all\b/,        'delete from'],
+  [/\bremove\s+all\b/,       'delete from'],
+  [/\bclear\s+all\b/,        'delete from'],
+  [/\bpurge\s+all\b/,        'truncate table'],
+  [/\bwipe\s+the\s+database\b/, 'drop database'],
+  [/\bwipe\s+the\s+cluster\b/,  'kubectl delete'],
+  [/\bnuke\s+the\b/,         'terraform destroy'],
+];
+
+function _expandSemanticEquivalents(normalized: string): string {
+  let expanded = normalized;
+  for (const [pattern, canonical] of SEMANTIC_EQUIVALENTS) {
+    if (pattern.test(normalized)) {
+      expanded += ' ' + canonical;
+    }
+  }
+  return expanded;
+}
+
 function matchesCommandPattern(haystack: string, pattern: string): boolean {
-  const normalized = _normalizeForMatching(haystack);
+  const normalized = _expandSemanticEquivalents(_normalizeForMatching(haystack));
   const lower = pattern.toLowerCase();
   if (lower.includes(' ')) {
     return normalized.includes(lower);

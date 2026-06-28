@@ -163,6 +163,10 @@ const _gateRing: GateEvent[] = [];
 export function recordGateEvent(event: GateEvent): void {
   _gateRing.push(event);
   if (_gateRing.length > RING_CAP) _gateRing.shift();
+  // Feature 5: trigger behavior-baseline recompute every N events (async, non-blocking)
+  if (event.agentId) {
+    void import('./behavior-baseline.js').then(({ onGateEvent }) => onGateEvent(event.agentId));
+  }
 }
 
 export function getGateEvents(): GateEvent[] { return [..._gateRing]; }

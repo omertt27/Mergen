@@ -20,6 +20,7 @@ import path from 'path';
 import { DATA_DIR } from '../sensor/paths.js';
 import logger from '../sensor/logger.js';
 import { compileOverrideFromSlackThread } from './override-corpus.js';
+import { synthesizeRulesFromCorpus } from './corpus-to-policy.js';
 
 const BOT_TOKEN    = process.env.MERGEN_SLACK_BOT_TOKEN ?? '';
 const SLACK_CHANNEL = process.env.MERGEN_SLACK_CHANNEL ?? '';
@@ -125,6 +126,50 @@ async function _fetchThread(channelId: string, threadTs: string): Promise<string
   return messages.length > 0 ? messages.join('\n') : null;
 }
 
+// ── Feature 7: Post synthesized rules back to the Slack thread ────────────────
+
+async function _postSynthesizedRules(channelId: string, threadTs: string): Promise<void> {
+  if (!BOT_TOKEN) return;
+  const newRules = synthesizeRulesFromCorpus();
+  if (newRules.length === 0) return;
+
+  const lines = newRules.slice(0, 3).map(
+    (s) => `• *${s.rule.name}* (${s.sourceOccurrences} overrides, action: \`${s.rule.action}\`)`,
+  );
+
+  const payload = {
+    channel: channelId,
+    thread_ts: threadTs,
+    text: `📋 Mergen detected ${newRules.length} new policy pattern${newRules.length !== 1 ? 's' : ''} from this thread.`,
+    blocks: [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: [
+            `📋 *Mergen detected ${newRules.length} new policy pattern${newRules.length !== 1 ? 's' : ''} from this postmortem.*`,
+            ``,
+            lines.join('\n'),
+            ``,
+            `Review and activate: \`GET /policy-suggestions\` → \`POST /policies/rules\``,
+          ].join('\n'),
+        },
+      },
+    ],
+  };
+
+  try {
+    await fetch('https://slack.com/api/chat.postMessage', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: `Bearer ${BOT_TOKEN}` },
+      body:    JSON.stringify(payload),
+      signal:  AbortSignal.timeout(8_000),
+    });
+  } catch (err) {
+    logger.warn({ err }, 'slack-override-loop: failed to post synthesized rules notification');
+  }
+}
+
 // ── Main poll ────────────────────────────────────────────────────────────────
 
 async function poll(): Promise<void> {
@@ -167,6 +212,8 @@ async function poll(): Promise<void> {
         { tag: override.incidentTag, reason: override.overrideReason, ts },
         'slack-override-loop: extracted override pattern from Slack thread',
       );
+      // Feature 7: synthesize new policy rules from the updated corpus and notify Slack
+      void _postSynthesizedRules(channelId, ts);
     }
 
     processedSet.add(ts);

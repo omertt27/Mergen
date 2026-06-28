@@ -21,6 +21,7 @@
 
 import { getBlunders } from '../sensor/agent-blunder-store.js';
 import { loadEnterprisePolicy } from './enterprise-policy-engine.js';
+import { synthesizeRulesFromCorpus } from './corpus-to-policy.js';
 import logger from '../sensor/logger.js';
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -33,12 +34,14 @@ export interface PolicySuggestion {
   services: string[];
   /** true if ANY existing rule already covers this prefix */
   alreadyCovered: boolean;
+  /** 'blunder' = derived from blunder log clusters; 'corpus' = derived from override corpus */
+  source?: 'blunder' | 'corpus';
   suggestedRule: {
     id: string;
     name: string;
-    action: 'block';
+    action: 'block' | 'warn';
     reason: string;
-    conditions: { commands: string[] };
+    conditions: { commands?: string[]; services?: string[]; daysOfWeek?: number[]; hourWindow?: [number, number]; actorType?: string };
   };
 }
 
@@ -93,6 +96,26 @@ export function computePolicySuggestions(): PolicySuggestion[] {
         action: 'block',
         reason: `Auto-suggested: this command pattern was blocked ${data.count} times in the last 30 days.`,
         conditions: { commands: [prefix.split(' ')[0]] },
+      },
+    });
+  }
+
+  // Append corpus-derived suggestions (Feature 6)
+  const corpusSynthesized = synthesizeRulesFromCorpus();
+  for (const { rule, sourceOccurrences, compactedRule } of corpusSynthesized) {
+    suggestions.push({
+      commandPrefix: compactedRule.incidentTag,
+      occurrences:   sourceOccurrences,
+      lastSeenAt:    compactedRule.compactedAt,
+      services:      compactedRule.service !== 'unknown' ? [compactedRule.service] : [],
+      alreadyCovered: false, // synthesizeRulesFromCorpus already filters covered ones
+      source:        'corpus',
+      suggestedRule: {
+        id:         rule.id,
+        name:       rule.name,
+        action:     rule.action,
+        reason:     rule.reason,
+        conditions: rule.conditions as PolicySuggestion['suggestedRule']['conditions'],
       },
     });
   }

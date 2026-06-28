@@ -34,6 +34,16 @@ import {
 import { trackBlock, trackSuccessfulCall } from '../sensor/bypass-tracker.js';
 import { recordActivity } from './activity-feed.js';
 import { checkAgentProfile } from './agent-profiles.js';
+import {
+  detectSequenceThreat,
+  recordSessionCall,
+  markContaminated,
+  isSessionContaminated,
+  getContaminationSource,
+  updateAgentReputation,
+  getAgentScrutinyTier,
+  READ_ONLY_TOOLS,
+} from './session-threat-tracker.js';
 import logger from '../sensor/logger.js';
 import { BYPASS_PENDING_FILE, HITL_HOLDS_FILE, DATA_DIR, zeroRetentionMode } from '../sensor/paths.js';
 
@@ -510,9 +520,50 @@ async function applyGate(
   // non-standard keys (script, input, query, payload, …) are also evaluated.
   const allArgStrings = extractAllStrings(args);
 
+  // Session ID: stable per agent identity; falls back to process-level singleton.
+  const agentId   = process.env.MERGEN_AGENT_ID ?? 'agent';
+  const sessionId = agentId !== 'agent' ? agentId : `proc_${process.pid}`;
+
+  // ── Feature 2: Multi-turn threat sequence detection ───────────────────────────
+  const { threat: sequenceThreat, label: sequenceLabel } = detectSequenceThreat(sessionId, commandArg || argsSnapshot.slice(0, 200));
+  if (sequenceThreat) {
+    updateAgentReputation(agentId, 'sequence');
+    recordGateBlock(['sequence_threat']);
+    recordBlunder({
+      blunderType:     'pipeline_block',
+      command:         toolName,
+      blockReason:     `Multi-turn threat sequence detected: ${sequenceLabel}`,
+      service:         'mcp',
+      tag:             'sequence_threat',
+      actor:           agentId,
+      pid:             null,
+      confidenceScore: null,
+    });
+    recordSessionCall(sessionId, toolName, commandArg, 'BLOCK');
+    recordActivity({ toolName, commandArg, verdict: 'BLOCK', triggeredRules: ['sequence_threat'], ruleNames: ['Multi-Turn Threat Sequence'] });
+    return {
+      content: [{
+        type: 'text',
+        text: [
+          `🚫 **Mergen blocked this tool call: multi-turn threat sequence detected.**`,
+          ``,
+          `**Tool:** \`${toolName}\``,
+          `**Pattern:** \`${sequenceLabel}\``,
+          `**Why:** The sequence of recent tool calls matches a known multi-step attack chain.`,
+          ``,
+          `_This event has been logged to the Agent Blunder Log._`,
+        ].join('\n'),
+      }],
+      isError: true,
+    };
+  }
+
   // ── Fix #6: Prompt injection detection ───────────────────────────────────────
   const injectionMatch = detectInjection(argsSnapshot);
   if (injectionMatch) {
+    updateAgentReputation(agentId, 'injection');
+    // Feature 3: contaminate the session for the next 5 calls
+    markContaminated(sessionId, injectionMatch, 5);
     recordGateBlock(['injection_attempt']);
     recordBlunder({
       blunderType:     'injection_attempt',
@@ -520,11 +571,12 @@ async function applyGate(
       blockReason:     `Prompt injection pattern detected in tool arguments: ${injectionMatch}`,
       service:         'mcp',
       tag:             'injection',
-      actor:           process.env.MERGEN_AGENT_ID ?? 'agent',
+      actor:           agentId,
       pid:             null,
       confidenceScore: null,
     });
     logger.warn({ toolName, injectionMatch }, 'tool-guard: prompt injection attempt detected in args');
+    recordSessionCall(sessionId, toolName, commandArg, 'BLOCK');
     recordActivity({ toolName, commandArg, verdict: 'BLOCK', triggeredRules: ['injection_attempt'], ruleNames: ['Prompt Injection'] });
     return {
       content: [{
@@ -641,16 +693,42 @@ async function applyGate(
       evaluation.reasons.push(`Auto-hold: irreversible data operation detected (scope: ${blast.scope})`);
       logger.info({ toolName, scope: blast.scope }, 'tool-guard: blast radius gate upgraded pass → hold');
     } else {
-      recordGatePass();
-      trackSuccessfulCall(toolName);
-      recordActivity({ toolName, commandArg, verdict: 'PASS', triggeredRules: [], ruleNames: [] });
-      recordGateEvent({
-        ts: Date.now(), toolName, command: commandArg || null,
-        actor: 'agent', agentId: process.env.MERGEN_AGENT_ID ?? null,
-        service: 'mcp', environment: process.env.MERGEN_ENVIRONMENT ?? null,
-        verdict: 'pass', triggeredRules: [], guidedAlternative: null,
-      });
-      return next();
+      // Feature 3: contamination upgrade — PASS → HOLD when session is contaminated
+      const contaminated = isSessionContaminated(sessionId);
+      if (contaminated) {
+        const source = getContaminationSource(sessionId);
+        evaluation.verdict = 'warn';
+        evaluation.triggeredRules.push('contamination_hold');
+        evaluation.reasons.push(`Session contaminated by prior injection attempt (pattern: ${source}). Human review required.`);
+        logger.info({ sessionId, toolName }, 'tool-guard: contamination hold — upgrading PASS to HOLD');
+      } else {
+        // Feature 4: high-scrutiny agent — all non-read-only calls → HOLD
+        const tier = getAgentScrutinyTier(agentId);
+        if (tier === 'high' && !READ_ONLY_TOOLS.has(toolName)) {
+          evaluation.verdict = 'warn';
+          evaluation.triggeredRules.push('high_scrutiny_hold');
+          evaluation.reasons.push(`Agent ${agentId} is under high scrutiny (repeated injection/sequence threats). Human review required.`);
+          logger.info({ agentId, toolName }, 'tool-guard: high-scrutiny hold applied');
+        } else if (tier === 'elevated' && !blast.reversible && blast.scope !== 'unknown') {
+          // elevated: only hold calls with known blast radius impact
+          evaluation.verdict = 'warn';
+          evaluation.triggeredRules.push('elevated_scrutiny_hold');
+          evaluation.reasons.push(`Agent ${agentId} is under elevated scrutiny (repeated blocks). Non-reversible command requires human review.`);
+          logger.info({ agentId, toolName, scope: blast.scope }, 'tool-guard: elevated-scrutiny hold applied');
+        } else {
+          recordGatePass();
+          trackSuccessfulCall(toolName);
+          recordSessionCall(sessionId, toolName, commandArg, 'PASS');
+          recordActivity({ toolName, commandArg, verdict: 'PASS', triggeredRules: [], ruleNames: [] });
+          recordGateEvent({
+            ts: Date.now(), toolName, command: commandArg || null,
+            actor: 'agent', agentId: process.env.MERGEN_AGENT_ID ?? null,
+            service: 'mcp', environment: process.env.MERGEN_ENVIRONMENT ?? null,
+            verdict: 'pass', triggeredRules: [], guidedAlternative: null,
+          });
+          return next();
+        }
+      }
     }
   }
 
@@ -658,6 +736,7 @@ async function applyGate(
   const alternative = getSuggestedAlternative(evaluation.triggeredRules, commandArg);
 
   if (evaluation.verdict === 'block') {
+    updateAgentReputation(agentId, 'block');
     recordGateBlock(evaluation.triggeredRules);
     trackBlock(toolName, evaluation.triggeredRules);
     recordBlunder({
@@ -671,6 +750,7 @@ async function applyGate(
       confidenceScore: null,
     });
     logger.warn({ toolName, reason }, 'tool-guard: tool call blocked by local policy');
+    recordSessionCall(sessionId, toolName, commandArg, 'BLOCK');
     recordGateEvent({
       ts: Date.now(), toolName, command: commandArg || null,
       actor: 'agent', agentId: process.env.MERGEN_AGENT_ID ?? null,
@@ -708,6 +788,7 @@ async function applyGate(
   }
 
   // verdict === 'warn' → HITL hold
+  recordSessionCall(sessionId, toolName, commandArg, 'HOLD');
   const token  = randomUUID();
   const heldAt = Date.now();
   logger.info({ toolName, token, reason }, 'tool-guard: tool call held for HITL approval');
