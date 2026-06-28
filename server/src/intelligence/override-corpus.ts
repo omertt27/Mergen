@@ -468,111 +468,183 @@ export function getOverrideSummary(): OverrideSummary[] {
   return out;
 }
 
+// ── Slack thread analysis — shared classification tables ─────────────────────
+// These mirror git-adr-sync.ts so both ingestion paths use identical rules.
+
+const _TAG_HINTS: Array<[RegExp, string]> = [
+  [/\bpool\b|connection.?limit|max.?conn/i,         'infra_db_connection_pool'],
+  [/\boom\b|out.of.memory|heap|memory.?leak/i,      'infra_oom_kill'],
+  [/rate.?limit|throttl/i,                          'infra_rate_limit_cascade'],
+  [/\bauth\b|\btoken\b|session|oauth|\bjwt\b/i,     'auth_token_not_persisted'],
+  [/\bcache\b|\bredis\b|memcach/i,                  'cache_invalidation'],
+  [/\bdeploy\b|rollout|release/i,                   'deploy_config_drift'],
+  [/\bcert\b|\btls\b|\bssl\b/i,                     'infra_certificate_expiry'],
+  [/\bdisk\b|storage|volume|\bspace\b/i,            'infra_disk_pressure'],
+  [/migrat|schema|alter.?table/i,                   'db_migration_lock'],
+  [/friday|settlement|batch|weekend|end.of.day/i,   'batch_window_conflict'],
+  [/\bscale\b|replica|pod.?count|instance/i,        'infra_scaling'],
+  [/slow.?query|high.?latency|\bp99\b|\bp95\b/i,   'infra_slow_query'],
+];
+
+const _REASON_HINTS: Array<[RegExp, OverrideReason]> = [
+  [/\b(friday|saturday|sunday|settlement|batch.window|end.of.day|after.hours|market.hours|trading.hours)\b/i, 'batch-window'],
+  [/\b(cost|budget|billing|too.expensive|over.budget|cost.ceiling)\b/i,                                      'cost-constraint'],
+  [/\b(cab|change.?control|change.?freeze|compliance|requires.approval|approval.required)\b/i,               'compliance-hold'],
+  [/\b(read.?replica|replica.?routing|prefer.replica|read.only.replica)\b/i,                                'prefer-read-replica'],
+  [/\b(maintenance.?window|scheduled.downtime|downtime.window)\b/i,                                         'maintenance-window'],
+  [/\b(wrong.?diag|misidentif|incorrect.root.cause|false.?positive|misdiagnos)\b/i,                        'wrong-diagnosis'],
+  [/\b(wrong.?fix|bad.command|revert|made.it.worse|incorrect.fix|undo)\b/i,                                'wrong-fix'],
+];
+
+function _inferTag(text: string): string {
+  for (const [re, tag] of _TAG_HINTS) {
+    if (re.test(text)) return tag;
+  }
+  return 'operational_constraint';
+}
+
+function _inferReason(text: string): OverrideReason {
+  for (const [re, reason] of _REASON_HINTS) {
+    if (re.test(text)) return reason;
+  }
+  return 'on-call-discretion';
+}
+
+// Action verbs that appear in operational constraints
+const _ACTION_RE = /\b(restart|kill|delete|drop|destroy|scale|resize|run|migrate|execute|deploy|push|apply|rollback|terminate|truncate|alter|reboot|flush|drain|update|patch)\b/i;
+
+// Negative decision prefixes — "don't X", "we decided not to X", "avoid X"
+const _NEG_RE = /\b(don'?t|do\s+not|avoid|never|should\s+not|shouldn'?t|must\s+not|mustn'?t|cannot|can'?t|won'?t|will\s+not|decided\s+(?:not|against)(?:\s+to)?|refrain\s+from|hold\s+off\s+on|no\s+(?:more\s+)?)\b/i;
+
+// Phrases that signal a human lesson or constraint being declared
+const _CONSTRAINT_SIGNAL_RE = /\b(constraint:|policy:|rule:|adr:|decided:|going\s+forward[,:]?|lesson(?:\s+learned)?[s:]?|we\s+learned|action\s+item[s:]?|takeaway[s:]?|we\s+(?:shouldn'?t|should\s+not|decided\s+not|won'?t|will\s+not))\b/i;
+
+// CLI tool prefixes that indicate a bare-shell command
+const _CLI_START_RE = /^(kubectl|docker|terraform|helm|systemctl|service|npm|yarn|pnpm|make|psql|mysql|aws|gcloud|az)\s/i;
+
+interface _Candidate {
+  command: string;
+  note: string;
+  isNegative: boolean;
+  manualAction?: string;
+}
+
+function _extractCandidates(thread: string): _Candidate[] {
+  const candidates: _Candidate[] = [];
+  const seen = new Set<string>();
+
+  function _add(command: string, note: string, isNegative: boolean, manualAction?: string): void {
+    const key = command.toLowerCase().slice(0, 50);
+    if (!seen.has(key)) {
+      seen.add(key);
+      candidates.push({ command: command.slice(0, 500), note: note.slice(0, 300), isNegative, manualAction });
+    }
+  }
+
+  // ── Path 1: backtick-quoted commands — pair first=proposed, second=manualAction ──
+  // Postmortem threads often follow: "don't run `X`, I ran `Y` instead."
+  // Capturing them as one entry preserves context and avoids double-counting.
+  const backtickCmds = [...thread.matchAll(/`([^`]{4,300})`/g)].map(m => m[1].trim());
+  if (backtickCmds.length > 0) {
+    const proposed = backtickCmds[0];
+    const manual   = backtickCmds[1]; // may be undefined
+    _add(proposed, proposed, false, manual);
+    if (manual) seen.add(manual.toLowerCase().slice(0, 50)); // prevent re-adding as separate entry
+    for (const cmd of backtickCmds.slice(2)) _add(cmd, cmd, false);
+  }
+
+  // ── Path 2: bare CLI lines ────────────────────────────────────────────────
+  for (const line of thread.split('\n')) {
+    const t = line.trim();
+    if (_CLI_START_RE.test(t)) _add(t, t, false);
+  }
+
+  // ── Path 3: negative decision sentences ───────────────────────────────────
+  // "don't restart the DB during settlement window"
+  // "we decided not to scale the pool"
+  // "avoid running migrations on Friday"
+  // Skip sentences that merely reference a command already captured via backtick/CLI.
+  for (const sentence of thread.split(/[.!?\n]+/).map(s => s.trim()).filter(s => s.length > 15 && s.length < 350)) {
+    if (!_NEG_RE.test(sentence)) continue;
+    if (!_ACTION_RE.test(sentence)) continue;
+    const lc = sentence.toLowerCase();
+    if ([...seen].some(k => k.length > 10 && lc.includes(k))) continue;
+    const actionMatch = sentence.match(_ACTION_RE);
+    const verb = actionMatch ? actionMatch[0] : 'operation';
+    _add(`${verb} (blocked): ${sentence.slice(0, 120)}`, sentence, true);
+  }
+
+  // ── Path 4: explicit constraint declarations ──────────────────────────────
+  // "going forward, we won't X" / "lesson learned: X" / "constraint: X"
+  for (const sentence of thread.split(/[.!?\n]+/).map(s => s.trim()).filter(s => s.length > 10 && s.length < 400)) {
+    if (!_CONSTRAINT_SIGNAL_RE.test(sentence)) continue;
+    const lc = sentence.toLowerCase();
+    if ([...seen].some(k => k.length > 10 && lc.includes(k))) continue;
+    _add(sentence.slice(0, 200), sentence, false);
+  }
+
+  return candidates;
+}
+
 /**
- * Automatically parses a Slack thread to extract override decisions.
- * Maps keywords to explicit OverrideReasons, parses commands/actions,
- * and records the override directly into the Override Corpus.
+ * Extract ALL override patterns from a Slack postmortem thread.
+ * Returns one OverrideEvent per distinct constraint — typically 1–5 per thread.
+ * Records each into the corpus automatically.
  *
- * This implements the core logic of Phase 4: Organizational Learning,
- * turning human Slack discussions into structured machine policies.
+ * Extracts four signal types:
+ *   1. Backtick-quoted command pairs (proposed + manualAction) — highest confidence
+ *   2. Bare CLI lines (kubectl, docker, terraform, etc.)
+ *   3. Negative decision sentences ("don't restart during settlement window")
+ *   4. Constraint declarations ("going forward", "lesson learned", "policy:")
+ */
+export function compileOverridesFromSlackThread(
+  slackThread: string,
+  service = 'unknown',
+): OverrideEvent[] {
+  if (!slackThread) return [];
+
+  const candidates = _extractCandidates(slackThread);
+  if (candidates.length === 0) return [];
+
+  const threadTag    = _inferTag(slackThread);
+  const threadReason = _inferReason(slackThread);
+
+  const events: OverrideEvent[] = [];
+
+  for (const cand of candidates) {
+    const localTag    = _inferTag(cand.note) !== 'operational_constraint' ? _inferTag(cand.note) : threadTag;
+    const localReason = _inferReason(cand.note) !== 'on-call-discretion'  ? _inferReason(cand.note) : threadReason;
+
+    try {
+      const event = recordOverride({
+        incidentTag:     localTag,
+        proposedCommand: cand.command,
+        overrideReason:  localReason,
+        note:            cand.note,
+        rationale:       cand.isNegative
+          ? 'Auto-extracted: negative decision pattern from postmortem thread'
+          : 'Auto-extracted: constraint declaration from postmortem thread',
+        service,
+        environment: 'production',
+        manualAction: cand.manualAction,
+        actor:       'slack-nlp-parser',
+      });
+      events.push(event);
+    } catch { /* non-fatal — duplicate or validation error */ }
+
+    if (events.length >= 10) break;
+  }
+
+  return events;
+}
+
+/**
+ * Backward-compatible single-result variant.
+ * New callers should prefer compileOverridesFromSlackThread (plural).
  */
 export function compileOverrideFromSlackThread(
   slackThread: string,
-  service: string = 'unknown'
+  service = 'unknown',
 ): OverrideEvent | null {
-  if (!slackThread) return null;
-
-  // Extract commands inside backticks. e.g. `kubectl rollout restart deployment/api`
-  const backtickCommands = [...slackThread.matchAll(/`([^`]{4,200})`/g)].map(m => m[1].trim());
-
-  // 1. Identify proposed command and manual action taken
-  // Often the team discusses a proposed action that they rejected, and a manual action they ran instead.
-  let proposedCommand = '';
-  let manualAction = '';
-
-  for (const cmd of backtickCommands) {
-    if (/^(kubectl|docker|systemctl|service|npm|yarn|pnpm|make)\s/i.test(cmd)) {
-      if (/restart|stop|scale|revert|rollback|install/i.test(cmd)) {
-        if (!proposedCommand) {
-          proposedCommand = cmd;
-        } else if (!manualAction && cmd !== proposedCommand) {
-          manualAction = cmd;
-        }
-      }
-    }
-  }
-
-  // Fallbacks if no backticked commands are found
-  if (!proposedCommand) {
-    const lines = slackThread.split('\n');
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (/^(kubectl|docker|systemctl|service|npm|yarn|pnpm|make)\s/i.test(trimmed)) {
-        proposedCommand = trimmed;
-        break;
-      }
-    }
-  }
-
-  // If we can't find a proposed command, we cannot establish an override pattern
-  if (!proposedCommand) {
-    return null;
-  }
-
-  // 2. Identify the OverrideReason
-  let reason: OverrideReason = 'on-call-discretion';
-  let note = 'Extracted from Slack thread discussion';
-
-  const lowerThread = slackThread.toLowerCase();
-
-  if (lowerThread.includes('window') || lowerThread.includes('settlement') || lowerThread.includes('friday') || lowerThread.includes('batch')) {
-    reason = 'batch-window';
-    note = 'Override reason mapping: batch-window context discussed';
-  } else if (lowerThread.includes('cost') || lowerThread.includes('budget') || lowerThread.includes('scale') || lowerThread.includes('expensive')) {
-    reason = 'cost-constraint';
-    note = 'Override reason mapping: cost constraints discussed';
-  } else if (lowerThread.includes('cab') || lowerThread.includes('freeze') || lowerThread.includes('compliance') || lowerThread.includes('security')) {
-    reason = 'compliance-hold';
-    note = 'Override reason mapping: compliance hold or change freeze discussed';
-  } else if (lowerThread.includes('replica') || lowerThread.includes('read') || lowerThread.includes('primary')) {
-    reason = 'prefer-read-replica';
-    note = 'Override reason mapping: read-replica routing preference discussed';
-  } else if (lowerThread.includes('maintenance') || lowerThread.includes('scheduled')) {
-    reason = 'maintenance-window';
-    note = 'Override reason mapping: maintenance window discussed';
-  } else if (lowerThread.includes('wrong diagnosis') || lowerThread.includes('misidentified') || lowerThread.includes('incorrect root')) {
-    reason = 'wrong-diagnosis';
-    note = 'Override reason mapping: wrong root-cause diagnosis discussed';
-  } else if (lowerThread.includes('wrong fix') || lowerThread.includes('bad command') || lowerThread.includes('incorrect fix')) {
-    reason = 'wrong-fix';
-    note = 'Override reason mapping: wrong remediation command discussed';
-  }
-
-  // 3. Identify failure mode tag from text or keywords
-  let incidentTag = 'infra_db_connection_pool'; // default fallback
-  if (lowerThread.includes('oom') || lowerThread.includes('memory') || lowerThread.includes('limit')) {
-    incidentTag = 'infra_oom_kill';
-  } else if (lowerThread.includes('rate') || lowerThread.includes('limit') || lowerThread.includes('throttl')) {
-    incidentTag = 'infra_rate_limit_cascade';
-  } else if (lowerThread.includes('cert') || lowerThread.includes('tls') || lowerThread.includes('expiry') || lowerThread.includes('ssl')) {
-    incidentTag = 'infra_certificate_expiry';
-  } else if (lowerThread.includes('disk') || lowerThread.includes('space') || lowerThread.includes('full')) {
-    incidentTag = 'infra_disk_pressure';
-  } else if (lowerThread.includes('slow') || lowerThread.includes('query') || lowerThread.includes('latency')) {
-    incidentTag = 'infra_slow_query';
-  }
-
-  // 4. Record into Override Corpus
-  const event = recordOverride({
-    incidentTag,
-    proposedCommand,
-    overrideReason: reason,
-    note,
-    service,
-    environment: 'production',
-    manualAction: manualAction || undefined,
-    actor: 'Slack NLP Parser',
-  });
-
-  return event;
+  return compileOverridesFromSlackThread(slackThread, service)[0] ?? null;
 }

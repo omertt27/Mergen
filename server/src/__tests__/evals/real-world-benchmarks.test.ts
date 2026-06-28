@@ -71,6 +71,8 @@ vi.mock('../../intelligence/blast-radius.js',     () => ({
     scope: 'service', reversible: false, dataAtRisk: true,
     summary: 'Non-reversible change affecting production data',
   }),
+  mostSevereBlast: vi.fn().mockImplementation((blasts: Array<{ scope: string; reversible: boolean; dataAtRisk: boolean }>) =>
+    blasts[0] ?? { scope: 'service', reversible: false, dataAtRisk: true, summary: 'Non-reversible change affecting production data' }),
 }));
 vi.mock('../../intelligence/override-corpus.js',  () => ({
   hasRecentOverride:       mockHasRecentOverride,
@@ -86,6 +88,7 @@ import {
   approveToolCall,
 } from '../../intelligence/tool-guard.js';
 import { _resetPolicyCacheForTesting } from '../../intelligence/enterprise-policy-engine.js';
+import { _resetSessionsForTesting } from '../../intelligence/session-threat-tracker.js';
 import { runAgentPipeline } from '../../intelligence/agent-pipeline.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CausalChain } from '../../intelligence/causal.js';
@@ -135,6 +138,7 @@ function makeChain(tag = 'infra_db_connection_pool'): CausalChain {
 
 beforeEach(() => {
   _resetPolicyCacheForTesting();
+  _resetSessionsForTesting();
   vi.clearAllMocks();
   mockHasRecentOverride.mockReturnValue(false);
   for (const { token } of getPendingHolds()) denyToolCall(token);

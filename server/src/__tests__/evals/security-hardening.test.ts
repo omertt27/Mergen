@@ -75,6 +75,8 @@ vi.mock('../../intelligence/blast-radius.js', () => ({
     scope: 'service', reversible: false, dataAtRisk: true,
     summary: 'Non-reversible change affecting production data',
   }),
+  mostSevereBlast: vi.fn().mockImplementation((blasts: Array<{ scope: string; reversible: boolean; dataAtRisk: boolean }>) =>
+    blasts[0] ?? { scope: 'service', reversible: false, dataAtRisk: true, summary: 'Non-reversible change affecting production data' }),
 }));
 
 import {
@@ -87,6 +89,7 @@ import {
   loadBypasses,
   denyStaleHoldsOnStartup,
 } from '../../intelligence/tool-guard.js';
+import { _resetSessionsForTesting } from '../../intelligence/session-threat-tracker.js';
 import {
   isAiActor,
   _resetPolicyCacheForTesting,
@@ -146,6 +149,7 @@ async function withRouter(
 
 beforeEach(() => {
   _resetPolicyCacheForTesting();
+  _resetSessionsForTesting();
   vi.clearAllMocks();
   for (const { token } of getPendingHolds()) denyToolCall(token);
 });

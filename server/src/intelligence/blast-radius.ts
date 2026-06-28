@@ -264,3 +264,26 @@ export function computeBlastRadius(
     summary:             buildSummary('unknown', null, rollbackCommand !== null, false),
   };
 }
+
+// Severity ranking — higher index = more severe.
+const _SCOPE_SEVERITY: ImpactScope[] = [
+  'unknown', 'pod', 'deployment', 'config-change', 'namespace',
+  'data-write', 'cluster', 'data-destructive',
+];
+
+/**
+ * Given multiple blast radius results (one per arg string), returns the most
+ * severe one. Prefers irreversible > data-at-risk > highest scope severity.
+ */
+export function mostSevereBlast(blasts: BlastRadius[]): BlastRadius {
+  if (blasts.length === 0) throw new Error('mostSevereBlast: empty array');
+  return blasts.reduce((worst, current) => {
+    if (!current.reversible && worst.reversible) return current;
+    if (current.reversible && !worst.reversible) return worst;
+    if (current.dataAtRisk && !worst.dataAtRisk) return current;
+    if (!current.dataAtRisk && worst.dataAtRisk) return worst;
+    const cs = _SCOPE_SEVERITY.indexOf(current.scope);
+    const ws = _SCOPE_SEVERITY.indexOf(worst.scope);
+    return cs > ws ? current : worst;
+  });
+}

@@ -66,6 +66,7 @@ export function recordGateBlock(triggeredRules: string[]): void {
     _ensureRetryStats(ruleId).fired++;
   }
   _pendingRetries.push({ triggeredRules, firedAt: now });
+  _schedulePersist();
 }
 
 /**
@@ -89,7 +90,7 @@ export function getRetryStats(): Map<string, RetryStats> {
 // ── 2. Policy Coverage ─────────────────────────────────────────────────────
 
 const _toolCallCounts = new Map<string, number>();
-const _ungardedCounts = new Map<string, number>();
+const _unguardedCounts = new Map<string, number>();
 const _ruleFirings    = new Map<string, number>();
 
 /**
@@ -98,15 +99,16 @@ const _ruleFirings    = new Map<string, number>();
 export function recordGateCoverage(toolName: string, triggeredRules: string[]): void {
   _toolCallCounts.set(toolName, (_toolCallCounts.get(toolName) ?? 0) + 1);
   if (triggeredRules.length === 0) {
-    _ungardedCounts.set(toolName, (_ungardedCounts.get(toolName) ?? 0) + 1);
+    _unguardedCounts.set(toolName, (_unguardedCounts.get(toolName) ?? 0) + 1);
   }
   for (const ruleId of triggeredRules) {
     _ruleFirings.set(ruleId, (_ruleFirings.get(ruleId) ?? 0) + 1);
   }
+  _schedulePersist();
 }
 
 export function getToolCallCounts(): Map<string, number> { return _toolCallCounts; }
-export function getUngardedCounts(): Map<string, number> { return _ungardedCounts; }
+export function getUnguardedCounts(): Map<string, number> { return _unguardedCounts; }
 export function getRuleFirings(): Map<string, number>    { return _ruleFirings; }
 
 // ── 3. HITL Decision Patterns ──────────────────────────────────────────────
@@ -167,6 +169,7 @@ export function recordGateEvent(event: GateEvent): void {
   if (event.agentId) {
     void import('./behavior-baseline.js').then(({ onGateEvent }) => onGateEvent(event.agentId));
   }
+  _schedulePersist();
 }
 
 export function getGateEvents(): GateEvent[] { return [..._gateRing]; }
@@ -222,3 +225,65 @@ export function getHitlFatigueStatus(): {
       : null,
   };
 }
+
+// ── Persistence ────────────────────────────────────────────────────────────────
+// Survives server restarts via agent-context-store (SQLite-backed).
+// Loaded on startup so the Policy Suggester always has longitudinal signal.
+
+interface AnalyticsSnapshot {
+  version: 1;
+  retryStats:     Array<[string, RetryStats]>;
+  toolCallCounts: Array<[string, number]>;
+  unguardedCounts: Array<[string, number]>;
+  ruleFirings:    Array<[string, number]>;
+  hitlStats:      Array<[string, HitlStats]>;
+  events:         GateEvent[];
+}
+
+let _persistTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function persistGateAnalytics(): void {
+  import('../sensor/agent-context-store.js').then(({ agentContextStore }) => {
+    const snapshot: AnalyticsSnapshot = {
+      version:         1,
+      retryStats:      [..._retryStats.entries()],
+      toolCallCounts:  [..._toolCallCounts.entries()],
+      unguardedCounts: [..._unguardedCounts.entries()],
+      ruleFirings:     [..._ruleFirings.entries()],
+      hitlStats:       [..._hitlStats.entries()],
+      events:          _gateRing.slice(-500),
+    };
+    agentContextStore.store('__gate', 'gate_analytics_v1', JSON.stringify(snapshot), 0);
+  }).catch(() => { /* non-critical */ });
+}
+
+function _schedulePersist(): void {
+  if (_persistTimer) return;
+  _persistTimer = setTimeout(() => {
+    _persistTimer = null;
+    persistGateAnalytics();
+  }, 60_000);
+  if (_persistTimer && typeof _persistTimer === 'object' && 'unref' in _persistTimer) {
+    (_persistTimer as { unref(): void }).unref();
+  }
+}
+
+export async function hydrateGateAnalytics(): Promise<void> {
+  try {
+    const { agentContextStore } = await import('../sensor/agent-context-store.js');
+    const entries = agentContextStore.recall('__gate', 'gate_analytics_v1', 1);
+    if (entries.length === 0) return;
+    const snap = JSON.parse(entries[0].value) as AnalyticsSnapshot;
+    if (snap?.version !== 1) return;
+    for (const [k, v] of snap.retryStats ?? [])     _retryStats.set(k, v);
+    for (const [k, v] of snap.toolCallCounts ?? [])  _toolCallCounts.set(k, v);
+    for (const [k, v] of snap.unguardedCounts ?? []) _unguardedCounts.set(k, v);
+    for (const [k, v] of snap.ruleFirings ?? [])     _ruleFirings.set(k, v);
+    for (const [k, v] of snap.hitlStats ?? [])       _hitlStats.set(k, v);
+    if (Array.isArray(snap.events)) {
+      _gateRing.length = 0;
+      _gateRing.push(...snap.events.slice(-RING_CAP));
+    }
+  } catch { /* non-critical */ }
+}
+

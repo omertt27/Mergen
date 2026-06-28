@@ -19,7 +19,7 @@ import fs from 'fs';
 import path from 'path';
 import { DATA_DIR } from '../sensor/paths.js';
 import logger from '../sensor/logger.js';
-import { compileOverrideFromSlackThread } from './override-corpus.js';
+import { compileOverridesFromSlackThread } from './override-corpus.js';
 import { synthesizeRulesFromCorpus } from './corpus-to-policy.js';
 
 const BOT_TOKEN    = process.env.MERGEN_SLACK_BOT_TOKEN ?? '';
@@ -34,6 +34,10 @@ const POSTMORTEM_SIGNALS = [
   'outage resolved', 'mitigation', 'this was caused by',
   'we resolved', 'issue resolved', 'marked resolved',
   'runbook', 'we decided', 'going forward',
+  // Negative decision patterns — often appear without a formal postmortem header
+  "don't", "do not", "avoid", "should not", "we learned",
+  'lesson learned', 'constraint:', 'action item', 'takeaway',
+  'going forward', 'next time',
 ];
 
 // ── State persistence ────────────────────────────────────────────────────────
@@ -204,13 +208,13 @@ async function poll(): Promise<void> {
       continue;
     }
 
-    // Attempt to extract an override pattern
-    const override = compileOverrideFromSlackThread(threadText, 'unknown');
-    if (override) {
-      newOverrides++;
+    // Extract all override patterns from this thread (often >1 per postmortem)
+    const overrides = compileOverridesFromSlackThread(threadText, 'unknown');
+    if (overrides.length > 0) {
+      newOverrides += overrides.length;
       logger.info(
-        { tag: override.incidentTag, reason: override.overrideReason, ts },
-        'slack-override-loop: extracted override pattern from Slack thread',
+        { count: overrides.length, tag: overrides[0].incidentTag, reason: overrides[0].overrideReason, ts },
+        'slack-override-loop: extracted override patterns from Slack thread',
       );
       // Feature 7: synthesize new policy rules from the updated corpus and notify Slack
       void _postSynthesizedRules(channelId, ts);

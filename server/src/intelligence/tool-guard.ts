@@ -17,11 +17,12 @@
  *   registerTools(createGuardedServer(mcp));
  */
 
-import { randomUUID, randomBytes, createHmac } from 'crypto';
+import { randomUUID, randomBytes, createHmac, createHash } from 'crypto';
+import { hostname } from 'os';
 import fs from 'fs';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { evaluateEnterprisePolicy, loadEnterprisePolicy } from './enterprise-policy-engine.js';
-import { computeBlastRadius } from './blast-radius.js';
+import { computeBlastRadius, mostSevereBlast } from './blast-radius.js';
 import { recordBlunder } from '../sensor/agent-blunder-store.js';
 import {
   recordGateBlock,
@@ -46,8 +47,32 @@ import {
 } from './session-threat-tracker.js';
 import logger from '../sensor/logger.js';
 import { BYPASS_PENDING_FILE, HITL_HOLDS_FILE, DATA_DIR, zeroRetentionMode } from '../sensor/paths.js';
+import { normalizeForMatching } from './normalize.js';
 
 type McpResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
+
+// ── Agent fingerprint ─────────────────────────────────────────────────────────
+// When MERGEN_AGENT_ID is not set, derive a stable per-process fingerprint so
+// reputation tracking works for the majority of deployments that don't set the env var.
+// Computed lazily (not at module load) so test overrides of MERGEN_AGENT_ID take effect.
+let _warnedNoAgentId = false;
+function _resolveAgentId(): string {
+  const id = process.env.MERGEN_AGENT_ID;
+  if (id && id !== 'agent') return id;
+  if (!_warnedNoAgentId) {
+    const fp = createHash('sha256')
+      .update(`${hostname()}:${process.ppid ?? 0}`)
+      .digest('hex')
+      .slice(0, 8);
+    logger.info({ fingerprint: `env_${fp}` }, 'tool-guard: MERGEN_AGENT_ID not set — using process fingerprint for reputation tracking');
+    _warnedNoAgentId = true;
+  }
+  const fp = createHash('sha256')
+    .update(`${hostname()}:${process.ppid ?? 0}`)
+    .digest('hex')
+    .slice(0, 8);
+  return `env_${fp}`;
+}
 
 const HOLD_TIMEOUT_MS = 15 * 60 * 1_000; // 15 minutes — matches execution-gate.ts
 
@@ -490,8 +515,9 @@ const INJECTION_PATTERNS: RegExp[] = [
 ];
 
 function detectInjection(text: string): string | null {
+  const normalized = normalizeForMatching(text);
   for (const pattern of INJECTION_PATTERNS) {
-    if (pattern.test(text)) return pattern.source;
+    if (pattern.test(normalized)) return pattern.source;
   }
   return null;
 }
@@ -528,6 +554,71 @@ function getSuggestedAlternative(triggeredRules: string[], commandArg: string): 
   return 'Describe the intended outcome and the specific resource, then request human approval before executing irreversible actions.';
 }
 
+// ── HITL escalation helpers ───────────────────────────────────────────────────
+
+async function fireHitlReminder(token: string, toolName: string, minutesRemaining: number): Promise<void> {
+  const webhookUrl = process.env.MERGEN_HITL_WEBHOOK_URL;
+  if (!webhookUrl) return;
+  try {
+    await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: `⚠️ *Reminder:* HITL approval still pending for \`${escapeMrkdwn(toolName)}\` — ${minutesRemaining} minutes remaining. Token: \`${token}\``,
+        mergen: { type: 'hitl_reminder', token, toolName },
+      }),
+      signal: AbortSignal.timeout(5_000),
+    });
+  } catch (err) {
+    logger.warn({ err, token }, 'tool-guard: HITL reminder webhook failed');
+  }
+}
+
+async function fireHitlEscalation(token: string, toolName: string): Promise<void> {
+  const pdSecret   = process.env.MERGEN_PAGERDUTY_SECRET;
+  const webhookUrl = process.env.MERGEN_HITL_WEBHOOK_URL;
+
+  if (pdSecret) {
+    try {
+      await fetch('https://events.pagerduty.com/v2/enqueue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          routing_key:   pdSecret,
+          event_action:  'trigger',
+          payload: {
+            summary:   `Mergen HITL gate: unanswered approval for \`${toolName}\` (token: ${token})`,
+            severity:  'warning',
+            source:    'mergen-hitl',
+            custom_details: { token, toolName },
+          },
+        }),
+        signal: AbortSignal.timeout(8_000),
+      });
+      logger.info({ token, toolName }, 'tool-guard: HITL escalation sent to PagerDuty');
+    } catch (err) {
+      logger.warn({ err, token }, 'tool-guard: PagerDuty escalation failed');
+    }
+    return;
+  }
+
+  if (webhookUrl) {
+    try {
+      await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: `🚨 *URGENT:* HITL approval for \`${escapeMrkdwn(toolName)}\` pending 10 min. 5 min until auto-cancel. Token: \`${token}\``,
+          mergen: { type: 'hitl_escalation', token, toolName },
+        }),
+        signal: AbortSignal.timeout(5_000),
+      });
+    } catch (err) {
+      logger.warn({ err, token }, 'tool-guard: HITL escalation webhook failed');
+    }
+  }
+}
+
 // ── Core gate logic ───────────────────────────────────────────────────────────
 
 async function applyGate(
@@ -546,9 +637,9 @@ async function applyGate(
   // non-standard keys (script, input, query, payload, …) are also evaluated.
   const allArgStrings = extractAllStrings(args);
 
-  // Session ID: stable per agent identity; falls back to process-level singleton.
-  const agentId   = process.env.MERGEN_AGENT_ID ?? 'agent';
-  const sessionId = agentId !== 'agent' ? agentId : `proc_${process.pid}`;
+  // Session ID: stable per agent identity; falls back to process fingerprint.
+  const agentId   = _resolveAgentId();
+  const sessionId = agentId;
 
   // ── Feature 2: Multi-turn threat sequence detection ───────────────────────────
   const { threat: sequenceThreat, label: sequenceLabel } = detectSequenceThreat(sessionId, commandArg || argsSnapshot.slice(0, 200));
@@ -709,10 +800,12 @@ async function applyGate(
   recordGateCoverage(toolName, evaluation.triggeredRules);
 
   if (evaluation.verdict === 'pass') {
-    // Fix #7: Blast radius upgrade — only for explicitly data-destructive scope
-    // (DROP TABLE / TRUNCATE) that somehow cleared all policy rules. Scoped to
-    // 'data-destructive' so generic unknown-scope commands are never held.
-    const blast = computeBlastRadius(commandArg || toolName);
+    // Blast radius upgrade — only for explicitly data-destructive scope
+    // (DROP TABLE / TRUNCATE) that somehow cleared all policy rules. Evaluate over
+    // ALL extracted arg strings so payloads in non-standard keys are caught too.
+    const blastCandidates = (allArgStrings.length > 0 ? allArgStrings : [commandArg || toolName])
+      .map(s => computeBlastRadius(s));
+    const blast = mostSevereBlast(blastCandidates);
     if (!blast.reversible && blast.dataAtRisk && blast.scope === 'data-destructive') {
       evaluation.verdict = 'warn';
       evaluation.triggeredRules.push('blast_radius_gate');
@@ -852,6 +945,17 @@ async function applyGate(
     }, HOLD_TIMEOUT_MS);
     timeoutHandle.unref();
 
+    // Escalation: 5-min reminder, 10-min urgent escalation (PagerDuty or second Slack).
+    const reminderHandle = setTimeout(() => {
+      void fireHitlReminder(token, toolName, 10);
+    }, 5 * 60 * 1_000);
+    reminderHandle.unref();
+
+    const escalationHandle = setTimeout(() => {
+      void fireHitlEscalation(token, toolName);
+    }, 10 * 60 * 1_000);
+    escalationHandle.unref();
+
     _pendingHolds.set(token, {
       toolName,
       argsSnapshot,
@@ -860,6 +964,8 @@ async function applyGate(
       heldAt,
       resolve,
       timeoutHandle,
+      reminderHandle,
+      escalationHandle,
     });
     // Persist hold metadata so a server restart can inform operators of stale holds.
     _persistHolds();

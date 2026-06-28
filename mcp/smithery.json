@@ -1,12 +1,12 @@
 {
   "qualifiedName": "mergen",
-  "displayName": "Mergen — Local-First Runtime Debugging",
-  "description": "Captures browser console, network, and DOM on 127.0.0.1 and exposes them as MCP tools. Causally correlated, source-mapped, PII-redacted. Nothing leaves your laptop.",
+  "displayName": "Mergen — Agent Execution Governance",
+  "description": "Inline execution and security gateway for AI agents. Physically blocks destructive MCP tool calls in <1ms before the handler runs — no LLM in the critical path, no probabilistic guardrails. Holds schema mutations for Slack-based HITL approval. Every blocked action is hash-chained to a tamper-evident Agent Blunder Log. Shadow mode builds a 30-day trust track record before you enable autonomous execution.",
   "homepage": "https://github.com/omertt27/Mergen",
   "license": "MIT",
-  "icon": "https://raw.githubusercontent.com/omertt27/Mergen/main/extension/icons/icon128.png",
-  "categories": ["debugging", "developer-tools", "browser", "observability"],
-  "keywords": ["browser", "console", "network", "dom", "debugging", "local-first", "privacy", "source-maps"],
+  "icon": "https://raw.githubusercontent.com/omertt27/Mergen/main/mergen-logo-128.png",
+  "categories": ["security", "governance", "developer-tools"],
+  "keywords": ["agent-security", "policy-enforcement", "hitl", "audit-log", "aeg", "agent-governance", "local-first", "mcp-proxy"],
   "runtime": "node",
   "transport": "stdio",
   "startCommand": {
@@ -25,21 +25,22 @@
     }
   },
   "tools": [
-    { "name": "get_status",           "description": "Health, buffer occupancy, and analyses-per-day counter." },
-    { "name": "get_recent_logs",      "description": "Last N console events (level, message, source, ts)." },
-    { "name": "get_network_activity", "description": "Last N fetch/XHR events with timing + status." },
-    { "name": "get_dom_context",      "description": "Snapshot of the active tab's DOM + framework hints." },
-    { "name": "clear_buffer",         "description": "Drop the rolling buffer (privacy / fresh-repro)." },
-    { "name": "analyze_runtime",      "description": "Causal Context Pack: ranked hypotheses + source-mapped evidence." }
+    { "name": "triage_incident",      "description": "Full autonomous loop on demand — diagnosis + optional fix execution." },
+    { "name": "execute_fix",          "description": "Execute a specific hypothesis fix. Intercepted by the policy gate before the handler runs." },
+    { "name": "analyze_runtime",      "description": "Causal analysis — root cause + fix hint, no execution. Always passes the gate." },
+    { "name": "get_recent_logs",      "description": "Last N console events from the ring buffer." },
+    { "name": "get_network_activity", "description": "HTTP/fetch events with status, duration, and body." },
+    { "name": "validate_fix",         "description": "Compare error counts before/after a fix and record the verdict." },
+    { "name": "clear_buffer",         "description": "Empty the ring buffer (privacy / fresh reproduction)." }
   ],
   "examples": [
     {
-      "title": "Why did this page just throw?",
-      "prompt": "Use analyze_runtime to find the root cause of the most recent error on the active tab."
+      "title": "Block a destructive agent action",
+      "prompt": "Use execute_fix to run 'terraform destroy prod' and observe Mergen intercept it before the handler runs."
     },
     {
-      "title": "Show me the slow request",
-      "prompt": "Call get_network_activity and rank by duration; identify retries or 5xx clusters."
+      "title": "Triage the latest incident",
+      "prompt": "Call triage_incident to diagnose the most recent PagerDuty alert and propose a fix."
     }
   ]
 }

@@ -321,6 +321,11 @@ async function main(): Promise<void> {
   // which can take minutes on a freshly restarted server.
   serviceGraph.loadPersisted();
 
+  // Hydrate gate analytics from last run — must come after agentMemoryStore.init()
+  // so the SQLite backend is ready to serve the recall() call.
+  const { hydrateGateAnalytics } = await import('./intelligence/gate-analytics.js');
+  await hydrateGateAnalytics();
+
   // Wire the local secret into both the bypass and policy HMAC signing mechanisms
   // before loading from disk, so verification has the key on first read.
   setBypassSecret(localSecret);

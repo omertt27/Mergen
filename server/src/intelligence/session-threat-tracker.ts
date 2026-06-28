@@ -51,6 +51,8 @@ function _getOrCreate(sessionId: string): SessionState {
   if (!s) {
     s = { calls: [], contaminatedCallsRemaining: 0, contaminationSource: '', lastActivity: Date.now() };
     _sessions.set(sessionId, s);
+    // Restore contamination state from the persistent store on first access.
+    void _hydrateContamination(sessionId);
   }
   s.lastActivity = Date.now();
   return s;
@@ -169,6 +171,36 @@ export function markContaminated(sessionId: string, source: string, callCount: n
   s.contaminatedCallsRemaining = callCount;
   s.contaminationSource = source;
   logger.info({ sessionId, source, callCount }, 'session-threat-tracker: session marked contaminated');
+  void _persistContamination(sessionId, source, callCount);
+}
+
+async function _persistContamination(sessionId: string, source: string, remaining: number): Promise<void> {
+  try {
+    const { agentContextStore } = await import('../sensor/agent-context-store.js');
+    const expiresAt = Date.now() + SESSION_EXPIRY_MS;
+    agentContextStore.store(
+      sessionId,
+      'contamination_v1',
+      JSON.stringify({ source, remaining, expiresAt }),
+      SESSION_EXPIRY_MS,
+    );
+  } catch { /* non-critical */ }
+}
+
+async function _hydrateContamination(sessionId: string): Promise<void> {
+  try {
+    const { agentContextStore } = await import('../sensor/agent-context-store.js');
+    const entries = agentContextStore.recall(sessionId, 'contamination_v1', 1);
+    if (entries.length === 0) return;
+    const { source, remaining, expiresAt } = JSON.parse(entries[0].value) as {
+      source: string; remaining: number; expiresAt: number;
+    };
+    if (Date.now() > expiresAt || remaining <= 0) return;
+    const s = _getOrCreate(sessionId);
+    s.contaminatedCallsRemaining = remaining;
+    s.contaminationSource = source;
+    logger.info({ sessionId, remaining }, 'session-threat-tracker: contamination state restored from store');
+  } catch { /* non-critical */ }
 }
 
 export function isSessionContaminated(sessionId: string): boolean {
