@@ -284,10 +284,25 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   const RATE_MAX       = 600;    // 600 req/min per IP (~10 req/s)
   const _ipBuckets = new LRUCache<string, { count: number; resetAt: number }>({ max: 10_000 });
 
+  // When the server runs behind a trusted reverse proxy (MERGEN_TRUSTED_PROXY=true),
+  // extract the real client IP from X-Forwarded-For. Only trust this in cloud/team
+  // mode where a proxy is expected; in local mode use the socket address directly.
+  const TRUST_PROXY = process.env.MERGEN_TRUSTED_PROXY === 'true' && bindHost !== '127.0.0.1';
+
+  function getClientIp(req: express.Request): string {
+    if (TRUST_PROXY) {
+      const xff = req.headers['x-forwarded-for'];
+      // X-Forwarded-For: client, proxy1, proxy2 — leftmost is the original client.
+      const raw = (Array.isArray(xff) ? xff[0] : xff ?? '').split(',')[0].trim();
+      if (raw) return raw.replace(/^::ffff:/, '');
+    }
+    return (req.socket.remoteAddress ?? 'unknown').replace(/^::ffff:/, '');
+  }
+
   app.use((req, res, next) => {
     // Use exact match for /ingest to avoid accidentally exempting future /ingest-* routes.
     if (req.path === '/ingest' || req.path.startsWith('/v1/')) { next(); return; }
-    const ip = (req.socket.remoteAddress ?? 'unknown').replace(/^::ffff:/, '');
+    const ip = getClientIp(req);
     const now = Date.now();
     let bucket = _ipBuckets.get(ip);
     if (!bucket || now > bucket.resetAt) {
@@ -352,7 +367,11 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
     app.use((req, res, next) => {
       if (req.method !== 'GET') { next(); return; }
       if (!SENSITIVE_GET_PATHS.some((p) => req.path === p || req.path.startsWith(p + '/'))) { next(); return; }
-      const presented = req.headers['x-mergen-secret'];
+      // Accept either the x-mergen-secret header (extensions, CLI) or the ?secret=
+      // query param (browser navigation to UI pages like /policies and /dashboard).
+      const qSecret = req.query['secret'];
+      const presented = req.headers['x-mergen-secret'] ??
+        (typeof qSecret === 'string' ? qSecret : undefined);
       const valid = timingSafeSecretEqualAny(presented, localSecret);
       if (!valid) { res.status(401).json({ error: 'unauthorized' }); return; }
       next();
@@ -416,7 +435,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createCIGateRouter());        // CI/CD corpus gate for AI-generated PRs
   app.use(createHitlRouter(localSecret)); // Human-in-the-Loop approve/deny for held tool calls
   app.use(createGateAnalyticsRouter()); // Gate feedback: retry success, coverage gaps, HITL patterns
-  app.use(createPoliciesRouter());      // Policy authoring UI + JSON CRUD API
+  app.use(createPoliciesRouter(localSecret)); // Policy authoring UI + JSON CRUD API
   app.use(createRiskReportRouter());    // CISO-grade security risk report
   app.use(createSafetyTestRouter());    // Adversarial bypass test suite
   app.use(createAgentActivityRouter()); // Live agent activity dashboard

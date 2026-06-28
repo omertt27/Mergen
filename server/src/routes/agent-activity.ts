@@ -8,21 +8,24 @@
  * agents write access to production systems.
  */
 
+import { randomUUID } from 'crypto';
 import { Router } from 'express';
 
 export function createAgentActivityRouter(): Router {
   const router = Router();
 
   router.get('/agent-activity', (_req, res) => {
+    const nonce = randomUUID().replace(/-/g, '');
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'");
-    res.send(buildActivityHtml());
+    res.setHeader('Content-Security-Policy',
+      `default-src 'self'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src 'self'`);
+    res.send(buildActivityHtml(nonce));
   });
 
   return router;
 }
 
-function buildActivityHtml(): string {
+function buildActivityHtml(nonce: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -97,7 +100,7 @@ function buildActivityHtml(): string {
 </div>
 <div id="feed"><div class="empty" id="empty-msg">Waiting for agent activity…<br><span style="font-size:11px;margin-top:8px;display:block">Tool calls will appear here in real time as agents make them.</span></div></div>
 
-<script>
+<script nonce="${nonce}">
 let filter = 'all';
 let counts = {PASS:0, BLOCK:0, HOLD:0};
 const MAX_ROWS = 200;

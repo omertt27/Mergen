@@ -16,8 +16,8 @@
  * additionally gated by the existing local-secret guard for mutations.
  */
 
-import crypto from 'crypto';
 import type { Request, Response, NextFunction } from 'express';
+import { timingSafeSecretEqual } from './security-utils.js';
 import logger from './logger.js';
 
 const SSO_REQUIRED      = process.env.MERGEN_SSO_REQUIRED === 'true';
@@ -33,17 +33,6 @@ if (SSO_REQUIRED && !SSO_TOKEN) {
     'MERGEN_SSO_REQUIRED=true but MERGEN_SSO_TOKEN is not set — ' +
     'SSO enforcement is disabled. Set MERGEN_SSO_TOKEN to a shared bearer token.',
   );
-}
-
-function timingSafeEqual(a: string, b: string): boolean {
-  const aBuf = Buffer.from(a);
-  const bBuf = Buffer.from(b);
-  if (aBuf.length !== bBuf.length) {
-    // Still run the comparison to prevent timing leaks
-    crypto.timingSafeEqual(aBuf, Buffer.alloc(aBuf.length));
-    return false;
-  }
-  return crypto.timingSafeEqual(aBuf, bBuf);
 }
 
 export function ssoMiddleware(req: Request, res: Response, next: NextFunction): void {
@@ -69,7 +58,7 @@ export function ssoMiddleware(req: Request, res: Response, next: NextFunction): 
     }
     const email  = presented.slice(0, colonIdx).toLowerCase();
     const secret = presented.slice(colonIdx + 1);
-    if (!SSO_ALLOWED_EMAILS.has(email) || !timingSafeEqual(secret, SSO_TOKEN)) {
+    if (!SSO_ALLOWED_EMAILS.has(email) || !timingSafeSecretEqual(secret, SSO_TOKEN)) {
       logger.warn({ email, path: req.path }, 'SSO: rejected — email not in allowlist or wrong secret');
       res.status(401).json({ error: 'SSO: unauthorized' });
       return;
@@ -79,7 +68,7 @@ export function ssoMiddleware(req: Request, res: Response, next: NextFunction): 
     return;
   }
 
-  if (!timingSafeEqual(presented, SSO_TOKEN)) {
+  if (!timingSafeSecretEqual(presented, SSO_TOKEN)) {
     logger.warn({ path: req.path }, 'SSO: invalid bearer token');
     res.status(401).json({ error: 'SSO: invalid bearer token' });
     return;

@@ -170,10 +170,12 @@ function validateConfig(): void {
     );
   }
   if (CLOUD_MODE && !process.env.MERGEN_PAGERDUTY_SECRET) {
-    logger.warn(
-      'startup: MERGEN_PAGERDUTY_SECRET not set in cloud mode — PagerDuty webhook requests will be rejected. ' +
-      'Set it to the signing secret from your PagerDuty webhook config.',
+    logger.error(
+      'FATAL: MERGEN_CLOUD_MODE=true but MERGEN_PAGERDUTY_SECRET is not set. ' +
+      'In cloud mode the server is network-reachable and an unsigned webhook can trigger autonomous execution. ' +
+      'Set MERGEN_PAGERDUTY_SECRET to the signing secret from your PagerDuty webhook config, then restart.',
     );
+    process.exit(1);
   } else if (!AUTOPILOT && !process.env.MERGEN_PAGERDUTY_SECRET) {
     logger.warn(
       'startup: MERGEN_PAGERDUTY_SECRET not set — PagerDuty webhook signature verification is disabled. ' +

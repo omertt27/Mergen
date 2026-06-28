@@ -201,7 +201,9 @@ function normalizeWhitespace(cmd: string): string {
 // Shell metacharacters that can chain or inject commands regardless of the prefix.
 // A command that starts with "npm install" but contains "$(…)" or ";" is still
 // an injection attempt. Reject before the prefix pattern even runs.
-const SHELL_METACHAR_RE = /[;&|`$(){}[\]<>\\!]/;
+// \n and \r are included: a newline inside a string passed to /bin/sh -c
+// terminates the first command and starts a new one, bypassing the allowlist.
+const SHELL_METACHAR_RE = /[;&|`$(){}[\]<>\\!\n\r]/;
 
 function checkAllowlist(command: string): { allowed: boolean; matchedRule?: string; blockReason?: string } {
   const normalized = normalizeWhitespace(command);
@@ -369,10 +371,17 @@ export async function executeRemediation(
     let stderr = '';
     let timedOut = false;
 
+    // Split the allowlist-validated command into binary + args and exec without a
+    // shell interpreter. The allowlist already guarantees no shell metacharacters
+    // and a known-safe command form, so whitespace-splitting is safe here.
+    // Avoiding /bin/sh -c eliminates all shell injection risk (variable expansion,
+    // command substitution, pipe chaining) even if the allowlist has a gap.
+    const [bin, ...cmdArgs] = normalizeWhitespace(command).split(' ').filter(Boolean);
+
     // Explicit minimal env — never pass integration secrets (API keys, tokens,
-    // MERGEN_SECRET, etc.) to the child process. Only the essentials for shell
+    // MERGEN_SECRET, etc.) to the child process. Only the essentials for
     // execution are forwarded.
-    const proc = spawn('/bin/sh', ['-c', command], {
+    const proc = spawn(bin, cmdArgs, {
       cwd: safeCwd,
       env: {
         PATH:    process.env.PATH    ?? '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
@@ -384,6 +393,7 @@ export async function executeRemediation(
         TERM:     'dumb',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
+      shell: false,
     });
 
     proc.stdout.on('data', (chunk: Buffer) => {

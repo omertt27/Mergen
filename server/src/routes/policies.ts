@@ -10,13 +10,19 @@ import { getRuleFirings, getGateEvents } from '../intelligence/gate-analytics.js
 import { evaluateEnterprisePolicy } from '../intelligence/enterprise-policy-engine.js';
 import { computePolicySuggestions } from '../intelligence/policy-suggester.js';
 
-export function createPoliciesRouter(): Router {
+export function createPoliciesRouter(localSecret = ''): Router {
   const router = Router();
 
   // ── GET /policies — HTML UI ──────────────────────────────────────────────────
-  router.get('/policies', (_req, res) => {
+  // The SENSITIVE_GET_PATHS guard in app.ts validates the secret (header or ?secret=)
+  // before this handler runs. We embed the validated secret into the page JS so that
+  // fetch calls from the browser can include it in the x-mergen-secret header.
+  router.get('/policies', (req, res) => {
+    const presentedSecret = (req.headers['x-mergen-secret'] as string | undefined) ??
+      (typeof req.query['secret'] === 'string' ? req.query['secret'] as string : '');
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(buildPoliciesHtml());
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(buildPoliciesHtml(presentedSecret));
   });
 
   // ── GET /policies/json — machine-readable policy + trigger counts ────────────
@@ -46,7 +52,7 @@ export function createPoliciesRouter(): Router {
   // ── POST /policies/rules — create rule ───────────────────────────────────────
   router.post('/policies/rules', (req, res) => {
     const RuleSchema = z.object({
-      id:          z.string().min(1),
+      id:          z.string().min(1).regex(/^[a-z0-9_-]+$/, 'Rule ID must contain only lowercase letters, digits, underscores, or hyphens'),
       name:        z.string().min(1),
       description: z.string(),
       action:      z.enum(['block', 'warn', 'pass']),
@@ -78,10 +84,29 @@ export function createPoliciesRouter(): Router {
   // ── PATCH /policies/rules/:id — update rule ──────────────────────────────────
   router.patch('/policies/rules/:id', (req, res) => {
     const { id } = req.params;
+    const PatchSchema = z.object({
+      name:        z.string().min(1).optional(),
+      description: z.string().optional(),
+      action:      z.enum(['block', 'warn', 'pass']).optional(),
+      reason:      z.string().optional(),
+      conditions:  z.object({
+        files:        z.array(z.string()).optional(),
+        commands:     z.array(z.string()).optional(),
+        actorType:    z.enum(['ai', 'human', 'all']).optional(),
+        daysOfWeek:   z.array(z.number().int().min(0).max(6)).optional(),
+        hourWindow:   z.tuple([z.number().int().min(0).max(23), z.number().int().min(0).max(24)]).optional(),
+        services:     z.array(z.string()).optional(),
+        environments: z.array(z.string()).optional(),
+        repos:        z.array(z.string()).optional(),
+        agentIds:     z.array(z.string()).optional(),
+      }).optional(),
+    }).strict();
+    const parsed = PatchSchema.safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ error: parsed.error.issues }); return; }
     const policy = loadEnterprisePolicy();
     const idx = policy.rules.findIndex(r => r.id === id);
     if (idx === -1) { res.status(404).json({ error: 'Rule not found' }); return; }
-    const updated = { ...policy.rules[idx], ...req.body, id } as EnterprisePolicyRule;
+    const updated: EnterprisePolicyRule = { ...policy.rules[idx], ...parsed.data, id };
     const rules = [...policy.rules];
     rules[idx] = updated;
     try {
@@ -115,8 +140,26 @@ export function createPoliciesRouter(): Router {
 
   // ── POST /policies/import — replace or merge from remote/exported policy ─────
   router.post('/policies/import', (req, res) => {
+    const ImportRuleSchema = z.object({
+      id:          z.string().min(1).regex(/^[a-z0-9_-]+$/),
+      name:        z.string(),
+      description: z.string(),
+      action:      z.enum(['block', 'warn', 'pass']),
+      reason:      z.string(),
+      conditions:  z.object({
+        files:        z.array(z.string()).optional(),
+        commands:     z.array(z.string()).optional(),
+        actorType:    z.enum(['ai', 'human', 'all']).optional(),
+        daysOfWeek:   z.array(z.number().int().min(0).max(6)).optional(),
+        hourWindow:   z.tuple([z.number().int().min(0).max(23), z.number().int().min(0).max(24)]).optional(),
+        services:     z.array(z.string()).optional(),
+        environments: z.array(z.string()).optional(),
+        repos:        z.array(z.string()).optional(),
+        agentIds:     z.array(z.string()).optional(),
+      }),
+    });
     const body = z.object({
-      policy: z.object({ enabled: z.boolean(), rules: z.array(z.any()) }),
+      policy: z.object({ enabled: z.boolean(), rules: z.array(ImportRuleSchema) }),
       mode:   z.enum(['replace', 'merge']).optional().default('replace'),
     }).safeParse(req.body);
     if (!body.success) { res.status(400).json({ error: body.error.issues }); return; }
@@ -286,7 +329,8 @@ export function createPoliciesRouter(): Router {
 
 // ── HTML UI ──────────────────────────────────────────────────────────────────
 
-function buildPoliciesHtml(): string {
+function buildPoliciesHtml(localSecret: string): string {
+  const escapedSecret = JSON.stringify(localSecret);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -400,6 +444,9 @@ function buildPoliciesHtml(): string {
 </div>
 
 <script>
+const SECRET=${escapedSecret};
+const authHeaders = SECRET ? {'x-mergen-secret': SECRET, 'Content-Type': 'application/json'} : {'Content-Type': 'application/json'};
+
 function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
 function flash(msg, ok=true){
@@ -409,7 +456,7 @@ function flash(msg, ok=true){
 }
 
 async function loadPolicy(){
-  const d=await fetch('/policies/json').then(r=>r.json());
+  const d=await fetch('/policies/json', {headers: SECRET ? {'x-mergen-secret': SECRET} : {}}).then(r=>r.json());
   document.getElementById('policy-enabled').checked=d.enabled;
   document.getElementById('enabled-label').textContent=d.enabled?'Policy active — gate is enforcing rules':'Policy disabled — all tool calls pass through';
   document.getElementById('rule-count').textContent='('+d.rules.length+' rules)';
@@ -435,20 +482,20 @@ async function loadPolicy(){
 
 async function toggleEnabled(val){
   document.getElementById('enabled-label').textContent=val?'Policy active — gate is enforcing rules':'Policy disabled — all tool calls pass through';
-  const r=await fetch('/policies/enabled',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:val})});
+  const r=await fetch('/policies/enabled',{method:'PATCH',headers:authHeaders,body:JSON.stringify({enabled:val})});
   flash(val?'Policy enabled':'Policy disabled', r.ok);
 }
 
 async function saveRule(id){
   const action=document.getElementById('action-'+id).value;
   const description=document.getElementById('desc-'+id).value;
-  const r=await fetch('/policies/rules/'+encodeURIComponent(id),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,description})});
+  const r=await fetch('/policies/rules/'+encodeURIComponent(id),{method:'PATCH',headers:authHeaders,body:JSON.stringify({action,description})});
   flash(r.ok?'Rule saved':'Save failed — '+await r.text(), r.ok);
 }
 
 async function deleteRule(id){
   if(!confirm('Delete rule "'+id+'"?')) return;
-  const r=await fetch('/policies/rules/'+encodeURIComponent(id),{method:'DELETE'});
+  const r=await fetch('/policies/rules/'+encodeURIComponent(id),{method:'DELETE',headers:SECRET?{'x-mergen-secret':SECRET}:{}});
   if(r.ok){flash('Rule deleted'); await loadPolicy();}
   else flash('Delete failed','err');
 }
@@ -463,11 +510,12 @@ async function addRule(){
   const files=document.getElementById('new-files').value.split(',').map(s=>s.trim()).filter(Boolean);
   const actor=document.getElementById('new-actor').value;
   if(!id||!name||!reason){flash('ID, name, and reason are required','err');return;}
+  if(!/^[a-z0-9_-]+$/.test(id)){flash('Rule ID must be lowercase letters, digits, underscores or hyphens only','err');return;}
   const conditions={};
   if(cmds.length) conditions.commands=cmds;
   if(files.length) conditions.files=files;
   if(actor) conditions.actorType=actor;
-  const r=await fetch('/policies/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,name,description:desc,action,reason,conditions})});
+  const r=await fetch('/policies/rules',{method:'POST',headers:authHeaders,body:JSON.stringify({id,name,description:desc,action,reason,conditions})});
   if(r.ok){
     flash('Rule added');
     ['new-id','new-name','new-desc','new-reason','new-commands','new-files'].forEach(f=>document.getElementById(f).value='');

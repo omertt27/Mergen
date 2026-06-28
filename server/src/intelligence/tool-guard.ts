@@ -337,6 +337,22 @@ export function getPendingHolds(): Array<{ token: string; toolName: string; poli
   }));
 }
 
+// ── Slack mrkdwn sanitiser ────────────────────────────────────────────────────
+// Strip characters that Slack Block Kit interprets as mrkdwn formatting so that
+// agent-controlled strings cannot inject fake mentions, bold headers, or links
+// into HITL approval messages and mislead human operators.
+function escapeMrkdwn(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\*/g, '＊')   // bold — replaced with full-width asterisk
+    .replace(/_/g, '＿')    // italic — full-width underscore
+    .replace(/~/g, '～')    // strikethrough — full-width tilde
+    .replace(/`/g, '｀')    // code span — full-width backtick
+    .replace(/@/g, '＠');   // mentions (@here, @channel, @user)
+}
+
 // ── Outbound HITL webhook ─────────────────────────────────────────────────────
 
 async function fireHitlWebhook(
@@ -382,8 +398,11 @@ async function fireHitlWebhook(
     blast.summary,
   ].filter(Boolean).join('  ·  ');
 
+  const safeToolName    = escapeMrkdwn(toolName);
+  const safeArgsSnippet = escapeMrkdwn(argsSnapshot.slice(0, 200));
+
   const payload = {
-    text: `⚠️ *Mergen HITL Gate* — \`${toolName}\` is awaiting approval`,
+    text: `⚠️ *Mergen HITL Gate* — \`${safeToolName}\` is awaiting approval`,
     blocks: [
       {
         type: 'header',
@@ -392,8 +411,8 @@ async function fireHitlWebhook(
       {
         type: 'section',
         fields: [
-          { type: 'mrkdwn', text: `*Tool*\n\`${toolName}\`` },
-          { type: 'mrkdwn', text: `*Args*\n\`${argsSnapshot.slice(0, 200)}\`` },
+          { type: 'mrkdwn', text: `*Tool*\n\`${safeToolName}\`` },
+          { type: 'mrkdwn', text: `*Args*\n\`${safeArgsSnippet}\`` },
         ],
       },
       {
@@ -461,6 +480,13 @@ const INJECTION_PATTERNS: RegExp[] = [
   /\bjailbreak\b/i,
   /\bdan\s+mode\b/i,
   /override\s+(all\s+)?(?:safety|security|policy)\s+(rules?|constraints?|restrictions?)/i,
+  // Additional paraphrase variants
+  /act\s+as\s+(?:if\s+)?(?:you\s+(?:have\s+no|are\s+without)\s+(?:restrictions?|guidelines?|rules?))/i,
+  /from\s+now\s+on\s+(?:you\s+(?:are|will|must|should))/i,
+  /pretend\s+(?:you\s+(?:have\s+no|are\s+without)|that\s+(?:safety|policy|rules?))/i,
+  /(?:ignore|bypass|circumvent|disable)\s+(?:your\s+)?(?:safety|security|policy|guidelines?|restrictions?)/i,
+  /(?:system|instruction|prompt)\s+(?:override|injection|hijack)/i,
+  /<\s*(?:system|instructions?)\s*>/i,
 ];
 
 function detectInjection(text: string): string | null {

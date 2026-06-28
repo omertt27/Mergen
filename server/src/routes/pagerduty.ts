@@ -93,9 +93,20 @@ export function createPagerDutyRouter(): Router {
       return;
     }
 
+    const MAX_BODY_BYTES = 2 * 1024 * 1024; // 2 MB
     const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    let totalBytes = 0;
+    req.on('data', (chunk: Buffer) => {
+      totalBytes += chunk.length;
+      if (totalBytes > MAX_BODY_BYTES) {
+        res.status(413).json({ error: 'payload too large' });
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on('end', () => {
+      if (res.headersSent) return;
       const rawBody = Buffer.concat(chunks);
       const signature = req.headers['x-pagerduty-signature'] as string | undefined;
 

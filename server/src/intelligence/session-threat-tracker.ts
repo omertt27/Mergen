@@ -88,6 +88,26 @@ const THREAT_SEQUENCES: ThreatSequence[] = [
     steps: [/kubectl\s+get|kubectl\s+describe/i, /kubectl\s+delete|terraform\s+destroy/i],
     label: 'infra_recon_destroy_chain',
   },
+  // git history read → exfil: agent dumps commit history or secrets then ships them out
+  {
+    steps: [/git\s+log|git\s+show|git\s+diff\b/i, /curl\b|wget\b|nc\b|netcat\b/i],
+    label: 'git_history_exfil_chain',
+  },
+  // AWS identity probe → privilege escalation via role assumption or IAM mutation
+  {
+    steps: [/aws\s+sts\s+get-caller-identity|aws\s+iam\s+list/i, /aws\s+sts\s+assume-role|aws\s+iam\s+attach|aws\s+iam\s+put/i],
+    label: 'aws_priv_esc_chain',
+  },
+  // /etc/passwd or /etc/shadow read → exfil of system credentials
+  {
+    steps: [/cat\s+\/etc\/passwd|cat\s+\/etc\/shadow|\/etc\/shadow/i, /curl\b|wget\b|nc\b|netcat\b/i],
+    label: 'system_cred_exfil_chain',
+  },
+  // setuid/world-writable chmod → execute as privileged user
+  {
+    steps: [/chmod\s+(777|[0-9]*[47][0-9]*s|[ugo]\+s)/i, /\.\/|\bbash\b|\bsh\b|\bexec\b/i],
+    label: 'suid_escalation_chain',
+  },
 ];
 
 // ── Public API — Feature 2: Multi-turn sequencing ────────────────────────────
