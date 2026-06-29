@@ -1,3 +1,7 @@
+'use client'
+
+import { useState } from 'react'
+
 const plans = [
   {
     name: 'Solo / Open Source',
@@ -62,6 +66,8 @@ function Cell({ val }: { val: Cell }) {
 }
 
 export default function Pricing() {
+  const [showMatrix, setShowMatrix] = useState(false)
+
   return (
     <section id="access">
       <span className="section-label">07 // Pricing</span>
@@ -94,29 +100,54 @@ export default function Pricing() {
         ))}
       </div>
 
-      {/* ── Feature matrix ── */}
-      <div style={{ maxWidth: '1100px', margin: '4rem auto 0', overflowX: 'auto' }}>
-        <table className="pricing-matrix">
-          <thead>
-            <tr>
-              <th style={{ width: '48%' }}>Feature</th>
-              <th>Solo</th>
-              <th>Growth</th>
-              <th>Enterprise</th>
-            </tr>
-          </thead>
-          <tbody>
-            {matrix.map((row) => (
-              <tr key={row.name}>
-                <td style={{ color: 'var(--gray-400)' }}>{row.name}</td>
-                <td><Cell val={row.solo} /></td>
-                <td><Cell val={row.team} /></td>
-                <td><Cell val={row.enterprise} /></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* ── Toggle button ── */}
+      <div style={{ display: 'flex', justifyContent: 'center', marginTop: '4rem' }}>
+        <button
+          onClick={() => setShowMatrix(!showMatrix)}
+          style={{
+            background: 'transparent',
+            border: '1px solid var(--gray-800)',
+            color: 'var(--gray-400)',
+            padding: '12px 24px',
+            borderRadius: '30px',
+            cursor: 'pointer',
+            fontSize: '0.85rem',
+            fontWeight: 600,
+            transition: 'all 0.25s ease',
+            fontFamily: 'var(--font-geist-mono), monospace',
+          }}
+          onMouseOver={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = '#ffffff'; }}
+          onMouseOut={(e) => { e.currentTarget.style.borderColor = 'var(--gray-800)'; e.currentTarget.style.color = 'var(--gray-400)'; }}
+        >
+          {showMatrix ? 'Hide Full Feature Comparison ↑' : 'Compare All Features ↓'}
+        </button>
       </div>
+
+      {/* ── Feature matrix ── */}
+      {showMatrix && (
+        <div style={{ maxWidth: '1100px', margin: '4rem auto 0', overflowX: 'auto' }}>
+          <table className="pricing-matrix">
+            <thead>
+              <tr>
+                <th style={{ width: '48%' }}>Feature</th>
+                <th>Solo</th>
+                <th>Growth</th>
+                <th>Enterprise</th>
+              </tr>
+            </thead>
+            <tbody>
+              {matrix.map((row) => (
+                <tr key={row.name}>
+                  <td style={{ color: 'var(--gray-400)' }}>{row.name}</td>
+                  <td><Cell val={row.solo} /></td>
+                  <td><Cell val={row.team} /></td>
+                  <td><Cell val={row.enterprise} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   )
 }

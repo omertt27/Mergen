@@ -133,13 +133,25 @@ export function analyzeSemanticRisk(
   }
 
   // 2. Destructive command safety: Check for destructive mutations
-  const isDestructive = lower.includes('drop') || lower.includes('truncate') || lower.includes('delete') || lower.includes('rm -rf');
-  if (isDestructive && (lower.includes('table') || lower.includes('database') || lower.includes('/') || lower.includes('bucket'))) {
-    return {
-      risk: 'high',
-      blocked: true,
-      reason: 'Semantic Safety: Destructive operation detected. Execution blocked.',
-    };
+  const isDestructiveSql = (lower.includes('drop') || lower.includes('truncate')) &&
+    (lower.includes('table') || lower.includes('database') || lower.includes('schema'));
+  const isDestructiveFs  = lower.includes('rm -rf') && lower.includes('/');
+  const isDestructiveInfra = /terraform\s+destroy|kubectl\s+delete\s+(namespace|cluster)|aws.*delete-cluster/i.test(lower);
+  if (isDestructiveSql || isDestructiveFs || isDestructiveInfra) {
+    let reason: string;
+    if (isDestructiveSql) {
+      const op = lower.includes('truncate') ? 'TRUNCATE' : 'DROP';
+      reason = `Blocked: \`${op} TABLE/DATABASE\` is irreversible. Use a reversible migration instead — rename the table (\`ALTER TABLE ... RENAME TO ..._deprecated\`) or add a soft-delete column, then drop in a separate PR after verifying no references remain.`;
+    } else if (isDestructiveFs) {
+      const match = command.match(/rm\s+-rf\s+(\S+)/i);
+      const path = match?.[1] ?? '/...';
+      reason = `Blocked: \`rm -rf ${path}\` permanently deletes files. Move to a timestamped archive path first (\`mv ${path} ${path}.bak-$(date +%s)\`), verify the archive is correct, then delete.`;
+    } else {
+      const match = command.match(/terraform\s+destroy|kubectl\s+delete\s+\S+|aws\s+\S+delete-cluster\S*/i);
+      const cmd = match?.[0] ?? 'infra destroy command';
+      reason = `Blocked: \`${cmd}\` destroys live infrastructure. Use \`terraform plan -destroy\` first to preview blast radius, then require explicit human approval via HITL before executing.`;
+    }
+    return { risk: 'high', blocked: true, reason };
   }
 
   // 3. Scale risk check: Resizing replicas or instances
@@ -152,15 +164,11 @@ export function analyzeSemanticRisk(
     };
   }
 
-  // Default fallback classification based on command tier
+  // Default fallback: classify only actual shell commands, not diffs/code snippets.
+  // A diff that doesn't match any destructive pattern is low risk — don't treat
+  // "unrecognized as a restart command" as high risk, that causes false positives.
   const tier = classifyCommandRisk(command);
-  if (tier === 'full') {
-    return {
-      risk: 'high',
-      blocked: false,
-      reason: null,
-    };
-  } else if (tier === 'deploy') {
+  if (tier === 'deploy') {
     return {
       risk: 'medium',
       blocked: false,

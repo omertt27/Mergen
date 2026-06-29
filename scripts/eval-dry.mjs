@@ -22,9 +22,20 @@
  * Requires a running Mergen server. Exit 0 = all scenarios pass. Exit 1 = failures.
  */
 
+import { readFileSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
+
 const args    = process.argv.slice(2);
 const VERBOSE = args.includes('--verbose');
-const PORT    = Number(args[args.indexOf('--port') + 1] ?? 3000);
+const _portIdx = args.indexOf('--port');
+const PORT     = _portIdx !== -1 ? Number(args[_portIdx + 1]) : 3000;
+
+function readLocalSecret() {
+  if (process.env.MERGEN_SECRET) return process.env.MERGEN_SECRET;
+  try { return readFileSync(join(homedir(), '.mergen', 'secret'), 'utf8').trim(); } catch { return ''; }
+}
+const SECRET = readLocalSecret();
 
 const b = s => `\x1b[1m${s}\x1b[0m`;
 const g = s => `\x1b[32m${s}\x1b[0m`;
@@ -137,10 +148,15 @@ function scoreResponse(response, scenario) {
 
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
 
+function authHeaders(extra = {}) {
+  return SECRET ? { 'content-type': 'application/json', 'x-mergen-secret': SECRET, ...extra }
+                : { 'content-type': 'application/json', ...extra };
+}
+
 async function post(path, body) {
   const res = await fetch(`http://127.0.0.1:${PORT}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(8000),
   });
@@ -150,6 +166,7 @@ async function post(path, body) {
 
 async function get(path) {
   const res = await fetch(`http://127.0.0.1:${PORT}${path}`, {
+    headers: authHeaders(),
     signal: AbortSignal.timeout(8000),
   });
   if (!res.ok) throw new Error(`${path} → ${res.status}`);
@@ -198,14 +215,14 @@ async function runBlunderLogCheck(index, total) {
   if (typeof response !== 'object' || response === null) {
     issues.push('response is not an object');
   } else {
-    if (typeof response.prevented !== 'number') issues.push('missing numeric field: prevented');
-    if (typeof response.byType !== 'object')    issues.push('missing object field: byType');
-    if (!Array.isArray(response.entries))        issues.push('missing array field: entries');
+    if (typeof response.prevented !== 'number')        issues.push('missing numeric field: prevented');
+    if (typeof response.byType !== 'object')            issues.push('missing object field: byType');
+    if (!Array.isArray(response.recentBlunders))        issues.push('missing array field: recentBlunders');
   }
 
   const pass = issues.length === 0;
   if (pass) {
-    console.log(`  structure: ${g('✓ PASS')} — entries: ${response.entries?.length ?? 0}, prevented: ${response.prevented ?? 0}`);
+    console.log(`  structure: ${g('✓ PASS')} — recentBlunders: ${response.recentBlunders?.length ?? 0}, prevented: ${response.prevented ?? 0}`);
   } else {
     for (const issue of issues) {
       console.log(`  structure: ${r(`✗ FAIL — ${issue}`)}`);

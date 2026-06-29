@@ -141,11 +141,22 @@ async function setupCommand(): Promise<void> {
     const enableShadow = await ask('\nEnable shadow mode now? (y/n): ');
     if (enableShadow.toLowerCase() === 'y') {
       process.env.MERGEN_SHADOW_MODE = 'true';
-      log('Set MERGEN_SHADOW_MODE=true in your server environment to persist this.', 'ℹ');
-      console.log('  export MERGEN_SHADOW_MODE=true   # add to your .env or shell profile');
-      success('Shadow mode enabled for this session');
+      // Persist to .env in cwd so it survives restarts
+      const envPath = path.join(process.cwd(), '.env');
+      try {
+        const existing = existsSync(envPath) ? readFileSync(envPath, 'utf8') : '';
+        if (!existing.includes('MERGEN_SHADOW_MODE')) {
+          writeFileSync(envPath, `${existing}${existing.endsWith('\n') || existing === '' ? '' : '\n'}MERGEN_SHADOW_MODE=true\n`);
+          success('Shadow mode enabled and written to .env');
+        } else {
+          success('Shadow mode enabled (MERGEN_SHADOW_MODE already in .env)');
+        }
+      } catch {
+        log('Set MERGEN_SHADOW_MODE=true in your server environment to persist this.', 'ℹ');
+        success('Shadow mode enabled for this session');
+      }
     } else {
-      log('Skipped — enable later with: export MERGEN_SHADOW_MODE=true', 'ℹ');
+      log('Skipped — enable later: echo "MERGEN_SHADOW_MODE=true" >> .env', 'ℹ');
     }
   }
 
@@ -211,14 +222,17 @@ async function setupCommand(): Promise<void> {
     console.log(`  ${'Total:'.padEnd(26)} ${(totalMs / 1000).toFixed(1)}s\n`);
   }
   console.log('Next steps:');
-  console.log('  1. Start server:          mergen-server start');
-  console.log('  2. Verify everything:     mergen-server doctor');
-  console.log('  3. Watch shadow reports:  curl http://127.0.0.1:3000/shadow-report | jq');
-  console.log('  4. When ready for auto:   export MERGEN_AUTOPILOT=true\n');
-  console.log('Integrations (add to .env):');
-  console.log('  PagerDuty:  MERGEN_PAGERDUTY_SECRET=...  (webhook → /webhooks/pagerduty)');
-  console.log('  Slack:      MERGEN_SLACK_BOT_TOKEN=xoxb-...  MERGEN_SLACK_CHANNEL=#incidents');
-  console.log('  Datadog:    DD_API_KEY=...  DD_APP_KEY=...  (trace fetch + validation)\n');
+  console.log('  1. Start server:       mergen-server start');
+  console.log('  2. Verify it works:    mergen-server start --then doctor');
+  console.log('  3. Check shadow log:   mergen-server shadow-report');
+  console.log('  4. Enable autopilot:   echo "MERGEN_AUTOPILOT=true" >> .env\n');
+  console.log('Integrations (add to .env, then restart):');
+  console.log('  PagerDuty:  MERGEN_PAGERDUTY_SECRET=<signing-secret>    # webhook → /webhooks/pagerduty');
+  console.log('  Slack:      MERGEN_SLACK_BOT_TOKEN=xoxb-...             # needs chat:write scope');
+  console.log('              MERGEN_SLACK_CHANNEL=#incidents');
+  console.log('  Datadog:    DD_API_KEY=...  DD_APP_KEY=...              # trace fetch + validation\n');
+  console.log('Get your Day-30 report at any time:');
+  console.log('  mergen-server impact-report\n');
 
   if (yes) {
     log('Skipping "start now?" prompt in --yes mode. Run: mergen-server start', 'ℹ');
@@ -1478,6 +1492,191 @@ async function doctorCommand(): Promise<void> {
     console.log('\nRun: mergen-server setup   to reconfigure');
     process.exit(1);
   }
+}
+
+// ── Shadow-report command ──────────────────────────────────────────────────────
+
+async function shadowReportCommand(): Promise<void> {
+  let port = 3000;
+  let serverFound = false;
+  for (let p = 3000; p <= 3010; p++) {
+    try {
+      const r = await fetch(`http://127.0.0.1:${p}/health`, { signal: AbortSignal.timeout(800) });
+      if (r.ok) { port = p; serverFound = true; break; }
+    } catch {}
+  }
+  if (!serverFound) { error('Server not running. Start with: mergen-server start'); process.exit(1); }
+
+  const secret = (() => { try { return readFileSync(join(homedir(), '.mergen', 'secret'), 'utf8').trim(); } catch { return ''; } })();
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (secret) headers['x-mergen-secret'] = secret;
+  const BASE = `http://127.0.0.1:${port}`;
+
+  const [summaryRes, entriesRes] = await Promise.all([
+    fetch(`${BASE}/shadow-report`, { headers, signal: AbortSignal.timeout(5000) }),
+    fetch(`${BASE}/shadow-report/entries?limit=20`, { headers, signal: AbortSignal.timeout(5000) }),
+  ]);
+
+  const summary = summaryRes.ok ? (await summaryRes.json() as { windowDays?: number; total?: number; humanReviewed?: number; approvalRate?: number | null; recommendation?: string }) : null;
+  const entriesData = entriesRes.ok ? (await entriesRes.json() as { entries?: Array<{ recordedAt: number; service: string; incidentTag: string; diagnosisConfidence: number; humanVerdict?: string; command: string | null }> }) : null;
+
+  const W = 60;
+  const div = '─'.repeat(W);
+  const days = summary?.windowDays ?? 30;
+  console.log(`\nShadow Mode Track Record — last ${days} days`);
+  console.log(div);
+
+  const entries = entriesData?.entries ?? [];
+  if (entries.length === 0) {
+    console.log('  No shadow entries yet.');
+    console.log('  Shadow mode posts diagnoses without executing fixes.');
+    console.log('  Set MERGEN_SHADOW_MODE=true and connect PagerDuty to start.\n');
+  } else {
+    console.log(` ${'Date'.padEnd(12)}${'Service'.padEnd(12)}${'Tag'.padEnd(26)}${'Conf'.padEnd(6)}Verdict`);
+    console.log(div);
+    for (const e of entries) {
+      const date  = new Date(e.recordedAt).toISOString().slice(0, 10);
+      const svc   = (e.service ?? 'unknown').slice(0, 10).padEnd(12);
+      const tag   = (e.incidentTag ?? '').replace(/^infra_/, '').slice(0, 24).padEnd(26);
+      const conf  = `${e.diagnosisConfidence}%`.padEnd(6);
+      const verd  = e.humanVerdict === 'would-approve' ? '✅ approve'
+                  : e.humanVerdict === 'would-override' ? '✋ override'
+                  : '(unreviewed)';
+      console.log(` ${date.padEnd(12)}${svc}${tag}${conf}${verd}`);
+    }
+    console.log(div);
+
+    const total    = summary?.total ?? entries.length;
+    const reviewed = summary?.humanReviewed ?? 0;
+    const fpNote   = reviewed >= 5 && summary?.approvalRate != null
+      ? `false positive rate: ${Math.round((1 - summary.approvalRate) * 100)}%`
+      : `false positive rate: pending (${reviewed} of 5 reviews needed)`;
+    console.log(` Total: ${total} entries · ${reviewed} reviewed · ${fpNote}`);
+    if (summary?.recommendation) console.log(` ${summary.recommendation}`);
+  }
+
+  console.log(`\n Run: mergen-server impact-report   for the full Day-30 deck summary\n`);
+}
+
+// ── Allow command ──────────────────────────────────────────────────────────────
+
+async function allowCommand(args: string[]): Promise<void> {
+  const { loadEnterprisePolicy, saveEnterprisePolicy } = await import('./intelligence/enterprise-policy-engine.js');
+
+  // Parse flags: --file <glob>, --actor ai|human|all, --service <name>
+  const fileIdx   = args.indexOf('--file');
+  const actorIdx  = args.indexOf('--actor');
+  const svcIdx    = args.indexOf('--service');
+  const fileGlob  = fileIdx  !== -1 ? args[fileIdx  + 1] : null;
+  const actorFlag = actorIdx !== -1 ? args[actorIdx + 1] : 'all';
+  const svcFlag   = svcIdx   !== -1 ? args[svcIdx   + 1] : undefined;
+
+  // First positional arg (not a flag value) is the command pattern
+  const positional = args.filter((a, i) => !a.startsWith('--') && (fileIdx === -1 || i !== fileIdx + 1) && (actorIdx === -1 || i !== actorIdx + 1) && (svcIdx === -1 || i !== svcIdx + 1));
+  const cmdPattern = positional[0] ?? null;
+
+  if (!cmdPattern && !fileGlob) {
+    console.log('Usage: mergen-server allow "<command pattern>"');
+    console.log('       mergen-server allow --file "<file glob>"');
+    console.log('       mergen-server allow "npm install" --actor ai --service api');
+    process.exit(1);
+  }
+
+  const actor = (actorFlag === 'ai' || actorFlag === 'human') ? actorFlag : 'all';
+  const label = cmdPattern ?? fileGlob!;
+
+  const rule = {
+    id:          `allowlist_${Date.now()}`,
+    name:        `Allowlist: ${label}`,
+    description: `Added via mergen-server allow on ${new Date().toISOString().slice(0, 10)}`,
+    action:      'pass' as const,
+    reason:      `Explicitly allowed: ${label}`,
+    conditions: {
+      ...(cmdPattern ? { commands: [cmdPattern] } : {}),
+      ...(fileGlob  ? { files:    [fileGlob]   } : {}),
+      ...(actor !== 'all' ? { actorType: actor as 'ai' | 'human' } : {}),
+      ...(svcFlag ? { services: [svcFlag] } : {}),
+    },
+  };
+
+  const config = loadEnterprisePolicy();
+  config.rules.push(rule);
+  saveEnterprisePolicy(config);
+
+  success(`Allowlisted: ${label}`);
+  if (actor !== 'all') log(`Actor: ${actor}`, 'ℹ');
+  if (svcFlag) log(`Service: ${svcFlag}`, 'ℹ');
+  console.log(`\n  Rule id: ${rule.id}`);
+  console.log(`  Policy file: ~/.mergen/enterprise-policy.json`);
+  console.log(`\n  To remove it: edit ~/.mergen/enterprise-policy.json and delete the rule with this id.\n`);
+}
+
+// ── Impact-report command ──────────────────────────────────────────────────────
+
+async function impactReportCommand(args: string[]): Promise<void> {
+  const htmlMode = args.includes('--html');
+
+  let port = 3000;
+  let serverFound = false;
+  for (let p = 3000; p <= 3010; p++) {
+    try {
+      const r = await fetch(`http://127.0.0.1:${p}/health`, { signal: AbortSignal.timeout(800) });
+      if (r.ok) { port = p; serverFound = true; break; }
+    } catch {}
+  }
+  if (!serverFound) { error('Server not running. Start with: mergen-server start'); process.exit(1); }
+
+  const secret = (() => { try { return readFileSync(join(homedir(), '.mergen', 'secret'), 'utf8').trim(); } catch { return ''; } })();
+  const headers: Record<string, string> = {};
+  if (secret) headers['x-mergen-secret'] = secret;
+  const BASE = `http://127.0.0.1:${port}`;
+
+  if (htmlMode) {
+    const res = await fetch(`${BASE}/impact-report?format=html`, { headers, signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) { error(`Server returned ${res.status}`); process.exit(1); }
+    const html = await res.text();
+    const outFile = `./impact-report-${new Date().toISOString().slice(0, 10)}.html`;
+    writeFileSync(outFile, html, 'utf8');
+    success(`HTML report written to ${outFile}`);
+    console.log(`  Open in browser or send to your CISO.\n`);
+    return;
+  }
+
+  const res = await fetch(`${BASE}/impact-report`, { headers, signal: AbortSignal.timeout(10_000) });
+  if (!res.ok) { error(`Server returned ${res.status}`); process.exit(1); }
+  const { report: d } = await res.json() as { report: Record<string, unknown> };
+
+  const W = 60;
+  const div = '─'.repeat(W);
+  const fmtMs = (ms: number | null) => {
+    if (ms == null) return 'pending';
+    if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+    return `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`;
+  };
+  const pct = (n: number | null) => n == null ? 'pending' : `${Math.round(n * 100)}%`;
+
+  console.log('\nMergen Day-30 Impact Report');
+  console.log(div);
+  console.log(`Incidents processed:     ${d['totalIncidents']}  (last ${d['windowDays']} days)`);
+  console.log(`Resolution rate:         ${d['wouldResolveRate']}%  (${d['wouldResolveCount']} would have resolved autonomously)`);
+  console.log(`MTTR delta:              ${fmtMs(d['avgAutonomousMttrMs'] as number | null)} autonomous vs ${fmtMs(d['avgManualMttrMs'] as number | null)} manual`);
+  console.log(`False positive rate:     ${d['falsePositiveRate'] != null ? `${Math.round((d['falsePositiveRate'] as number) * 100)}%` : `pending (need ${Math.max(0, 5 - (d['humanReviewedCount'] as number ?? 0))} more human shadow reviews)`}`);
+  console.log(`Override corpus:         ${d['overridePatterns']} patterns encoded, ${d['corpusBlockCount']} triggered this window`);
+
+  const blunders = d['agentBlunderSummary'] as { totalPrevented: number; chainVerified: boolean } | undefined;
+  if (blunders) {
+    const chain = blunders.chainVerified ? '✅' : '⚠️';
+    console.log(`Agent blunders blocked:  ${blunders.totalPrevented.toLocaleString()}  (chain ${chain})`);
+  }
+
+  console.log(`\nFull deck summary:`);
+  const summary = (d['deckSummary'] as string ?? '').match(/.{1,56}(\s|$)/g) ?? [];
+  for (const line of summary) console.log(`  ${line.trim()}`);
+
+  console.log(`\nTo export HTML report:`);
+  console.log(`  mergen-server impact-report --html  →  writes impact-report-${new Date().toISOString().slice(0, 10)}.html`);
+  console.log(`  Share with your CISO or include as a deck slide.`);
+  console.log(div + '\n');
 }
 
 // ── Export command ─────────────────────────────────────────────────────────────
@@ -3341,6 +3540,18 @@ async function main(): Promise<void> {
 
     case 'approve':
       await approveCommand(args.slice(1));
+      break;
+
+    case 'shadow-report':
+      await shadowReportCommand();
+      break;
+
+    case 'allow':
+      await allowCommand(args.slice(1));
+      break;
+
+    case 'impact-report':
+      await impactReportCommand(args.slice(1));
       break;
 
     case 'setup':

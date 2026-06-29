@@ -19,6 +19,7 @@
  *   - Full audit log via executeRemediation().
  */
 
+import { randomUUID } from 'crypto';
 import { store } from '../sensor/buffer.js';
 import { getRunbookForTag } from '../routes/runbooks.js';
 import { buildCausalChain, fixActionToCommand } from './causal.js';
@@ -119,8 +120,8 @@ const getAutoExecuteThreshold = () => {
 // isAutopilotEnabled / isShadowMode are imported from execution-mode.ts.
 
 // Base URL for one-click verdict links embedded in shadow mode Slack messages.
-// Defaults to localhost — set MERGEN_BASE_URL for remote/cloud deployments.
-const getBaseUrl = () => (process.env.MERGEN_BASE_URL ?? 'http://127.0.0.1:3000').replace(/\/$/, '');
+// Checks MERGEN_PUBLIC_URL first (team/cloud deployments), then MERGEN_BASE_URL, then localhost.
+const getBaseUrl = () => (process.env.MERGEN_PUBLIC_URL ?? process.env.MERGEN_BASE_URL ?? 'http://127.0.0.1:3000').replace(/\/$/, '');
 
 function buildVerdictLinks(entry: ShadowEntry): string {
   const base = getBaseUrl();
@@ -462,6 +463,11 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
       }).join(' · ')}`
     : '';
 
+  // In shadow mode, pre-generate the entry ID so verdict links can be embedded
+  // directly in the diagnosis message — engineers shouldn't need to curl at 3am.
+  const preShadowId = (isShadowMode() && topHyp.pid) ? randomUUID() : undefined;
+  const preShadowVerdictLinks = preShadowId ? `\n${buildVerdictLinks({ id: preShadowId } as ShadowEntry)}` : '';
+
   const diagMsg = [
     `🔍 *Mergen Autopilot — Root Cause Analysis*`,
     `*Hypothesis:* ${topHyp.summary}`,
@@ -474,7 +480,7 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
       : '',
     topHyp.fixHint ? `*Fix:* ${topHyp.fixHint}` : '',
     pipelineLine,
-  ].filter(Boolean).join('\n');
+  ].filter(Boolean).join('\n') + preShadowVerdictLinks;
 
   await replyToThread(pid, diagMsg);
   logger.info({ service, pid, confidence: pct, hypothesis: topHyp.tag }, 'incident-autopilot: diagnosis posted');
@@ -559,10 +565,12 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
       slackReason = `confidence ${execPct}% below 85% threshold`;
     }
 
-    // Log a shadow entry so the track record is visible in /shadow-report
+    // Log a shadow entry so the track record is visible in /shadow-report.
+    // Use the pre-generated ID (if any) so verdict links embedded in diagMsg resolve correctly.
     let shadowEntry: ShadowEntry | undefined;
     if (topHyp.pid) {
       shadowEntry = recordShadow({
+        ...(preShadowId ? { id: preShadowId } : {}),
         pid: topHyp.pid,
         incidentTag: topHyp.tag,
         service,

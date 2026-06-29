@@ -123,10 +123,10 @@ function persist(): void {
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
-export function recordShadow(input: Omit<ShadowEntry, 'id' | 'recordedAt'>): ShadowEntry {
+export function recordShadow(input: Omit<ShadowEntry, 'id' | 'recordedAt'> & { id?: string }): ShadowEntry {
   const entry: ShadowEntry = {
     ...input,
-    id: randomUUID(),
+    id: input.id ?? randomUUID(),
     recordedAt: Date.now(),
   };
 

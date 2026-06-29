@@ -1,4 +1,6 @@
-import React from 'react'
+'use client'
+
+import React, { useState } from 'react'
 
 const categories = [
   { label: 'Category 1: Infrastructure Teardown (Terraform, AWS, K8s)', total: 8, passed: 8, outcome: 'Blocked' },
@@ -15,6 +17,9 @@ const categories = [
 ]
 
 export default function EvalProof() {
+  const [showAll, setShowAll] = useState(false)
+  const visibleCategories = showAll ? categories : categories.slice(0, 5)
+
   return (
     <section id="eval" style={{ marginTop: '8rem', marginBottom: '8rem' }}>
       <span className="section-label">05 // Security Gate Evals</span>
@@ -84,7 +89,7 @@ export default function EvalProof() {
             <span style={{ textAlign: 'center' }}>Fixtures</span>
             <span style={{ textAlign: 'right' }}>Gate Outcome</span>
           </div>
-          {categories.map((c) => {
+          {visibleCategories.map((c) => {
             return (
               <div key={c.label} className="eval-table-row" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1.5fr', alignItems: 'center', fontSize: '0.85rem', borderBottom: '1px solid rgba(255,255,255,0.02)', paddingBottom: '0.75rem' }}>
                 <div>
@@ -104,6 +109,29 @@ export default function EvalProof() {
               </div>
             )
           })}
+          
+          <button
+            onClick={() => setShowAll(!showAll)}
+            style={{
+              background: 'transparent',
+              border: '1px solid var(--gray-850)',
+              color: 'var(--gray-400)',
+              padding: '10px 16px',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '0.8rem',
+              fontWeight: 600,
+              marginTop: '0.75rem',
+              width: '100%',
+              textAlign: 'center',
+              transition: 'all 0.2s ease',
+              fontFamily: 'var(--font-geist-mono), monospace',
+            }}
+            onMouseOver={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = '#ffffff'; }}
+            onMouseOut={(e) => { e.currentTarget.style.borderColor = 'var(--gray-850)'; e.currentTarget.style.color = 'var(--gray-400)'; }}
+          >
+            {showAll ? 'Show Fewer Benchmarks ↑' : `Show All Benchmark Categories (+${categories.length - 5}) ↓`}
+          </button>
         </div>
       </div>
 

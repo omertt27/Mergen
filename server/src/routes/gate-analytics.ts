@@ -12,7 +12,7 @@ import { loadEnterprisePolicy } from '../intelligence/enterprise-policy-engine.j
 import {
   getRetryStats,
   getToolCallCounts,
-  getUngardedCounts,
+  getUnguardedCounts,
   getRuleFirings,
   getHitlStats,
   getReformulationRates,
@@ -40,7 +40,7 @@ export function createGateAnalyticsRouter(): Router {
     const policy       = loadEnterprisePolicy();
     const retryStats   = getRetryStats();
     const toolCalls    = getToolCallCounts();
-    const ungarded     = getUngardedCounts();
+    const ungarded     = getUnguardedCounts();
     const ruleFirings  = getRuleFirings();
     const hitlStats    = getHitlStats();
 

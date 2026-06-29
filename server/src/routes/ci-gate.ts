@@ -91,7 +91,7 @@ export function createCIGateRouter(): Router {
       const semantic = analyzeSemanticRisk(diff);
       if (semantic.risk === 'high') {
         verdict = 'block';
-        reasons.push(`Semantic risk HIGH: ${semantic.reason ?? 'destructive operation detected in diff'}`);
+        reasons.push(semantic.reason ?? 'Blocked: destructive operation detected in diff. Review and replace with a reversible alternative before merging.');
       } else if (semantic.risk === 'medium' && verdict === 'pass') {
         verdict = 'warn';
         reasons.push(`Semantic risk MEDIUM: ${semantic.reason ?? 'elevated-risk operation in diff'}`);

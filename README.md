@@ -11,7 +11,7 @@ Mergen sits inline between AI agents and your systems, blocking unsafe actions, 
 ### See it in 60 seconds 🚀
 
 ```bash
-npx mergen-server
+npx mergen-server setup
 ```
 
 * **✓ Local Execution Gateway** — Intercepts CLI/MCP tool calls, blocks destructive commands, and returns a guided alternative so agents reformulate instead of stopping dead

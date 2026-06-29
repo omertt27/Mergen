@@ -25,10 +25,21 @@
  * action-risk.ts, or ci-gate.ts.
  */
 
+import { readFileSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
+
 const args    = process.argv.slice(2);
 const VERBOSE = args.includes('--verbose');
 const JUDGE   = args.includes('--judge');
-const PORT    = Number(args[args.indexOf('--port') + 1] ?? 3000);
+const _portIdx = args.indexOf('--port');
+const PORT     = _portIdx !== -1 ? Number(args[_portIdx + 1]) : 3000;
+
+function readLocalSecret() {
+  if (process.env.MERGEN_SECRET) return process.env.MERGEN_SECRET;
+  try { return readFileSync(join(homedir(), '.mergen', 'secret'), 'utf8').trim(); } catch { return ''; }
+}
+const SECRET = readLocalSecret();
 
 // Judge model: prefer Anthropic Claude, fall back to OpenAI.
 const MODEL = args[args.indexOf('--model') + 1]
@@ -70,7 +81,7 @@ const SCENARIOS = [
       service: 'api',
     },
     expect: {
-      reasons:        ['destructive'],
+      reasons:        ['irreversible', 'rename'],   // specific: names the op + reversible alternative
       recommendation: ['review', 'before merging'],
     },
   },
@@ -88,7 +99,7 @@ const SCENARIOS = [
       service: 'worker',
     },
     expect: {
-      reasons:        ['destructive'],
+      reasons:        ['permanently', 'archive'],   // specific: names the path + archive alternative
       recommendation: ['review', 'before merging'],
     },
   },
@@ -108,7 +119,7 @@ const SCENARIOS = [
       service: 'infra',
     },
     expect: {
-      reasons:        ['risk'],          // "Semantic risk HIGH"
+      reasons:        ['terraform', 'plan'],        // specific: names the command + plan alternative
       recommendation: ['review', 'before merging'],
     },
   },
@@ -239,10 +250,15 @@ async function scoreWithLLM(scenario, gateResponse) {
 
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
 
+function authHeaders(extra = {}) {
+  return SECRET ? { 'content-type': 'application/json', 'x-mergen-secret': SECRET, ...extra }
+                : { 'content-type': 'application/json', ...extra };
+}
+
 async function post(path, body) {
   const res = await fetch(`http://127.0.0.1:${PORT}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(8000),
   });
@@ -252,6 +268,7 @@ async function post(path, body) {
 
 async function get(path) {
   const res = await fetch(`http://127.0.0.1:${PORT}${path}`, {
+    headers: authHeaders(),
     signal: AbortSignal.timeout(8000),
   });
   if (!res.ok) throw new Error(`${path} → ${res.status}`);

@@ -376,12 +376,34 @@ function computeImpactData(windowDays: number): ImpactData {
   }
 
   const timeSavedSentence = timeSavedLabel ? ` ${timeSavedLabel} of engineer time.` : '';
+
+  // False positive line — only shown when there is enough human feedback to compute it
+  const _reviewedCount = reviewed.length;
+  const _corpusSize = corpus.length;
+  let falsePositiveLine = '';
+  if (falsePositiveRate !== null && _reviewedCount >= 5) {
+    const fpPct = Math.round(falsePositiveRate * 100);
+    falsePositiveLine = ` False positive rate: ${fpPct}% (${falsePositiveCount} of ${_reviewedCount} human-reviewed diagnoses).`;
+  } else if (_reviewedCount > 0 && _reviewedCount < 5) {
+    falsePositiveLine = ` False positive rate: pending (${_reviewedCount} of 5 human reviews needed for a reliable estimate).`;
+  }
+
+  // Override frequency — how often the corpus is protecting against repeated mistakes
+  let overrideFrequencyLine = '';
+  if (corpusBlockCount > 0) {
+    overrideFrequencyLine = ` Override corpus blocked ${corpusBlockCount} autonomous action${corpusBlockCount !== 1 ? 's' : ''} across ${_corpusSize} encoded pattern${_corpusSize !== 1 ? 's' : ''}.`;
+  } else if (_corpusSize > 0) {
+    overrideFrequencyLine = ` Override corpus has ${_corpusSize} encoded pattern${_corpusSize !== 1 ? 's' : ''} — none triggered in this window.`;
+  }
+
   const deckSummary =
     `Mergen processed ${entries.length} incident${entries.length !== 1 ? 's' : ''} (n=${entries.length}).${tagLine} ` +
     `Autonomous resolution would have applied correctly ${wouldResolve.length} time${wouldResolve.length !== 1 ? 's' : ''} (${rate}%).` +
     mttrLine +
     contextAssistedLine +
-    timeSavedSentence;
+    timeSavedSentence +
+    falsePositiveLine +
+    overrideFrequencyLine;
 
   // CISO comparison table — one row per incident with side-by-side actions
   const comparisonRows: ComparisonRow[] = entries
@@ -411,9 +433,6 @@ function computeImpactData(windowDays: number): ImpactData {
         engineerAction = 'Denied by engineer';
         agreementType = 'override';
         overrideReason = 'Manual override via Slack gate';
-      } else if (entry.skipReason === 'approved') {
-        engineerAction = 'Approved by engineer';
-        agreementType = 'agree';
       } else if (entry.humanVerdict === 'would-approve') {
         engineerAction = 'Would apply same fix';
         agreementType = 'agree';
