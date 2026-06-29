@@ -7,13 +7,13 @@ describe('semantic safety gate', () => {
   it('blocks destructive database commands', () => {
     const result = analyzeSemanticRisk('DROP TABLE users');
     expect(result.blocked).toBe(true);
-    expect(result.reason).toContain('Destructive operation detected');
+    expect(result.reason).toContain('is irreversible');
   });
 
   it('blocks destructive rm -rf commands', () => {
     const result = analyzeSemanticRisk('rm -rf /');
     expect(result.blocked).toBe(true);
-    expect(result.reason).toContain('Destructive operation detected');
+    expect(result.reason).toContain('permanently deletes files');
   });
 
   it('blocks db connection pool resize during Friday settlement window (20:00 - 24:00 UTC)', () => {

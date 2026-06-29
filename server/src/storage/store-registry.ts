@@ -13,6 +13,11 @@
  */
 
 import type { Stores } from './store-factory.js';
+import { SqliteEventStore } from './sqlite/sqlite-event-store.js';
+import { SqliteIncidentStore } from './sqlite/sqlite-incident-store.js';
+import { SqliteOverrideCorpus } from './sqlite/sqlite-override-corpus.js';
+import { SqliteApprovalStore } from './sqlite/sqlite-approval-store.js';
+import { SqliteShadowLog } from './sqlite/sqlite-shadow-log.js';
 
 let _stores: Stores | null = null;
 
@@ -22,7 +27,14 @@ export function setStores(s: Stores): void {
 
 export function getStores(): Stores {
   if (!_stores) {
-    throw new Error('Stores not initialized — call setStores() before getStores()');
+    _stores = {
+      events:    new SqliteEventStore(),
+      incidents: new SqliteIncidentStore(),
+      overrides: new SqliteOverrideCorpus(),
+      approvals: new SqliteApprovalStore(),
+      shadowLog: new SqliteShadowLog(),
+    };
   }
   return _stores;
 }
+
