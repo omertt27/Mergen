@@ -58,6 +58,11 @@ export function createImpactReportRouter(): Router {
       return;
     }
 
+    if (format === 'slide') {
+      res.json({ ok: true, slide: buildSlide(data) });
+      return;
+    }
+
     res.json({ ok: true, report: data });
   });
 
@@ -517,6 +522,62 @@ async function computeImpactData(windowDays: number, tenantId?: string): Promise
     hoursPerIncident,
     timeSavedLabel,
     agentBlunderSummary,
+  };
+}
+
+// ── Slide artifact (pre-agreed Day-30 format) ─────────────────────────────────
+//
+// Exactly 5 numbers. Agreed before the trial starts, read again at Day 30.
+// Partner saves the baseline JSON on Day 1; compares at Day 30.
+
+export interface SlideMetrics {
+  generatedAt: string;
+  windowDays: number;
+  // 1. Incidents processed — volume proof (how much Mergen saw)
+  incidents_processed: number;
+  // 2. Autonomous resolution rate — judgment quality
+  autonomous_resolution_rate_pct: number | null;   // null when no incidents yet
+  autonomous_resolution_count: number;
+  // 3. MTTR delta — speed improvement (conservative: uses estimate when n=0)
+  mttr_autonomous_minutes: number | null;
+  mttr_manual_minutes: number | null;
+  mttr_reduction_pct: number | null;               // null when insufficient data
+  // 4. Gate false positive rate — engineer friction signal
+  gate_false_positive_rate_pct: number | null;     // null when < 3 annotated entries
+  gate_fp_annotation_coverage_pct: number;         // how much shadow traffic was annotated
+  // 5. Agent blunders blocked — safety proof
+  agent_blunders_blocked: number;
+  blunder_chain_verified: boolean;
+  // Deck sentence
+  deck_summary: string;
+}
+
+function buildSlide(d: ImpactData): SlideMetrics {
+  const msToMin = (ms: number | null) =>
+    ms == null ? null : Math.round((ms / 60_000) * 10) / 10;
+
+  const resolutionRate = d.totalIncidents > 0
+    ? Math.round((d.wouldResolveCount / d.totalIncidents) * 100)
+    : null;
+
+  return {
+    generatedAt: d.generatedAt,
+    windowDays: d.windowDays,
+    incidents_processed: d.totalIncidents,
+    autonomous_resolution_rate_pct: resolutionRate,
+    autonomous_resolution_count: d.wouldResolveCount,
+    mttr_autonomous_minutes: msToMin(d.avgAutonomousMttrMs ?? d.estimatedAutonomousMttrMs),
+    mttr_manual_minutes: msToMin(d.avgManualMttrMs),
+    mttr_reduction_pct: d.mttrReductionPct,
+    gate_false_positive_rate_pct: d.falsePositiveRate != null
+      ? Math.round(d.falsePositiveRate * 100)
+      : null,
+    gate_fp_annotation_coverage_pct: Math.round(
+      (d.humanReviewedCount / Math.max(1, d.totalIncidents)) * 100,
+    ),
+    agent_blunders_blocked: d.agentBlunderSummary.totalPrevented,
+    blunder_chain_verified: d.agentBlunderSummary.chainVerified,
+    deck_summary: d.deckSummary,
   };
 }
 

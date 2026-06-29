@@ -75,17 +75,17 @@ describe('evaluateEnterprisePolicy — word-boundary command matching', () => {
     expect(result.verdict).toBe('pass');
   });
 
-  it('DOES block "destroy-session" — hyphen is a non-word char, so boundary matches', () => {
-    // This is intentional: "destroy-session" contains the word "destroy" at a
-    // word boundary. Agents should use more specific tool names if they need to
-    // manage sessions — the gate's job is to be strict, not lenient.
+  it('does NOT block "destroy-session" — lookahead requires whitespace/separator after keyword', () => {
+    // Single-word patterns use \bword(?=[\s,;|&(]|$) — hyphen is not in the
+    // allowed-after set, so "destroy-session" passes. This prevents FPs on
+    // npm scripts (destroy:dev), Makefile targets (destroy-test-env), etc.
     const result = evaluateEnterprisePolicy({
       files: [],
       commands: ['list_sessions', 'destroy-session-records'],
       actor: 'agent',
       service: 'api',
     });
-    expect(result.verdict).toBe('block');
+    expect(result.verdict).toBe('pass');
   });
 
   it('does NOT block "destroy_reason" underscore-joined identifier', () => {

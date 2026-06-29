@@ -250,8 +250,10 @@ describe('Level 0 — Layer 1: hard safety policies → BLOCK', () => {
     expect(mockRecordBlunder).toHaveBeenCalledOnce();
   });
 
-  it('blocks kubectl delete and records a blunder', async () => {
-    const h = makeGuardedHandler('bash', { command: 'kubectl delete pod api-xxx-yyy' });
+  it('blocks kubectl delete namespace and records a blunder', async () => {
+    // kubectl delete namespace is a hard BLOCK (cascades entire namespace).
+    // General kubectl delete pod/job goes to HOLD instead (see hold_agent_data_mutations).
+    const h = makeGuardedHandler('bash', { command: 'kubectl delete namespace production' });
     await h.call();
 
     expect(mockRecordBlunder).toHaveBeenCalledOnce();
@@ -415,11 +417,13 @@ describe('Level 0 — bypass token single-use enforcement', () => {
   });
 
   it('getPendingBypasses lists block tokens awaiting operator approval', async () => {
-    const h = makeGuardedHandler('execute_fix', { command: 'kubectl delete pod api-unique-1a2b' });
+    // kubectl delete pod is now HOLD (not BLOCK), so no bypass token is registered.
+    // Use rm -rf which remains a hard BLOCK and generates a bypass token.
+    const h = makeGuardedHandler('execute_fix', { command: 'rm -rf /tmp/bypass-test-unique' });
     await h.call();
 
     const pending = getPendingBypasses();
-    const mine = pending.find(b => b.commandArg === 'kubectl delete pod api-unique-1a2b');
+    const mine = pending.find(b => b.commandArg === 'rm -rf /tmp/bypass-test-unique');
     expect(mine).toBeDefined();
     expect(mine!.toolName).toBe('execute_fix');
     expect(mine!.expiresAt).toBeGreaterThan(Date.now());
@@ -477,7 +481,9 @@ describe('Level 0 — guided alternative presence for each destructive pattern',
     },
     {
       toolName: 'bash',
-      command:  'kubectl delete pod api-xxx',
+      // kubectl delete namespace is a hard BLOCK. General kubectl delete pod/job
+      // goes to HOLD (async HITL) which doesn't return isError:true synchronously.
+      command:  'kubectl delete namespace production',
       altHint:  /kubectl describe|approval|review/i,
     },
     {

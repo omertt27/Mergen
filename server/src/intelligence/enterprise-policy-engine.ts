@@ -64,8 +64,14 @@ export const DEFAULT_ENTERPRISE_POLICY: EnterprisePolicyConfig = {
         commands: [
           'rm -rf', 'rmdir /s', 'format c:',
           'drop table', 'drop database', 'truncate table',
-          'delete from',
-          'terraform destroy', 'kubectl delete', 'aws s3 rm', 's3 rm',
+          // DELETE FROM without a WHERE clause = full table wipe → BLOCK.
+          // DELETE FROM ... WHERE ... = targeted row deletion → HOLD (hold_agent_data_mutations).
+          'delete from:no-where',
+          // kubectl: block only namespace/cluster-scope cascades — routine pod/job
+          // cleanup is handled by hold_agent_data_mutations below.
+          'kubectl delete namespace', 'kubectl delete ns',
+          'kubectl delete --all', 'kubectl delete all',
+          'terraform destroy', 'aws s3 rm', 's3 rm',
           'destroy', 'nuke', 'wipe',
         ],
       },
@@ -82,6 +88,23 @@ export const DEFAULT_ENTERPRISE_POLICY: EnterprisePolicyConfig = {
           'alter table', 'add column', 'drop column', 'rename column',
           'create index', 'drop index',
           'db:migrate', 'prisma migrate', 'knex migrate',
+        ],
+        actorType: 'ai',
+      },
+    },
+    // ── Local gate: targeted data mutations — hold for HITL when AI actor ─────
+    {
+      id: 'hold_agent_data_mutations',
+      name: 'Hold targeted data deletion and resource removal for HITL review',
+      description: 'DELETE FROM with a WHERE clause is recoverable but still requires human sign-off. ' +
+        'kubectl delete on pods/jobs/configmaps is routine maintenance but should be human-confirmed when an AI agent issues it.',
+      action: 'warn',
+      reason: 'Local Gate: Targeted data mutation or resource removal by AI agent. ' +
+        'Waiting for operator approval — review the specific target before approving.',
+      conditions: {
+        commands: [
+          'delete from',    // includes DELETE FROM ... WHERE ...; human-reviewed before execution
+          'kubectl delete', // catches pod/job/deployment/configmap deletions by AI
         ],
         actorType: 'ai',
       },
@@ -350,12 +373,27 @@ function _expandSemanticEquivalents(normalized: string): string {
 
 function matchesCommandPattern(haystack: string, pattern: string): boolean {
   const normalized = _expandSemanticEquivalents(_normalizeForMatching(haystack));
+
+  // `:no-where` modifier — match the base pattern only when the command does
+  // NOT contain a WHERE clause.  Used to distinguish a full-table DELETE FROM
+  // (no WHERE → catastrophic, BLOCK) from a targeted DELETE FROM ... WHERE ...
+  // (scoped → HOLD for HITL review instead of outright reject).
+  if (pattern.endsWith(':no-where')) {
+    const basePattern = pattern.slice(0, -':no-where'.length).toLowerCase();
+    return normalized.includes(basePattern) && !/\bwhere\b/.test(normalized);
+  }
+
   const lower = pattern.toLowerCase();
   if (lower.includes(' ')) {
     return normalized.includes(lower);
   }
+  // For single-word patterns use a lookahead that requires whitespace, common
+  // shell separators, or end-of-string after the keyword.  Plain \b would match
+  // compound identifiers like `wipe-cache` or `destroy:dev` because `-` and `:`
+  // are non-word chars that satisfy \b — causing false positives on legitimate
+  // npm scripts and Makefile targets.
   const escaped = lower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`\\b${escaped}\\b`).test(normalized);
+  return new RegExp(`\\b${escaped}(?=[\\s,;|&(]|$)`).test(normalized);
 }
 
 export function evaluateEnterprisePolicy(input: EvaluationInput, policyOverride?: EnterprisePolicyConfig): PolicyEvaluationResult {

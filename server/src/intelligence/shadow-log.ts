@@ -221,6 +221,24 @@ export interface ShadowReport {
   humanOverrode: number;
   /** null when fewer than 3 human-reviewed entries — too noisy. */
   approvalRate: number | null;
+  /**
+   * Rate at which autopilot would have needed human intervention:
+   * humanOverrode / humanReviewed. null when fewer than 3 reviewed entries.
+   * Complements approvalRate — used in design-partner reports.
+   */
+  interventionRate: number | null;
+  /**
+   * Rate at which the safety policy gate produced a false positive:
+   * entries skipped for 'blocked-by-safety-filter' where the human said
+   * 'would-approve' / total annotated safety-filter-skipped entries.
+   * null when fewer than 3 annotated safety-filter entries.
+   */
+  gateFalsePositiveRate: number | null;
+  /**
+   * Fraction of all window entries that have received a human verdict (0–1).
+   * Low coverage means approval/intervention/FP rates are statistically noisy.
+   */
+  annotationCoverage: number;
   /** Actionable recommendation based on the approval rate. */
   recommendation: string;
 }
@@ -241,7 +259,18 @@ export function computeShadowReport(entries: readonly ShadowEntry[], windowDays 
   const approved = reviewed.filter((e) => e.humanVerdict === 'would-approve').length;
   const overrode = reviewed.filter((e) => e.humanVerdict === 'would-override').length;
 
-  const approvalRate = reviewed.length >= 3 ? approved / reviewed.length : null;
+  const approvalRate     = reviewed.length >= 3 ? approved / reviewed.length : null;
+  const interventionRate = reviewed.length >= 3 ? overrode / reviewed.length : null;
+  const annotationCoverage = window.length > 0 ? reviewed.length / window.length : 0;
+
+  // Gate FP rate: among entries skipped because the safety filter blocked them,
+  // what fraction did the human say they would have approved?
+  const safetyBlocked = window.filter((e) => e.skipReason === 'blocked-by-safety-filter');
+  const annotatedSafetyBlocked = safetyBlocked.filter((e) => e.humanVerdict !== undefined);
+  const safetyBlockedApproved  = annotatedSafetyBlocked.filter((e) => e.humanVerdict === 'would-approve').length;
+  const gateFalsePositiveRate  = annotatedSafetyBlocked.length >= 3
+    ? safetyBlockedApproved / annotatedSafetyBlocked.length
+    : null;
 
   let recommendation: string;
   if (window.length === 0) {
@@ -267,6 +296,9 @@ export function computeShadowReport(entries: readonly ShadowEntry[], windowDays 
     humanApproved: approved,
     humanOverrode: overrode,
     approvalRate,
+    interventionRate,
+    gateFalsePositiveRate,
+    annotationCoverage,
     recommendation,
   };
 }

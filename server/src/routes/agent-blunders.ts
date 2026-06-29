@@ -23,6 +23,7 @@ import { Router } from 'express';
 import { getBlunders, getBlunderStats, verifyChain } from '../sensor/agent-blunder-store.js';
 import { getRefinementCandidates, getBypassStats } from '../sensor/bypass-tracker.js';
 import { getGateCoverageSummary } from '../intelligence/enterprise-policy-engine.js';
+import { buildReport, renderMarkdown } from '../intelligence/case-study-generator.js';
 
 export function createAgentBlundersRouter(): Router {
   const router = Router();
@@ -63,6 +64,44 @@ export function createAgentBlundersRouter(): Router {
   router.get('/agent-blunders/verify', (_req, res) => {
     const result = verifyChain();
     res.json({ ok: true, ...result });
+  });
+
+  /**
+   * GET /agent-blunders/case-study-export
+   *
+   * Returns anonymized, narrative-enriched case studies derived from the
+   * blunder log. Suitable for customer-facing documentation and sales material.
+   *
+   * Query params:
+   *   format=json (default) — structured JSON with caseId, narrative, etc.
+   *   format=md             — Markdown document ready to paste into docs/website
+   *   limit=N               — cap the number of unique case studies returned (default: 20)
+   *
+   * Anonymization applied:
+   *   - Service names replaced with opaque svc-{hash} identifiers
+   *   - PIDs replaced with sequential case-001, case-002, ...
+   *   - Timestamps converted to relative ("3 days ago")
+   *   - Deep file paths truncated at depth 2
+   *   - Commands containing credentials fully redacted
+   *
+   * Deduplication: repeated identical block patterns appear as a single case.
+   */
+  router.get('/agent-blunders/case-study-export', (req, res) => {
+    const format = req.query.format === 'md' ? 'md' : 'json';
+    const limit  = Math.min(100, Math.max(1, Number(req.query.limit ?? 20)));
+
+    const blunders = getBlunders();
+    const report   = buildReport(blunders);
+    report.cases   = report.cases.slice(0, limit);
+
+    if (format === 'md') {
+      res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="mergen-case-studies.md"');
+      res.send(renderMarkdown(report));
+      return;
+    }
+
+    res.json({ ok: true, ...report });
   });
 
   return router;

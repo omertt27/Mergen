@@ -299,6 +299,44 @@ async function setupCommand(): Promise<void> {
     }
   }
 
+  // 5. Slack alerts — where you see incidents
+  hr();
+  log('\nSlack alerts (recommended — where Mergen posts incident analysis):');
+  console.log('  Without Slack, Mergen diagnoses silently. With Slack, every incident fires a');
+  console.log('  thread: root cause, confidence score, proposed fix, and HITL approve/deny buttons.');
+
+  if (!yes) {
+    const enableSlack = await ask('\nConnect Slack now? (y/n): ');
+    if (enableSlack.toLowerCase() === 'y') {
+      console.log('');
+      console.log('  1. Go to https://api.slack.com/apps → Create New App → From manifest');
+      console.log('  2. Grant scopes: chat:write, chat:write.public, incoming-webhook');
+      console.log('  3. Install to your workspace → copy the Bot User OAuth Token');
+      console.log('');
+      const slackToken = (await ask('  Bot token (xoxb-...): ')).trim();
+      const slackChannel = (await ask('  Channel for alerts (#incidents): ')).trim() || '#incidents';
+      if (slackToken) {
+        const envPath = path.join(process.cwd(), '.env');
+        try {
+          const existing = existsSync(envPath) ? readFileSync(envPath, 'utf8') : '';
+          let updated = existing;
+          if (!updated.includes('MERGEN_SLACK_BOT_TOKEN')) updated += `\nMERGEN_SLACK_BOT_TOKEN=${slackToken}`;
+          if (!updated.includes('MERGEN_SLACK_CHANNEL'))   updated += `\nMERGEN_SLACK_CHANNEL=${slackChannel}`;
+          writeFileSync(envPath, updated.trimStart() + '\n', 'utf8');
+          success(`Slack configured (channel: ${slackChannel}), written to .env`);
+        } catch {
+          success('Slack configured for this session');
+          log(`Set these in your .env to persist:\n  MERGEN_SLACK_BOT_TOKEN=${slackToken}\n  MERGEN_SLACK_CHANNEL=${slackChannel}`, 'ℹ');
+        }
+      } else {
+        log('No token entered — skipped.', 'ℹ');
+      }
+    } else {
+      log('Skipped. To add later: set MERGEN_SLACK_BOT_TOKEN and MERGEN_SLACK_CHANNEL in .env', 'ℹ');
+    }
+  }
+  _markStep('Slack setup');
+
   // 6. GitHub intent archive
   hr();
   log('\nGitHub intent archive (optional — powers explain_why):');
@@ -361,25 +399,27 @@ async function setupCommand(): Promise<void> {
     console.log(`  ${'Total:'.padEnd(26)} ${(totalMs / 1000).toFixed(1)}s\n`);
   }
   console.log('Next steps:');
-  console.log('  1. Start server:       mergen-server start');
-  console.log('  2. Verify it works:    mergen-server start --then doctor');
-  console.log('  3. Check shadow log:   mergen-server shadow-report');
-  console.log('  4. Enable autopilot:   echo "MERGEN_AUTOPILOT=true" >> .env\n');
-  console.log('Integrations (add to .env, then restart):');
-  console.log('  PagerDuty:  MERGEN_PAGERDUTY_SECRET=<signing-secret>    # webhook → /webhooks/pagerduty');
-  console.log('  Slack:      MERGEN_SLACK_BOT_TOKEN=xoxb-...             # needs chat:write scope');
-  console.log('              MERGEN_SLACK_CHANNEL=#incidents');
-  console.log('  Datadog:    DD_API_KEY=...  DD_APP_KEY=...              # trace fetch + validation\n');
-  console.log('Get your Day-30 report at any time:');
-  console.log('  mergen-server impact-report\n');
+  console.log('  1. Start server:     mergen-server start');
+  console.log('  2. Verify it works:  mergen-server start --then doctor');
+  console.log('       (starts server, runs health checks, then keeps server running)');
+  console.log('  3. Check shadow log: mergen-server shadow-report');
+  console.log('  4. Enable autopilot: echo "MERGEN_AUTOPILOT=true" >> .env\n');
+  console.log('If PagerDuty or Datadog aren\'t set up yet, add to .env then restart:');
+  console.log('  MERGEN_PAGERDUTY_SECRET=<signing-secret>   # webhook → /webhooks/pagerduty');
+  console.log('  DD_API_KEY=...  DD_APP_KEY=...             # trace fetch + validation\n');
+  console.log('Save your Day-1 baseline (compare at Day 30):');
+  console.log('  mergen-server impact-report --baseline');
+  console.log('  mergen-server impact-report --compare      # at Day 30\n');
 
   if (yes) {
     log('Skipping "start now?" prompt in --yes mode. Run: mergen-server start', 'ℹ');
     return;
   }
 
-  const startNow = await ask('Start server now? (y/n): ');
+  const startNow = await ask('Start server now and run doctor to verify? (y/n): ');
   if (startNow.toLowerCase() === 'y') {
+    // Start in background, verify, then switch to foreground
+    process.argv = [...process.argv.slice(0, 3), '--then', 'doctor'];
     await startCommand();
   }
 }
@@ -502,11 +542,48 @@ async function ciCommand(): Promise<void> {
 }
 
 async function startCommand(): Promise<void> {
+  const rawArgs = process.argv.slice(3);
+  const thenIdx = rawArgs.indexOf('--then');
+  const thenCmd = thenIdx !== -1 ? rawArgs[thenIdx + 1] : null;
+
   const serverPath = resolve(__dirname, 'index.js');
 
   if (!existsSync(serverPath)) {
     error('Server not found. Run: mergen-server setup');
     process.exit(1);
+  }
+
+  // --then <cmd>: start server in background, wait for health, run cmd, then bring server to foreground
+  if (thenCmd) {
+    const mergenHost = process.env.MERGEN_HOST ?? '127.0.0.1';
+    const srv = spawn('node', [serverPath], {
+      stdio: 'ignore', detached: true,
+      env: { ...process.env as Record<string, string>, NODE_ENV: 'production' },
+    });
+    srv.unref();
+    process.stdout.write('Starting Mergen server...');
+    let serverPort = 3000;
+    let ready = false;
+    for (let attempt = 0; attempt < 20 && !ready; attempt++) {
+      await sleep(500);
+      for (let p = 3000; p <= 3010; p++) {
+        try {
+          const r = await fetch(`http://${mergenHost}:${p}/health`, { signal: AbortSignal.timeout(300) });
+          if (r.ok) { serverPort = p; ready = true; break; }
+        } catch {}
+      }
+    }
+    console.log(ready ? ` ready on :${serverPort}` : ' (timeout — proceeding anyway)');
+    // Run the --then command
+    const thenParts = thenCmd.split(/\s+/);
+    const thenProc = spawn(thenParts[0], thenParts.slice(1), { stdio: 'inherit' });
+    await new Promise<void>((res) => thenProc.on('exit', () => res()));
+    // After --then command completes, attach server to foreground
+    const fgSrv = spawn('node', [serverPath], { stdio: 'inherit', env: { ...process.env, NODE_ENV: 'production' } });
+    fgSrv.on('error', (err) => { error(`Server error: ${err.message}`); process.exit(1); });
+    fgSrv.on('exit', (code) => { process.exit(code || 0); });
+    process.on('SIGINT', () => { fgSrv.kill('SIGINT'); });
+    return;
   }
 
   log('Starting Mergen server...\n');
@@ -1753,7 +1830,10 @@ async function allowCommand(args: string[]): Promise<void> {
 // ── Impact-report command ──────────────────────────────────────────────────────
 
 async function impactReportCommand(args: string[]): Promise<void> {
-  const htmlMode = args.includes('--html');
+  const htmlMode     = args.includes('--html');
+  const slideMode    = args.includes('--slide');
+  const baselineMode = args.includes('--baseline');
+  const compareMode  = args.includes('--compare');
 
   let port = 3000;
   let serverFound = false;
@@ -1781,6 +1861,41 @@ async function impactReportCommand(args: string[]): Promise<void> {
     return;
   }
 
+  // ── Slide / baseline / compare modes ──────────────────────────────────────
+  if (slideMode || baselineMode || compareMode) {
+    const res = await fetch(`${BASE}/impact-report?format=slide`, { headers, signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) { error(`Server returned ${res.status}`); process.exit(1); }
+    const { slide: s } = await res.json() as { slide: Record<string, unknown> };
+
+    const baselinePath = join(homedir(), '.mergen', 'baseline.json');
+
+    if (baselineMode) {
+      const { mkdirSync } = await import('fs');
+      mkdirSync(join(homedir(), '.mergen'), { recursive: true });
+      writeFileSync(baselinePath, JSON.stringify({ ...s, savedAt: new Date().toISOString() }, null, 2) + '\n', 'utf8');
+      success(`Baseline saved to ${baselinePath}`);
+      console.log('  Run again at Day 30 with --compare to see the delta.\n');
+      _printSlide(s);
+      return;
+    }
+
+    if (compareMode) {
+      let baseline: Record<string, unknown> | null = null;
+      try { baseline = JSON.parse(readFileSync(baselinePath, 'utf8')); } catch {}
+      if (!baseline) {
+        error('No baseline found. Run: mergen-server impact-report --baseline  on Day 1 first.');
+        process.exit(1);
+      }
+      _printSlideCompare(baseline, s);
+      return;
+    }
+
+    // --slide: just print the 5 numbers
+    _printSlide(s);
+    return;
+  }
+
+  // ── Default: full terminal report ─────────────────────────────────────────
   const res = await fetch(`${BASE}/impact-report`, { headers, signal: AbortSignal.timeout(10_000) });
   if (!res.ok) { error(`Server returned ${res.status}`); process.exit(1); }
   const { report: d } = await res.json() as { report: Record<string, unknown> };
@@ -1792,7 +1907,6 @@ async function impactReportCommand(args: string[]): Promise<void> {
     if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
     return `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`;
   };
-  const pct = (n: number | null) => n == null ? 'pending' : `${Math.round(n * 100)}%`;
 
   console.log('\nMergen Day-30 Impact Report');
   console.log(div);
@@ -1804,7 +1918,7 @@ async function impactReportCommand(args: string[]): Promise<void> {
 
   const blunders = d['agentBlunderSummary'] as { totalPrevented: number; chainVerified: boolean } | undefined;
   if (blunders) {
-    const chain = blunders.chainVerified ? '✅' : '⚠️';
+    const chain = blunders.chainVerified ? '✓' : '!';
     console.log(`Agent blunders blocked:  ${blunders.totalPrevented.toLocaleString()}  (chain ${chain})`);
   }
 
@@ -1812,10 +1926,63 @@ async function impactReportCommand(args: string[]): Promise<void> {
   const summary = (d['deckSummary'] as string ?? '').match(/.{1,56}(\s|$)/g) ?? [];
   for (const line of summary) console.log(`  ${line.trim()}`);
 
-  console.log(`\nTo export HTML report:`);
-  console.log(`  mergen-server impact-report --html  →  writes impact-report-${new Date().toISOString().slice(0, 10)}.html`);
-  console.log(`  Share with your CISO or include as a deck slide.`);
+  console.log(`\nFlags:`);
+  console.log(`  --slide      5 pre-agreed numbers, screenshot-ready`);
+  console.log(`  --baseline   save Day-1 numbers to compare at Day 30`);
+  console.log(`  --compare    show delta vs. saved baseline`);
+  console.log(`  --html       write full HTML report to disk`);
   console.log(div + '\n');
+}
+
+function _printSlide(s: Record<string, unknown>): void {
+  const W = 62;
+  const div = '─'.repeat(W);
+  const pad = (label: string, value: string) => {
+    const dots = '.'.repeat(Math.max(2, W - label.length - value.length - 2));
+    return `  ${label} ${dots} ${value}`;
+  };
+  const pend = (v: unknown) => v == null ? 'pending' : String(v);
+  const pct  = (v: unknown) => v == null ? 'pending' : `${v}%`;
+
+  console.log('\nMergen — Pre-agreed Day-30 metrics');
+  console.log(div);
+  console.log(pad('1. Incidents processed',        `${s['incidents_processed']}`));
+  console.log(pad('2. Autonomous resolution rate', pct(s['autonomous_resolution_rate_pct'])));
+  console.log(pad('3. MTTR: autonomous / manual',
+    `${pend(s['mttr_autonomous_minutes'])}min / ${pend(s['mttr_manual_minutes'])}min`));
+  console.log(pad('4. Gate false positive rate',   pct(s['gate_false_positive_rate_pct'])));
+  console.log(pad('5. Agent blunders blocked',     `${s['agent_blunders_blocked']}`));
+  console.log(div);
+  console.log(`  Window: last ${s['windowDays']} days  |  Generated: ${new Date(s['generatedAt'] as string).toLocaleDateString()}`);
+  console.log();
+}
+
+function _printSlideCompare(baseline: Record<string, unknown>, now: Record<string, unknown>): void {
+  const W = 72;
+  const div = '─'.repeat(W);
+  const delta = (b: unknown, n: unknown, lowerIsBetter = false): string => {
+    if (b == null || n == null) return '';
+    const diff = Number(n) - Number(b);
+    if (diff === 0) return '  (no change)';
+    const arrow = diff > 0 ? '+' : '';
+    const good  = lowerIsBetter ? diff < 0 : diff > 0;
+    return `  ${arrow}${diff} ${good ? '(better)' : '(worse)'}`;
+  };
+
+  console.log('\nMergen — Day-1 vs Day-30 comparison');
+  console.log(div);
+  const row = (label: string, b: unknown, n: unknown, d: string) =>
+    console.log(`  ${label.padEnd(34)} ${String(b ?? 'n/a').padStart(10)}  →  ${String(n ?? 'n/a').padEnd(10)}${d}`);
+
+  row('Incidents processed',        baseline['incidents_processed'], now['incidents_processed'], delta(baseline['incidents_processed'], now['incidents_processed']));
+  row('Autonomous resolution rate', `${baseline['autonomous_resolution_rate_pct']}%`, `${now['autonomous_resolution_rate_pct']}%`, delta(baseline['autonomous_resolution_rate_pct'], now['autonomous_resolution_rate_pct']));
+  row('MTTR autonomous (min)',       baseline['mttr_autonomous_minutes'], now['mttr_autonomous_minutes'], delta(baseline['mttr_autonomous_minutes'], now['mttr_autonomous_minutes'], true));
+  row('MTTR manual (min)',           baseline['mttr_manual_minutes'], now['mttr_manual_minutes'], delta(baseline['mttr_manual_minutes'], now['mttr_manual_minutes'], true));
+  row('Gate FP rate',               `${baseline['gate_false_positive_rate_pct']}%`, `${now['gate_false_positive_rate_pct']}%`, delta(baseline['gate_false_positive_rate_pct'], now['gate_false_positive_rate_pct'], true));
+  row('Agent blunders blocked',     baseline['agent_blunders_blocked'], now['agent_blunders_blocked'], delta(baseline['agent_blunders_blocked'], now['agent_blunders_blocked']));
+  console.log(div);
+  console.log(`  Baseline saved: ${baseline['savedAt']}`);
+  console.log();
 }
 
 // ── Export command ─────────────────────────────────────────────────────────────
@@ -3384,6 +3551,76 @@ async function exportRiskReportCommand(args: string[]): Promise<void> {
   }
 }
 
+// ── Partner shortlist command ─────────────────────────────────────────────────
+
+async function partnerShortlistCommand(subArgs: string[]): Promise<void> {
+  const listPath = join(homedir(), '.mergen', 'partner-shortlist.json');
+  const { mkdirSync } = await import('fs');
+
+  type Candidate = { name: string; company: string; role: string; reach: string; notes: string; addedAt: string };
+
+  if (subArgs[0] === '--add') {
+    // mergen-server partner-shortlist --add "Name" "Company" "Role" "Reach" "Notes"
+    const [, name = '', company = '', role = '', reach = '', ...noteParts] = subArgs;
+    const notes = noteParts.join(' ');
+    if (!name || !company) { error('Usage: partner-shortlist --add <name> <company> [role] [reach] [notes]'); process.exit(1); }
+    mkdirSync(join(homedir(), '.mergen'), { recursive: true });
+    let list: Candidate[] = [];
+    try { list = JSON.parse(readFileSync(listPath, 'utf8')); } catch {}
+    list.push({ name, company, role, reach, notes, addedAt: new Date().toISOString() });
+    writeFileSync(listPath, JSON.stringify(list, null, 2) + '\n', 'utf8');
+    success(`Added ${name} (${company}) to partner shortlist`);
+    return;
+  }
+
+  if (subArgs[0] === '--list') {
+    let list: Candidate[] = [];
+    try { list = JSON.parse(readFileSync(listPath, 'utf8')); } catch {}
+    if (list.length === 0) { log('No candidates yet. Add with: mergen-server partner-shortlist --add', 'ℹ'); return; }
+    const div = '─'.repeat(60);
+    console.log('\nMergen — Design-partner shortlist\n' + div);
+    for (const c of list) {
+      console.log(`  ${c.name.padEnd(22)} ${c.company.padEnd(20)} ${c.role}`);
+      if (c.reach)  console.log(`    Reach: ${c.reach}`);
+      if (c.notes)  console.log(`    Notes: ${c.notes}`);
+    }
+    console.log(div + '\n');
+    return;
+  }
+
+  // Default: print criteria + template
+  const W = 60;
+  const div = '─'.repeat(W);
+  console.log('\nMergen — Design-partner filter criteria');
+  console.log(div);
+  console.log('  The right first partner gives you a credible case study,');
+  console.log('  not a friendly pilot that never stresses the gate.\n');
+  console.log('  Required (all must be true):');
+  console.log('    [ ] Public postmortem published in last 12 months');
+  console.log('        (they already do blameless post-mortems → safety mindset)');
+  console.log('    [ ] 2–5 person SRE / platform team');
+  console.log('        (small enough for Mergen to matter, big enough to have incidents)');
+  console.log('    [ ] On PagerDuty (webhook integration = Day 1 incident coverage)');
+  console.log('    [ ] Someone with public reach (Twitter/X, blog, conference talk)');
+  console.log('        (their Day-30 quote is worth 10× paid ads)\n');
+  console.log('  Nice to have:');
+  console.log('    [ ] Already using an AI coding agent (Claude Code / Cursor / Copilot)');
+  console.log('    [ ] Compliance pressure (SOC 2, HIPAA, fintech) — AEG is mandatory for them');
+  console.log('    [ ] Recent infrastructure incident (motivation is high)\n');
+  console.log('  Disqualify if:');
+  console.log('    [ ] > 150 developers (sale requires VP Eng buy-in, wrong stage)');
+  console.log('    [ ] No PagerDuty / no incident workflow (Mergen has nothing to triage)');
+  console.log('    [ ] Solo developer (Layer 2+ features don\'t apply yet)\n');
+  console.log('  Day-30 pre-agreement (send before trial starts):');
+  console.log('    "At Day 30 we\'ll run: mergen-server impact-report --slide"');
+  console.log('    "We pre-agree these 5 numbers are the success criteria."');
+  console.log('    "No new metrics after the trial starts."\n');
+  console.log('  Commands:');
+  console.log('    mergen-server partner-shortlist --add <name> <company> [role] [reach] [notes]');
+  console.log('    mergen-server partner-shortlist --list');
+  console.log(div + '\n');
+}
+
 // ── Exec command (second interception surface — protocol-agnostic CLI proxy) ──
 
 async function execCommand(args: string[]): Promise<void> {
@@ -3757,6 +3994,10 @@ async function main(): Promise<void> {
       await exportRiskReportCommand(args.slice(1));
       break;
 
+    case 'partner-shortlist':
+      await partnerShortlistCommand(args.slice(1));
+      break;
+
     case 'exec':
       await execCommand(args.slice(1));
       break;
@@ -3831,6 +4072,14 @@ Usage:
   mergen-server export-risk-report Print CISO security risk report
   mergen-server export-risk-report --markdown  Save as shareable Markdown file
   mergen-server exec -- <cmd>      Run a command through the Mergen policy gate
+  mergen-server impact-report      Print the 5 pre-agreed Day-30 metrics
+  mergen-server impact-report --slide     Screenshot-ready 5-number card
+  mergen-server impact-report --baseline  Save Day-1 numbers (compare at Day 30)
+  mergen-server impact-report --compare   Show delta vs. saved baseline
+  mergen-server impact-report --html      Write full HTML report to disk
+  mergen-server partner-shortlist  Print design-partner filter criteria and commands
+  mergen-server partner-shortlist --add <name> <company> [role] [reach] [notes]
+  mergen-server partner-shortlist --list  Show saved candidates
   mergen-server test-safety        Run adversarial bypass test suite against the gate
   mergen-server policy-push        Save live server policy → .mergen/policy.json (for git)
   mergen-server policy-pull        Apply .mergen/policy.json → live server
