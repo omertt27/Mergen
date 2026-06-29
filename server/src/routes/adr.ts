@@ -9,7 +9,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { adrStore } from '../sensor/adr-store.js';
-import { recordOverride, type OverrideReason } from '../intelligence/override-corpus.js';
+import { type OverrideReason } from '../intelligence/override-corpus.js';
+import { getStores } from '../storage/store-registry.js';
 import logger from '../sensor/logger.js';
 
 const NewAdrSchema = z.object({
@@ -23,7 +24,7 @@ const NewAdrSchema = z.object({
 });
 
 // Auto-compiles an override corpus entry from an ADR decision
-export function compileOverrideFromAdr(adr: { id: string; title: string; decision: string; rationale: string }) {
+export async function compileOverrideFromAdr(adr: { id: string; title: string; decision: string; rationale: string }, tenantId?: string) {
   const text = `${adr.title} ${adr.decision} ${adr.rationale}`.toLowerCase();
   
   let incidentTag = '';
@@ -69,7 +70,7 @@ export function compileOverrideFromAdr(adr: { id: string; title: string; decisio
   }
 
   try {
-    const event = recordOverride({
+    const event = await getStores().overrides.recordOverride({
       incidentTag,
       proposedCommand,
       overrideReason: reason,
@@ -77,7 +78,7 @@ export function compileOverrideFromAdr(adr: { id: string; title: string; decisio
       service: 'all',
       environment: 'production',
       actor: `ADR Compiler (${adr.id})`,
-    });
+    }, tenantId);
     return event;
   } catch (err) {
     logger.warn({ err, adrId: adr.id }, 'adr-compiler: failed to record override from ADR');
@@ -99,14 +100,14 @@ export function createAdrRouter(): Router {
     res.json({ ok: true, adr });
   });
 
-  router.post('/adrs', (req, res) => {
+  router.post('/adrs', async (req, res) => {
     const parsed = NewAdrSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'validation failed', details: parsed.error.issues });
       return;
     }
     const adr = adrStore.add(parsed.data);
-    const override = compileOverrideFromAdr(adr);
+    const override = await compileOverrideFromAdr(adr, req.tenantId);
     res.status(201).json({
       ok: true,
       adr,
@@ -116,14 +117,14 @@ export function createAdrRouter(): Router {
   });
 
   // ── POST /ci/adr ───────────────────────────────────────────────────────────
-  router.post('/ci/adr', (req, res) => {
+  router.post('/ci/adr', async (req, res) => {
     const parsed = NewAdrSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'validation failed', details: parsed.error.issues });
       return;
     }
     const adr = adrStore.add(parsed.data);
-    const override = compileOverrideFromAdr(adr);
+    const override = await compileOverrideFromAdr(adr, req.tenantId);
     res.status(201).json({
       ok: true,
       adr,

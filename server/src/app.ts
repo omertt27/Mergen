@@ -46,6 +46,7 @@ import { createGitHubWebhookRouter } from './routes/github-webhook.js';
 import { createWarRoomRouter } from './routes/war-room.js';
 import { createSlackRoutingRouter } from './routes/slack-routing.js';
 import { createApiKeysRouter } from './routes/api-keys.js';
+import { createTenantsRouter } from './routes/tenants.js';
 import { createRbacRouter } from './routes/rbac.js';
 import { createOverridesRouter } from './routes/overrides.js';
 import { createShadowReportRouter } from './routes/shadow-report.js';
@@ -97,7 +98,7 @@ const MUTATING_PATHS = [
   // Process / container watchers
   '/watchers',
   // Billing & account mutations
-  '/api-keys', '/onboarding/dismiss',
+  '/api-keys', '/tenants', '/onboarding/dismiss',
   // Shadow report verdict → writes to override corpus (safety gate)
   '/shadow-report',
   // Demo injection routes → write directly to the ring buffer
@@ -413,6 +414,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createWarRoomRouter());       // War room API + attribution feedback
   app.use(createSlackRoutingRouter());  // Service-to-Slack webhook routing rules
   app.use(createApiKeysRouter());       // Cloud-mode API key management
+  app.use(createTenantsRouter());       // Cloud-mode tenant provisioning
   app.use(createRbacRouter());          // RBAC membership management
   app.use(createOverridesRouter());     // Engineer override corpus
   app.use(createShadowReportRouter());  // Shadow mode track record (fix execution)

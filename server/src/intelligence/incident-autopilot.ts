@@ -41,7 +41,8 @@ import { normalizeRuntimeFactMarkdown, normalizeProcessExits, normalizeSlackCont
 import { getK8sEvents } from '../sensor/k8s-events.js';
 import { hasRecentOverride, dominantOverrideReason } from './override-corpus.js';
 import { cacheIncidentResult, getCachedIncidentResult } from './incident-result-cache.js';
-import { recordShadow, type ShadowEntry } from './shadow-log.js';
+import type { ShadowEntry } from './shadow-log.js';
+import { getStores } from '../storage/store-registry.js';
 import { getAutopilotLevel, autopilotLevelPermits, classifyCommandRisk, autopilotLevelDescription } from './action-risk.js';
 import { recordBlunder } from '../sensor/agent-blunder-store.js';
 import { getStatsForTag } from './calibration.js';
@@ -569,7 +570,7 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
     // Use the pre-generated ID (if any) so verdict links embedded in diagMsg resolve correctly.
     let shadowEntry: ShadowEntry | undefined;
     if (topHyp.pid) {
-      shadowEntry = recordShadow({
+      shadowEntry = await getStores().shadowLog.recordShadow({
         ...(preShadowId ? { id: preShadowId } : {}),
         pid: topHyp.pid,
         incidentTag: topHyp.tag,
@@ -580,7 +581,7 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
         wouldHaveExecuted: !!command && execConfidence >= getAutoExecuteThreshold() && !corpusBlocked,
         skipReason: skipReason === 'pipeline-block' ? 'confidence-below-threshold' : skipReason,
         firedAt,
-      });
+      }, tenantId);
     }
 
     logger.info({ service, pid, skipReason, diagPct: pct, execPct, pipelineVerdict: pipeline.verdict }, 'incident-autopilot: skipping auto-execute');
@@ -618,7 +619,7 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
       return;
     }
     requestApproval({ pid, command, tier: commandTier, service, remediationConfidence: execConfidence, cwd, blastRadius });
-    recordShadow({
+    void getStores().shadowLog.recordShadow({
       pid: topHyp.pid ?? pid,
       incidentTag: topHyp.tag,
       service,
@@ -628,7 +629,7 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
       wouldHaveExecuted: true,
       skipReason: 'level-restricted',
       firedAt,
-    });
+    }, tenantId);
     return;
   }
 
@@ -641,7 +642,7 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
     await replyToThread(pid, `🚫 *Fix blocked by safety filter*: ${execResult.blockReason}\nApply manually.`);
     const execBlunderType = typeof execResult.blockReason === 'string' && /inject/i.test(execResult.blockReason) ? 'injection_attempt' : 'allowlist_block';
     recordBlunder({ blunderType: execBlunderType, command, blockReason: execResult.blockReason ?? '', service, tag: topHyp.tag, actor: 'autopilot', pid: topHyp.pid ?? pid, confidenceScore: execConfidence });
-    recordShadow({
+    void getStores().shadowLog.recordShadow({
       pid: topHyp.pid ?? pid,
       incidentTag: topHyp.tag,
       service,
@@ -651,14 +652,14 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
       wouldHaveExecuted: true,
       skipReason: 'blocked-by-safety-filter',
       firedAt,
-    });
+    }, tenantId);
     return;
   }
 
   if (!execResult.ok) {
     logger.warn({ service, pid, exitCode: execResult.exitCode }, 'incident-autopilot: fix command failed');
     await replyToThread(pid, `❌ *Fix command failed* (exit ${execResult.exitCode})\n${execResult.stderr.slice(0, 500)}`);
-    recordShadow({
+    void getStores().shadowLog.recordShadow({
       pid: topHyp.pid ?? pid,
       incidentTag: topHyp.tag,
       service,
@@ -668,7 +669,7 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
       wouldHaveExecuted: true,
       skipReason: 'executed-failure',
       firedAt,
-    });
+    }, tenantId);
     return;
   }
 
@@ -679,7 +680,7 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
 
   await replyToThread(pid, `⚙️ \`${command}\` executed (${execResult.durationMs}ms) — validating…`);
 
-  recordShadow({
+  void getStores().shadowLog.recordShadow({
     pid: topHyp.pid ?? pid,
     incidentTag: topHyp.tag,
     service,
@@ -690,7 +691,7 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
     skipReason: 'executed',
     firedAt,
     ...(approvedRunbook ? { runbookId: approvedRunbook.id } : {}),
-  });
+  }, tenantId);
 
   // Cache successful execution so re-triggers within 1hr fast-path without LLM.
   cacheIncidentResult({ fingerprint: pid, service, incidentTag: topHyp.tag, corpusBlocked: false, blockReason: null, executedCommand: command });

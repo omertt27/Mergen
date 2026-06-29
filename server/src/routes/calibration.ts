@@ -30,7 +30,7 @@ import { getSessionMetrics } from '../intelligence/session-metrics.js';
 import { computeRocCurve, getExecutionThreshold } from '../intelligence/threshold-optimizer.js';
 import { computeBlastRadius } from '../intelligence/blast-radius.js';
 import { plattScale, getPlattDiagnostics } from '../intelligence/platt-scaling.js';
-import { incidentStore } from '../sensor/incident-store.js';
+import { getStores } from '../storage/store-registry.js';
 
 const VALID_VERDICT_DIMENSIONS = new Set<VerdictDimension>(['root_cause', 'fix_hint', 'both']);
 
@@ -267,16 +267,16 @@ export function createCalibrationRouter(): Router {
   // Platt scaling using its tag and raw confidence, and returns the full
   // calibration picture including verdict history and tag-level accuracy.
   // This is the endpoint VPs of Eng use during PoCs to verify our confidence claims.
-  router.get('/trust-score/:pid', (req, res) => {
+  router.get('/trust-score/:pid', async (req, res) => {
     const { pid } = req.params;
-    const inc = incidentStore.get(pid);
+    const inc = await getStores().incidents.get(pid, req.tenantId);
     if (!inc) {
       res.status(404).json({ error: 'incident not found', pid });
       return;
     }
 
     // Reading the trust-score brief counts as the engineer consulting Mergen's diagnosis
-    incidentStore.markContextViewed(pid);
+    await getStores().incidents.markContextViewed(pid, req.tenantId);
 
     const rawScore = inc.confidence;
     const tag      = inc.tag;
@@ -361,7 +361,7 @@ export function createCalibrationRouter(): Router {
   // YC board-deck metric: "how do we know when to trust the AI agent?"
   // Synthesises threshold calibration, autonomous accuracy, and per-detector
   // health into a single human-readable + machine-readable report.
-  router.get('/confidence-report', (req, res) => {
+  router.get('/confidence-report', async (req, res) => {
     const windowDays = Math.min(90, Math.max(1, parseInt(String(req.query.days ?? '30'), 10)));
     const windowStart = Date.now() - windowDays * 24 * 60 * 60 * 1000;
     const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
@@ -376,7 +376,7 @@ export function createCalibrationRouter(): Router {
     const thresholdSampleSize = records.filter((r) => r.verdict !== null).length;
 
     // Autonomous incident outcomes — fetch all incidents (large limit, no status filter)
-    const allIncidents = incidentStore.list(undefined, 10_000);
+    const allIncidents = await getStores().incidents.list(undefined, 10_000, req.tenantId);
     const windowIncidents = allIncidents.filter(
       (i) => (i.createdAt ?? 0) >= windowStart,
     );

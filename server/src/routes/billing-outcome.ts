@@ -18,7 +18,7 @@
  */
 
 import { Router } from 'express';
-import { incidentStore } from '../sensor/incident-store.js';
+import { getStores } from '../storage/store-registry.js';
 import { postmortemStore } from '../intelligence/postmortem-store.js';
 import { getIncidentCount } from '../intelligence/usage.js';
 
@@ -55,12 +55,12 @@ function fmtMs(ms: number): string {
 export function createBillingOutcomeRouter(): Router {
   const router = Router();
 
-  router.get('/billing/outcome-report', (_req, res) => {
+  router.get('/billing/outcome-report', async (req, res) => {
     const revenuePerMinute =
       parseFloat(process.env.MERGEN_REVENUE_PER_MINUTE_USD ?? '') || DEFAULT_REVENUE_PER_MINUTE_USD;
 
     // ── MTTR data ──────────────────────────────────────────────────────────
-    const all = incidentStore.list(undefined, 1000);
+    const all = await getStores().incidents.list(undefined, 1000, req.tenantId);
     const resolved = all.filter((i) => i.status === 'resolved' && i.resolvedAt && i.createdAt);
 
     const manualMttrSamples = resolved

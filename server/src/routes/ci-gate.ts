@@ -12,8 +12,8 @@
  * them against your team's operational knowledge.
  */
 import { Router } from 'express';
-import { getRulesForTag, hasRecentOverride, getOverrideSummary } from '../intelligence/override-corpus.js';
 import type { CompactedRule } from '../intelligence/override-corpus.js';
+import { getStores } from '../storage/store-registry.js';
 import { analyzeSemanticRisk } from '../intelligence/action-risk.js';
 import { postmortemStore } from '../intelligence/postmortem-store.js';
 import { evaluateEnterprisePolicy } from '../intelligence/enterprise-policy-engine.js';
@@ -23,7 +23,7 @@ export function createCIGateRouter(): Router {
   const router = Router();
 
   // POST /ci/gate
-  router.post('/ci/gate', (req, res) => {
+  router.post('/ci/gate', async (req, res) => {
     const body = req.body as {
       files?: string[];
       prTitle?: string;
@@ -54,10 +54,10 @@ export function createCIGateRouter(): Router {
     let verdict: 'pass' | 'warn' | 'block' = 'pass';
 
     for (const tag of inferredTags) {
-      const rules = getRulesForTag(tag, service);
+      const rules = await getStores().overrides.getRulesForTag(tag, service, req.tenantId);
       for (const rule of rules) {
         matchedRules.push(rule);
-        const timeMatch = hasRecentOverride(tag, service, dayOfWeek, hourOfDay);
+        const timeMatch = await getStores().overrides.hasRecentOverride(tag, service, dayOfWeek, hourOfDay, req.tenantId);
         const dayName = rule.dayOfWeek != null
           ? ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][rule.dayOfWeek]
           : null;
@@ -117,7 +117,7 @@ export function createCIGateRouter(): Router {
     // 5. PR title keyword check against corpus tags
     if (prTitle) {
       const titleLower = prTitle.toLowerCase();
-      const summary = getOverrideSummary();
+      const summary = await getStores().overrides.getOverrideSummary(req.tenantId);
       for (const entry of summary) {
         if (titleLower.includes(entry.tag.replace(/_/g, ' ')) || titleLower.includes(entry.tag.replace(/_/g, '-'))) {
           if (verdict === 'pass') verdict = 'warn';

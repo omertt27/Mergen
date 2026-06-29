@@ -10,7 +10,7 @@
 import { Router } from 'express';
 import { getRules, upsertRule, deleteRule, type SlackRoutingRule } from '../intelligence/slack-routing.js';
 import { postDailyDigest } from '../intelligence/slack-digest.js';
-import { compileOverrideFromSlackThread } from '../intelligence/override-corpus.js';
+import { getStores } from '../storage/store-registry.js';
 import logger from '../sensor/logger.js';
 
 export function createSlackRoutingRouter(): Router {
@@ -152,20 +152,20 @@ export function createSlackRoutingRouter(): Router {
   });
 
   // ── POST /webhooks/slack/events ───────────────────────────────────────────
-  router.post('/webhooks/slack/events', (req, res) => {
-    const body = req.body as Record<string, any>;
+  router.post('/webhooks/slack/events', async (req, res) => {
+    const body = req.body as Record<string, unknown>;
 
     // 1. URL Verification challenge
-    if (body.type === 'url_verification') {
-      res.status(200).send(body.challenge);
+    if (body['type'] === 'url_verification') {
+      res.status(200).send(body['challenge']);
       return;
     }
 
     // 2. Process event callback messages
-    if (body.type === 'event_callback' && body.event?.type === 'message') {
-      const event = body.event;
-      const text = String(event.text || '');
-      const service = String(event.service || 'unknown');
+    const event = body['event'] as Record<string, unknown> | undefined;
+    if (body['type'] === 'event_callback' && event?.['type'] === 'message') {
+      const text = String(event['text'] || '');
+      const service = String(event['service'] || 'unknown');
 
       // Autocomplete check if it looks like an incident postmortem
       const isPostmortem = text.toLowerCase().includes('postmortem') ||
@@ -173,7 +173,7 @@ export function createSlackRoutingRouter(): Router {
                            text.toLowerCase().includes('remediation');
 
       if (isPostmortem) {
-        const overrideEvent = compileOverrideFromSlackThread(text, service);
+        const overrideEvent = await getStores().overrides.compileOverrideFromSlackThread(text, service, req.tenantId);
         if (overrideEvent) {
           logger.info(
             { id: overrideEvent.id, tag: overrideEvent.incidentTag },

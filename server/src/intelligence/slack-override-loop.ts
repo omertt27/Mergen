@@ -19,11 +19,12 @@ import fs from 'fs';
 import path from 'path';
 import { DATA_DIR } from '../sensor/paths.js';
 import logger from '../sensor/logger.js';
-import { compileOverridesFromSlackThread } from './override-corpus.js';
 import { synthesizeRulesFromCorpus } from './corpus-to-policy.js';
+import { getStores } from '../storage/store-registry.js';
 
-const BOT_TOKEN    = process.env.MERGEN_SLACK_BOT_TOKEN ?? '';
+const BOT_TOKEN     = process.env.MERGEN_SLACK_BOT_TOKEN ?? '';
 const SLACK_CHANNEL = process.env.MERGEN_SLACK_CHANNEL ?? '';
+const SYSTEM_TENANT = process.env.MERGEN_SYSTEM_TENANT_ID;
 const POLL_INTERVAL_MS = 6 * 60 * 60 * 1_000; // 6 hours
 const STATE_FILE = path.join(DATA_DIR, 'slack-override-loop.json');
 
@@ -209,7 +210,7 @@ async function poll(): Promise<void> {
     }
 
     // Extract all override patterns from this thread (often >1 per postmortem)
-    const overrides = compileOverridesFromSlackThread(threadText, 'unknown');
+    const overrides = await getStores().overrides.compileOverridesFromSlackThread(threadText, 'unknown', SYSTEM_TENANT);
     if (overrides.length > 0) {
       newOverrides += overrides.length;
       logger.info(

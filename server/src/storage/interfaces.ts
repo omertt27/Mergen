@@ -19,6 +19,12 @@ import type {
   OverrideSummary,
 } from '../intelligence/override-corpus.js';
 import type { PendingExecution } from '../intelligence/execution-gate.js';
+import type {
+  ShadowEntry,
+  ShadowSkipReason,
+  HumanVerdict,
+  ShadowReport,
+} from '../intelligence/shadow-log.js';
 
 // ── Event store ───────────────────────────────────────────────────────────────
 
@@ -97,6 +103,35 @@ export interface IOverrideCorpus {
     service?: string,
     tenantId?: string,
   ): Promise<OverrideEvent | null>;
+  compileOverridesFromSlackThread(
+    slackThread: string,
+    service?: string,
+    tenantId?: string,
+  ): Promise<OverrideEvent[]>;
+}
+
+// ── Shadow log ────────────────────────────────────────────────────────────────
+
+export interface IShadowLog {
+  recordShadow(
+    input: Omit<ShadowEntry, 'id' | 'recordedAt'> & { id?: string },
+    tenantId?: string,
+  ): Promise<ShadowEntry>;
+  recordShadowVerdict(
+    id: string,
+    verdict: HumanVerdict,
+    opts: { note?: string; overrideReason?: OverrideReason; manualAction?: string; actor?: string },
+    tenantId?: string,
+  ): Promise<{ found: false } | { found: true; entry: ShadowEntry; overrideId?: string }>;
+  updateShadowReasonByPid(
+    pid: string,
+    skipReason: ShadowSkipReason,
+    tenantId?: string,
+  ): Promise<void>;
+  getShadowEntries(tenantId?: string): Promise<readonly ShadowEntry[]>;
+  getShadowReport(windowDays?: number, tenantId?: string): Promise<ShadowReport>;
+  getShadowSlackDigest(windowDays?: number, tenantId?: string): Promise<object>;
+  exportShadowCsv(tenantId?: string): Promise<string>;
 }
 
 // ── Approval store ────────────────────────────────────────────────────────────

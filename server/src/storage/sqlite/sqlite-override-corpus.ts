@@ -19,6 +19,7 @@ import {
   describeTopRule,
   getOverrideSummary,
   compileOverrideFromSlackThread,
+  compileOverridesFromSlackThread,
 } from '../../intelligence/override-corpus.js';
 import type {
   OverrideEvent,
@@ -105,5 +106,13 @@ export class SqliteOverrideCorpus implements IOverrideCorpus {
     _tenantId?: string,
   ): Promise<OverrideEvent | null> {
     return Promise.resolve(compileOverrideFromSlackThread(slackThread, service));
+  }
+
+  async compileOverridesFromSlackThread(
+    slackThread: string,
+    service?: string,
+    _tenantId?: string,
+  ): Promise<OverrideEvent[]> {
+    return Promise.resolve(compileOverridesFromSlackThread(slackThread, service));
   }
 }

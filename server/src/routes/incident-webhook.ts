@@ -32,7 +32,7 @@
 import { Router, type Request, type Response } from 'express';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
-import { incidentStore } from '../sensor/incident-store.js';
+import { getStores } from '../storage/store-registry.js';
 import { notify } from '../intelligence/notifications.js';
 import { runIncidentAutopilot } from '../intelligence/incident-autopilot.js';
 import { validateCwd } from '../intelligence/autonomy.js';
@@ -51,7 +51,7 @@ const IncidentBody = z.object({
 export function createIncidentWebhookRouter(): Router {
   const router = Router();
 
-  router.post('/incident', (req: Request, res: Response): void => {
+  router.post('/incident', async (req: Request, res: Response): Promise<void> => {
     const parsed = IncidentBody.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ ok: false, error: parsed.error.issues.map((i) => i.message).join(', ') });
@@ -64,13 +64,13 @@ export function createIncidentWebhookRouter(): Router {
     const firedAt = Date.now();
 
     // Create the incident record immediately so it shows in /incidents
-    incidentStore.upsert(pid, {
+    await getStores().incidents.upsert(pid, {
       status: 'open',
       hypothesis: title,
       tag: 'generic_webhook',
       environment: environment ?? null,
       confidence: 0,
-    });
+    }, req.tenantId);
 
     logger.info({ pid, title, service, severity, source }, 'incident-webhook: incident created');
 

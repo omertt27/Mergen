@@ -15,7 +15,7 @@ import { startProcessWatcher, stopProcessWatcher, listProcessWatchers } from '..
 import { startDockerLogStream, stopDockerLogStream, listStreamedContainers } from '../sensor/docker-log-stream.js';
 import { saveSessionToHistory } from '../sensor/session-history.js';
 import { historyStore } from '../sensor/sqlite-store.js';
-import { incidentStore } from '../sensor/incident-store.js';
+import { getStores } from '../storage/store-registry.js';
 import { buildCausalChain } from '../intelligence/causal.js';
 import { buildCausalGraph } from '../intelligence/causal-graph.js';
 import { serviceTopology } from '../sensor/service-topology.js';
@@ -482,7 +482,7 @@ export function createSensorRouter(serverVersion: string): Router {
   // ── Unified Dashboard Payload ──────────────────────────────────────────────
   // Multiplexes health, usage, lastPack, history, calibration, and timeline/unified
   // in a single network trip to eliminate VS Code extension polling overhead.
-  router.get('/unified-dashboard', (req, res) => {
+  router.get('/unified-dashboard', async (req, res) => {
     const tid = req.tenantId;
     const teamState = getTeamState();
     const counters = store.getCounters(tid);
@@ -685,7 +685,7 @@ export function createSensorRouter(serverVersion: string): Router {
       rows: rows.slice(-limit),
     };
 
-    const edges = incidentStore.getInteractionGraph();
+    const edges = await getStores().incidents.getInteractionGraph(undefined, req.tenantId);
     const interactionServices = [...new Set(edges.flatMap((e) => [e.source, e.target]))];
     const interactions = {
       edges,

@@ -10,14 +10,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import {
-  recordOverride,
-  updateOutcome,
-  getOverrideSummary,
-  getOverridesForTag,
   OVERRIDE_REASONS,
   type OverrideReason,
   type OverrideOutcome,
 } from '../intelligence/override-corpus.js';
+import { getStores } from '../storage/store-registry.js';
 import logger from '../sensor/logger.js';
 
 const OVERRIDE_OUTCOMES: OverrideOutcome[] = ['resolved', 'escalated', 'unresolved'];
@@ -42,7 +39,7 @@ export function createOverridesRouter(): Router {
   const router = Router();
 
   // ── Record override ────────────────────────────────────────────────────────
-  router.post('/overrides', (req, res) => {
+  router.post('/overrides', async (req, res) => {
     const parsed = OverrideSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'validation failed', details: parsed.error.issues });
@@ -52,19 +49,19 @@ export function createOverridesRouter(): Router {
       res.status(400).json({ error: 'note is required when overrideReason is "other"' });
       return;
     }
-    const event = recordOverride(parsed.data);
+    const event = await getStores().overrides.recordOverride(parsed.data, req.tenantId);
     logger.info({ id: event.id, tag: event.incidentTag }, 'override recorded via API');
     res.status(201).json({ ok: true, override: event });
   });
 
   // ── Update outcome ─────────────────────────────────────────────────────────
-  router.patch('/overrides/:id/outcome', (req, res) => {
+  router.patch('/overrides/:id/outcome', async (req, res) => {
     const parsed = OutcomeSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'validation failed', details: parsed.error.issues });
       return;
     }
-    const found = updateOutcome(req.params.id, parsed.data.outcome);
+    const found = await getStores().overrides.updateOutcome(req.params.id, parsed.data.outcome, req.tenantId);
     if (!found) {
       res.status(404).json({ error: 'override not found' });
       return;
@@ -73,8 +70,8 @@ export function createOverridesRouter(): Router {
   });
 
   // ── Aggregated corpus summary ──────────────────────────────────────────────
-  router.get('/override-corpus', (_req, res) => {
-    const corpus = getOverrideSummary();
+  router.get('/override-corpus', async (req, res) => {
+    const corpus = await getStores().overrides.getOverrideSummary(req.tenantId);
     if (corpus.length > 0) {
       res.json({ ok: true, corpus });
       return;
@@ -125,8 +122,8 @@ export function createOverridesRouter(): Router {
   });
 
   // ── Raw history for a tag ──────────────────────────────────────────────────
-  router.get('/overrides/:tag', (req, res) => {
-    const events = getOverridesForTag(req.params.tag);
+  router.get('/overrides/:tag', async (req, res) => {
+    const events = await getStores().overrides.getOverridesForTag(req.params.tag, req.tenantId);
     res.json({ ok: true, tag: req.params.tag, overrides: events });
   });
 

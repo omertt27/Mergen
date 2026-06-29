@@ -12,8 +12,10 @@
  * that keeps the design partner feedback loop alive.
  */
 
-import { getShadowSlackDigest } from './shadow-log.js';
+import { getStores } from '../storage/store-registry.js';
 import logger from '../sensor/logger.js';
+
+const SYSTEM_TENANT = process.env.MERGEN_SYSTEM_TENANT_ID;
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -40,7 +42,7 @@ async function postDigest(): Promise<void> {
     return;
   }
 
-  const blocks = getShadowSlackDigest(7);
+  const blocks = await getStores().shadowLog.getShadowSlackDigest(7, SYSTEM_TENANT);
 
   try {
     const res = await fetch('https://slack.com/api/chat.postMessage', {

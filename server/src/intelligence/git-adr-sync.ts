@@ -23,9 +23,11 @@ import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { DATA_DIR } from '../sensor/paths.js';
-import { recordOverride } from './override-corpus.js';
 import { adrStore } from '../sensor/adr-store.js';
+import { getStores } from '../storage/store-registry.js';
 import logger from '../sensor/logger.js';
+
+const SYSTEM_TENANT = process.env.MERGEN_SYSTEM_TENANT_ID;
 
 const STATE_FILE = path.join(DATA_DIR, 'git-adr-sync.json');
 const POLL_INTERVAL_MS = 24 * 60 * 60 * 1_000;
@@ -129,12 +131,11 @@ function isConstraintText(text: string): boolean {
 
 // ── Git log ingestion ────────────────────────────────────────────────────────
 
-function scanGitLog(state: SyncState): number {
+async function scanGitLog(state: SyncState): Promise<number> {
   let added = 0;
   const processed = new Set(state.processedShas);
 
   try {
-    // Use %x1F as field separator, %x1E as record separator — safe against newlines in bodies
     const raw = execSync(
       'git log --no-merges --format=%H%x1F%s%x1F%b%x1E -n 500 2>/dev/null',
       { encoding: 'utf8', timeout: 10_000, stdio: ['ignore', 'pipe', 'ignore'] },
@@ -151,7 +152,6 @@ function scanGitLog(state: SyncState): number {
       const fullText = `${subject ?? ''}\n${body}`;
       if (!isConstraintText(fullText)) continue;
 
-      // Find constraint sentences
       const sentences = fullText.split(/[.!?\n]/).map((s) => s.trim()).filter(Boolean);
       for (const sentence of sentences) {
         if (!isConstraintText(sentence)) continue;
@@ -160,25 +160,27 @@ function scanGitLog(state: SyncState): number {
         const command = extractCommand(fullText);
 
         try {
-          recordOverride({
-            incidentTag: tag,
-            proposedCommand: command,
-            overrideReason: reason,
-            service: 'unknown',
-            environment: 'production',
-            note: sentence.slice(0, 200),
-            manualAction: `git commit ${cleanSha.slice(0, 8)}: ${(subject ?? '').slice(0, 100)}`,
-            actor: 'git-adr-sync',
-          });
+          await getStores().overrides.recordOverride(
+            {
+              incidentTag: tag,
+              proposedCommand: command,
+              overrideReason: reason,
+              service: 'unknown',
+              environment: 'production',
+              note: sentence.slice(0, 200),
+              manualAction: `git commit ${cleanSha.slice(0, 8)}: ${(subject ?? '').slice(0, 100)}`,
+              actor: 'git-adr-sync',
+            },
+            SYSTEM_TENANT,
+          );
           added++;
         } catch { /* non-fatal — may already exist with same props */ }
-        break; // one override per commit, avoid duplicates from multiple sentences
+        break;
       }
     }
 
     state.processedShas = [...processed];
   } catch (err) {
-    // Not a git repo or git not installed — degrade gracefully
     logger.debug({ err: (err as Error).message }, 'git-adr-sync: git log unavailable');
   }
 
@@ -187,7 +189,7 @@ function scanGitLog(state: SyncState): number {
 
 // ── ADR store ingestion ──────────────────────────────────────────────────────
 
-function syncAdrStore(state: SyncState): number {
+async function syncAdrStore(state: SyncState): Promise<number> {
   let added = 0;
   const processed = new Set(state.processedAdrIds);
 
@@ -196,7 +198,6 @@ function syncAdrStore(state: SyncState): number {
     if (processed.has(adr.id)) continue;
     processed.add(adr.id);
 
-    // Combine decision + consequences + rationale into searchable text
     const fullText = [adr.decision, adr.consequences, adr.rationale].join('\n');
     if (!isConstraintText(fullText)) continue;
 
@@ -205,16 +206,19 @@ function syncAdrStore(state: SyncState): number {
     const command = extractCommand(fullText);
 
     try {
-      recordOverride({
-        incidentTag: tag,
-        proposedCommand: command,
-        overrideReason: reason,
-        service: 'unknown',
-        environment: 'production',
-        note: `${adr.id}: ${adr.title}`.slice(0, 200),
-        manualAction: adr.decision.slice(0, 500),
-        actor: 'adr-store-sync',
-      });
+      await getStores().overrides.recordOverride(
+        {
+          incidentTag: tag,
+          proposedCommand: command,
+          overrideReason: reason,
+          service: 'unknown',
+          environment: 'production',
+          note: `${adr.id}: ${adr.title}`.slice(0, 200),
+          manualAction: adr.decision.slice(0, 500),
+          actor: 'adr-store-sync',
+        },
+        SYSTEM_TENANT,
+      );
       added++;
     } catch { /* non-fatal */ }
   }
@@ -225,10 +229,10 @@ function syncAdrStore(state: SyncState): number {
 
 // ── Main sync ────────────────────────────────────────────────────────────────
 
-function sync(): void {
+async function sync(): Promise<void> {
   const state = loadState();
-  const gitAdded = scanGitLog(state);
-  const adrAdded = syncAdrStore(state);
+  const gitAdded = await scanGitLog(state);
+  const adrAdded = await syncAdrStore(state);
   state.lastSyncAt = Date.now();
   saveState(state);
 
@@ -244,6 +248,6 @@ function sync(): void {
 
 export function startGitAdrSync(): void {
   logger.info('git-adr-sync: starting — scanning git history and ADR store for operational constraints');
-  sync();
-  setInterval(sync, POLL_INTERVAL_MS).unref();
+  void sync();
+  setInterval(() => { void sync(); }, POLL_INTERVAL_MS).unref();
 }

@@ -15,7 +15,7 @@
  */
 
 import { Router } from 'express';
-import { incidentStore } from '../sensor/incident-store.js';
+import { getStores } from '../storage/store-registry.js';
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -33,10 +33,10 @@ export function createIncidentsRouter(): Router {
   const router = Router();
 
   // ── List ──────────────────────────────────────────────────────────────────────
-  router.get('/incidents', (req, res) => {
+  router.get('/incidents', async (req, res) => {
     const status = typeof req.query.status === 'string' ? req.query.status as 'open'|'acknowledged'|'resolved' : undefined;
     const limit  = Math.min(100, Math.max(1, Number(req.query.limit ?? 50)));
-    res.json({ ok: true, incidents: incidentStore.list(status, limit) });
+    res.json({ ok: true, incidents: await getStores().incidents.list(status, limit, req.tenantId) });
   });
 
   // ── Static sub-paths — MUST be registered before GET /incidents/:pid ─────────
@@ -44,19 +44,19 @@ export function createIncidentsRouter(): Router {
   // shadow every static path below (impact-report, graph, postmortems, etc.).
 
   // ── Create / upsert ───────────────────────────────────────────────────────────
-  router.post('/incidents', (req, res) => {
+  router.post('/incidents', async (req, res) => {
     const { pid, hypothesis, tag, sha, environment, confidence } =
       (req.body ?? {}) as Record<string, string | number | undefined>;
     if (!pid || typeof pid !== 'string') {
       res.status(400).json({ error: 'pid is required' }); return;
     }
-    const inc = incidentStore.upsert(String(pid), {
+    const inc = await getStores().incidents.upsert(String(pid), {
       hypothesis: hypothesis ? String(hypothesis) : '',
       tag: tag ? String(tag) : '',
       sha: sha ? String(sha) : null,
       environment: environment ? String(environment) : null,
       confidence: typeof confidence === 'number' ? confidence : Number(confidence ?? 0),
-    });
+    }, req.tenantId);
     logger.info({ pid: inc.pid }, 'incident created');
     res.json({ ok: true, incident: inc });
   });
@@ -65,58 +65,58 @@ export function createIncidentsRouter(): Router {
   // Call this when an engineer reads Mergen's diagnosis brief before acting.
   // Recorded automatically when GET /trust-score/:pid is called.
   // Used to split MTTR into context-assisted vs. unassisted in the impact report.
-  router.post('/incidents/:pid/mark-context-viewed', (req, res) => {
-    const inc = incidentStore.get(req.params.pid);
+  router.post('/incidents/:pid/mark-context-viewed', async (req, res) => {
+    const inc = await getStores().incidents.get(req.params.pid, req.tenantId);
     if (!inc) { res.status(404).json({ error: 'not found' }); return; }
-    incidentStore.markContextViewed(req.params.pid);
+    await getStores().incidents.markContextViewed(req.params.pid, req.tenantId);
     res.json({ ok: true, pid: req.params.pid, contextBriefViewedAt: inc.contextBriefViewedAt ?? Date.now() });
   });
 
   // ── Acknowledge ───────────────────────────────────────────────────────────────
-  router.post('/incidents/:pid/acknowledge', (req, res) => {
+  router.post('/incidents/:pid/acknowledge', async (req, res) => {
     const { by } = (req.body ?? {}) as { by?: string };
-    let inc = incidentStore.get(req.params.pid);
+    let inc = await getStores().incidents.get(req.params.pid, req.tenantId);
     if (!inc) {
       // Auto-create if hypothesis is known from the request body
       const { hypothesis, tag, sha, confidence } = (req.body ?? {}) as Record<string, string | number | undefined>;
-      inc = incidentStore.upsert(req.params.pid, {
+      inc = await getStores().incidents.upsert(req.params.pid, {
         hypothesis: hypothesis ? String(hypothesis) : 'Unknown',
         tag: tag ? String(tag) : '',
         sha: sha ? String(sha) : null,
         confidence: typeof confidence === 'number' ? confidence : Number(confidence ?? 0),
-      });
+      }, req.tenantId);
     }
-    const updated = incidentStore.upsert(req.params.pid, {
+    const updated = await getStores().incidents.upsert(req.params.pid, {
       status: 'acknowledged',
       acknowledgedBy: by ? String(by) : null,
-    });
+    }, req.tenantId);
     logger.info({ pid: req.params.pid, by }, 'incident acknowledged');
     res.json({ ok: true, incident: updated });
   });
 
   // ── Assign ────────────────────────────────────────────────────────────────────
-  router.post('/incidents/:pid/assign', (req, res) => {
+  router.post('/incidents/:pid/assign', async (req, res) => {
     const { to } = (req.body ?? {}) as { to?: string };
     if (!to) { res.status(400).json({ error: 'to is required' }); return; }
-    const existing = incidentStore.get(req.params.pid) ??
-      incidentStore.upsert(req.params.pid, { hypothesis: 'Unknown' });
-    const updated = incidentStore.upsert(req.params.pid, {
+    const existing = (await getStores().incidents.get(req.params.pid, req.tenantId)) ??
+      await getStores().incidents.upsert(req.params.pid, { hypothesis: 'Unknown' }, req.tenantId);
+    const updated = await getStores().incidents.upsert(req.params.pid, {
       assignee: String(to),
       status: existing.status === 'open' ? 'acknowledged' : existing.status,
-    });
+    }, req.tenantId);
     logger.info({ pid: req.params.pid, to }, 'incident assigned');
     res.json({ ok: true, incident: updated });
   });
 
   // ── Resolve ───────────────────────────────────────────────────────────────────
-  router.post('/incidents/:pid/resolve', (req, res) => {
+  router.post('/incidents/:pid/resolve', async (req, res) => {
     const { by, note } = (req.body ?? {}) as { by?: string; note?: string };
-    incidentStore.upsert(req.params.pid, {
+    await getStores().incidents.upsert(req.params.pid, {
       status: 'resolved',
       resolvedAt: Date.now(),
-    });
-    if (note) incidentStore.addNote(req.params.pid, `[resolved] ${note}`, by);
-    const updated = incidentStore.get(req.params.pid);
+    }, req.tenantId);
+    if (note) await getStores().incidents.addNote(req.params.pid, `[resolved] ${note}`, by, req.tenantId);
+    const updated = await getStores().incidents.get(req.params.pid, req.tenantId);
     logger.info({ pid: req.params.pid, by }, 'incident resolved');
     res.json({ ok: true, incident: updated });
   });
@@ -173,9 +173,9 @@ export function createIncidentsRouter(): Router {
   // ── MTTR Impact Report ────────────────────────────────────────────────────────
   // Board-deck metric: how many incidents resolved, how many autonomously, avg MTTR.
   // Designed to be called by any dashboard or reporting tool.
-  router.get('/incidents/impact-report', (_req, res) => {
+  router.get('/incidents/impact-report', async (req, res) => {
     const isShadow = isShadowMode();
-    const all = incidentStore.list(undefined, 500);
+    const all = await getStores().incidents.list(undefined, 500, req.tenantId);
     const resolved = all.filter((i) => i.status === 'resolved' && i.resolvedAt !== null);
 
     let autonomousCount = 0;
@@ -257,10 +257,10 @@ export function createIncidentsRouter(): Router {
   });
 
   // ── Add note ──────────────────────────────────────────────────────────────────
-  router.post('/incidents/:pid/note', (req, res) => {
+  router.post('/incidents/:pid/note', async (req, res) => {
     const { text, author } = (req.body ?? {}) as { text?: string; author?: string };
     if (!text) { res.status(400).json({ error: 'text is required' }); return; }
-    const updated = incidentStore.addNote(req.params.pid, String(text), author);
+    const updated = await getStores().incidents.addNote(req.params.pid, String(text), author, req.tenantId);
     if (!updated) { res.status(404).json({ error: 'incident not found — POST /incidents first' }); return; }
     res.json({ ok: true, incident: updated });
   });
@@ -268,8 +268,8 @@ export function createIncidentsRouter(): Router {
   // ── Service graph (Y3 system-of-record) ─────────────────────────────────────
   // Returns a service × failure-mode matrix derived from resolved incidents.
   // Expansion signals: new services connected = NRR growth trigger.
-  router.get('/incidents/graph', (_req, res) => {
-    const all = incidentStore.list(undefined, 1000);
+  router.get('/incidents/graph', async (req, res) => {
+    const all = await getStores().incidents.list(undefined, 1000, req.tenantId);
     const services = new Map<string, Map<string, number>>();
 
     for (const inc of all) {
@@ -298,9 +298,9 @@ export function createIncidentsRouter(): Router {
   // Returns the persistent co-occurrence graph: edges between services that have
   // had incidents within 10 minutes of each other. Weight accumulates over time.
   // Optional ?service= filter to return only edges touching a specific service.
-  router.get('/services/interactions', (req, res) => {
+  router.get('/services/interactions', async (req, res) => {
     const service = typeof req.query.service === 'string' ? req.query.service : undefined;
-    const edges = incidentStore.getInteractionGraph(service);
+    const edges = await getStores().incidents.getInteractionGraph(service, req.tenantId);
     const services = [...new Set(edges.flatMap((e) => [e.source, e.target]))];
     res.json({
       ok: true,
@@ -368,16 +368,16 @@ export function createIncidentsRouter(): Router {
   });
 
   // ── Get one — registered LAST so static /incidents/* paths match first ─────────
-  router.get('/incidents/:pid', (req, res) => {
-    const inc = incidentStore.get(req.params.pid);
+  router.get('/incidents/:pid', async (req, res) => {
+    const inc = await getStores().incidents.get(req.params.pid, req.tenantId);
     if (!inc) { res.status(404).json({ error: 'not found' }); return; }
     res.json({ ok: true, incident: inc });
   });
 
   // GET /incidents/:pid/brief — shareable HTML summary for managers / Jira links.
   // No auth required — the pid is a sufficient shared secret for local installs.
-  router.get('/incidents/:pid/brief', (req, res) => {
-    const inc = incidentStore.get(req.params.pid);
+  router.get('/incidents/:pid/brief', async (req, res) => {
+    const inc = await getStores().incidents.get(req.params.pid, req.tenantId);
     if (!inc) { res.status(404).send('<h1>Incident not found</h1>'); return; }
 
     const firedMin = Math.round((Date.now() - inc.createdAt) / 60_000);

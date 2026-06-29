@@ -261,6 +261,15 @@ export class PgOverrideCorpus implements IOverrideCorpus {
       tenantId,
     );
   }
+
+  async compileOverridesFromSlackThread(
+    slackThread: string,
+    service?: string,
+    tenantId?: string,
+  ): Promise<OverrideEvent[]> {
+    const single = await this.compileOverrideFromSlackThread(slackThread, service, tenantId);
+    return single ? [single] : [];
+  }
 }
 
 function _compactEvents(events: OverrideEvent[]): CompactedRule[] {

@@ -19,12 +19,12 @@ import { listMembers } from '../sensor/rbac.js';
 import { getWeeklyHabituation, getHabituationEvents } from '../sensor/habituation-store.js';
 import { getActivePlanId } from '../intelligence/license.js';
 import { getPlan } from '../intelligence/plans.js';
-import { incidentStore } from '../sensor/incident-store.js';
+import { getStores } from '../storage/store-registry.js';
 
 export function createTeamUsageRouter(): Router {
   const router = Router();
 
-  router.get('/team/usage', (_req, res) => {
+  router.get('/team/usage', async (req, res) => {
     const members = listMembers();
     const planId  = getActivePlanId();
     const plan    = getPlan(planId);
@@ -37,7 +37,7 @@ export function createTeamUsageRouter(): Router {
     const habRate    = commentors.size > 0 ? engaged.size / commentors.size : null;
 
     // Recent incidents — who touched them
-    const recentIncidents = incidentStore.list(undefined, 50);
+    const recentIncidents = await getStores().incidents.list(undefined, 50, req.tenantId);
     const acknowledgedBy  = new Set(recentIncidents.map((i) => i.acknowledgedBy).filter((v): v is string => !!v));
     const resolvedBy      = new Set(recentIncidents.map((i) => i.assignee).filter((v): v is string => !!v));
     const activeResponders = new Set([...acknowledgedBy, ...resolvedBy]);

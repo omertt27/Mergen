@@ -5,23 +5,12 @@
  *   GET  /shadow-report/slack-digest    pre-formatted Slack block for weekly digest
  *   GET  /shadow-report/entries         raw shadow log entries
  *   POST /shadow-report/:id/verdict     annotate a shadow entry → closes feedback loop
- *
- * The verdict endpoint is the critical link between shadow mode and the override corpus.
- * When an SRE reviews a shadow entry and says "I would have stopped this", that
- * annotation becomes an override corpus entry — without requiring a separate API call.
- * This closes the loop: shadow report generates signal → human reviews → corpus learns.
  */
 
 import { Router } from 'express';
 import { z } from 'zod';
-import {
-  getShadowReport,
-  getShadowSlackDigest,
-  getShadowLog,
-  recordShadowVerdict,
-  exportShadowCsv,
-} from '../intelligence/shadow-log.js';
 import { OVERRIDE_REASONS, type OverrideReason } from '../intelligence/override-corpus.js';
+import { getStores } from '../storage/store-registry.js';
 import logger from '../sensor/logger.js';
 
 const VerdictSchema = z.object({
@@ -32,7 +21,6 @@ const VerdictSchema = z.object({
   actor:          z.string().max(200).optional(),
 });
 
-// Short aliases used by the one-click GET links embedded in Slack messages.
 const VERDICT_ALIAS: Record<string, 'would-approve' | 'would-override'> = {
   approve:  'would-approve',
   override: 'would-override',
@@ -42,30 +30,28 @@ export function createShadowReportRouter(): Router {
   const router = Router();
 
   // ── Aggregated report (JSON default, CSV on ?format=csv) ───────────────────
-  router.get('/shadow-report', (req, res) => {
+  router.get('/shadow-report', async (req, res): Promise<void> => {
     const windowDays = Math.min(90, Math.max(1, Number(req.query.days ?? 30)));
 
     if (req.query.format === 'csv') {
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', 'attachment; filename="mergen-shadow-log.csv"');
-      res.send(exportShadowCsv());
+      res.send(await getStores().shadowLog.exportShadowCsv(req.tenantId));
       return;
     }
 
-    const report = getShadowReport(windowDays);
+    const report = await getStores().shadowLog.getShadowReport(windowDays, req.tenantId);
     res.json({ ok: true, report });
   });
 
   // ── Slack digest block ─────────────────────────────────────────────────────
-  router.get('/shadow-report/slack-digest', (req, res) => {
+  router.get('/shadow-report/slack-digest', async (req, res): Promise<void> => {
     const windowDays = Math.min(30, Math.max(1, Number(req.query.days ?? 7)));
-    res.json(getShadowSlackDigest(windowDays));
+    res.json(await getStores().shadowLog.getShadowSlackDigest(windowDays, req.tenantId));
   });
 
   // ── One-click verdict link (GET) — embedded in shadow mode Slack messages ──
-  // ?v=approve|override  &reason=<OverrideReason>  &actor=<string>
-  // Returns HTML so clicking the link in Slack gives instant visual feedback.
-  router.get('/shadow-report/:id/verdict', (req, res) => {
+  router.get('/shadow-report/:id/verdict', async (req, res): Promise<void> => {
     const alias = String(req.query.v ?? '');
     const verdict = VERDICT_ALIAS[alias];
     if (!verdict) {
@@ -78,23 +64,22 @@ export function createShadowReportRouter(): Router {
       return;
     }
 
-    const result = recordShadowVerdict(req.params.id, verdict, {
-      overrideReason: verdict === 'would-override' ? overrideReason : undefined,
-      actor:          String(req.query.actor ?? 'slack-link'),
-    });
+    const result = await getStores().shadowLog.recordShadowVerdict(
+      req.params.id,
+      verdict,
+      { overrideReason: verdict === 'would-override' ? overrideReason : undefined, actor: String(req.query.actor ?? 'slack-link') },
+      req.tenantId,
+    );
 
     if (!result.found) {
       res.status(404).send('<h2>❌ Shadow entry not found — it may have expired.</h2>');
       return;
     }
 
-    logger.info(
-      { id: req.params.id, verdict, overrideId: result.overrideId },
-      'shadow verdict recorded via one-click link',
-    );
+    logger.info({ id: req.params.id, verdict, overrideId: result.overrideId }, 'shadow verdict recorded via one-click link');
 
-    const icon    = verdict === 'would-approve' ? '✅' : '✋';
-    const label   = verdict === 'would-approve' ? 'Approved' : 'Override recorded';
+    const icon      = verdict === 'would-approve' ? '✅' : '✋';
+    const label     = verdict === 'would-approve' ? 'Approved' : 'Override recorded';
     const corpusNote = result.overrideId
       ? `<p style="color:#666">Override corpus entry created — Mergen won't auto-execute this pattern again without review.</p>`
       : '';
@@ -111,17 +96,15 @@ ${corpusNote}
   });
 
   // ── Raw entries ────────────────────────────────────────────────────────────
-  router.get('/shadow-report/entries', (req, res) => {
+  router.get('/shadow-report/entries', async (req, res): Promise<void> => {
     const limit = Math.min(500, Math.max(1, Number(req.query.limit ?? 100)));
-    const entries = [...getShadowLog()].reverse().slice(0, limit);
+    const all = await getStores().shadowLog.getShadowEntries(req.tenantId);
+    const entries = [...all].reverse().slice(0, limit);
     res.json({ ok: true, entries });
   });
 
-  // ── Human verdict — closes the feedback loop ───────────────────────────────
-  // An SRE reviews the shadow report, finds an entry they would have stopped,
-  // and POSTs their verdict here. The 'would-override' path automatically
-  // creates an override corpus entry — no second API call needed.
-  router.post('/shadow-report/:id/verdict', (req, res) => {
+  // ── Human verdict via POST ─────────────────────────────────────────────────
+  router.post('/shadow-report/:id/verdict', async (req, res): Promise<void> => {
     const parsed = VerdictSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'validation failed', details: parsed.error.issues });
@@ -132,22 +115,19 @@ ${corpusNote}
       return;
     }
 
-    const result = recordShadowVerdict(req.params.id, parsed.data.verdict, {
-      note:           parsed.data.note,
-      overrideReason: parsed.data.overrideReason,
-      manualAction:   parsed.data.manualAction,
-      actor:          parsed.data.actor,
-    });
+    const result = await getStores().shadowLog.recordShadowVerdict(
+      req.params.id,
+      parsed.data.verdict,
+      { note: parsed.data.note, overrideReason: parsed.data.overrideReason, manualAction: parsed.data.manualAction, actor: parsed.data.actor },
+      req.tenantId,
+    );
 
     if (!result.found) {
       res.status(404).json({ error: 'shadow entry not found' });
       return;
     }
 
-    logger.info(
-      { id: req.params.id, verdict: parsed.data.verdict, overrideId: result.overrideId },
-      'shadow verdict recorded',
-    );
+    logger.info({ id: req.params.id, verdict: parsed.data.verdict, overrideId: result.overrideId }, 'shadow verdict recorded');
 
     res.json({
       ok: true,

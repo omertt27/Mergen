@@ -4,7 +4,7 @@ import { fetchSlackThread } from '../intelligence/slack.js';
 import { draftPostmortemDoc } from '../intelligence/tools-runbook.js';
 import { generatePostmortem } from '../intelligence/postmortem-store.js';
 import { updateRunbookFromPostmortem } from '../intelligence/runbook-updater.js';
-import { compileOverrideFromSlackThread } from '../intelligence/override-corpus.js';
+import { getStores } from '../storage/store-registry.js';
 
 const BodySchema = z.object({
   thread_url:       z.string().url(),
@@ -63,7 +63,7 @@ export function createPostmortemRouter(): express.Router {
       slack_thread: slackThread,
     });
 
-    const overrideEvent = compileOverrideFromSlackThread(slackThread, service);
+    const overrideEvent = await getStores().overrides.compileOverrideFromSlackThread(slackThread, service, req.tenantId);
 
     const responsePayload: any = { markdown };
     if (overrideEvent) {

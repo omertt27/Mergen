@@ -225,10 +225,10 @@ export interface ShadowReport {
   recommendation: string;
 }
 
-export function getShadowReport(windowDays = 30): ShadowReport {
-  load();
+/** Pure computation — accepts entries directly so PG/SQLite stores can both use it. */
+export function computeShadowReport(entries: readonly ShadowEntry[], windowDays = 30): ShadowReport {
   const cutoff = Date.now() - windowDays * 24 * 60 * 60 * 1000;
-  const window = _entries.filter((e) => e.recordedAt >= cutoff);
+  const window = entries.filter((e) => e.recordedAt >= cutoff);
 
   const wouldHaveExecuted = window.filter((e) => e.wouldHaveExecuted).length;
   const skippedByLowConfidence = window.filter(
@@ -271,17 +271,21 @@ export function getShadowReport(windowDays = 30): ShadowReport {
   };
 }
 
-/** Pre-formatted Slack block for a weekly digest message. */
-export function getShadowSlackDigest(windowDays = 7): object {
+export function getShadowReport(windowDays = 30): ShadowReport {
   load();
-  const report = getShadowReport(windowDays);
+  return computeShadowReport(_entries, windowDays);
+}
+
+/** Pure computation — accepts entries directly so PG/SQLite stores can both use it. */
+export function computeShadowSlackDigest(entries: readonly ShadowEntry[], windowDays = 7): object {
+  const report = computeShadowReport(entries, windowDays);
   const ratePct = report.approvalRate !== null ? `${Math.round(report.approvalRate * 100)}%` : 'n/a';
   const reviewedNote = report.humanReviewed > 0
     ? ` | ${report.humanApproved} approved / ${report.humanOverrode} overrode`
     : '';
 
   const cutoff = Date.now() - windowDays * 24 * 60 * 60 * 1000;
-  const pending = _entries
+  const pending = entries
     .filter((e) => e.recordedAt >= cutoff && e.wouldHaveExecuted && e.humanVerdict === undefined)
     .slice(-5)
     .reverse();
@@ -361,15 +365,20 @@ export function getShadowSlackDigest(windowDays = 7): object {
   };
 }
 
-/** CSV export of the full shadow log for fundraising / board decks. */
-export function exportShadowCsv(): string {
+/** Pre-formatted Slack block for a weekly digest message. */
+export function getShadowSlackDigest(windowDays = 7): object {
   load();
+  return computeShadowSlackDigest(_entries, windowDays);
+}
+
+/** Pure computation — accepts entries directly so PG/SQLite stores can both use it. */
+export function computeShadowCsv(entries: readonly ShadowEntry[]): string {
   const header = 'id,pid,incidentTag,service,command,diagnosisConfidence,remediationConfidence,wouldHaveExecuted,skipReason,recordedAt,humanVerdict,verdictAt,humanNote';
   const escape = (v: string): string => {
     if (/[",\r\n]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
     return v;
   };
-  const rows = _entries.map((e) => [
+  const rows = entries.map((e) => [
     e.id,
     e.pid,
     e.incidentTag,
@@ -386,4 +395,10 @@ export function exportShadowCsv(): string {
   ].map((c) => escape(String(c))).join(','));
 
   return [header, ...rows].join('\n') + (rows.length > 0 ? '\n' : '');
+}
+
+/** CSV export of the full shadow log for fundraising / board decks. */
+export function exportShadowCsv(): string {
+  load();
+  return computeShadowCsv(_entries);
 }

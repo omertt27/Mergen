@@ -11,7 +11,7 @@
 
 import { randomUUID } from 'crypto';
 import { Router } from 'express';
-import { incidentStore } from '../sensor/incident-store.js';
+import { getStores } from '../storage/store-registry.js';
 import { postmortemStore } from '../intelligence/postmortem-store.js';
 
 export function createDashboardRouter(serverVersion: string, localSecret: string): Router {
@@ -39,10 +39,10 @@ export function createDashboardRouter(serverVersion: string, localSecret: string
   });
 
   // GET /dashboard/incidents/:pid — post-mortem detail view for managers + stakeholders
-  router.get('/dashboard/incidents/:pid', (req, res) => {
+  router.get('/dashboard/incidents/:pid', async (req, res) => {
     if (!checkAuth(req, res)) return;
     const { pid } = req.params;
-    const inc = incidentStore.get(pid);
+    const inc = await getStores().incidents.get(pid, req.tenantId);
     if (!inc) { res.status(404).send('<h1>Incident not found</h1>'); return; }
 
     // Find matching postmortem by pid

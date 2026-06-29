@@ -72,6 +72,7 @@ import { notify } from './intelligence/notifications.js';
 import { serviceGraph } from './sensor/service-graph.js';
 import { createStores } from './storage/store-factory.js';
 import { setStores } from './storage/store-registry.js';
+import { initCloudApiKeys } from './sensor/cloud-auth.js';
 import { createApp } from './app.js';
 import { checkForUpdates, formatUpdateMessage } from './update-checker.js';
 import { loadCommunityCorpus } from './seeds/community-corpus.js';
@@ -286,6 +287,9 @@ async function main(): Promise<void> {
   // can load the WASM engine; Postgres stores treat this as a no-op.
   await stores.events.init();
   await stores.incidents.init();
+  // In cloud mode, hydrate the in-memory API key cache from Postgres so keys
+  // survive pod restarts and are consistent across replicas.
+  await initCloudApiKeys();
 
   // Prune expired events once per minute.
   setInterval(() => stores.events.pruneOld().catch(() => {}), 60_000).unref();

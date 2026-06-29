@@ -28,10 +28,9 @@
 import { randomUUID } from 'crypto';
 import { Router } from 'express';
 import { getShadowLog } from '../intelligence/shadow-log.js';
-import { getOverrideSummary, getOverrideById } from '../intelligence/override-corpus.js';
 import { getBlunderStats, verifyChain, type BlunderType } from '../sensor/agent-blunder-store.js';
 import { getStats } from '../intelligence/calibration.js';
-import { incidentStore } from '../sensor/incident-store.js';
+import { getStores } from '../storage/store-registry.js';
 import { postmortemStore } from '../intelligence/postmortem-store.js';
 import { plattScale } from '../intelligence/platt-scaling.js';
 import logger from '../sensor/logger.js';
@@ -45,11 +44,11 @@ const ESTIMATED_AUTONOMOUS_MTTR_MS = 2 * 60 * 1000; // 2 minutes
 export function createImpactReportRouter(): Router {
   const router = Router();
 
-  router.get('/impact-report', (req, res) => {
+  router.get('/impact-report', async (req, res) => {
     const windowDays = Math.min(90, Math.max(1, Number(req.query.days ?? 30)));
     const format = req.query.format as string | undefined;
 
-    const data = computeImpactData(windowDays);
+    const data = await computeImpactData(windowDays, req.tenantId);
     logger.info({ windowDays, format }, 'impact-report: generated');
 
     if (format === 'html') {
@@ -175,7 +174,7 @@ function fmtMs(ms: number): string {
   return sec > 0 ? `${min}m ${sec}s` : `${min}m`;
 }
 
-function computeImpactData(windowDays: number): ImpactData {
+async function computeImpactData(windowDays: number, tenantId?: string): Promise<ImpactData> {
   const now = Date.now();
   const cutoff = now - windowDays * 24 * 60 * 60 * 1000;
 
@@ -183,6 +182,18 @@ function computeImpactData(windowDays: number): ImpactData {
 
   const wouldResolve = entries.filter((e) => e.wouldHaveExecuted);
   const missed = entries.filter((e) => !e.wouldHaveExecuted);
+
+  // Pre-fetch all incidents referenced by shadow log entries and all override ids
+  const incidentMap = new Map(
+    (await getStores().incidents.list(undefined, 10_000, tenantId)).map((i) => [i.pid, i]),
+  );
+  const corpus = await getStores().overrides.getOverrideSummary(tenantId);
+
+  // Pre-fetch override details needed for the comparison table
+  const overrideIds = [...new Set(entries.map((e) => e.overrideId).filter((id): id is string => !!id))];
+  const overrideDetails = new Map(
+    await Promise.all(overrideIds.map(async (id) => [id, await getStores().overrides.getOverrideById(id, tenantId)] as const)),
+  );
 
   // MTTR: split by resolution type so the comparison is apples-to-apples.
   // Autonomous: incidents where resolvedAutonomously=true (the system acted).
@@ -194,7 +205,7 @@ function computeImpactData(windowDays: number): ImpactData {
   const unassistedMttrSamples: number[] = [];
   for (const entry of entries) {
     if (!entry.pid) continue;
-    const inc = incidentStore.get(entry.pid);
+    const inc = incidentMap.get(entry.pid);
     if (!inc?.resolvedAt || !inc.createdAt) continue;
     const mttr = inc.resolvedAt - inc.createdAt;
     if (inc.resolvedAutonomously) {
@@ -241,7 +252,7 @@ function computeImpactData(windowDays: number): ImpactData {
     t.total += 1;
     if (entry.wouldHaveExecuted) t.wouldResolve += 1;
     if (entry.pid) {
-      const inc = incidentStore.get(entry.pid);
+      const inc = incidentMap.get(entry.pid);
       if (inc?.resolvedAt && inc.createdAt) t.mttrSamples.push(inc.resolvedAt - inc.createdAt);
     }
     tagMap.set(entry.incidentTag, t);
@@ -259,7 +270,6 @@ function computeImpactData(windowDays: number): ImpactData {
     .sort((a, b) => b.total - a.total);
 
   // Override corpus
-  const corpus = getOverrideSummary();
   const corpusBlockCount = entries.filter((e) => e.skipReason === 'override-corpus').length;
 
   // Human review
@@ -410,7 +420,7 @@ function computeImpactData(windowDays: number): ImpactData {
     .slice()
     .sort((a, b) => (b.firedAt ?? b.recordedAt) - (a.firedAt ?? a.recordedAt))
     .map((entry): ComparisonRow => {
-      const inc = entry.pid ? incidentStore.get(entry.pid) : null;
+      const inc = entry.pid ? incidentMap.get(entry.pid) : null;
       const actualMttrMs = inc?.resolvedAt && inc.createdAt ? inc.resolvedAt - inc.createdAt : null;
 
       // Determine what the engineer actually did, sourced from the override corpus when available
@@ -437,7 +447,7 @@ function computeImpactData(windowDays: number): ImpactData {
         engineerAction = 'Would apply same fix';
         agreementType = 'agree';
       } else if (entry.humanVerdict === 'would-override' && entry.overrideId) {
-        const ov = getOverrideById(entry.overrideId);
+        const ov = overrideDetails.get(entry.overrideId) ?? null;
         engineerAction = ov?.manualAction ?? 'Override — see corpus';
         overrideReason = ov?.overrideReason ?? null;
         agreementType = 'override';

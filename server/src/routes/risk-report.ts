@@ -16,15 +16,15 @@
 
 import { Router } from 'express';
 import { getBlunders, getBlunderStats } from '../sensor/agent-blunder-store.js';
-import { getOverrideSummary } from '../intelligence/override-corpus.js';
+import { getStores } from '../storage/store-registry.js';
 import { loadEnterprisePolicy } from '../intelligence/enterprise-policy-engine.js';
 
 export function createRiskReportRouter(): Router {
   const router = Router();
 
-  router.get('/risk-report', (req, res) => {
+  router.get('/risk-report', async (req, res) => {
     const format = req.query.format as string | undefined;
-    const data = computeRiskData();
+    const data = await computeRiskData(req.tenantId);
 
     if (format === 'md') {
       res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
@@ -70,10 +70,10 @@ const TYPE_DESCRIPTIONS: Record<string, string> = {
   planning_gate_block:   'Planning gate: confidence or blast-radius check failed',
 };
 
-function computeRiskData(): RiskReportData {
+async function computeRiskData(tenantId?: string): Promise<RiskReportData> {
   const stats   = getBlunderStats();
   const blunders = getBlunders();
-  const overrides = getOverrideSummary();
+  const overrides = await getStores().overrides.getOverrideSummary(tenantId);
   const policy  = loadEnterprisePolicy();
 
   const breakdown: BlunderBreakdown[] = Object.entries(stats.byType).map(([type, count]) => ({
