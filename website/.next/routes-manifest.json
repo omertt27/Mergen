@@ -51,6 +51,12 @@
       "namedRegex": "^/architecture(?:/)?$"
     },
     {
+      "page": "/cli-auth",
+      "regex": "^/cli\\-auth(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/cli\\-auth(?:/)?$"
+    },
+    {
       "page": "/guide",
       "regex": "^/guide(?:/)?$",
       "routeKeys": {},

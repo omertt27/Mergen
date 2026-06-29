@@ -83,6 +83,145 @@ async function seedBuiltinRunbooks(): Promise<void> {
 
 // ── Commands ───────────────────────────────────────────────────────────────────
 
+async function loginCommand(): Promise<void> {
+  const { createServer } = await import('http');
+  const { exec } = await import('child_process');
+  const { activateKey } = await import('./intelligence/license.js');
+
+  const args = process.argv.slice(3);
+  const keyIndex = args.indexOf('--key');
+  if (keyIndex !== -1 && args[keyIndex + 1]) {
+    const key = args[keyIndex + 1];
+    log(`Activating license key: ${key.substring(0, 12)}...`);
+    try {
+      const result = await activateKey(key);
+      success(`License activated successfully! Plan: ${result.planId}`);
+      process.exit(0);
+    } catch (err) {
+      error(`Activation failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  }
+
+  const server = createServer();
+  
+  server.listen(0, '127.0.0.1', async () => {
+    const addr = server.address();
+    if (!addr || typeof addr === 'string') {
+      error('Failed to bind to local callback server');
+      process.exit(1);
+    }
+    const port = addr.port;
+    const loginUrl = `${process.env.MERGEN_APP_URL ?? 'https://app.mergen.dev'}/cli-auth?port=${port}`;
+    
+    console.log('🚀 Authenticating Mergen CLI...');
+    console.log(`\nOpening your browser to:\n  ${loginUrl}\n`);
+    
+    const openCmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
+    exec(`${openCmd} "${loginUrl}"`).unref();
+
+    console.log('Waiting for authentication to complete in the browser...');
+    console.log('If the browser does not open automatically, copy and paste the URL above.');
+    console.log('\nAlternatively, paste your license key manually below:');
+    
+    const key = await ask('License Key: ');
+    if (key && key.trim()) {
+      log(`Activating license key: ${key.substring(0, 12)}...`);
+      try {
+        const result = await activateKey(key.trim());
+        success(`License activated successfully! Plan: ${result.planId}`);
+        server.close();
+        process.exit(0);
+      } catch (err) {
+        error(`Activation failed: ${(err as Error).message}`);
+        server.close();
+        process.exit(1);
+      }
+    }
+  });
+
+  server.on('request', async (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'content-type');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(200);
+      res.end();
+      return;
+    }
+
+    const url = new URL(req.url ?? '', `http://${req.headers.host}`);
+    if (url.pathname === '/callback') {
+      const token = url.searchParams.get('token');
+      if (!token) {
+        res.writeHead(400, { 'Content-Type': 'text/html' });
+        res.end('<h1>Authentication Failed</h1><p>Missing token in query parameters.</p>');
+        error('Authentication failed: missing token in callback');
+        server.close();
+        process.exit(1);
+      }
+
+      try {
+        const result = await activateKey(token);
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Mergen Authentication Successful</title>
+            <style>
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                background: #0a0a0a;
+                color: #ffffff;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                height: 100vh;
+                margin: 0;
+              }
+              .card {
+                background: #111111;
+                border: 1px solid #333333;
+                border-radius: 8px;
+                padding: 2.5rem;
+                text-align: center;
+                max-width: 420px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+              }
+              h1 { color: #ff6600; font-size: 1.5rem; margin-top: 0; }
+              p { color: #888888; font-size: 0.95rem; line-height: 1.5; }
+              .checkmark { font-size: 3rem; color: #22c55e; margin-bottom: 1rem; }
+            </style>
+          </head>
+          <body>
+            <div class="card">
+              <div class="checkmark">✓</div>
+              <h1>Authentication Successful!</h1>
+              <p>Your Mergen CLI has been authorized. You can close this tab and return to your terminal.</p>
+            </div>
+          </body>
+          </html>
+        `);
+        success(`Successfully authenticated! License plan: ${result.planId}`);
+        server.close();
+        process.exit(0);
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'text/html' });
+        res.end(`<h1>Authentication Failed</h1><p>${(err as Error).message}</p>`);
+        error(`Authentication failed: ${(err as Error).message}`);
+        server.close();
+        process.exit(1);
+      }
+    } else {
+      res.writeHead(404);
+      res.end();
+    }
+  });
+}
+
 async function setupCommand(): Promise<void> {
   // ── Parse flags ─────────────────────────────────────────────────────────────
   const rawArgs = process.argv.slice(3); // skip 'node', 'cli.js', 'setup'
@@ -3558,6 +3697,10 @@ async function main(): Promise<void> {
       await setupCommand();
       break;
 
+    case 'login':
+      await loginCommand();
+      break;
+
     case 'test':
       await testCommand();
       break;
@@ -3662,6 +3805,8 @@ Mergen — production incident intelligence
 Usage:
   mergen-server                    Zero-config demo — loads 50 sample incidents instantly
   mergen-server start              Start server (production mode)
+  mergen-server login              Authenticate Mergen CLI (automatic browser & manual fallback)
+  mergen-server login --key <key>  Directly authenticate using a license key
   mergen-server approve <id>       Temporarily bypass a blocked command block (10 min)
   mergen-server setup              Interactive setup wizard (connect PagerDuty, OTLP, IDE)
   mergen-server setup --yes        Non-interactive setup (skip all prompts, use defaults)

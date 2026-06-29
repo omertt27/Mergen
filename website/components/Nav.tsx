@@ -1,17 +1,20 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePathname } from 'next/navigation'
+import Link from 'next/link'
 
 const navLinks = [
-  { href: '#how',           label: 'How it Works' },
-  { href: '#why',           label: 'Features' },
+  { href: '/#how',           label: 'How it Works' },
+  { href: '/#why',           label: 'Features' },
   { href: '/sandbox',       label: 'Sandbox' },
-  { href: '#access',        label: 'Pricing' },
+  { href: '/#access',        label: 'Pricing' },
   { href: '/architecture',  label: 'Architecture' },
   { href: '/guide',         label: 'Docs' },
 ]
 
 export default function Nav() {
+  const pathname = usePathname()
   const [scrolled, setScrolled]     = useState(false)
   const [theme, setTheme]           = useState<'light' | 'dark'>('light')
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -40,11 +43,20 @@ export default function Nav() {
     applyTheme(next)
   }
 
-  function handleNavClick(href: string) {
+  function handleNavClick(e: React.MouseEvent<HTMLAnchorElement>, href: string) {
     setMobileOpen(false)
-    if (href.startsWith('#')) {
-      const el = document.getElementById(href.slice(1))
-      el?.scrollIntoView({ behavior: 'smooth' })
+    if (href.includes('#')) {
+      const [path, hash] = href.split('#')
+      const targetPath = path || '/'
+      const currentPath = pathname || '/'
+      if (currentPath === targetPath) {
+        e.preventDefault()
+        const el = document.getElementById(hash)
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth' })
+          window.history.pushState(null, '', `#${hash}`)
+        }
+      }
     }
   }
 
@@ -52,28 +64,23 @@ export default function Nav() {
     <>
       <header className={`site-nav${scrolled ? ' scrolled' : ''}`}>
         <div className="nav-inner">
-          <a href="/" className="nav-logo" aria-label="Mergen home">
+          <Link href="/" className="nav-logo" aria-label="Mergen home">
             <svg className="nav-logo-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
               <path d="M 3 13 L 3 3 L 5 3 L 8 8 L 11 3 L 13 3 L 13 13 L 11.4 13 L 11.4 6.2 L 8.6 10.6 L 7.4 10.6 L 4.6 6.2 L 4.6 13 Z"/>
             </svg>
             <span className="nav-logo-text">Mergen</span>
-          </a>
+          </Link>
 
           <nav className="nav-links" aria-label="Primary navigation">
             {navLinks.map((l) => (
-              <a
+              <Link
                 key={l.href}
                 href={l.href}
                 className="nav-link"
-                onClick={(e) => {
-                  if (l.href.startsWith('#')) {
-                    e.preventDefault()
-                    handleNavClick(l.href)
-                  }
-                }}
+                onClick={(e) => handleNavClick(e, l.href)}
               >
                 {l.label}
-              </a>
+              </Link>
             ))}
           </nav>
 
@@ -148,19 +155,14 @@ export default function Nav() {
       {mobileOpen && (
         <div className="nav-mobile-menu">
           {navLinks.map((l) => (
-            <a
+            <Link
               key={l.href}
               href={l.href}
               className="mobile-nav-link"
-              onClick={(e) => {
-                if (l.href.startsWith('#')) {
-                  e.preventDefault()
-                  handleNavClick(l.href)
-                }
-              }}
+              onClick={(e) => handleNavClick(e, l.href)}
             >
               {l.label}
-            </a>
+            </Link>
           ))}
           <a
             href="mailto:hello@mergen.dev?subject=Request%20Early%20Access"
