@@ -108,6 +108,8 @@ export interface IOverrideCorpus {
     service?: string,
     tenantId?: string,
   ): Promise<OverrideEvent[]>;
+  getStaleOverrides(daysThreshold?: number, tenantId?: string): Promise<OverrideEvent[]>;
+  markOverrideReviewed(id: string, tenantId?: string): Promise<boolean>;
 }
 
 // ── Shadow log ────────────────────────────────────────────────────────────────

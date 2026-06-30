@@ -2083,6 +2083,64 @@ ${rows.map((r) => `<tr><td>${r.isoTs.slice(11, 19)}</td><td class="${r.kind}">${
   console.log(`\nShare with your team: cat ${outJson} | pbcopy`);
 }
 
+// ── verify-log command — cryptographic hash-chain audit of the Agent Blunder Log ──
+
+async function verifyLogCommand(): Promise<void> {
+  type VerifyResult = {
+    ok: boolean;
+    valid: boolean;
+    truncated?: boolean;
+    verified?: number;
+    verifiedFrom?: string;
+    firstInvalidIdx?: number;
+    reason?: string;
+    note?: string;
+  };
+
+  let port = 3000;
+  let result: VerifyResult | null = null;
+  for (let p = 3000; p <= 3010; p++) {
+    try {
+      const r = await fetch(`http://127.0.0.1:${p}/agent-blunders/verify`, { signal: AbortSignal.timeout(2_000) });
+      if (r.ok) { result = await r.json() as VerifyResult; port = p; break; }
+    } catch {}
+  }
+
+  hr();
+  console.log('⬡ Mergen — Agent Blunder Log integrity check\n');
+
+  if (!result) {
+    log('Server not running — cannot verify log. Start with: mergen-server start', '⚠');
+    process.exit(1);
+  }
+
+  if (result.valid) {
+    const count = result.verified ?? 0;
+    if (count === 0) {
+      success(`Log integrity: PASS — ${result.note ?? 'Log is empty'}`);
+    } else {
+      success(`Log integrity: PASS — ${count} entries verified`);
+      if (result.truncated) {
+        log(`Chain is partial (ring buffer wrapped) — pre-eviction entries cannot be verified. This is expected, not a tamper signal.`, '⬡');
+      }
+      if (result.verifiedFrom) {
+        log(`Verified from entry: ${result.verifiedFrom}`, '⬡');
+      }
+    }
+    hr();
+    console.log(`\n  API: GET http://127.0.0.1:${port}/agent-blunders/verify\n`);
+    process.exit(0);
+  } else {
+    hr();
+    error(`Log integrity: FAIL — hash chain broken at entry index ${result.firstInvalidIdx ?? '?'}`);
+    if (result.reason) console.error(`  Reason: ${result.reason}`);
+    console.error('\n  The Agent Blunder Log may have been tampered with or corrupted.');
+    console.error(`  Full details: GET http://127.0.0.1:${port}/agent-blunders/verify`);
+    hr();
+    process.exit(1);
+  }
+}
+
 // ── Guard command ──────────────────────────────────────────────────────────────
 
 async function guardCommand(args: string[]): Promise<void> {
@@ -2104,12 +2162,16 @@ async function guardCommand(args: string[]): Promise<void> {
   }
 
   // Find running server (best-effort, never block if server is down)
-  type GuardHealth = { errors?: number; warnings?: number; networkErrors?: number; signals?: Array<{ kind: string; message: string; confidence: number }> };
+  type GuardHealth  = { errors?: number; warnings?: number; networkErrors?: number; signals?: Array<{ kind: string; message: string; confidence: number }> };
+  type CorpusEntry  = { tag: string; total: number; dominantReason: string | null; services: string[]; timePattern: string | null };
+  type CorpusResult = { ok: boolean; corpus: CorpusEntry[] };
+
+  let serverPort = 0;
   let health: GuardHealth | null = null;
   for (let p = 3000; p <= 3010; p++) {
     try {
       const r = await fetch(`http://127.0.0.1:${p}/health`, { signal: AbortSignal.timeout(800) });
-      if (r.ok) { health = await r.json() as GuardHealth; break; }
+      if (r.ok) { health = await r.json() as GuardHealth; serverPort = p; break; }
     } catch {}
   }
 
@@ -2117,6 +2179,50 @@ async function guardCommand(args: string[]): Promise<void> {
     log('Mergen: server not running — skipping runtime check', '⬡');
     process.exit(0);
   }
+
+  // Cross-reference staged git files against the full override corpus.
+  // Uses /override-corpus (all entries, any age) so freshly auto-seeded entries
+  // from PagerDuty show up immediately — not just entries that are 30+ days old.
+  type IncidentHit = { tag: string; service: string; reason: string | null; timePattern: string | null; total: number };
+  let incidentHits: IncidentHit[] = [];
+  try {
+    const { execSync: _exec } = await import('child_process');
+    const staged = _exec('git diff --cached --name-only 2>/dev/null', { encoding: 'utf8' }).trim();
+    if (staged) {
+      const stagedServices = new Set<string>();
+      for (const f of staged.split('\n')) {
+        const m = f.match(/^(?:services|apps|packages|src)\/([^/]+)\//);
+        if (m) stagedServices.add(m[1].toLowerCase());
+        const top = f.split('/')[0];
+        if (top && !['src', 'test', 'tests', 'docs', '.github', 'scripts', 'config'].includes(top)) {
+          stagedServices.add(top.toLowerCase());
+        }
+      }
+
+      if (stagedServices.size > 0) {
+        const r = await fetch(`http://127.0.0.1:${serverPort}/override-corpus`, {
+          signal: AbortSignal.timeout(1_000),
+        });
+        if (r.ok) {
+          const body = await r.json() as CorpusResult;
+          for (const entry of body.corpus ?? []) {
+            const matchedService = entry.services.find(
+              (s) => stagedServices.has(s.toLowerCase()),
+            );
+            if (matchedService) {
+              incidentHits.push({
+                tag:         entry.tag,
+                service:     matchedService,
+                reason:      entry.dominantReason,
+                timePattern: entry.timePattern,
+                total:       entry.total,
+              });
+            }
+          }
+        }
+      }
+    }
+  } catch { /* git not available or corpus fetch failed — non-fatal */ }
 
   const errors = health.errors ?? 0;
   const warns  = health.warnings ?? 0;
@@ -2144,6 +2250,18 @@ async function guardCommand(args: string[]): Promise<void> {
       process.exit(1);
     }
     log('\nCommit allowed. Run "analyze_runtime" to investigate.');
+  }
+
+  // Report incident history for staged services
+  if (incidentHits.length > 0) {
+    console.log('');
+    console.log('  ⬡ Incident history for staged services:');
+    for (const hit of incidentHits.slice(0, 5)) {
+      const reason  = hit.reason  ? ` · ${hit.reason}` : '';
+      const pattern = hit.timePattern ? ` · ${hit.timePattern}` : '';
+      console.log(`    • ${hit.service} — ${hit.tag}${reason}${pattern} (${hit.total}×)`);
+    }
+    console.log(`  This is informational. Review corpus: GET /override-corpus`);
   }
 
   hr();
@@ -4018,6 +4136,10 @@ async function main(): Promise<void> {
       await policyDiffCommand();
       break;
 
+    case 'verify-log':
+      await verifyLogCommand();
+      break;
+
     case 'guard':
       await guardCommand(args);
       break;
@@ -4086,7 +4208,8 @@ Usage:
   mergen-server policy-pull --merge  Merge (add new rules only, keep existing)
   mergen-server policy-diff        Show diff between .mergen/policy.json and live server
   mergen-server replay <dir>       Score historical incidents against the detector pipeline
-  mergen-server guard              Pre-commit runtime check
+  mergen-server verify-log         Verify Agent Blunder Log hash chain (tamper-evident audit)
+  mergen-server guard              Pre-commit runtime check (includes incident history for staged services)
   mergen-server guard --install    Install as git pre-commit hook
   mergen-server test               Validate installation
   mergen-server ci                 CI smoke test (exit 0 = healthy)

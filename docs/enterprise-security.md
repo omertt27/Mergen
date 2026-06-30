@@ -142,7 +142,61 @@ Blocked commands are also logged with their `blockReason`. The audit log is appe
 
 ---
 
-## 3. Network exposure
+## 3. Gate threat model
+
+The execution gate protects systems from unsafe agent actions that pass through
+Mergen's MCP server. It is not a general-purpose local endpoint protection
+agent. Security review should evaluate four separate attack surfaces:
+
+| Attack surface | Current posture | Enterprise hardening requirement |
+|----------------|-----------------|----------------------------------|
+| Process-level tampering | Mergen writes a gate heartbeat every 2 seconds (configurable). Every MCP tool call checks heartbeat freshness before policy evaluation — stale or missing heartbeat causes an immediate fail-closed BLOCK. Set `MERGEN_REQUIRE_GATE_HEARTBEAT=true` to activate enforcement (opt-in; default is warn-only). This does not prevent a same-user process from killing Mergen — that requires OS-level privilege separation. | Run the gate under a separate OS user, service manager, or container namespace so the agent cannot signal or write to the gate process. |
+| Policy file tampering | `~/.mergen/enterprise-policy.json` is protected with an HMAC sidecar and falls back to safe defaults on signature mismatch. The bypass token file is also HMAC-signed (keyed to `MERGEN_SECRET`). | Store `MERGEN_SECRET` outside the data directory — if the signing key and the files it protects share the same writable filesystem under the same user, a sufficiently privileged local compromise can defeat this control. |
+| Override corpus poisoning | The operational override corpus (incident response patterns) and the MCP gate (HITL approve/deny decisions) are isolated stores. A HITL approval or denial does not write to the override corpus and does not relax future gate enforcement. Override corpus entries are scoped by detector tag, service, environment, time window, and actor. | Require review before promoting any corpus entry into a broad policy rule. The attack surface is a coerced or socially-engineered entry that generalizes across services or environments — narrow scoping is the defence. |
+| MCP transport trust | The gate evaluates the tool call it receives over MCP stdio. It cannot prove that an upstream host or wrapper preserved the LLM's original intent. | Treat the IDE / agent host as part of the trusted computing base. For higher-assurance deployments, put Mergen at the last controllable boundary before command execution rather than relying on an earlier advisory layer. |
+
+### Process tampering and fail-closed behavior
+
+**What is implemented today.** Mergen starts a gate heartbeat at startup that
+writes `~/.mergen/gate-heartbeat.json` every 2 seconds (default; configurable
+via `MERGEN_GATE_HEARTBEAT_INTERVAL_MS`). The first action in `applyGate` —
+before injection detection, before policy evaluation, before anything else — is
+a freshness check against that file. If the heartbeat is stale (older than
+`MERGEN_GATE_HEARTBEAT_MAX_AGE_MS`, default 10 seconds) or missing, the gate
+returns a structured BLOCK with a guided alternative and logs the event to the
+Agent Blunder Log.
+
+Enable enforcement:
+```bash
+MERGEN_REQUIRE_GATE_HEARTBEAT=true mergen-server start
+```
+
+Without this flag the heartbeat is written and checked but the check is
+advisory — stale heartbeat logs a warning rather than blocking. Set the flag
+for any deployment where fail-closed is a security requirement.
+
+**What is not claimed.** If the AI agent and the gate run as the same OS user,
+a compromised agent with shell access may kill the gate process before the
+heartbeat can write. The freshness check detects this within one heartbeat
+interval (2 seconds by default), but a kill-then-immediately-act sequence
+within that window is not prevented by the heartbeat alone.
+
+**The stronger claim requires OS-level separation.** For Tier 2 and Tier 3
+deployments, require one of:
+
+- A service manager such as `systemd` or a managed launch daemon that restarts
+  the gate and exposes health state to the agent host.
+- A separate OS user or container namespace for the gate, with the agent unable
+  to signal or write to the gate process.
+
+Until OS-level separation is in place, the claim is: Mergen detects and blocks
+unsafe calls that reach the gate, including within 2 seconds of a gate process
+failure. The stronger claim — "agents cannot bypass the gate even after
+targeting the gate process directly" — requires privilege separation.
+
+---
+
+## 4. Network exposure
 
 ### Default (local mode)
 
@@ -180,7 +234,7 @@ Mergen validates the `Host` header on every request in local mode. Requests from
 
 ---
 
-## 4. PII handling
+## 5. PII handling
 
 An always-on regex shield strips PII from all events before they enter the ring buffer:
 
@@ -200,7 +254,7 @@ PII is replaced with `[REDACTED]` in the buffer. It never reaches the AI IDE or 
 
 ---
 
-## 5. Secret management
+## 6. Secret management
 
 | Secret | Storage | Transmission |
 |--------|---------|-------------|
@@ -213,7 +267,7 @@ The local secret is generated as a UUID on first start and is readable only by t
 
 ---
 
-## 6. Compliance posture
+## 7. Compliance posture
 
 ### SOC 2 readiness
 
@@ -248,7 +302,7 @@ curl -X POST http://127.0.0.1:3000/overrides \
 
 ---
 
-## 7. Penetration testing
+## 8. Penetration testing
 
 Before running a pentest against a Mergen deployment:
 - Obtain written authorization from your security team (standard scope qualification)

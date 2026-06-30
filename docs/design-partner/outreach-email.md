@@ -2,11 +2,23 @@
 
 ## Target profile
 
-Mid-market engineering teams (15–100 developers) who are:
-- Already deploying Claude Code, Cursor, or GitHub Copilot Coding Agent in production
-- On PagerDuty (signal: they've had enough incidents to justify it)
-- Have public postmortems in the last 12 months (signal: they write them, so they care)
-- No dedicated platform engineering or security team (signal: the CISO problem isn't solved)
+Prioritize prospects by segment:
+
+**Tier 1 — self-serve / low-friction**
+- Small and mid-size engineering teams already using Cursor, Windsurf, Claude Code, VS Code Copilot, or GitHub Copilot Coding Agent with real shell/file/MCP access.
+- Power users who have publicly discussed agent mistakes, destructive commands, prompt-injection issues, or unsafe tool access.
+- AI agent framework maintainers or infra teams building LangChain, CrewAI, AutoGPT-style, or internal agent platforms.
+
+**Tier 2 — design partner / paid pilot**
+- Fintech or healthtech companies deploying internal AI agents for ops, support, incident response, or engineering automation.
+- DevOps/SRE teams allowing agents to touch Terraform, Kubernetes, CI/CD, deployment, database, or incident-remediation workflows.
+- Teams with PagerDuty, Datadog, Sentry, or public postmortems in the last 12 months.
+
+**Tier 3 — later enterprise motion**
+- Central security, platform, or AI governance teams at larger enterprises.
+- Track these accounts, but do not lead outreach here until shadow-mode proof and the enterprise threat model are ready.
+
+Best current target: mid-market engineering teams (15–100 developers) with AI coding agents in active use, enough incident volume to care, and no fully staffed AI governance function yet.
 
 **Find them:** Search LinkedIn for "VP Engineering" + "Cursor" or "Claude Code" at companies with 50–300 employees. GitHub: repos with `.cursor/mcp.json` or `.claude/mcp.json` committed.
 

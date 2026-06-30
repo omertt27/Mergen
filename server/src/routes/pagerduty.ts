@@ -12,6 +12,7 @@ import { postIncidentAlert } from '../intelligence/slack.js';
 import { store } from '../sensor/buffer.js';
 import { runIncidentAutopilot } from '../intelligence/incident-autopilot.js';
 import { getRecords, recordVerdict } from '../intelligence/calibration.js';
+import { recordOverride } from '../intelligence/override-corpus.js';
 import logger from '../sensor/logger.js';
 
 const DASHBOARD_URL = process.env.MERGEN_DASHBOARD_URL ?? 'http://127.0.0.1:3000';
@@ -174,6 +175,35 @@ export function createPagerDutyRouter(): Router {
         }
 
         memoryStore.closeIncident({ pdIncidentId: data.id, resolvedAt });
+
+        // Auto-seed the override corpus so pre-commit guard has incident history
+        // from day 1, without requiring engineers to write manual postmortems.
+        // We record a lightweight entry for the resolved service using the alert
+        // title as context. The tag is inferred by compileOverridesFromSlackThread
+        // via the same NLP rules used for Slack postmortem threads.
+        const resolvedService = openRecord?.service ?? data.service?.summary ?? 'unknown';
+        const alertSummary    = openRecord?.pdAlertTitle ?? data.summary ?? '';
+        // Only auto-seed when HMAC signature verification is active. Without
+        // PD_WEBHOOK_SECRET, any local process can POST a fabricated
+        // incident.resolved event and inject arbitrary entries into the override
+        // corpus — the enforcement primitive that gates future agent tool calls.
+        if (resolvedService !== 'unknown' && alertSummary && PD_WEBHOOK_SECRET) {
+          try {
+            recordOverride({
+              incidentTag:     'pagerduty_incident',
+              proposedCommand: alertSummary.slice(0, 500),
+              overrideReason:  'on-call-discretion',
+              note:            `PagerDuty auto-seed: ${alertSummary.slice(0, 200)}`,
+              rationale:       'Auto-seeded from resolved PagerDuty incident — reviewed by on-call.',
+              service:         resolvedService,
+              environment:     'production',
+              actor:           'pagerduty-auto-seed',
+              source:          'team',
+            });
+            logger.info({ pdId: data.id, service: resolvedService }, 'pagerduty: auto-seeded override corpus from resolved incident');
+          } catch { /* non-fatal — duplicate or validation failure */ }
+        }
+
         logger.info({ pdId: data.id }, 'pagerduty incident resolved');
         continue;
       }

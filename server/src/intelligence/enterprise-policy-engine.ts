@@ -50,6 +50,27 @@ function _signPolicyPayload(content: string): string {
   return createHmac('sha256', _policySigningSecret).update(content).digest('hex');
 }
 
+function _allowUnsignedPolicy(): boolean {
+  return process.env.MERGEN_ALLOW_UNSIGNED_POLICY === 'true';
+}
+
+type PolicySignatureStatus = 'valid' | 'invalid' | 'unsigned-accepted' | 'unsigned-rejected' | 'not-required';
+
+function _policySignatureStatus(raw: string, storedSig: string | null): PolicySignatureStatus {
+  if (!_policySigningSecret) return 'not-required';
+  if (!storedSig) return _allowUnsignedPolicy() ? 'unsigned-accepted' : 'unsigned-rejected';
+  const expected  = _signPolicyPayload(raw);
+  const storedBuf = Buffer.from(storedSig, 'hex');
+  const expectBuf = Buffer.from(expected,  'hex');
+  return storedBuf.length === expectBuf.length && timingSafeEqual(storedBuf, expectBuf)
+    ? 'valid'
+    : 'invalid';
+}
+
+export function _policySignatureStatusForTesting(raw: string, storedSig: string | null): PolicySignatureStatus {
+  return _policySignatureStatus(raw, storedSig);
+}
+
 export const DEFAULT_ENTERPRISE_POLICY: EnterprisePolicyConfig = {
   enabled: true,
   rules: [
@@ -146,8 +167,7 @@ export function loadEnterprisePolicy(force = false): EnterprisePolicyConfig {
   if (!fs.existsSync(ENTERPRISE_POLICY_FILE)) {
     if (!zeroRetentionMode()) {
       try {
-        fs.mkdirSync(path.dirname(ENTERPRISE_POLICY_FILE), { recursive: true });
-        fs.writeFileSync(ENTERPRISE_POLICY_FILE, JSON.stringify(DEFAULT_ENTERPRISE_POLICY, null, 2), 'utf8');
+        saveEnterprisePolicy(DEFAULT_ENTERPRISE_POLICY);
         logger.info({ path: ENTERPRISE_POLICY_FILE }, 'policy-engine: created default enterprise-policy.json');
       } catch (err) {
         logger.warn({ err }, 'policy-engine: failed to write default enterprise policy');
@@ -161,14 +181,14 @@ export function loadEnterprisePolicy(force = false): EnterprisePolicyConfig {
   try {
     const raw  = fs.readFileSync(ENTERPRISE_POLICY_FILE, 'utf8');
 
-    // Verify HMAC signature when the signing secret is set and a sig file exists.
-    if (_policySigningSecret && fs.existsSync(ENTERPRISE_POLICY_SIG_FILE)) {
-      const storedSig  = fs.readFileSync(ENTERPRISE_POLICY_SIG_FILE, 'utf8').trim();
-      const expected   = _signPolicyPayload(raw);
-      const storedBuf  = Buffer.from(storedSig,  'hex');
-      const expectBuf  = Buffer.from(expected,   'hex');
-      const valid = storedBuf.length === expectBuf.length && timingSafeEqual(storedBuf, expectBuf);
-      if (!valid) {
+    // Verify HMAC signature when the signing secret is set. Missing signatures
+    // fail closed unless the operator explicitly enables unsigned migration mode.
+    if (_policySigningSecret) {
+      const storedSig = fs.existsSync(ENTERPRISE_POLICY_SIG_FILE)
+        ? fs.readFileSync(ENTERPRISE_POLICY_SIG_FILE, 'utf8').trim()
+        : null;
+      const sigStatus = _policySignatureStatus(raw, storedSig);
+      if (sigStatus === 'invalid') {
         logger.error(
           { path: ENTERPRISE_POLICY_FILE },
           'policy-engine: enterprise-policy.json HMAC mismatch — file may have been tampered with. Using defaults.',
@@ -176,6 +196,19 @@ export function loadEnterprisePolicy(force = false): EnterprisePolicyConfig {
         _cachedConfig = DEFAULT_ENTERPRISE_POLICY;
         _watchPolicyFile();
         return _cachedConfig;
+      } else if (sigStatus === 'unsigned-rejected') {
+        logger.error(
+          { path: ENTERPRISE_POLICY_FILE, sigPath: ENTERPRISE_POLICY_SIG_FILE },
+          'policy-engine: enterprise-policy.json is unsigned while policy signing is enabled. Using defaults.',
+        );
+        _cachedConfig = DEFAULT_ENTERPRISE_POLICY;
+        _watchPolicyFile();
+        return _cachedConfig;
+      } else if (sigStatus === 'unsigned-accepted') {
+        logger.warn(
+          { path: ENTERPRISE_POLICY_FILE },
+          'policy-engine: enterprise-policy.json has no signature — accepting because MERGEN_ALLOW_UNSIGNED_POLICY=true',
+        );
       }
     }
 

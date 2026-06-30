@@ -38,6 +38,43 @@ Instead of treating solo devs and mid-market teams as disjoint products, we unif
   * Human-to-agent authorization boundaries and automated compliance reporting.
   * *Value (Enterprise / Moat)*: Govern autonomous agents at scale.
 
+### Target customer segments
+
+**Tier 1 — highest near-term fit, smallest sales friction**
+
+* **AI coding agent power users at small/mid engineering teams**:
+  Cursor, Windsurf, Claude Code, VS Code Copilot, and similar users who have
+  already granted agents shell, file, MCP, or local runtime access. This is the
+  current self-serve ICP because they can install without procurement and have
+  personally felt the "agent did something scary" pain.
+* **AI agent framework maintainers and infra teams**:
+  Teams building on LangChain, CrewAI, AutoGPT-style stacks, or internal agent
+  frameworks. They are potential distribution partners as much as customers:
+  "recommended guardrail" placement in framework docs or templates compounds
+  faster than one-account-at-a-time sales.
+
+**Tier 2 — real budget, longer cycle, needs enterprise controls**
+
+* **Fintech and healthtech teams deploying internal AI agents for ops/support**:
+  SOC 2, HIPAA, auditability, and change-control pressure make an auditable,
+  tamper-evident block log a procurement checkbox rather than a nice-to-have.
+* **DevOps/SRE teams running agent-driven infrastructure automation**:
+  Terraform, Kubernetes, deployment, and incident-remediation agents are the
+  strongest wedge because infrastructure teardown and bad automation are already
+  familiar, budgeted risks.
+
+**Tier 3 — strategic, but do not chase before proof**
+
+* **Enterprise security/platform teams centralizing AI governance**:
+  This is the eventual Agent IAM buyer, but cycle time is 6-12 months and they
+  will ask for process-tampering, privilege-separation, transport-trust, and
+  override-corpus controls before a serious technical evaluation.
+
+**Sequencing:** Use Tier 1 to generate shadow-mode data, corpus examples, and
+case studies. Have the enterprise threat model ready before Tier 2 outreach.
+Delay Tier 3 until the gate has real data and the process-tampering answer is
+documented as deployment architecture, not hand-waved as product copy.
+
 ---
 
 ## Defensibility

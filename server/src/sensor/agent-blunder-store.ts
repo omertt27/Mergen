@@ -170,7 +170,7 @@ export function _injectRawForTesting(entry: Partial<BlunderEvent> & Pick<Blunder
   });
 }
 
-export function recordBlunder(event: Omit<BlunderEvent, 'hash' | 'previousHash'> & { id?: string; recordedAt?: number }): void {
+export function recordBlunder(event: Omit<BlunderEvent, 'hash' | 'previousHash' | 'id' | 'recordedAt'> & { id?: string; recordedAt?: number }): void {
   return lockAndExecute(`${BLUNDER_FILE}.lock`, () => {
     load(true);
     const id = event.id ?? randomUUID();

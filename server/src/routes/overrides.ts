@@ -121,6 +121,43 @@ export function createOverridesRouter(): Router {
     });
   });
 
+  // ── Stale corpus entries ───────────────────────────────────────────────────
+  // Returns override entries that have not been operator-reviewed within N days
+  // (default 60). An entry is stale when its reviewedAt (or recordedAt if never
+  // reviewed) is older than the threshold. Use POST /overrides/:id/review to
+  // re-affirm or call DELETE /overrides/:id to remove entries that no longer apply.
+  router.get('/override-corpus/stale', async (req, res) => {
+    const days = Math.min(365, Math.max(1, Number(req.query.days ?? 60)));
+    const stale = await getStores().overrides.getStaleOverrides(days, req.tenantId);
+    res.json({
+      ok: true,
+      staleCount: stale.length,
+      thresholdDays: days,
+      stale: stale.map((e) => ({
+        id: e.id,
+        incidentTag: e.incidentTag,
+        service: e.service,
+        overrideReason: e.overrideReason,
+        note: e.note,
+        recordedAt: e.recordedAt,
+        reviewedAt: e.reviewedAt ?? null,
+        daysSinceReview: Math.floor((Date.now() - (e.reviewedAt ?? e.recordedAt)) / 86_400_000),
+      })),
+    });
+  });
+
+  // ── Mark override as reviewed ──────────────────────────────────────────────
+  // Operator re-affirms that this entry still reflects team policy.
+  // Resets the staleness clock without modifying the entry content.
+  router.post('/overrides/:id/review', async (req, res) => {
+    const found = await getStores().overrides.markOverrideReviewed(req.params.id, req.tenantId);
+    if (!found) {
+      res.status(404).json({ error: 'override not found' });
+      return;
+    }
+    res.json({ ok: true, reviewedAt: Date.now() });
+  });
+
   // ── Raw history for a tag ──────────────────────────────────────────────────
   router.get('/overrides/:tag', async (req, res) => {
     const events = await getStores().overrides.getOverridesForTag(req.params.tag, req.tenantId);

@@ -81,6 +81,8 @@ export interface OverrideEvent {
   actor: string;
   /** 'community' = pre-seeded default; 'team' (or undefined) = recorded by this team. */
   source?: 'team' | 'community';
+  /** Unix ms when an operator last explicitly re-affirmed this entry is still valid. */
+  reviewedAt?: number;
 }
 
 interface CorpusFile {
@@ -636,6 +638,43 @@ export function compileOverridesFromSlackThread(
   }
 
   return events;
+}
+
+// ── Corpus staleness ─────────────────────────────────────────────────────────
+
+/**
+ * Returns override entries that have not been operator-reviewed within
+ * daysThreshold days (default 60). An entry is considered reviewed if its
+ * reviewedAt field is set and is within the threshold — otherwise it relies
+ * on the original recordedAt, which may be very old.
+ *
+ * Used by GET /override-corpus/stale and the Slack daily digest to surface
+ * entries that have silently accumulated and may no longer reflect team policy.
+ */
+export function getStaleOverrides(daysThreshold = 60): OverrideEvent[] {
+  loadForRead();
+  const cutoff = Date.now() - daysThreshold * 24 * 60 * 60 * 1_000;
+  return _events.filter((e) => {
+    const lastReviewed = e.reviewedAt ?? e.recordedAt;
+    return lastReviewed < cutoff;
+  });
+}
+
+/**
+ * Mark an override entry as reviewed by an operator at the current time.
+ * Returns false if the id is not found.
+ */
+export function markOverrideReviewed(id: string): boolean {
+  return lockAndExecute(`${OVERRIDE_CORPUS_FILE}.lock`, () => {
+    load(true);
+    const ev = _events.find((e) => e.id === id);
+    if (!ev) return false;
+    ev.reviewedAt = Date.now();
+    _corpusDirty = true;
+    persist();
+    logger.info({ id }, 'override-corpus: entry marked reviewed');
+    return true;
+  });
 }
 
 /**

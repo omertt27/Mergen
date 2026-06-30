@@ -20,6 +20,8 @@
  *   M-5  — Per-tenant rate-limiting buckets are independent in cloud mode
  *   M-7  — Safety-policy keyword precision ('delete' alone no longer blocks)
  *   M-9  — block_destructive_commands survives a remote policy replace
+ *   M-10 — Policy files fail closed when unsigned
+ *   M-11 — Gate heartbeat can be required fail-closed
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -96,8 +98,14 @@ import {
   evaluateEnterprisePolicy,
   loadEnterprisePolicy,
   saveEnterprisePolicy,
+  setPolicySigningSecret,
+  _policySignatureStatusForTesting,
   type EnterprisePolicyConfig,
 } from '../../intelligence/enterprise-policy-engine.js';
+import {
+  _resetGateHeartbeatForTesting,
+  getGateHeartbeatStatus,
+} from '../../sensor/gate-heartbeat.js';
 import {
   checkSafetyPolicy,
   loadSafetyPolicy,
@@ -152,6 +160,14 @@ beforeEach(() => {
   _resetSessionsForTesting();
   vi.clearAllMocks();
   for (const { token } of getPendingHolds()) denyToolCall(token);
+});
+
+afterEach(() => {
+  delete process.env.MERGEN_REQUIRE_GATE_HEARTBEAT;
+  delete process.env.MERGEN_GATE_HEARTBEAT_MAX_AGE_MS;
+  delete process.env.MERGEN_ALLOW_UNSIGNED_POLICY;
+  delete process.env.MERGEN_ZERO_RETENTION;
+  _resetGateHeartbeatForTesting();
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1183,5 +1199,91 @@ describe('M-9 — immutable rules: block_destructive_commands survives remote re
     const { call } = makeGuardedPair('execute_fix');
     const result = await call({ command: 'terraform destroy prod' }, {});
     expect(result.isError).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// M-10: Policy file integrity fails closed on unsigned files
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('M-10 — policy HMAC: unsigned policy files fail closed', () => {
+  it('accepts a policy payload only when its HMAC signature matches', () => {
+    try {
+      setPolicySigningSecret('policy-test-secret');
+      const raw = JSON.stringify({ enabled: true, rules: [] } satisfies EnterprisePolicyConfig);
+      const sig = crypto.createHmac('sha256', 'policy-test-secret').update(raw).digest('hex');
+
+      expect(_policySignatureStatusForTesting(raw, sig)).toBe('valid');
+      expect(_policySignatureStatusForTesting(raw.replace('"enabled":true', '"enabled":false'), sig)).toBe('invalid');
+    } finally {
+      setPolicySigningSecret('');
+      _resetPolicyCacheForTesting();
+    }
+  });
+
+  it('rejects unsigned policy payloads by default when signing is enabled', () => {
+    try {
+      setPolicySigningSecret('policy-test-secret');
+      const raw = JSON.stringify({ enabled: false, rules: [] } satisfies EnterprisePolicyConfig);
+      expect(_policySignatureStatusForTesting(raw, null)).toBe('unsigned-rejected');
+    } finally {
+      setPolicySigningSecret('');
+      _resetPolicyCacheForTesting();
+    }
+  });
+
+  it('operators can explicitly allow unsigned policy files for one-off migration', () => {
+    try {
+      setPolicySigningSecret('policy-test-secret');
+      process.env.MERGEN_ALLOW_UNSIGNED_POLICY = 'true';
+      const raw = JSON.stringify({ enabled: true, rules: [] } satisfies EnterprisePolicyConfig);
+      expect(_policySignatureStatusForTesting(raw, null)).toBe('unsigned-accepted');
+    } finally {
+      setPolicySigningSecret('');
+      _resetPolicyCacheForTesting();
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// M-11: Gate heartbeat fail-closed mode
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('M-11 — gate heartbeat: required heartbeat fails closed', () => {
+  it('reports stale when the heartbeat is older than the configured max age', () => {
+    process.env.MERGEN_ZERO_RETENTION = 'true';
+    process.env.MERGEN_GATE_HEARTBEAT_MAX_AGE_MS = '1000';
+    _resetGateHeartbeatForTesting(Date.now() - 5_000);
+
+    const status = getGateHeartbeatStatus();
+    expect(status.ok).toBe(false);
+    expect(status.reason).toMatch(/stale/i);
+  });
+
+  it('blocks MCP tool calls when required heartbeat has not started', async () => {
+    process.env.MERGEN_ZERO_RETENTION = 'true';
+    process.env.MERGEN_REQUIRE_GATE_HEARTBEAT = 'true';
+    _resetGateHeartbeatForTesting();
+
+    const { call, spy } = makeGuardedPair('get_recent_logs');
+    const result = await call({}, {});
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/fail-closed|heartbeat/i);
+    expect(spy).not.toHaveBeenCalled();
+    expect(mockRecordBlock).toHaveBeenCalledWith(['gate_heartbeat_stale']);
+  });
+
+  it('allows MCP tool calls when required heartbeat is fresh', async () => {
+    process.env.MERGEN_ZERO_RETENTION = 'true';
+    process.env.MERGEN_REQUIRE_GATE_HEARTBEAT = 'true';
+    process.env.MERGEN_GATE_HEARTBEAT_MAX_AGE_MS = '1000';
+    _resetGateHeartbeatForTesting(Date.now());
+
+    const { call, spy } = makeGuardedPair('get_recent_logs');
+    const result = await call({}, {});
+
+    expect(result.isError).toBeUndefined();
+    expect(spy).toHaveBeenCalledOnce();
   });
 });

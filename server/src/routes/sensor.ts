@@ -28,6 +28,7 @@ import { getTeamState, isTeamEnabled } from '../intelligence/team.js';
 import { getStats } from '../intelligence/calibration.js';
 import { getDegradationState } from '../intelligence/degradation-watcher.js';
 import { getPendingBypasses } from '../intelligence/tool-guard.js';
+import { getGateHeartbeatStatus } from '../sensor/gate-heartbeat.js';
 
 export function createSensorRouter(serverVersion: string): Router {
   const router = Router();
@@ -67,6 +68,7 @@ export function createSensorRouter(serverVersion: string): Router {
         : { enabled: false },
       costGuard: getCostGuardStats(),
       degradation: getDegradationState(),
+      gateHeartbeat: getGateHeartbeatStatus(),
     });
   });
 

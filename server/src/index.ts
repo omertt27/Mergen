@@ -66,6 +66,7 @@ import { startPolicySync } from './intelligence/policy-sync.js';
 import { startShadowDigestCron } from './intelligence/shadow-digest-cron.js';
 import { startDegradationWatcher } from './intelligence/degradation-watcher.js';
 import { startHeartbeatMonitor, setHeartbeatAlertFn } from './sensor/heartbeat-monitor.js';
+import { startGateHeartbeat } from './sensor/gate-heartbeat.js';
 import { startK8sEventsPoller } from './sensor/k8s-events.js';
 import { loadPlugins } from './intelligence/detector-plugins.js';
 import { notify } from './intelligence/notifications.js';
@@ -371,6 +372,11 @@ async function main(): Promise<void> {
     });
   });
   startHeartbeatMonitor();
+
+  // ── Local gate heartbeat ───────────────────────────────────────────────────
+  // Writes a short-interval liveness marker that guarded tool calls and external
+  // wrappers can require before allowing agent-originated execution.
+  startGateHeartbeat();
 
   // ── Kubernetes events poller ───────────────────────────────────────────────
   // Polls kubectl for Warning events and feeds them into the causal engine.

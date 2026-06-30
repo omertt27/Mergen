@@ -15,6 +15,10 @@
  * Wire-up in index.ts:
  *   const mcp = new McpServer(...);
  *   registerTools(createGuardedServer(mcp));
+ *
+ * Billing invariant: this module must never import billing or usage modules.
+ * The local execution gate must never fail open because a billing limit was
+ * reached. Cloud features (autopilot, AI analysis) are metered separately.
  */
 
 import { randomUUID, randomBytes, createHmac, createHash } from 'crypto';
@@ -48,6 +52,7 @@ import {
 import logger from '../sensor/logger.js';
 import { BYPASS_PENDING_FILE, HITL_HOLDS_FILE, DATA_DIR, zeroRetentionMode } from '../sensor/paths.js';
 import { normalizeForMatching } from './normalize.js';
+import { assertGateHeartbeatFresh } from '../sensor/gate-heartbeat.js';
 
 type McpResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
 
@@ -255,6 +260,8 @@ interface PendingHold {
   heldAt:         number;
   resolve:        (result: McpResult) => void;
   timeoutHandle:  ReturnType<typeof setTimeout>;
+  reminderHandle?: ReturnType<typeof setTimeout>;
+  escalationHandle?: ReturnType<typeof setTimeout>;
 }
 
 const _pendingHolds = new Map<string, PendingHold>();
@@ -329,6 +336,8 @@ export function approveToolCall(token: string): boolean {
   const hold = _pendingHolds.get(token);
   if (!hold) return false;
   clearTimeout(hold.timeoutHandle);
+  if (hold.reminderHandle) clearTimeout(hold.reminderHandle);
+  if (hold.escalationHandle) clearTimeout(hold.escalationHandle);
   _pendingHolds.delete(token);
   _persistHolds();
   recordHitlDecision(hold.triggeredRules, 'approve', hold.heldAt);
@@ -343,6 +352,8 @@ export function denyToolCall(token: string): boolean {
   const hold = _pendingHolds.get(token);
   if (!hold) return false;
   clearTimeout(hold.timeoutHandle);
+  if (hold.reminderHandle) clearTimeout(hold.reminderHandle);
+  if (hold.escalationHandle) clearTimeout(hold.escalationHandle);
   _pendingHolds.delete(token);
   _persistHolds();
   recordHitlDecision(hold.triggeredRules, 'deny', hold.heldAt);
@@ -461,7 +472,7 @@ async function fireHitlWebhook(
       },
       {
         type: 'context',
-        elements: [{ type: 'mrkdwn', text: `Token \`${token}\` · expires in 15 minutes` }],
+        elements: [{ type: 'mrkdwn', text: `Token \`${token}\` · Slack reminder at 5 min · PagerDuty/Slack escalation at 10 min · auto-cancel at 15 min` }],
       },
     ],
     mergen: { type: 'hitl_gate', token, toolName, reason, approveUrl, denyUrl },
@@ -628,6 +639,35 @@ async function applyGate(
   port:     number,
 ): Promise<McpResult> {
   const t0 = Date.now();
+  const heartbeat = assertGateHeartbeatFresh();
+  if (!heartbeat.ok) {
+    recordGateBlock(['gate_heartbeat_stale']);
+    recordBlunder({
+      blunderType:     'pipeline_block',
+      command:         toolName,
+      blockReason:     `Gate heartbeat fail-closed: ${heartbeat.reason}`,
+      service:         'mcp',
+      tag:             'gate_heartbeat',
+      actor:           'agent',
+      pid:             null,
+      confidenceScore: null,
+    });
+    logger.error({ toolName, reason: heartbeat.reason }, 'tool-guard: gate heartbeat stale — failing closed');
+    return {
+      content: [{
+        type: 'text',
+        text: [
+          `🚫 **Mergen fail-closed: local execution gate heartbeat is not fresh.**`,
+          ``,
+          `**Tool:** \`${toolName}\``,
+          `**Why:** ${heartbeat.reason}`,
+          ``,
+          `_Restart Mergen or restore the gate heartbeat before executing agent actions._`,
+        ].join('\n'),
+      }],
+      isError: true,
+    };
+  }
 
   const argsSnapshot = JSON.stringify(args ?? {});
   // Extract the primary command arg (for bypass matching, alternatives, blast radius).
@@ -932,6 +972,9 @@ async function applyGate(
 
   return new Promise<McpResult>((resolve) => {
     const timeoutHandle = setTimeout(() => {
+      const hold = _pendingHolds.get(token);
+      if (hold?.reminderHandle) clearTimeout(hold.reminderHandle);
+      if (hold?.escalationHandle) clearTimeout(hold.escalationHandle);
       _pendingHolds.delete(token);
       _persistHolds();
       logger.info({ token, toolName }, 'tool-guard: HITL approval window expired');

@@ -20,6 +20,8 @@ import {
   getOverrideSummary,
   compileOverrideFromSlackThread,
   compileOverridesFromSlackThread,
+  getStaleOverrides,
+  markOverrideReviewed,
 } from '../../intelligence/override-corpus.js';
 import type {
   OverrideEvent,
@@ -114,5 +116,13 @@ export class SqliteOverrideCorpus implements IOverrideCorpus {
     _tenantId?: string,
   ): Promise<OverrideEvent[]> {
     return Promise.resolve(compileOverridesFromSlackThread(slackThread, service));
+  }
+
+  async getStaleOverrides(daysThreshold = 60, _tenantId?: string): Promise<OverrideEvent[]> {
+    return Promise.resolve(getStaleOverrides(daysThreshold));
+  }
+
+  async markOverrideReviewed(id: string, _tenantId?: string): Promise<boolean> {
+    return Promise.resolve(markOverrideReviewed(id));
   }
 }
