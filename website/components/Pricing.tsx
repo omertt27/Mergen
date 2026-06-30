@@ -70,7 +70,7 @@ export default function Pricing() {
 
   return (
     <section id="access">
-      <span className="section-label">07 // Pricing</span>
+      <span className="section-label">PRICING_AND_ACCESS</span>
       <h2>Start with the local gate.<br />Graduate to Agent IAM.</h2>
 
       {/* ── Price cards ── */}

@@ -488,25 +488,33 @@
     const cal = state.calibration;
     if (cal && Array.isArray(cal.perDetector) && cal.perDetector.length > 0) {
       showEl('card-detectors', true);
+      const isWarmingUp = !!cal.corpusSeeded;
       setEl('detector-summary',
-        cal.overallAccuracy !== null
-          ? 'overall ' + Math.round(cal.overallAccuracy * 100) + '% · ' + cal.trustedDetectors + '/' + cal.totalDetectors + ' trusted'
-          : cal.totalDetectors + ' detector(s) · awaiting verdicts');
+        isWarmingUp
+          ? cal.totalDetectors + ' detector(s) · collecting real verdicts'
+          : cal.overallAccuracy !== null
+            ? 'overall ' + Math.round(cal.overallAccuracy * 100) + '% · ' + cal.trustedDetectors + '/' + cal.totalDetectors + ' trusted'
+            : cal.totalDetectors + ' detector(s) · awaiting verdicts');
       const detList = document.getElementById('detector-list');
       if (detList) {
         detList.innerHTML = cal.perDetector.slice().sort((a, b) => {
-          if (a.trusted !== b.trusted)   return a.trusted ? -1 : 1;
+          if (!isWarmingUp && a.trusted !== b.trusted) return a.trusted ? -1 : 1;
           if (b.accuracy !== a.accuracy) return b.accuracy - a.accuracy;
           return b.verdicts - a.verdicts;
         }).map(s => {
-          const badge = !s.trusted ? '<span class="calib-badge">new</span>'
-            : (() => { const pct = Math.round(s.accuracy * 100); return '<span class="calib-badge ' + (pct >= 75 ? 'good' : pct >= 50 ? 'mid' : 'poor') + '">' + pct + '%</span>'; })();
+          let badge;
+          if (isWarmingUp) {
+            badge = '<span class="calib-badge" style="opacity:.5">prior</span>';
+          } else {
+            badge = !s.trusted ? '<span class="calib-badge">new</span>'
+              : (() => { const pct = Math.round(s.accuracy * 100); return '<span class="calib-badge ' + (pct >= 75 ? 'good' : pct >= 50 ? 'mid' : 'poor') + '">' + pct + '%</span>'; })();
+          }
           let trend = '';
-          if (typeof s.trendDelta === 'number' && s.trendDelta !== 0) {
+          if (!isWarmingUp && typeof s.trendDelta === 'number' && s.trendDelta !== 0) {
             const d = Math.round(s.trendDelta * 100);
             trend = '<span class="calib-trend ' + (d > 0 ? 'up' : 'down') + '">' + (d > 0 ? '▲' : '▼') + Math.abs(d) + '%</span>';
           }
-          return '<div class="det-row">' + badge + trend +
+          return '<div class="det-row" style="' + (isWarmingUp ? 'opacity:.5' : '') + '">' + badge + trend +
             '<span class="det-tag">' + escHtml(s.tag) + '</span>' +
             '<span class="det-n">'   + s.verdicts + '/' + s.predictions + '</span></div>';
         }).join('');

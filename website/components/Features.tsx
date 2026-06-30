@@ -1,94 +1,60 @@
 'use client'
 
-
-
-const features = [
+const featureList = [
   {
-    num: '01',
-    title: 'Local Execution Gate',
-    desc: (
-      <>
-        Every MCP tool call passes through a{' '}
-        <span className="highlight-yellow">synchronous local policy engine before the handler runs</span>.
-        Pattern matched against your JSON rules in under 1ms — no LLM, no network, no probabilistic guardrails.
-        PASS calls the handler. BLOCK returns a structured error with a specific guided alternative so the agent reformulates and retries within policy.
-      </>
-    ),
+    label: 'Local Gate',
+    title: 'Synchronous local policy engine running inline',
+    desc: 'Every MCP tool call passes through a local JSON policy check before the handler executes. Execution occurs in under 1ms with zero network hops, LLM calls, or cloud round-trips. If a block occurs, the gate returns a structured error to the agent containing policy-compliant alternatives, enabling automated path correction.',
   },
   {
-    num: '02',
-    title: 'Human-in-the-Loop (HITL)',
-    desc: (
-      <>
-        For flagged-but-not-blocked calls (schema mutations, high blast-radius commands), the gate{' '}
-        <span className="highlight-blue">holds the Promise until a human approves or denies</span>.
-        The AI IDE blocks — MCP stdio is naturally async, so it waits indefinitely for the JSON-RPC response with zero polling or re-submission.
-      </>
-    ),
+    label: 'HITL Execution',
+    title: 'Operator approval gates for high blast-radius actions',
+    desc: 'Flagged operations—including database schema mutations, structural deletes, and cross-boundary network requests—are held pending operator approval. The async promise blocks at the gateway level, freezing the AI agent tool execution in its tracks without polling, busy-waiting, or context-window loss.',
   },
   {
-    num: '03',
-    title: 'Override Corpus',
-    desc: (
-      <>
-        Every human override becomes machine-readable policy. Over time, your Friday settlement windows,
-        compliance holds, and on-call preferences form your specific
-        <span className="highlight-yellow"> operational DNA — enforcing invariants before any autonomous action triggers.</span>
-      </>
-    ),
+    label: 'Override Corpus',
+    title: 'Transient human decisions transformed into permanent policy',
+    desc: 'Every manual approval or rejection of an agent action is recorded. These overrides compile into a structured SQLite corpus, establishing a machine-readable operational policy. Friday settlement windows, data sanitization rules, and developer preferences automatically enforce invariants.',
   },
   {
-    num: '04',
-    title: 'Agent Blunder Log',
-    desc: (
-      <>
-        Every blocked action is hash-chained to a local, tamper-evident log (agent-blunders.json).
-        Tracks rule blocks, planning gates, and policy intercepts automatically to prove safety without any additional overhead.
-      </>
-    ),
+    label: 'Blunder Log',
+    title: 'Tamper-evident append-only safety audits',
+    desc: 'All blocked actions, policy violations, and operator overrides are written to a local hash-chained log file (agent-blunders.json). This provides an immutable, local audit trail to verify agent compliance without the overhead of external security logging services.',
   },
   {
-    num: '05',
-    title: 'Shadow Mode',
-    desc: (
-      <>
-        Before enforcing strict command blocks, run Mergen in shadow mode. It observes and records what actions
-        it would have blocked or suspended, giving your team a full trust report before
-        <span className="highlight-yellow"> you activate strict enforcement gates</span>.
-      </>
-    ),
+    label: 'Shadow Mode',
+    title: 'Passive observation before policy enforcement',
+    desc: 'Observe agent behaviors without active blocking. Shadow mode intercepts, analyzes, and registers tool calls against the current policy config, compiling a detailed security risk assessment that highlights which rules would have tripped before active gates are enabled.',
   },
   {
-    num: '06',
-    title: 'Pre-commit Incident Guard',
-    desc: (
-      <>
-        Before you ship, Mergen cross-references every staged file against your local SQLite incident history.{' '}
-        <span className="highlight-red">&ldquo;This file was in 3 incidents last month&rdquo;</span>
-        {' '}— the question a code reviewer would ask, encoded as a git hook. The corpus working before the incident happens.
-      </>
-    ),
+    label: 'Git Guard',
+    title: 'Pre-commit prevention of recurring outages',
+    desc: 'A git pre-commit hook that cross-references modified workspace paths against the local SQLite history of past outages. Surfacing warnings like "this file was modified in 3 recent incident loops" before changes are pushed, enforcing incident postmortem recommendations.',
   },
 ]
 
 export default function Features() {
   return (
-    <section id="why">
-      <span className="section-label">Core Systems</span>
-      <h2>
-        Control that enforces.
-        <br />
-        Safety that compounds.
-      </h2>
-      <div className="feature-grid">
-        {features.map((f) => (
-          <div
-            key={f.num}
-            className="feature-card"
-          >
-            <span className="feature-num">{f.num}</span>
-            <h3 className="feature-title">{f.title}</h3>
-            <div className="feature-desc">{f.desc}</div>
+    <section id="why" className="features-section">
+      <div className="section-header">
+        <span className="section-label">SYSTEM_CAPABILITIES</span>
+        <h2 className="section-title">
+          Deterministic safety gates.
+          <br />
+          No probabilistic heuristics.
+        </h2>
+      </div>
+
+      <div className="features-table">
+        {featureList.map((f, i) => (
+          <div key={i} className="features-row">
+            <div className="features-row-label font-mono">
+              {f.label}
+            </div>
+            <div className="features-row-content">
+              <h3 className="features-row-title">{f.title}</h3>
+              <p className="features-row-desc">{f.desc}</p>
+            </div>
           </div>
         ))}
       </div>

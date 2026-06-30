@@ -778,7 +778,7 @@ interface PerDetector {
 async function openCalibration(): Promise<void> {
   const cfg = vscode.workspace.getConfiguration('mergen');
   const port = cfg.get<number>('serverPort', 3000);
-  let payload: { perDetector?: PerDetector[]; overallAccuracy?: number | null; trustedDetectors?: number; totalDetectors?: number } | null = null;
+  let payload: { perDetector?: PerDetector[]; overallAccuracy?: number | null; trustedDetectors?: number; totalDetectors?: number; corpusSeeded?: boolean } | null = null;
   try {
     payload = await new Promise((resolve, reject) => {
       const req = http.get(
@@ -819,9 +819,17 @@ async function openCalibration(): Promise<void> {
     return b.verdicts - a.verdicts;
   });
 
+  const isWarmingUp = !!payload.corpusSeeded;
+
   const items: vscode.QuickPickItem[] = sorted.map((s) => {
     let icon: string, label: string;
-    if (!s.trusted) {
+    if (isWarmingUp) {
+      // All detectors appear "trusted" during warm-up because seeds exceed MIN_SAMPLES.
+      // Show prior accuracy as a calibration baseline, not as live performance.
+      const pct = Math.round(s.accuracy * 100);
+      icon = '$(circle-outline)';
+      label = `prior: ${pct}% · warming up`;
+    } else if (!s.trusted) {
       icon = '$(circle-outline)';
       label = `new · ${s.verdicts}/${s.predictions} rated`;
     } else {
@@ -830,24 +838,28 @@ async function openCalibration(): Promise<void> {
       label = `${pct}% · ${Math.round(s.accuracy * s.verdicts)}/${s.verdicts} correct`;
     }
     let trend = '';
-    if (typeof s.trendDelta === 'number' && s.trendDelta !== 0) {
+    if (!isWarmingUp && typeof s.trendDelta === 'number' && s.trendDelta !== 0) {
       const delta = Math.round(s.trendDelta * 100);
       trend = delta > 0 ? `  ▲ ${delta}% (7d)` : `  ▼ ${Math.abs(delta)}% (7d)`;
     }
     return {
       label: `${icon} ${s.tag}`,
       description: label + trend,
-      detail: s.shouldInterrupt
-        ? 'Trusted enough to interrupt your flow.'
-        : s.trusted
-          ? 'Trusted but quiet — won\'t grab attention.'
-          : 'Not trusted yet — needs more verdicts.',
+      detail: isWarmingUp
+        ? 'Calibration prior — rate analyses to build live accuracy.'
+        : s.shouldInterrupt
+          ? 'Trusted enough to interrupt your flow.'
+          : s.trusted
+            ? 'Trusted but quiet — won\'t grab attention.'
+            : 'Not trusted yet — needs more verdicts.',
     };
   });
 
-  const overall = payload.overallAccuracy != null
-    ? `Overall: ${Math.round(payload.overallAccuracy * 100)}% across ${payload.trustedDetectors}/${payload.totalDetectors} trusted detectors`
-    : `${payload.totalDetectors ?? list.length} detector(s) · awaiting verdicts`;
+  const overall = isWarmingUp
+    ? `${payload.totalDetectors ?? list.length} detector(s) · collecting real verdicts`
+    : payload.overallAccuracy != null
+      ? `Overall: ${Math.round(payload.overallAccuracy * 100)}% across ${payload.trustedDetectors}/${payload.totalDetectors} trusted detectors`
+      : `${payload.totalDetectors ?? list.length} detector(s) · awaiting verdicts`;
 
   const picked = await vscode.window.showQuickPick(items, {
     title: `Mergen — Detector Accuracy   (${overall})`,

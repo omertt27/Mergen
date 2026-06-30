@@ -1,6 +1,6 @@
 import Nav from '@/components/Nav'
 import Hero from '@/components/Hero'
-import Terminal from '@/components/Terminal'
+import InterceptionGate from '@/components/InterceptionGate'
 import CausalCanvas from '@/components/CausalCanvas'
 import LegacyVsMergen from '@/components/LegacyVsMergen'
 import Features from '@/components/Features'
@@ -16,16 +16,14 @@ export default function Home() {
       <main className="page-main">
         <div className="wrap">
           <Hero />
-          <Terminal />
+          <InterceptionGate />
           
-          <section id="visualizer" style={{ marginTop: '8rem', marginBottom: '8rem' }}>
-            <span className="section-label">02 // Visual Audit Trail</span>
-            <h2>
-              I don't understand my
-              <br />
-              own system anymore.
+          <section id="visualizer" className="visualizer-section">
+            <span className="section-label">VISUAL_AUDIT_TRAIL</span>
+            <h2 className="section-title">
+              Map runtime service communication
             </h2>
-            <p style={{ color: 'var(--gray-600)', fontSize: '1rem', lineHeight: 1.7, maxWidth: 580, marginBottom: '2.5rem' }}>
+            <p className="section-desc">
               Side projects grow large and complex, leading to a forgotten mental model of runtime behavior.
               Mergen maps out an auto-generated, living graph of how your services actually communicate and behave
               at runtime—providing the visual audit trail of agent activity.
@@ -44,3 +42,4 @@ export default function Home() {
     </>
   )
 }
+

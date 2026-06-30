@@ -3,56 +3,53 @@
 export default function QuickStartVideo() {
   return (
     <div className="quick-start-video" style={{
-      marginTop: '4rem',
+      marginTop: '2rem',
       aspectRatio: '16/9',
-      background: '#000',
-      border: '1px solid var(--gray-800)',
-      borderRadius: '8px',
+      background: '#090a0c',
+      border: '1px solid var(--border-color)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
       position: 'relative',
       overflow: 'hidden',
-      boxShadow: '0 20px 50px rgba(0,0,0,0.06)',
     }}>
       <div style={{ textAlign: 'center' }}>
         <div style={{
-          width: '60px',
-          height: '60px',
-          borderRadius: '50%',
-          background: 'var(--accent)',
+          width: '54px',
+          height: '54px',
+          background: 'var(--color-block)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          margin: '0 auto 1.5rem',
+          margin: '0 auto 1.25rem',
           cursor: 'pointer',
-          transition: 'transform 0.2s',
+          transition: 'transform 0.15s ease',
         }} className="play-btn">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
             <path d="M8 5v14l11-7z" />
           </svg>
         </div>
         <p style={{
-          fontFamily: 'var(--font-geist-mono), monospace',
+          fontFamily: 'var(--font-mono)',
           fontSize: '0.75rem',
           textTransform: 'uppercase',
-          letterSpacing: '0.2em',
-          color: 'var(--gray-600)',
+          letterSpacing: '0.15em',
+          color: 'var(--text-muted)',
         }}>
           Watch: 60s Quick Start
         </p>
       </div>
       
-      {/* Decorative elements to make it look like a video player */}
+      {/* Video timeline visual */}
       <div style={{
         position: 'absolute',
         bottom: 0,
         left: 0,
         right: 0,
-        height: '4px',
-        background: 'rgba(255,255,255,0.1)',
+        height: '3px',
+        background: 'var(--border-color)',
       }}>
-        <div style={{ width: '30%', height: '100%', background: 'var(--accent)' }} />
+        <div style={{ width: '30%', height: '100%', background: 'var(--color-block)' }} />
       </div>
     </div>
   )

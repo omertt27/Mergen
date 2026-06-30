@@ -3,142 +3,103 @@
 import { useState } from 'react'
 
 const soloManualSteps = [
-  { time: '0m',   action: 'Write the change',       detail: 'Touch the same file that caused last month\'s outage.' },
-  { time: '0m',   action: 'Run tests',              detail: 'Tests pass. No reviewer. Ship it.' },
-  { time: '4h',   action: 'Production alert fires', detail: 'Same failure mode. No one warned you.' },
-  { time: '4h+',  action: 'Reconstruct context',    detail: 'Grep logs. Trace the history. Piece it together under pressure.' },
+  { time: '00:00', action: 'Staged changes made', detail: 'Developer updates critical routing middleware.' },
+  { time: '00:02', action: 'Test suite execution', detail: 'Tests pass. Code is shipped directly to main without review.' },
+  { time: '04:00', action: 'Production alert fires', detail: 'Latency spikes. Gateway is dropping 20% of incoming requests.' },
+  { time: '04:15', action: 'Postmortem reconstruction', detail: 'Developer greps production logs to trace what changed.' },
 ]
 
 const soloMergenSteps = [
-  { time: '0m',  action: 'Stage the change',         detail: 'git add auth_middleware.ts' },
-  { time: '0s',  action: 'Guard runs',               detail: 'Cross-references staged files against incident history.' },
-  { time: '1s',  action: 'Warning surfaced',         detail: '"This file was in Incident #388 — do not increase stack depth > 4."' },
-  { time: '2m',  action: 'Fix before shipping',      detail: 'Adjust the change. The outage never happens.' },
+  { time: '00:00', action: 'Commit hook triggered', detail: 'Git pre-commit matches staged files against local SQLite history.' },
+  { time: '00:01', action: 'Outage risk flag raised', detail: 'Gateway identifies matching middleware in incident #84.' },
+  { time: '00:02', action: 'Pre-emptive code fix', detail: 'Developer refactors before push. Potential outage avoided.' },
 ]
 
 const manualSteps = [
-  { time: '0m',   action: 'Agent task started',    detail: 'custom-agent --task "refactor users schema"' },
-  { time: '5m',   action: 'Wall of stdio text',   detail: 'Agent prints thousands of lines of terminal logs.' },
-  { time: '15m',  action: 'System breaks',         detail: 'Local server crashes. You have no idea what mutated.' },
-  { time: '30m',  action: 'Trace file edits',      detail: 'Manually inspect git diffs and trace agent tool logs.' },
-  { time: '1h',   action: 'Find root cause',       detail: 'Piece together that the agent deleted DB config on step 84.' },
+  { time: '00:00', action: 'Agent task initialization', detail: 'Developer launches agent: "refactor database schema".' },
+  { time: '05:00', action: 'Console buffer overload', detail: 'Agent prints thousands of stdout lines containing nested commands.' },
+  { time: '15:00', action: 'Local runtime crash', detail: 'Web server drops. Staged DB state is corrupted.' },
+  { time: '30:00', action: 'Manual git diff audit', detail: 'Developer inspects file mutations to identify root cause.' },
+  { time: '60:00', action: 'Trace completed', detail: 'Discovered that agent deleted connection string configuration.' },
 ]
 
 const mergenSteps = [
-  { time: '0m',  action: 'Agent task started',    detail: 'custom-agent --task "refactor users schema"' },
-  { time: '1s',  action: 'Gateway inline tracing',detail: 'Gateway intercepts and indexes every tool call.' },
-  { time: '5s',  action: 'Compile audit log',     detail: 'Hash-chains every command, read, and write.' },
-  { time: '10s', action: 'Generate living map',   detail: 'Renders visual map of exactly what the agent modified.' },
-  { time: '30s', action: 'Spot mutation',         detail: 'Instantly isolate that step 84 modified DB config.' },
+  { time: '00:00', action: 'Agent task initialization', detail: 'Developer launches agent: "refactor database schema".' },
+  { time: '00:01', action: 'Synchronous tracing', detail: 'Gateway intercepts and records every command, read, and write.' },
+  { time: '00:05', action: 'Living topology compiled', detail: 'Audit trail records hash chains of all tool actions.' },
+  { time: '00:10', action: 'Visual execution map', detail: 'Living map displays exact path mutated by agent.' },
+  { time: '00:15', action: 'Isolate error step', detail: 'Developer instantly spots connection string delete at step 42.' },
 ]
 
 export default function LegacyVsMergen() {
   const [activeTab, setActiveTab] = useState<'prevent' | 'trace' | 'block' | 'policy'>('prevent')
 
   return (
-    <section id="how">
-      <span className="section-label">01 // The Difference</span>
-      <h2>
-        The gate runs before
-        <br />
-        the handler does.
-      </h2>
+    <section id="how" className="diff-section">
+      <div className="section-header">
+        <span className="section-label">EXECUTION_DIFFERENCE</span>
+        <h2 className="section-title">
+          Timeline: Inline controls vs. reactive triage
+        </h2>
+      </div>
 
-      {/* Tab Switcher */}
-      <div style={{
-        display: 'flex',
-        gap: '0.5rem',
-        marginBottom: '2.5rem',
-        background: '#111111',
-        border: '1px solid var(--gray-800)',
-        borderRadius: '30px',
-        padding: '6px',
-        width: 'fit-content',
-        overflowX: 'auto',
-      }}>
+      {/* Tab Switcher (Flat, hard-edged, monospace) */}
+      <div className="diff-tabs font-mono">
         {[
-          { id: 'prevent', label: 'Incident Prevention', icon: '🛡️' },
-          { id: 'trace', label: 'Execution Tracing', icon: '🔍' },
-          { id: 'block', label: 'Destructive Command Block', icon: '🚫' },
-          { id: 'policy', label: 'Persistent Rules', icon: '💾' },
+          { id: 'prevent', label: 'INCIDENT_PREVENTION' },
+          { id: 'trace', label: 'EXECUTION_TRACING' },
+          { id: 'block', label: 'COMMAND_INTERCEPT' },
+          { id: 'policy', label: 'PERSISTENT_POLICY' },
         ].map((t) => {
           const isActive = activeTab === t.id
           return (
             <button
               key={t.id}
               onClick={() => setActiveTab(t.id as any)}
-              style={{
-                background: isActive ? '#ff6600' : 'transparent',
-                border: 'none',
-                color: isActive ? '#ffffff' : 'var(--gray-600)',
-                padding: '8px 18px',
-                borderRadius: '25px',
-                fontSize: '0.82rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-                whiteSpace: 'nowrap',
-              }}
+              className={`diff-tab-btn ${isActive ? 'active' : ''}`}
             >
-              <span>{t.icon}</span>
-              <span>{t.label}</span>
+              {t.label}
             </button>
           )
         })}
       </div>
 
       {/* Tab Content */}
-      <div style={{ transition: 'opacity 0.3s ease-in-out' }}>
+      <div className="diff-content">
         {activeTab === 'prevent' && (
           <div>
-            <p style={{ color: 'var(--gray-600)', fontSize: '0.8rem', fontFamily: 'var(--font-geist-sans), sans-serif', fontWeight: 600, letterSpacing: '-0.01em', marginBottom: '1.25rem' }}>
-              Scenario A — Solo developer, no code reviewer
-            </p>
             <div className="compare-grid">
-              <div style={{ background: 'var(--surface)', padding: '2.5rem', border: '1px solid var(--gray-800)', borderRadius: 'var(--radius)' }}>
-                <h3 style={{ marginBottom: '1.5rem', letterSpacing: '-0.01em', fontSize: '0.95rem', fontWeight: 700, color: 'var(--gray-600)' }}>Without Mergen</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              {/* Without */}
+              <div className="compare-card compare-without">
+                <div className="compare-header font-mono">WITHOUT_MERGEN (REACTIVE)</div>
+                <div className="compare-timeline">
                   {soloManualSteps.map((s, i) => (
-                    <div key={i} style={{ display: 'flex', gap: '1.25rem', opacity: 0.5 }}>
-                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '35px', color: 'var(--gray-600)' }}>{s.time}</span>
-                      <div>
-                        <div style={{ fontSize: '0.88rem', fontWeight: 700, marginBottom: '0.2rem', color: 'var(--white)' }}>{s.action}</div>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--gray-600)' }}>{s.detail}</div>
+                    <div key={i} className="timeline-item">
+                      <span className="timeline-time font-mono">{s.time}</span>
+                      <div className="timeline-text">
+                        <div className="timeline-action font-mono">{s.action}</div>
+                        <div className="timeline-detail">{s.detail}</div>
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
-              <div style={{ background: 'rgba(46, 125, 50, 0.02)', padding: '2.5rem', border: '1px solid var(--gray-800)', borderRadius: 'var(--radius)' }}>
-                <h3 style={{ marginBottom: '1.5rem', letterSpacing: '-0.01em', fontSize: '0.95rem', fontWeight: 700, color: '#ff6600' }}>With Mergen</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              {/* With */}
+              <div className="compare-card compare-with">
+                <div className="compare-header font-mono">WITH_MERGEN (INLINE GATE)</div>
+                <div className="compare-timeline">
                   {soloMergenSteps.map((s, i) => (
-                    <div key={i} style={{ display: 'flex', gap: '1.25rem' }}>
-                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '35px', color: '#ff6600', fontWeight: 700 }}>{s.time}</span>
-                      <div>
-                        <div style={{ fontSize: '0.88rem', fontWeight: 700, marginBottom: '0.2rem', color: 'var(--white)' }}>{s.action}</div>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--gray-400)' }}>{s.detail}</div>
+                    <div key={i} className="timeline-item">
+                      <span className="timeline-time font-mono">{s.time}</span>
+                      <div className="timeline-text">
+                        <div className="timeline-action font-mono">{s.action}</div>
+                        <div className="timeline-detail">{s.detail}</div>
                       </div>
                     </div>
                   ))}
                 </div>
-                <div style={{
-                  marginTop: '2rem',
-                  padding: '1rem 1.25rem',
-                  background: 'rgba(255, 102, 0, 0.07)',
-                  borderLeft: '4px solid #ff6600',
-                  borderRadius: '6px',
-                  display: 'flex',
-                  gap: '10px',
-                  alignItems: 'flex-start'
-                }}>
-                  <span style={{ fontSize: '1.1rem', lineHeight: '1', color: '#ff6600' }}>✓</span>
-                  <p style={{ fontSize: '0.8rem', color: '#ff6600', lineHeight: 1.5, margin: 0 }}>
-                    <strong>Result:</strong> The bug never ships. Incident history is your reviewer — working silently at commit time.
-                  </p>
+                <div className="compare-summary-box font-mono">
+                  <span>OUTCOME:</span> Outage prevented. Incident history serves as a pre-commit gate before execution reaches production.
                 </div>
               </div>
             </div>
@@ -147,51 +108,38 @@ export default function LegacyVsMergen() {
 
         {activeTab === 'trace' && (
           <div>
-            <p style={{ color: 'var(--gray-600)', fontSize: '0.8rem', fontFamily: 'var(--font-geist-sans), sans-serif', fontWeight: 600, letterSpacing: '-0.01em', marginBottom: '1.25rem' }}>
-              Scenario B — Solo developer, visual audit trail of agent activity
-            </p>
             <div className="compare-grid">
-              <div style={{ background: 'var(--surface)', padding: '2.5rem', border: '1px solid var(--gray-800)', borderRadius: 'var(--radius)' }}>
-                <h3 style={{ marginBottom: '1.5rem', letterSpacing: '-0.01em', fontSize: '0.95rem', fontWeight: 700, color: 'var(--gray-600)' }}>Without Mergen</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              {/* Without */}
+              <div className="compare-card compare-without">
+                <div className="compare-header font-mono">WITHOUT_MERGEN (REACTIVE)</div>
+                <div className="compare-timeline">
                   {manualSteps.map((s, i) => (
-                    <div key={i} style={{ display: 'flex', gap: '1.25rem', opacity: 0.5 }}>
-                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '35px', color: 'var(--gray-600)' }}>{s.time}</span>
-                      <div>
-                        <div style={{ fontSize: '0.88rem', fontWeight: 700, marginBottom: '0.2rem', color: 'var(--white)' }}>{s.action}</div>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--gray-600)' }}>{s.detail}</div>
+                    <div key={i} className="timeline-item">
+                      <span className="timeline-time font-mono">{s.time}</span>
+                      <div className="timeline-text">
+                        <div className="timeline-action font-mono">{s.action}</div>
+                        <div className="timeline-detail">{s.detail}</div>
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
-              <div style={{ background: 'rgba(46, 125, 50, 0.02)', padding: '2.5rem', border: '1px solid var(--gray-800)', borderRadius: 'var(--radius)' }}>
-                <h3 style={{ marginBottom: '1.5rem', letterSpacing: '-0.01em', fontSize: '0.95rem', fontWeight: 700, color: '#ff6600' }}>With Mergen</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              {/* With */}
+              <div className="compare-card compare-with">
+                <div className="compare-header font-mono">WITH_MERGEN (INLINE GATE)</div>
+                <div className="compare-timeline">
                   {mergenSteps.map((s, i) => (
-                    <div key={i} style={{ display: 'flex', gap: '1.25rem' }}>
-                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '35px', color: '#ff6600', fontWeight: 700 }}>{s.time}</span>
-                      <div>
-                        <div style={{ fontSize: '0.88rem', fontWeight: 700, marginBottom: '0.2rem', color: 'var(--white)' }}>{s.action}</div>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--gray-400)' }}>{s.detail}</div>
+                    <div key={i} className="timeline-item">
+                      <span className="timeline-time font-mono">{s.time}</span>
+                      <div className="timeline-text">
+                        <div className="timeline-action font-mono">{s.action}</div>
+                        <div className="timeline-detail">{s.detail}</div>
                       </div>
                     </div>
                   ))}
                 </div>
-                <div style={{
-                  marginTop: '2rem',
-                  padding: '1rem 1.25rem',
-                  background: 'rgba(255, 102, 0, 0.07)',
-                  borderLeft: '4px solid #ff6600',
-                  borderRadius: '6px',
-                  display: 'flex',
-                  gap: '10px',
-                  alignItems: 'flex-start'
-                }}>
-                  <span style={{ fontSize: '1.1rem', lineHeight: '1', color: '#ff6600' }}>✓</span>
-                  <p style={{ fontSize: '0.8rem', color: '#ff6600', lineHeight: 1.5, margin: 0 }}>
-                    <strong>Result:</strong> Living map generated in real-time. You immediately see the exact files, environment variables, and system commands changed by the agent.
-                  </p>
+                <div className="compare-summary-box font-mono">
+                  <span>OUTCOME:</span> Execution visualizer maps active directory mutations dynamically. Eliminates console trace overhead.
                 </div>
               </div>
             </div>
@@ -200,75 +148,52 @@ export default function LegacyVsMergen() {
 
         {activeTab === 'block' && (
           <div>
-            <p style={{ color: 'var(--gray-600)', fontSize: '0.8rem', fontFamily: 'var(--font-geist-sans), sans-serif', fontWeight: 600, letterSpacing: '-0.01em', marginBottom: '1.25rem' }}>
-              Scenario C — AI agent attempts a destructive command
-            </p>
             <div className="compare-grid">
-              <div style={{ background: 'var(--surface)', padding: '2.5rem', border: '1px solid var(--gray-800)', borderRadius: 'var(--radius)' }}>
-                <h3 style={{ marginBottom: '1.5rem', letterSpacing: '-0.01em', fontSize: '0.95rem', fontWeight: 700, color: 'var(--gray-600)' }}>Without Mergen</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              {/* Without */}
+              <div className="compare-card compare-without">
+                <div className="compare-header font-mono">WITHOUT_MERGEN (REACTIVE)</div>
+                <div className="compare-timeline">
                   {[
-                    { time: '0ms',  action: 'Agent calls execute_fix',     detail: '{ command: "terraform destroy prod" }' },
-                    { time: '0ms',  action: 'Handler runs immediately',     detail: 'No gate. No check. No approval.' },
-                    { time: '1s',   action: 'terraform destroy executes',   detail: 'Production infrastructure torn down.' },
-                    { time: '∞',    action: 'Incident declared',            detail: 'Human wakes up to a destroyed environment.' },
+                    { time: '00.00s', action: 'Agent invokes execute_command', detail: '{"command": "terraform destroy -auto-approve"}' },
+                    { time: '00.01s', action: 'Command execution starts', detail: 'No verification gate active. Handler processes tool call.' },
+                    { time: '03.00s', action: 'Resources destroyed', detail: 'Production infrastructure teardown complete.' },
                   ].map((s, i) => (
-                    <div key={i} style={{ display: 'flex', gap: '1.25rem', opacity: 0.5 }}>
-                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '40px', color: 'var(--gray-600)', flexShrink: 0 }}>{s.time}</span>
-                      <div>
-                        <div style={{ fontSize: '0.88rem', fontWeight: 700, marginBottom: '0.2rem', color: 'var(--white)' }}>{s.action}</div>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--gray-600)', fontFamily: 'var(--font-geist-mono), monospace' }}>{s.detail}</div>
+                    <div key={i} className="timeline-item">
+                      <span className="timeline-time font-mono">{s.time}</span>
+                      <div className="timeline-text">
+                        <div className="timeline-action font-mono">{s.action}</div>
+                        <div className="timeline-detail">{s.detail}</div>
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
-              <div style={{ background: 'rgba(46, 125, 50, 0.02)', padding: '2.5rem', border: '1px solid var(--gray-800)', borderRadius: 'var(--radius)' }}>
-                <h3 style={{ marginBottom: '1.5rem', letterSpacing: '-0.01em', fontSize: '0.95rem', fontWeight: 700, color: '#ff6600' }}>With Mergen</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              {/* With */}
+              <div className="compare-card compare-with">
+                <div className="compare-header font-mono">WITH_MERGEN (INLINE GATE)</div>
+                <div className="compare-timeline">
                   {[
-                    { time: '0ms',  action: 'Agent calls execute_fix',       detail: '{ command: "terraform destroy prod" }' },
-                    { time: '<1ms', action: 'Local gate evaluates',           detail: 'Pattern "destroy" matched → rule block_destructive_commands' },
-                    { time: '<1ms', action: 'Handler never runs',             detail: 'MCP error returned before execution.' },
-                    { time: '<1ms', action: 'Blunder logged',                 detail: 'Recorded to agent-blunders.json with hash chain.' },
+                    { time: '00.00s', action: 'Agent invokes execute_command', detail: '{"command": "terraform destroy -auto-approve"}' },
+                    { time: '00.00s', action: 'Local gate interception', detail: 'Pattern check identifies "destroy" action within 1ms.' },
+                    { time: '00.00s', action: 'Halt returned to caller', detail: 'Command blocks. Structured error returned to agent.' },
                   ].map((s, i) => (
-                    <div key={i} style={{ display: 'flex', gap: '1.25rem' }}>
-                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '40px', color: '#ff6600', fontWeight: 700, flexShrink: 0 }}>{s.time}</span>
-                      <div>
-                        <div style={{ fontSize: '0.88rem', fontWeight: 700, marginBottom: '0.2rem', color: 'var(--white)' }}>{s.action}</div>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--gray-400)', fontFamily: 'var(--font-geist-mono), monospace' }}>{s.detail}</div>
+                    <div key={i} className="timeline-item">
+                      <span className="timeline-time font-mono">{s.time}</span>
+                      <div className="timeline-text">
+                        <div className="timeline-action font-mono">{s.action}</div>
+                        <div className="timeline-detail">{s.detail}</div>
                       </div>
                     </div>
                   ))}
                 </div>
-                <div style={{
-                  marginTop: '1.5rem',
-                  background: '#1a1a1a',
-                  border: '1px solid #333',
-                  borderRadius: '6px',
-                  padding: '12px 16px',
-                  fontFamily: 'var(--font-geist-mono), monospace',
-                  fontSize: '0.72rem',
-                }}>
-                  <div style={{ color: '#ff6600', marginBottom: '6px' }}>Tool call blocked by Mergen local policy gate.</div>
-                  <div style={{ color: '#888888' }}>Tool: <span style={{ color: '#ffffff' }}>execute_fix</span></div>
-                  <div style={{ color: '#888888' }}>Reason: <span style={{ color: '#ff8c42' }}>Destructive command pattern matched.</span></div>
-                  <div style={{ color: '#888888', marginTop: '6px' }}>See: GET /agent-blunders</div>
+                <div className="compare-code-block font-mono">
+                  <div className="code-header">GATEWAY LOG // TRIPPED</div>
+                  <div>Tool: execute_command</div>
+                  <div>Payload: "terraform destroy -auto-approve"</div>
+                  <div className="text-block">Verdict: BLOCKED (policy: block_destructive_infra)</div>
                 </div>
-                <div style={{
-                  marginTop: '1rem',
-                  padding: '1rem 1.25rem',
-                  background: 'rgba(255, 102, 0, 0.07)',
-                  borderLeft: '4px solid #ff6600',
-                  borderRadius: '6px',
-                  display: 'flex',
-                  gap: '10px',
-                  alignItems: 'flex-start'
-                }}>
-                  <span style={{ fontSize: '1.1rem', lineHeight: '1', color: '#ff6600' }}>✓</span>
-                  <p style={{ fontSize: '0.8rem', color: '#ff6600', lineHeight: 1.5, margin: 0 }}>
-                    <strong>Result:</strong> Production never touched. The gate runs before the handler — deterministically, in under 1ms, with no LLM involved.
-                  </p>
+                <div className="compare-summary-box font-mono">
+                  <span>OUTCOME:</span> Target command never executes. Gateway blocks before sub-process spawning on host.
                 </div>
               </div>
             </div>
@@ -277,61 +202,46 @@ export default function LegacyVsMergen() {
 
         {activeTab === 'policy' && (
           <div>
-            <p style={{ color: 'var(--gray-600)', fontSize: '0.8rem', fontFamily: 'var(--font-geist-sans), sans-serif', fontWeight: 600, letterSpacing: '-0.01em', marginBottom: '1.25rem' }}>
-              Scenario D — Human overrides compound into persistent agent policy
-            </p>
             <div className="compare-grid">
-              <div style={{ background: 'var(--surface)', padding: '2.5rem', border: '1px solid var(--gray-800)', borderRadius: 'var(--radius)' }}>
-                <h3 style={{ marginBottom: '1.5rem', letterSpacing: '-0.01em', fontSize: '0.95rem', fontWeight: 700, color: 'var(--gray-600)' }}>Without Mergen</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              {/* Without */}
+              <div className="compare-card compare-without">
+                <div className="compare-header font-mono">WITHOUT_MERGEN (REACTIVE)</div>
+                <div className="compare-timeline">
                   {[
-                    { time: '0m',  action: 'Constraint found',     detail: 'Write warning in README: "Never let AI rewrite auth_middleware.ts."' },
-                    { time: '2wk', action: 'Rule is forgotten',    detail: 'README changes or is omitted from agent context window.' },
-                    { time: '3mo', action: 'Engineer leaves',       detail: 'The context leaves with them. New agent has no idea.' },
-                    { time: '3mo', action: 'Agent rewrites file',   detail: 'Agent replaces authentication logic with a broken pattern.' },
+                    { time: 'Day 1', action: 'README instructions updated', detail: 'Developer documents: "Never delete postgres container".' },
+                    { time: 'Day 15', action: 'Context window drift', detail: 'README omitted from prompt context or truncated.' },
+                    { time: 'Day 90', action: 'Obsolete instruction runs', detail: 'New agent model executes prune command, deleting container.' },
                   ].map((s, i) => (
-                    <div key={i} style={{ display: 'flex', gap: '1.25rem', opacity: 0.5 }}>
-                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '35px', color: 'var(--gray-600)' }}>{s.time}</span>
-                      <div>
-                        <div style={{ fontSize: '0.88rem', fontWeight: 700, marginBottom: '0.2rem', color: 'var(--white)' }}>{s.action}</div>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--gray-600)' }}>{s.detail}</div>
+                    <div key={i} className="timeline-item">
+                      <span className="timeline-time font-mono">{s.time}</span>
+                      <div className="timeline-text">
+                        <div className="timeline-action font-mono">{s.action}</div>
+                        <div className="timeline-detail">{s.detail}</div>
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
-              <div style={{ background: 'rgba(46, 125, 50, 0.02)', padding: '2.5rem', border: '1px solid var(--gray-800)', borderRadius: 'var(--radius)' }}>
-                <h3 style={{ marginBottom: '1.5rem', letterSpacing: '-0.01em', fontSize: '0.95rem', fontWeight: 700, color: '#ff6600' }}>With Mergen</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              {/* With */}
+              <div className="compare-card compare-with">
+                <div className="compare-header font-mono">WITH_MERGEN (INLINE GATE)</div>
+                <div className="compare-timeline">
                   {[
-                    { time: '0m',  action: 'Policy registered',     detail: 'Register override: "Block automated commits to auth_middleware.ts."' },
-                    { time: '1s',  action: 'Hook encoded',          detail: 'Local gate registers the constraint automatically.' },
-                    { time: '3mo', action: 'Engineer leaves',       detail: 'Constraint remains in SQLite override corpus, queryable & active.' },
-                    { time: '3mo', action: 'Agent edit blocked',    detail: 'Agent tries to edit file. Git hook blocks commit instantly.' },
+                    { time: 'Day 1', action: 'Policy rule registered', detail: 'Local gate config updated to restrict database deletes.' },
+                    { time: 'Day 90', action: 'Agent attempts prune', detail: 'Prune command matched against persistent JSON rules.' },
+                    { time: 'Day 90', action: 'Execution blocked', detail: 'Command is intercepted. Action requires human signature.' },
                   ].map((s, i) => (
-                    <div key={i} style={{ display: 'flex', gap: '1.25rem' }}>
-                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', fontSize: '0.8rem', width: '35px', color: '#ff6600', fontWeight: 700 }}>{s.time}</span>
-                      <div>
-                        <div style={{ fontSize: '0.88rem', fontWeight: 700, marginBottom: '0.2rem', color: 'var(--white)' }}>{s.action}</div>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--gray-400)' }}>{s.detail}</div>
+                    <div key={i} className="timeline-item">
+                      <span className="timeline-time font-mono">{s.time}</span>
+                      <div className="timeline-text">
+                        <div className="timeline-action font-mono">{s.action}</div>
+                        <div className="timeline-detail">{s.detail}</div>
                       </div>
                     </div>
                   ))}
                 </div>
-                <div style={{
-                  marginTop: '2rem',
-                  padding: '1rem 1.25rem',
-                  background: 'rgba(255, 102, 0, 0.07)',
-                  borderLeft: '4px solid #ff6600',
-                  borderRadius: '6px',
-                  display: 'flex',
-                  gap: '10px',
-                  alignItems: 'flex-start'
-                }}>
-                  <span style={{ fontSize: '1.1rem', lineHeight: '1', color: '#ff6600' }}>✓</span>
-                  <p style={{ fontSize: '0.8rem', color: '#ff6600', lineHeight: 1.5, margin: 0 }}>
-                    <strong>Result:</strong> Overrides persist as machine-enforceable rules. The execution gate blocks agent violations even when you forget they exist.
-                  </p>
+                <div className="compare-summary-box font-mono">
+                  <span>OUTCOME:</span> Persistent configuration ensures policy constraints remain active indefinitely, independent of context window size.
                 </div>
               </div>
             </div>

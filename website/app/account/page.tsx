@@ -34,6 +34,7 @@ interface CalibrationData {
   overallAccuracy: number | null
   trustedDetectors: number
   totalDetectors: number
+  corpusSeeded?: boolean
 }
 
 interface HealthData {
@@ -239,7 +240,7 @@ export default function AccountPage() {
               )}
 
               {/* Accuracy (only show when there is enough data) */}
-              {state.calibration.overallAccuracy !== null && state.calibration.trustedDetectors > 0 && (
+              {state.calibration.overallAccuracy !== null && state.calibration.trustedDetectors > 0 && !state.calibration.corpusSeeded && (
                 <div style={card}>
                   <Label>Diagnosis Accuracy</Label>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', marginBottom: '0.25rem' }}>

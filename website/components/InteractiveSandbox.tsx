@@ -35,15 +35,15 @@ export default function InteractiveSandbox() {
   const [running, setRunning] = useState(false)
   const [output, setOutput] = useState<string[]>([])
 
-  // Scenario A State (replaces idleConns and errorRate)
+  // Scenario A State
   const [dangerLevel, setDangerLevel] = useState(8)
   const [blastRadius, setBlastRadius] = useState(65)
 
-  // Scenario B State (replaces memoryUsage and oomEvents)
+  // Scenario B State
   const [accessDepth, setAccessDepth] = useState(7)
   const [isCredential, setIsCredential] = useState(true)
 
-  // Scenario C State (replaces upstream429 and latency)
+  // Scenario C State
   const [stackDepth, setStackDepth] = useState(6)
   const [riskScore, setRiskScore] = useState(1.8)
 
@@ -81,11 +81,11 @@ export default function InteractiveSandbox() {
 
     setTimeout(() => {
       setOutput(prev => [...prev, `> Action Attempted: "${eventText}"`])
-    }, 500)
+    }, 400)
 
     setTimeout(() => {
       setOutput(prev => [...prev, `> Telemetry Context: ${telemetry}`])
-    }, 1000)
+    }, 800)
 
     setTimeout(() => {
       if (isMatched) {
@@ -102,24 +102,22 @@ export default function InteractiveSandbox() {
         ])
       }
       setRunning(false)
-    }, 1600)
+    }, 1200)
   }
 
   return (
-    <section id="sandbox">
-      <span className="section-label">04 // Interactive Sandbox</span>
+    <section id="sandbox" style={{ borderBottom: 'none' }}>
+      <span className="section-label">INTERACTIVE_SANDBOX</span>
       <h2>
-        Test the detector
-        <br />
-        logic.
+        Verify the inline detection parameters
       </h2>
 
       <div className="sandbox-grid mt-lg" style={{
         display: 'grid',
         gridTemplateColumns: '1fr',
-        gap: '4px',
-        background: 'var(--gray-800)',
-        border: '1px solid var(--gray-800)',
+        gap: '1px',
+        background: 'var(--border-color)',
+        border: '1px solid var(--border-color)',
       }}>
         {/* Responsive Grid Wrapper */}
         <div style={{
@@ -128,10 +126,10 @@ export default function InteractiveSandbox() {
           width: '100%'
         }}>
           {/* Controls Panel */}
-          <div style={{ background: 'var(--bg)', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+          <div style={{ background: 'var(--bg-card)', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
             <div>
-              <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--gray-600)', marginBottom: '1rem' }}>
-                Select Scenario
+              <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-muted)', marginBottom: '1rem' }} className="font-mono">
+                Select Target Scenario
               </p>
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                 {scenarios.map((s) => (
@@ -142,14 +140,14 @@ export default function InteractiveSandbox() {
                       flex: '1 1 120px',
                       padding: '0.75rem',
                       textAlign: 'left',
-                      background: selected.key === s.key ? 'rgba(255, 85, 0, 0.08)' : 'transparent',
+                      background: selected.key === s.key ? 'var(--bg-hover)' : 'transparent',
                       border: '1px solid',
-                      borderColor: selected.key === s.key ? 'var(--accent)' : 'var(--gray-800)',
-                      color: selected.key === s.key ? 'var(--accent-text)' : 'var(--gray-600)',
+                      borderColor: selected.key === s.key ? 'var(--color-block)' : 'var(--border-color)',
+                      color: selected.key === s.key ? 'var(--text-bold)' : 'var(--text-muted)',
                       fontSize: '0.8rem',
                       cursor: 'pointer',
-                      borderRadius: '4px',
-                      transition: 'all 0.2s',
+                      transition: 'all 0.15s',
+                      borderRadius: '0px',
                     }}
                   >
                     {s.name}
@@ -159,8 +157,8 @@ export default function InteractiveSandbox() {
             </div>
 
             {/* Slider Adjustments Panel */}
-            <div style={{ borderTop: '1px solid var(--gray-800)', paddingTop: '1.5rem' }}>
-              <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--gray-600)', marginBottom: '1.25rem' }}>
+            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem' }}>
+              <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-muted)', marginBottom: '1.25rem' }} className="font-mono">
                 Adjust Telemetry Inputs
               </p>
 
@@ -168,8 +166,8 @@ export default function InteractiveSandbox() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
-                      <span style={{ color: 'var(--gray-400)' }}>Command Danger Level</span>
-                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', color: dangerLevel > 7 ? 'var(--accent-text)' : 'var(--white)' }}>
+                      <span style={{ color: 'var(--text-main)' }}>Command Danger Level</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', color: dangerLevel > 7 ? 'var(--color-block)' : 'var(--text-bold)' }}>
                         {dangerLevel}/10 {dangerLevel > 7 && '(Critical)'}
                       </span>
                     </div>
@@ -179,14 +177,14 @@ export default function InteractiveSandbox() {
                       max="10"
                       value={dangerLevel}
                       onChange={(e) => { setDangerLevel(Number(e.target.value)); setOutput([]); }}
-                      style={{ width: '100%', accentColor: 'var(--accent)' }}
+                      style={{ width: '100%', accentColor: 'var(--color-block)' }}
                     />
                   </div>
 
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
-                      <span style={{ color: 'var(--gray-400)' }}>Blast Radius</span>
-                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', color: blastRadius > 50 ? 'var(--accent-text)' : 'var(--white)' }}>
+                      <span style={{ color: 'var(--text-main)' }}>Blast Radius</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', color: blastRadius > 50 ? 'var(--color-block)' : 'var(--text-bold)' }}>
                         {blastRadius}% {blastRadius > 50 && '(High)'}
                       </span>
                     </div>
@@ -197,7 +195,7 @@ export default function InteractiveSandbox() {
                       step="5"
                       value={blastRadius}
                       onChange={(e) => { setBlastRadius(Number(e.target.value)); setOutput([]); }}
-                      style={{ width: '100%', accentColor: 'var(--accent)' }}
+                      style={{ width: '100%', accentColor: 'var(--color-block)' }}
                     />
                   </div>
                 </div>
@@ -207,8 +205,8 @@ export default function InteractiveSandbox() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
-                      <span style={{ color: 'var(--gray-400)' }}>Directory Depth</span>
-                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', color: accessDepth > 5 ? 'var(--accent-text)' : 'var(--white)' }}>
+                      <span style={{ color: 'var(--text-main)' }}>Directory Depth</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', color: accessDepth > 5 ? 'var(--color-block)' : 'var(--text-bold)' }}>
                         {accessDepth}/10 {accessDepth > 5 && '(System Dir)'}
                       </span>
                     </div>
@@ -218,17 +216,17 @@ export default function InteractiveSandbox() {
                       max="10"
                       value={accessDepth}
                       onChange={(e) => { setAccessDepth(Number(e.target.value)); setOutput([]); }}
-                      style={{ width: '100%', accentColor: 'var(--accent)' }}
+                      style={{ width: '100%', accentColor: 'var(--color-block)' }}
                     />
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem', marginTop: '0.5rem' }}>
-                    <span style={{ color: 'var(--gray-400)' }}>Credential File (.env, key)</span>
+                    <span style={{ color: 'var(--text-main)' }}>Credential File (.env, key)</span>
                     <input
                       type="checkbox"
                       checked={isCredential}
                       onChange={(e) => { setIsCredential(e.target.checked); setOutput([]); }}
-                      style={{ width: '16px', height: '16px', accentColor: 'var(--accent)', cursor: 'pointer' }}
+                      style={{ width: '16px', height: '16px', accentColor: 'var(--color-block)', cursor: 'pointer' }}
                     />
                   </div>
                 </div>
@@ -238,8 +236,8 @@ export default function InteractiveSandbox() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
-                      <span style={{ color: 'var(--gray-400)' }}>Recursion Stack Depth</span>
-                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', color: stackDepth > 4 ? 'var(--accent-text)' : 'var(--white)' }}>
+                      <span style={{ color: 'var(--text-main)' }}>Recursion Stack Depth</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', color: stackDepth > 4 ? 'var(--color-block)' : 'var(--text-bold)' }}>
                         {stackDepth}/10 {stackDepth > 4 && '(Deep Recursion)'}
                       </span>
                     </div>
@@ -249,14 +247,14 @@ export default function InteractiveSandbox() {
                       max="10"
                       value={stackDepth}
                       onChange={(e) => { setStackDepth(Number(e.target.value)); setOutput([]); }}
-                      style={{ width: '100%', accentColor: 'var(--accent)' }}
+                      style={{ width: '100%', accentColor: 'var(--color-block)' }}
                     />
                   </div>
 
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
-                      <span style={{ color: 'var(--gray-400)' }}>Change Risk Score</span>
-                      <span style={{ fontFamily: 'var(--font-geist-mono), monospace', color: riskScore > 1.0 ? 'var(--accent-text)' : 'var(--white)' }}>
+                      <span style={{ color: 'var(--text-main)' }}>Change Risk Score</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', color: riskScore > 1.0 ? 'var(--color-block)' : 'var(--text-bold)' }}>
                         {riskScore.toFixed(1)}/3.0 {riskScore > 1.0 && '(High Risk)'}
                       </span>
                     </div>
@@ -267,7 +265,7 @@ export default function InteractiveSandbox() {
                       step="0.1"
                       value={riskScore}
                       onChange={(e) => { setRiskScore(Number(e.target.value)); setOutput([]); }}
-                      style={{ width: '100%', accentColor: 'var(--accent)' }}
+                      style={{ width: '100%', accentColor: 'var(--color-block)' }}
                     />
                   </div>
                 </div>
@@ -278,42 +276,42 @@ export default function InteractiveSandbox() {
               <button
                 onClick={runDetector}
                 disabled={running}
-                className="btn btn-white"
-                style={{ width: '100%', padding: '1rem', opacity: running ? 0.5 : 1 }}
+                className="btn-primary"
+                style={{ width: '100%', padding: '12px', opacity: running ? 0.5 : 1, fontFamily: 'var(--font-mono)', cursor: 'pointer' }}
               >
-                {running ? 'Analyzing Telemetry...' : 'Run Detector →'}
+                {running ? 'Evaluating Gateway...' : 'Run Safety Check →'}
               </button>
             </div>
           </div>
 
           {/* Terminal Output */}
-          <div style={{ background: '#0a0a0a', padding: '2rem', fontFamily: 'var(--font-geist-mono), monospace', display: 'flex', flexDirection: 'column', gap: '1.5rem', minHeight: '320px' }}>
-            <div style={{ color: '#777777', fontSize: '0.75rem', borderBottom: '1px solid #2a2a2a', paddingBottom: '1rem', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-              <span>// Telemetry context pack:</span>
-              <span style={{ color: '#ff6600' }}>{telemetry}</span>
+          <div style={{ background: '#090a0c', padding: '2rem', fontFamily: 'var(--font-mono)', display: 'flex', flexDirection: 'column', gap: '1.5rem', minHeight: '320px' }}>
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '1rem', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+              <span>// Intercept telemetry payload:</span>
+              <span style={{ color: 'var(--color-block)' }}>{telemetry}</span>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', flex: 1 }}>
               {output.length === 0 && (
-                <div style={{ color: '#666666', fontStyle: 'italic', fontSize: '0.85rem' }}>
-                  Adjust parameters on the left, then click "Run Detector" to see Mergen's diagnostic check in action.
+                <div style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.85rem' }}>
+                  Adjust parameters on the left, then click "Run Safety Check" to trigger the local evaluation loop.
                 </div>
               )}
               {output.map((line, i) => {
                 const isSuccess = line.startsWith('> SUCCESS')
-                const isHalted = line.startsWith('> HALTED')
-                const isHeading = line.startsWith('>') && !isSuccess && !isHalted
+                const isBlocked = line.startsWith('> BLOCKED')
+                const isHeading = line.startsWith('>') && !isSuccess && !isBlocked
                 
-                let textColor = '#777777'
-                if (isSuccess) textColor = '#ff6600'
-                else if (isHalted) textColor = '#ff6600'
-                else if (isHeading) textColor = '#ff8c42'
+                let textColor = 'var(--text-muted)'
+                if (isSuccess) textColor = 'var(--color-pass)'
+                else if (isBlocked) textColor = 'var(--color-block)'
+                else if (isHeading) textColor = 'var(--text-bold)'
 
                 return (
                   <div key={i} style={{
                     fontSize: '0.85rem',
                     color: textColor,
-                    fontWeight: (isSuccess || isHalted) ? 800 : 400,
+                    fontWeight: (isSuccess || isBlocked) ? 700 : 400,
                   }}>
                     {line}
                   </div>
@@ -328,84 +326,55 @@ export default function InteractiveSandbox() {
               alignItems: 'center',
               justifyContent: 'space-between',
               padding: '0.75rem 1rem',
-              border: '1px solid #2a2a2a',
-              background: '#111111',
-              borderRadius: '4px',
+              border: '1px solid var(--border-color)',
+              background: 'var(--bg-card)',
               fontSize: '0.75rem',
             }}>
-              <span style={{ color: '#888888' }}>Gateway Policy Match:</span>
+              <span style={{ color: 'var(--text-muted)' }}>Gateway Policy Match:</span>
               {isMatched ? (
-                <span style={{ color: '#ff6600', fontWeight: 800 }}>✓ MATCHED (Blocked)</span>
+                <span style={{ color: 'var(--color-block)', fontWeight: 700 }}>✓ MATCHED (Blocked)</span>
               ) : (
-                <span style={{ color: '#777777' }}>✗ UNMATCHED (Allowed)</span>
+                <span style={{ color: 'var(--text-muted)' }}>✗ UNMATCHED (Allowed)</span>
               )}
             </div>
 
             {output.length > 0 && !running && isMatched && (
               <div style={{
-                border: '1px solid #1a1a0a',
-                background: '#0a0a00',
-                borderRadius: '4px',
-                overflow: 'hidden',
+                border: '1px solid var(--border-color)',
+                background: 'var(--bg-card)',
                 fontSize: '0.75rem',
               }}>
                 <div style={{
-                  background: '#2a1a00',
+                  background: 'var(--bg-hover)',
                   padding: '0.5rem 0.75rem',
                   fontSize: '0.65rem',
                   fontWeight: 700,
                   letterSpacing: '0.08em',
-                  color: '#ff8c42',
+                  color: 'var(--color-block)',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '0.5rem',
                 }}>
-                  SLACK THREAD — what your team would see
+                  SLACK ALERTS — what your team sees
                 </div>
                 <div style={{ padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
-                    <span style={{ color: '#ff6600', minWidth: '16px' }}>[!]</span>
+                    <span style={{ color: 'var(--color-block)', minWidth: '16px' }}>[!]</span>
                     <div>
-                      <span style={{ color: '#ffffff', fontWeight: 700 }}>Security Gateway Block</span>
-                      <span style={{ color: '#666666' }}> — {selected.name.toLowerCase().replace(' ', '-')}</span>
+                      <span style={{ color: 'var(--text-bold)', fontWeight: 700 }}>Security Gateway Block</span>
+                      <span style={{ color: 'var(--text-muted)' }}> — {selected.name.toLowerCase().replace(' ', '-')}</span>
                     </div>
                   </div>
-                  <div style={{ paddingLeft: '1.5rem', color: '#888888', lineHeight: 1.7 }}>
-                    <div><span style={{ color: '#ff6600', fontWeight: 600 }}>Command Intercepted — Local Gate Engine</span></div>
-                    <div style={{ color: '#666666' }}>→ Action: <span style={{ color: '#e2e8f0' }}>{
+                  <div style={{ paddingLeft: '1.5rem', color: 'var(--text-muted)', lineHeight: 1.7 }}>
+                    <div><span style={{ color: 'var(--color-block)', fontWeight: 600 }}>Command Intercepted — Local Gate Engine</span></div>
+                    <div style={{ color: 'var(--text-muted)' }}>→ Action: <span style={{ color: 'var(--text-main)' }}>{
                       selected.key === 'destructive_cmd' ? `terraform destroy prod (danger=${dangerLevel}/10, blast=${blastRadius}%)` :
                       selected.key === 'secret_leak' ? `Read credential file: .env (depth=${accessDepth}/10, cred=${isCredential.toString()})` :
                       `Prisma schema migration stack depth ${stackDepth}/10 (risk=${riskScore.toFixed(1)}/3.0)`
                     }</span></div>
-                    <div style={{ color: '#666666' }}>→ Rule: <code style={{ color: '#ff8c42', background: 'rgba(255,255,255,0.05)', padding: '1px 4px', borderRadius: '2px' }}>{selected.remedy}</code></div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
-                    <span style={{ color: '#22c55e', minWidth: '16px' }}>✓</span>
-                    <span style={{ color: '#888888' }}>Gate intercept executed in <code style={{ color: '#ff6600' }}>&lt; 1ms</code></span>
-                  </div>
-                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
-                    <span style={{ color: '#22c55e', minWidth: '16px' }}>✓</span>
-                    <span style={{ color: '#ff6600', fontWeight: 700 }}>PREVENTED — Production protected. Blunder logged to git.</span>
-                  </div>
-                  <div style={{ color: '#333333', fontSize: '0.65rem', borderTop: '1px solid #2a2a2a', paddingTop: '0.5rem' }}>
-                    actionBlocked=true · executionBlocked=true · logPath=~/.mergen/agent-blunders.json
+                    <div style={{ color: 'var(--text-muted)' }}>→ Rule: <code style={{ color: 'var(--color-block)', background: 'var(--bg-hover)', padding: '1px 4px' }}>{selected.remedy}</code></div>
                   </div>
                 </div>
-              </div>
-            )}
-
-            {output.length > 0 && !running && !isMatched && (
-              <div style={{
-                padding: '1rem',
-                border: '1px solid #2a2a2a',
-                background: '#111111',
-                borderRadius: '4px',
-                fontSize: '0.75rem',
-                color: '#888888',
-                lineHeight: 1.6,
-              }}>
-                <span style={{ color: 'var(--accent)' }}>Gate passed:</span>{' '}
-                The inputs do not cross the policy threshold rules. The agent action was allowed to execute because it fell within safe boundaries. Raise the sliders above the threshold to see the security gate block the action.
               </div>
             )}
           </div>

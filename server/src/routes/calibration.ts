@@ -201,19 +201,26 @@ export function createCalibrationRouter(): Router {
   // Partners use this number to know when the accuracy corpus is ready to publish.
   router.get('/calibration/corpus-progress', (_req, res) => {
     const TARGET = 20;
-    const records = getRecords();
+    // Exclude built-in seeds — seeds have confidence=HIGH and verdict=correct by design,
+    // so including them would make targetReached=true on every cold install before any
+    // real data exists. This endpoint measures real production coverage only.
+    const records = getRecords().filter((r) => !r.isBuiltinSeed);
     const highCorrect = records.filter(
       (r) => r.confidence === 'HIGH' && (r.verdict === 'correct' || r.verdict === 'partial'),
     ).length;
-    const stats = getStats();
+    const corpusSeeded = isCorpusSeeded();
+    // During warm-up every seeded detector trivially passes the MIN_SAMPLES threshold,
+    // so getStats() trusted counts are meaningless — report 0 until real verdicts arrive.
+    const trustedDetectors = corpusSeeded ? 0 : getStats().filter((s) => s.trusted).length;
     res.json({
       ok: true,
       highConfidentCorrect: highCorrect,
       target: TARGET,
       targetReached: highCorrect >= TARGET,
       pct: Math.min(100, Math.round((highCorrect / TARGET) * 100)),
-      trustedDetectors: stats.filter((s) => s.trusted).length,
+      trustedDetectors,
       totalVerdicts: records.filter((r) => r.verdict).length,
+      corpusSeeded,
     });
   });
 

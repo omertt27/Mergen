@@ -36,7 +36,8 @@ export default function Hero() {
       <p className="hero-sub">
         Prompts are not boundaries — they are suggestions. Mergen is the inline execution
         gateway that physically blocks hazardous agent actions in under 1ms. No probabilistic
-        guardrails. No LLM in the critical path. All data stays on your infrastructure.
+        guardrails. No LLM in the critical path. Deploy locally for workstation speed and privacy,
+        or connect to our cloud gateway for team policy sync, centralized audits, and Slack authorization loops.
       </p>
 
       <div className="hero-actions">

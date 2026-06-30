@@ -932,25 +932,34 @@ async function pollCalibrationHealth() {
     html += '<div class="stat"><span class="stat-label">1st-attempt success</span><span class="stat-val" style="color:' + rateColor + '">' + esc(rateStr) + '</span></div>';
     html += '<div class="stat"><span class="stat-label">Total sessions</span><span class="stat-val">' + (sm.total || 0) + '</span></div>';
 
-    // Overall calibration accuracy
-    if (cal.overallAccuracy !== null && cal.overallAccuracy !== undefined) {
-      const acc = Math.round(cal.overallAccuracy * 100);
-      const accColor = acc >= 70 ? 'var(--green)' : acc >= 50 ? 'var(--yellow)' : 'var(--red)';
-      html += '<div class="stat"><span class="stat-label">Detector accuracy</span><span class="stat-val" style="color:' + accColor + '">' + acc + '%</span></div>';
-    }
-    html += '<div class="stat"><span class="stat-label">Trusted detectors</span><span class="stat-val">' + (cal.trustedDetectors || 0) + ' / ' + (cal.totalDetectors || 0) + '</span></div>';
+    // corpusSeeded = all records are built-in seeds (zero real verdicts recorded yet).
+    // During this phase, showing live accuracy or "trusted detectors" would be misleading —
+    // every seeded tag trivially exceeds MIN_SAMPLES, making all detectors appear trusted
+    // before any real data exists. Show live stats only once real verdicts arrive.
+    const isWarmingUp = !!cal.corpusSeeded;
+    const realN = cal.realVerdictCount || 0;
 
-    // Calibration warm-up progress
-    if (cal.corpusSeeded) {
-      const realN = cal.realVerdictCount || 0;
+    if (!isWarmingUp) {
+      if (cal.overallAccuracy !== null && cal.overallAccuracy !== undefined) {
+        const acc = Math.round(cal.overallAccuracy * 100);
+        const accColor = acc >= 70 ? 'var(--green)' : acc >= 50 ? 'var(--yellow)' : 'var(--red)';
+        html += '<div class="stat"><span class="stat-label">Live accuracy</span><span class="stat-val" style="color:' + accColor + '">' + acc + '%</span></div>';
+      }
+      html += '<div class="stat"><span class="stat-label">Trusted detectors</span><span class="stat-val">' + (cal.trustedDetectors || 0) + ' / ' + (cal.totalDetectors || 0) + '</span></div>';
+    } else {
+      html += '<div class="stat"><span class="stat-label">Live accuracy</span><span class="stat-val" style="color:var(--muted)">— (initializing)</span></div>';
+    }
+
+    // Warm-up progress
+    if (isWarmingUp) {
       const warmPct = Math.min(100, Math.round((realN / 10) * 100));
       html += '<div style="margin-top:10px;padding:8px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:4px">'
-        + '<div style="font-size:10px;font-weight:700;color:var(--yellow);margin-bottom:6px;letter-spacing:.05em;text-transform:uppercase">⚠ Warm-up Phase</div>'
+        + '<div style="font-size:10px;font-weight:700;color:var(--yellow);margin-bottom:6px;letter-spacing:.05em;text-transform:uppercase">Collecting real verdicts</div>'
         + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'
         + '<div style="flex:1;background:rgba(255,255,255,.06);border-radius:3px;height:5px;overflow:hidden">'
         + '<div style="height:5px;border-radius:3px;background:var(--yellow);width:' + warmPct + '%;transition:width .4s"></div></div>'
         + '<span style="font-size:11px;font-weight:600;color:var(--yellow);white-space:nowrap">' + realN + ' / 10</span></div>'
-        + '<div style="font-size:10px;color:var(--muted)">Real verdicts recorded · confidence uses synthetic priors until 10</div>'
+        + '<div style="font-size:10px;color:var(--muted)">Rate each analysis to build your accuracy corpus · live accuracy shown after 10 verdicts</div>'
         + '</div>';
     }
 
@@ -959,18 +968,33 @@ async function pollCalibrationHealth() {
       html += '<div class="stat"><span class="stat-label" style="color:var(--yellow)">Unclassified patterns</span><span class="stat-val" style="color:var(--yellow)">' + unc.total + '</span></div>';
     }
 
-    // Per-detector breakdown (top 5 trusted)
-    const trusted = (cal.perDetector || []).filter(d => d.trusted).slice(0, 5);
-    if (trusted.length > 0) {
-      html += '<div style="margin-top:8px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Detectors</div>';
-      for (const d of trusted) {
-        const acc = Math.round(d.accuracy * 100);
-        const trend = d.trendDelta !== null ? (d.trendDelta > 0 ? ' ↑' : d.trendDelta < 0 ? ' ↓' : '') : '';
-        const color = acc >= 70 ? 'var(--green)' : acc >= 50 ? 'var(--yellow)' : 'var(--red)';
-        html += '<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:11px">'
-          + '<span style="color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px" title="' + esc(d.tag) + '">' + esc(d.tag.replace(/_/g,' ')) + '</span>'
-          + '<span style="color:' + color + ';flex-shrink:0">' + acc + '%' + esc(trend) + '</span>'
-          + '</div>';
+    // Per-detector breakdown — live when real verdicts exist, priors when still warming up
+    if (!isWarmingUp) {
+      const liveDetectors = (cal.perDetector || []).filter(d => d.trusted).slice(0, 5);
+      if (liveDetectors.length > 0) {
+        html += '<div style="margin-top:8px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Detectors</div>';
+        for (const d of liveDetectors) {
+          const acc = Math.round(d.accuracy * 100);
+          const trend = d.trendDelta !== null ? (d.trendDelta > 0 ? ' ↑' : d.trendDelta < 0 ? ' ↓' : '') : '';
+          const color = acc >= 70 ? 'var(--green)' : acc >= 50 ? 'var(--yellow)' : 'var(--red)';
+          html += '<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:11px">'
+            + '<span style="color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px" title="' + esc(d.tag) + '">' + esc(d.tag.replace(/_/g,' ')) + '</span>'
+            + '<span style="color:' + color + ';flex-shrink:0">' + acc + '%' + esc(trend) + '</span>'
+            + '</div>';
+        }
+      }
+    } else {
+      const priors = (cal.perDetector || []).slice(0, 5);
+      if (priors.length > 0) {
+        html += '<div style="margin-top:8px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:2px;opacity:.55">Calibration priors</div>'
+          + '<div style="font-size:9px;color:var(--muted);margin-bottom:4px;opacity:.55">Synthetic defaults · replaced by your data as verdicts come in</div>';
+        for (const d of priors) {
+          const acc = Math.round(d.accuracy * 100);
+          html += '<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:11px;opacity:.45">'
+            + '<span style="color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px" title="' + esc(d.tag) + '">' + esc(d.tag.replace(/_/g,' ')) + '</span>'
+            + '<span style="color:var(--muted);flex-shrink:0">' + acc + '%</span>'
+            + '</div>';
+        }
       }
     }
 
