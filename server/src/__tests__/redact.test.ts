@@ -30,6 +30,18 @@ describe('redact — value patterns', () => {
     expect(redact('4111 1111 1111 1111')).toMatch(/\[REDACTED\]/);
   });
 
+  it('strips Stripe keys', () => {
+    const key = 'sk_live_51Nzabcdefghijklmnopqrstuv';
+    expect(redact(`api_key: ${key}`)).not.toContain(key);
+    expect(redact(`api_key: ${key}`)).toContain('[REDACTED]');
+  });
+
+  it('redacts database passwords in connection strings', () => {
+    const connStr = 'postgresql://db_user:my_secret_pass@localhost:5432/production_db';
+    const out = redact(connStr);
+    expect(out).toBe('postgresql://db_user:[REDACTED]@localhost:5432/production_db');
+  });
+
   it('passes plain strings through unchanged', () => {
     expect(redact('hello world')).toBe('hello world');
   });

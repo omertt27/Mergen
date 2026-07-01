@@ -70,6 +70,10 @@ const RE_PHONE    = /\b(\+?1[\s.-]?)?\(?[2-9]\d{2}\)?[\s.-]?\d{3}[\s.-]\d{4}\b/g
 const RE_AWS_KEY  = /\b(AKIA|AROA|ASIA|AIDA|ANPA|ANVA|APKA)[0-9A-Z]{16}\b/g;
 // PEM private key headers — strip entire key value
 const RE_PEM      = /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----/g;
+// Stripe API keys — sk_live_ / pk_live_ / rk_live_ / sk_test_ etc.
+const RE_STRIPE   = /\b(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{24,}\b/g;
+// Database connection strings — e.g. postgresql://user:pass@host:port/db
+const RE_CONN_STR = /\b([a-zA-Z0-9+.-]+:\/\/)([^:\s]+):([^@\s]+)@([^\s/]+)/gi;
 
 // ── File-based PII config ─────────────────────────────────────────────────────
 // ~/.mergen/pii-config.json can add { "patterns": ["/regex/flags"] } entries.
@@ -105,6 +109,8 @@ function redactString(s: string): string {
     .replace(RE_JWT, REDACTED)
     .replace(RE_BEARER, `Bearer ${REDACTED}`)
     .replace(RE_AWS_KEY, REDACTED)
+    .replace(RE_STRIPE, REDACTED)
+    .replace(RE_CONN_STR, '$1$2:[REDACTED]@$4')
     .replace(RE_EMAIL, REDACTED)
     .replace(RE_CARD, REDACTED)
     .replace(RE_PHONE, REDACTED);
