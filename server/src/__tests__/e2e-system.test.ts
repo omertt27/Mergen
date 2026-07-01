@@ -40,7 +40,7 @@ describe('E2E System Tests', () => {
     const port = await findFreePort();
     app = createApp({ serverVersion: TEST_VERSION, localSecret: TEST_SECRET, port, bindHost: '127.0.0.1' });
 
-    global.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    global.fetch = async (input: string | URL | Request, init?: RequestInit) => {
       const urlStr = typeof input === 'string' ? input : (input instanceof URL ? input.toString() : input.url);
       if (urlStr.includes('/ingest') && init) {
         const headers = new Headers(init.headers);

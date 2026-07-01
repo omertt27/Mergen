@@ -347,7 +347,7 @@ describe('H-1 — HITL GET handlers: confirmation page structure', () => {
         id: 'h1_test_hold', name: 'H-1 test hold rule',
         conditions: { commands: ['h1-hold-me'] },
         action: 'warn',
-        message: 'held for H-1 test',
+        reason: 'held for H-1 test',
         guidedAlternative: 'use safe approach',
       }],
     });
@@ -568,7 +568,7 @@ describe('H-5 — child process env whitelist: secrets not passed to subprocesse
           // Return a minimal fake child process
           const { EventEmitter } = require('events');
           const proc = new EventEmitter() as NodeJS.EventEmitter & {
-            stdout: EventEmitter; stderr: EventEmitter; kill: () => void;
+            stdout: NodeJS.EventEmitter; stderr: NodeJS.EventEmitter; kill: () => void;
           };
           proc.stdout = new EventEmitter();
           proc.stderr = new EventEmitter();
@@ -614,7 +614,7 @@ describe('H-5 — child process env whitelist: secrets not passed to subprocesse
           capturedEnv = opts.env;
           const { EventEmitter } = require('events');
           const proc = new EventEmitter() as NodeJS.EventEmitter & {
-            stdout: EventEmitter; stderr: EventEmitter; kill: () => void;
+            stdout: NodeJS.EventEmitter; stderr: NodeJS.EventEmitter; kill: () => void;
           };
           proc.stdout = new EventEmitter();
           proc.stderr = new EventEmitter();
