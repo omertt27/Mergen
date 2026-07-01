@@ -132,7 +132,7 @@ export function loadSafetyPolicy(force = false): SafetyPolicy {
   return _safetyPolicy;
 }
 
-export function checkSafetyPolicy(command: string): { allowed: boolean; blockReason?: string } {
+export function checkSafetyPolicy(command: string): { allowed: boolean; blockReason?: string; matchedRule?: string } {
   const policy = loadSafetyPolicy();
   const normalized = normalizeWhitespace(command).toLowerCase();
 
@@ -141,7 +141,8 @@ export function checkSafetyPolicy(command: string): { allowed: boolean; blockRea
     if (normalized.includes(keyword.toLowerCase())) {
       return {
         allowed: false,
-        blockReason: `Command matches safety-policy blocked keyword/pattern: '${keyword}'`
+        blockReason: `Command matches safety-policy blocked keyword/pattern: '${keyword}'`,
+        matchedRule: `safety_keyword:${keyword}`,
       };
     }
   }
@@ -151,7 +152,8 @@ export function checkSafetyPolicy(command: string): { allowed: boolean; blockRea
     if (normalized.includes(service.toLowerCase())) {
       return {
         allowed: false,
-        blockReason: `Command targets safety-policy blocked service: '${service}'`
+        blockReason: `Command targets safety-policy blocked service: '${service}'`,
+        matchedRule: `safety_service:${service}`,
       };
     }
   }
@@ -344,7 +346,8 @@ export async function executeRemediation(
       tag: null,
       actor,
       pid: null,
-      confidenceScore: null
+      confidenceScore: null,
+      triggeredRules: safetyCheck.matchedRule ? [safetyCheck.matchedRule] : null,
     });
     return result;
   }

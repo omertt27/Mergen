@@ -163,6 +163,7 @@ async function applyGateInner(
       actor:           'agent',
       pid:             null,
       confidenceScore: null,
+      triggeredRules:  ['gate_heartbeat_stale'],
     });
     logger.error({ toolName, reason: heartbeat.reason }, 'tool-guard: gate heartbeat stale — failing closed');
     return {
@@ -207,6 +208,7 @@ async function applyGateInner(
       actor:           agentId,
       pid:             null,
       confidenceScore: null,
+      triggeredRules:  ['sequence_threat'],
     });
     recordSessionCall(sessionId, toolName, commandArg, 'BLOCK');
     recordActivity({ toolName, commandArg, verdict: 'BLOCK', triggeredRules: ['sequence_threat'], ruleNames: ['Multi-Turn Threat Sequence'] });
@@ -243,6 +245,7 @@ async function applyGateInner(
       actor:           agentId,
       pid:             null,
       confidenceScore: null,
+      triggeredRules:  ['injection_attempt'],
     });
     logger.warn({ toolName, injectionMatch }, 'tool-guard: prompt injection attempt detected in args');
     recordSessionCall(sessionId, toolName, commandArg, 'BLOCK');
@@ -282,6 +285,7 @@ async function applyGateInner(
         actor:           'agent',
         pid:             null,
         confidenceScore: null,
+        triggeredRules:  hardEval.triggeredRules,
       });
       logger.warn({ toolName, reason: hardReason }, 'tool-guard: hard block rule rejected bypass approval');
       return {
@@ -318,6 +322,7 @@ async function applyGateInner(
       actor:           process.env.MERGEN_AGENT_ID ?? 'agent',
       pid:             null,
       confidenceScore: null,
+      triggeredRules:  ['agent_profile'],
     });
     recordActivity({ toolName, commandArg, verdict: 'BLOCK', triggeredRules: ['agent_profile'], ruleNames: ['Agent Profile Block'] });
     return {
@@ -419,6 +424,7 @@ async function applyGateInner(
       actor:           'agent',
       pid:             null,
       confidenceScore: null,
+      triggeredRules:  evaluation.triggeredRules,
     });
     logger.warn({ toolName, reason }, 'tool-guard: tool call blocked by local policy');
     recordSessionCall(sessionId, toolName, commandArg, 'BLOCK');

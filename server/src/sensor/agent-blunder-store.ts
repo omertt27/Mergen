@@ -101,7 +101,7 @@ function _hashableContent(
   event: Omit<BlunderEvent, 'hash' | 'previousHash'>,
   previousHash: string,
 ): string {
-  return previousHash + JSON.stringify({
+  const content: Record<string, unknown> = {
     id:              event.id,
     recordedAt:      event.recordedAt,
     blunderType:     event.blunderType,
@@ -112,7 +112,12 @@ function _hashableContent(
     actor:           event.actor,
     pid:             event.pid,
     confidenceScore: event.confidenceScore,
-  });
+  };
+  // Presence-aware: v2 entries were hashed without triggeredRules, so include
+  // it only when the field exists. v3 entries always carry it (null when no
+  // rule fired), so stripping the field from a v3 entry breaks its hash.
+  if (event.triggeredRules !== undefined) content.triggeredRules = event.triggeredRules;
+  return previousHash + JSON.stringify(content);
 }
 
 function _computeHash(
@@ -139,8 +144,10 @@ function load(force = false): void {
       logger.error({ path: BLUNDER_FILE }, 'agent-blunder-store: HMAC mismatch — file may have been tampered with');
     }
     const raw = JSON.parse(contents);
-    // Support reading v1 files (no hash fields) — migrate forward on next write
-    if ((raw?.version === 2 || raw?.version === 1) && Array.isArray(raw.blunders)) {
+    // Support reading v1 (no hash fields) and v2 (no triggeredRules) files —
+    // migrate forward on next write. Old entries are kept verbatim so their
+    // hashes stay verifiable.
+    if ((raw?.version === 3 || raw?.version === 2 || raw?.version === 1) && Array.isArray(raw.blunders)) {
       _blunders = raw.blunders;
     } else {
       _blunders = [];
@@ -153,7 +160,7 @@ function persist(): void {
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
     const tmp = `${BLUNDER_FILE}.tmp.${process.pid}.${randomBytes(4).toString('hex')}`;
-    const contents = JSON.stringify({ version: 2, blunders: _blunders } satisfies BlunderFile);
+    const contents = JSON.stringify({ version: 3, blunders: _blunders } satisfies BlunderFile);
     fs.writeFileSync(tmp, contents, 'utf8');
     fs.renameSync(tmp, BLUNDER_FILE);
     _writeHmac(contents);
@@ -191,6 +198,9 @@ export function recordBlunder(event: Omit<BlunderEvent, 'hash' | 'previousHash' 
       ...event,
       id,
       recordedAt: event.recordedAt ?? Date.now(),
+      // Normalize to null so every new entry carries the field explicitly —
+      // presence distinguishes v3 entries from pre-migration v2 ones.
+      triggeredRules: event.triggeredRules ?? null,
     };
     // Use || not ?? — v1 legacy entries have hash='' (empty string), which is
     // falsy but not nullish. ?? would leave previousHash as '' and corrupt the
