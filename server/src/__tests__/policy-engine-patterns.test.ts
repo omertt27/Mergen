@@ -6,11 +6,14 @@
  *   2. Does NOT fire on compound identifiers containing the same word (no false positives)
  *   3. Hot-reload invalidates the cache when the policy file changes
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   evaluateEnterprisePolicy,
   loadEnterprisePolicy,
   _resetPolicyCacheForTesting,
+  DEFAULT_ENTERPRISE_POLICY,
+  IMMUTABLE_RULE_IDS,
+  assertUnsignedPolicyFlagIsSafe,
 } from '../intelligence/enterprise-policy-engine.js';
 
 describe('evaluateEnterprisePolicy — word-boundary command matching', () => {
@@ -159,8 +162,57 @@ describe('evaluateEnterprisePolicy — word-boundary command matching', () => {
   });
 });
 
+describe('evaluateEnterprisePolicy — quote-obfuscation evasion', () => {
+  // normalizeForMatching strips ALL bare quote characters (single AND double)
+  // before matching, so shell no-op quoting can't hide a destructive keyword.
+  // In a real shell, dr"o"p and dr'o'p both execute as drop.
+  beforeEach(() => {
+    _resetPolicyCacheForTesting();
+  });
+
+  it('blocks double-quote obfuscated "dr\\"o\\"p table"', () => {
+    const result = evaluateEnterprisePolicy({
+      files: [],
+      commands: ['execute_query', 'dr"o"p table users'],
+      actor: 'agent',
+      service: 'db',
+    });
+    expect(result.verdict).toBe('block');
+  });
+
+  it('blocks single-quote obfuscated "dr\'o\'p table" (regression)', () => {
+    const result = evaluateEnterprisePolicy({
+      files: [],
+      commands: ['execute_query', "dr'o'p table users"],
+      actor: 'agent',
+      service: 'db',
+    });
+    expect(result.verdict).toBe('block');
+  });
+
+  it('blocks double-quoted keyword "\\"terraform\\" destroy"', () => {
+    const result = evaluateEnterprisePolicy({
+      files: [],
+      commands: ['execute_fix', '"terraform" destroy prod'],
+      actor: 'agent',
+      service: 'infra',
+    });
+    expect(result.verdict).toBe('block');
+  });
+
+  it('blocks unbalanced-quote obfuscated "rm -\\"r\\"f /"', () => {
+    const result = evaluateEnterprisePolicy({
+      files: [],
+      commands: ['bash', 'rm -"r"f /var/data'],
+      actor: 'agent',
+      service: 'api',
+    });
+    expect(result.verdict).toBe('block');
+  });
+});
+
 describe('evaluateEnterprisePolicy — policy disabled', () => {
-  it('passes everything when config.enabled is false', () => {
+  it('passes everything when config.enabled is false and there are no rules at all', () => {
     _resetPolicyCacheForTesting({ enabled: false, rules: [] });
 
     const result = evaluateEnterprisePolicy({
@@ -171,5 +223,89 @@ describe('evaluateEnterprisePolicy — policy disabled', () => {
     });
     expect(result.verdict).toBe('pass');
     expect(result.triggeredRules).toHaveLength(0);
+  });
+
+  it('still blocks destructive commands via IMMUTABLE_RULE_IDS even when disabled', () => {
+    // Regression for the finding where PATCH /policies/enabled {enabled:false}
+    // silently disabled block_destructive_commands along with every other rule —
+    // directly contradicting the "regardless of policy settings" guarantee.
+    _resetPolicyCacheForTesting({ ...DEFAULT_ENTERPRISE_POLICY, enabled: false });
+
+    const result = evaluateEnterprisePolicy({
+      files: [],
+      commands: ['execute_fix', 'terraform destroy prod'],
+      actor: 'agent',
+      service: 'api',
+    });
+    expect(result.verdict).toBe('block');
+    expect(result.triggeredRules).toContain('block_destructive_commands');
+  });
+
+  it('still skips non-immutable rules when disabled, even with the real default policy loaded', () => {
+    _resetPolicyCacheForTesting({ ...DEFAULT_ENTERPRISE_POLICY, enabled: false });
+
+    // hold_schema_mutations is not in IMMUTABLE_RULE_IDS — it's an operator-
+    // editable rule and must still be skippable via the enabled toggle.
+    expect(IMMUTABLE_RULE_IDS.has('hold_schema_mutations')).toBe(false);
+
+    const result = evaluateEnterprisePolicy({
+      files: [],
+      commands: ['execute_fix', 'alter table users add column foo int'],
+      actor: 'agent',
+      service: 'api',
+    });
+    expect(result.verdict).toBe('pass');
+    expect(result.triggeredRules).not.toContain('hold_schema_mutations');
+  });
+});
+
+describe('assertUnsignedPolicyFlagIsSafe — double opt-in for MERGEN_ALLOW_UNSIGNED_POLICY', () => {
+  const ORIGINAL_ENV = { ...process.env };
+  let exitSpy: ReturnType<typeof vi.spyOn>;
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation(((_code?: number) => undefined) as never);
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    exitSpy.mockRestore();
+    errorSpy.mockRestore();
+    process.env = { ...ORIGINAL_ENV };
+  });
+
+  it('does nothing when the flag is not set', () => {
+    delete process.env.MERGEN_ALLOW_UNSIGNED_POLICY;
+    process.env.NODE_ENV = 'production';
+    assertUnsignedPolicyFlagIsSafe();
+    expect(exitSpy).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it('does nothing in a development/test NODE_ENV even with the flag set', () => {
+    process.env.MERGEN_ALLOW_UNSIGNED_POLICY = 'true';
+    process.env.NODE_ENV = 'test';
+    assertUnsignedPolicyFlagIsSafe();
+    expect(exitSpy).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it('refuses to start outside dev/test when only the unsigned flag is set', () => {
+    process.env.MERGEN_ALLOW_UNSIGNED_POLICY = 'true';
+    delete process.env.MERGEN_UNSAFE_ALLOW_UNSIGNED;
+    process.env.NODE_ENV = 'production';
+    assertUnsignedPolicyFlagIsSafe();
+    expect(errorSpy).toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('proceeds (with a warning, not an exit) when both flags are set outside dev/test', () => {
+    process.env.MERGEN_ALLOW_UNSIGNED_POLICY = 'true';
+    process.env.MERGEN_UNSAFE_ALLOW_UNSIGNED = 'true';
+    process.env.NODE_ENV = 'production';
+    assertUnsignedPolicyFlagIsSafe();
+    expect(errorSpy).toHaveBeenCalled();
+    expect(exitSpy).not.toHaveBeenCalled();
   });
 });

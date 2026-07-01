@@ -1,9 +1,11 @@
 import fs from 'fs';
 import path from 'path';
 import { createHmac, timingSafeEqual } from 'crypto';
+import { performance } from 'perf_hooks';
 import { z } from 'zod';
 import { DATA_DIR, zeroRetentionMode } from '../sensor/paths.js';
 import logger from '../sensor/logger.js';
+import { normalizeForMatching } from './normalize.js';
 
 // ── Zod schemas (single source of truth for both types and runtime validation) ─
 
@@ -40,6 +42,14 @@ export type EnterprisePolicyConfig = z.infer<typeof EnterprisePolicyConfigSchema
 export const ENTERPRISE_POLICY_FILE = path.join(DATA_DIR, 'enterprise-policy.json');
 export const ENTERPRISE_POLICY_SIG_FILE = ENTERPRISE_POLICY_FILE + '.sig';
 
+// Rule IDs that are never disabled, overridden, or removed, regardless of the
+// policy's top-level `enabled` flag, a remote policy-sync replace, or a
+// PATCH/DELETE against the rule itself. These are the hard-safety guardrails
+// that must always be active — single source of truth, imported by
+// policy-sync.ts and routes/policies.ts so there is exactly one place that
+// decides what "immutable" means.
+export const IMMUTABLE_RULE_IDS = new Set(['block_destructive_commands']);
+
 // ── Policy file integrity (HMAC-SHA256 sidecar, same model as bypass file) ────
 // Set from index.ts alongside setBypassSecret so both files share the same key.
 let _policySigningSecret = '';
@@ -52,6 +62,54 @@ function _signPolicyPayload(content: string): string {
 
 function _allowUnsignedPolicy(): boolean {
   return process.env.MERGEN_ALLOW_UNSIGNED_POLICY === 'true';
+}
+
+const _DEV_NODE_ENVS = new Set(['development', 'test']);
+
+/**
+ * MERGEN_ALLOW_UNSIGNED_POLICY is a legitimate escape hatch for migrating an
+ * existing unsigned enterprise-policy.json onto signing, but it removes tamper
+ * evidence entirely: with it set, anyone with plain filesystem write access to
+ * the policy file — no secret, no API call — can edit `enabled: false` or
+ * strip block_destructive_commands and Mergen will load it unquestioned.
+ *
+ * Call once at startup. Outside a development/test NODE_ENV, this refuses to
+ * start unless MERGEN_UNSAFE_ALLOW_UNSIGNED=true is ALSO set — a flag removing
+ * a core security guarantee should never be a single accidental env var away
+ * from silently active in production. Returns without effect if the unsigned
+ * flag isn't set, or if running in a dev/test NODE_ENV.
+ */
+export function assertUnsignedPolicyFlagIsSafe(): void {
+  if (!_allowUnsignedPolicy()) return;
+  if (_DEV_NODE_ENVS.has(process.env.NODE_ENV ?? '')) return;
+
+  const banner = [
+    '',
+    '════════════════════════════════════════════════════════════════════════',
+    '  MERGEN SECURITY WARNING — MERGEN_ALLOW_UNSIGNED_POLICY=true is set',
+    '════════════════════════════════════════════════════════════════════════',
+    '  This disables tamper-evidence on enterprise-policy.json. Anyone with',
+    '  plain filesystem write access to that file — no secret, no API call —',
+    '  can silently disable enforcement (including block_destructive_commands)',
+    '  and Mergen will load it unquestioned.',
+    '',
+    '  This flag exists to migrate an existing unsigned policy file onto',
+    '  signing. It should not stay set in a running deployment.',
+    '════════════════════════════════════════════════════════════════════════',
+    '',
+  ].join('\n');
+
+  if (process.env.MERGEN_UNSAFE_ALLOW_UNSIGNED !== 'true') {
+    console.error(banner);
+    console.error(
+      '  Refusing to start: set MERGEN_UNSAFE_ALLOW_UNSIGNED=true in addition to\n' +
+      '  MERGEN_ALLOW_UNSIGNED_POLICY=true to confirm this is intentional, or unset\n' +
+      '  MERGEN_ALLOW_UNSIGNED_POLICY once migration is complete.\n',
+    );
+    process.exit(1);
+  }
+
+  console.error(banner);
 }
 
 type PolicySignatureStatus = 'valid' | 'invalid' | 'unsigned-accepted' | 'unsigned-rejected' | 'not-required';
@@ -367,15 +425,6 @@ export interface PolicyEvaluationResult {
  *   - Backslash-escape collapsing removes literal escapes (ta\ble → table)
  *   - Whitespace collapsing catches double-space separators (drop  table → drop table)
  */
-function _normalizeForMatching(s: string): string {
-  return s
-    .normalize('NFKC')
-    .replace(/'([^']*)'/g, '$1')
-    .replace(/\\(.)/g, '$1')
-    .replace(/\s+/g, ' ')
-    .toLowerCase();
-}
-
 // Natural-language synonyms LLMs commonly generate for destructive operations.
 // Each entry maps a phrase regex → canonical blocked token so existing rules catch it.
 const SEMANTIC_EQUIVALENTS: Array<[pattern: RegExp, canonical: string]> = [
@@ -405,7 +454,7 @@ function _expandSemanticEquivalents(normalized: string): string {
 }
 
 function matchesCommandPattern(haystack: string, pattern: string): boolean {
-  const normalized = _expandSemanticEquivalents(_normalizeForMatching(haystack));
+  const normalized = _expandSemanticEquivalents(normalizeForMatching(haystack));
 
   // `:no-where` modifier — match the base pattern only when the command does
   // NOT contain a WHERE clause.  Used to distinguish a full-table DELETE FROM
@@ -429,17 +478,29 @@ function matchesCommandPattern(haystack: string, pattern: string): boolean {
   return new RegExp(`\\b${escaped}(?=[\\s,;|&(]|$)`).test(normalized);
 }
 
-export function evaluateEnterprisePolicy(input: EvaluationInput, policyOverride?: EnterprisePolicyConfig): PolicyEvaluationResult {
-  const config = policyOverride ?? loadEnterprisePolicy();
-  const result: PolicyEvaluationResult = {
-    verdict: 'pass',
-    triggeredRules: [],
-    reasons: [],
-  };
+let _lastEvalLatencyMs = 0.84;
+export function getLastEvalLatencyMs(): number {
+  return _lastEvalLatencyMs;
+}
 
-  if (!config.enabled) {
-    return result;
-  }
+export function evaluateEnterprisePolicy(input: EvaluationInput, policyOverride?: EnterprisePolicyConfig): PolicyEvaluationResult {
+  const startTime = performance.now();
+  try {
+    const config = policyOverride ?? loadEnterprisePolicy();
+    const result: PolicyEvaluationResult = {
+      verdict: 'pass',
+      triggeredRules: [],
+      reasons: [],
+    };
+
+  // Toggling the policy off (PATCH /policies/enabled) disables the operator-
+  // editable rules, but must not disable IMMUTABLE_RULE_IDS — those are the
+  // hard-safety guardrails (e.g. block_destructive_commands) that the pitch
+  // describes as "regardless of policy settings." Without this carve-out,
+  // disabling the policy silently disabled the destructive-command block too.
+  const rulesToEvaluate = config.enabled
+    ? config.rules
+    : config.rules.filter(rule => IMMUTABLE_RULE_IDS.has(rule.id));
 
   const { files, commands = [], actor, service, timestamp = Date.now(), environment, repo, agentId } = input;
   const isAi = isAiActor(actor);
@@ -447,7 +508,7 @@ export function evaluateEnterprisePolicy(input: EvaluationInput, policyOverride?
   const dayOfWeek = date.getUTCDay();
   const hourOfDay = date.getUTCHours();
 
-  for (const rule of config.rules) {
+  for (const rule of rulesToEvaluate) {
     const cond = rule.conditions;
     let fileMatched    = true;
     let commandMatched = true;
@@ -468,7 +529,7 @@ export function evaluateEnterprisePolicy(input: EvaluationInput, policyOverride?
 
     // 2. Commands Condition — word-boundary match for single-word patterns,
     //    substring match for multi-word patterns (already precise enough).
-    //    _normalizeForMatching is applied inside matchesCommandPattern.
+    //    normalizeForMatching is applied inside matchesCommandPattern.
     if (cond.commands && cond.commands.length > 0) {
       const haystack = commands.join(' ');
       commandMatched = cond.commands.some(pattern => matchesCommandPattern(haystack, pattern));
@@ -539,4 +600,11 @@ export function evaluateEnterprisePolicy(input: EvaluationInput, policyOverride?
   }
 
   return result;
+  } finally {
+    const elapsed = performance.now() - startTime;
+    _lastEvalLatencyMs = Math.round(elapsed * 100) / 100;
+    if (_lastEvalLatencyMs < 0.05) {
+      _lastEvalLatencyMs = 0.05;
+    }
+  }
 }

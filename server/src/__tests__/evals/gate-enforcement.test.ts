@@ -109,11 +109,16 @@ import {
   getPendingHolds,
   approveBypass,
   getPendingBypasses,
+  assertGateCoversRegisteredTools,
+  isGateInstalled,
+  _resetGateInstalledForTesting,
 }                                        from '../../intelligence/tool-guard.js';
 import { _resetPolicyCacheForTesting }   from '../../intelligence/enterprise-policy-engine.js';
+import * as EnterprisePolicyEngine       from '../../intelligence/enterprise-policy-engine.js';
 import { _resetSessionsForTesting }      from '../../intelligence/session-threat-tracker.js';
 import { runAgentPipeline }              from '../../intelligence/agent-pipeline.js';
 import type { McpServer }                from '@modelcontextprotocol/sdk/server/mcp.js';
+import { CallToolRequestSchema }         from '@modelcontextprotocol/sdk/types.js';
 import type { CausalChain }              from '../../intelligence/causal.js';
 
 // ── Type alias ────────────────────────────────────────────────────────────────
@@ -124,6 +129,48 @@ type GuardedFn = (args: unknown, extra: unknown) => Promise<McpResult>;
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
+ * Simulates the SDK's low-level dispatch for the `tools/call` JSON-RPC method:
+ * builds a mock McpServer whose `.server.setRequestHandler` createGuardedServer
+ * patches, then simulates what the real SDK does internally the first time any
+ * tool is registered — installing its own `tools/call` handler via that same
+ * `setRequestHandler` call, regardless of whether the registration came from
+ * `registerTool()`, `tool()`, or `experimental.tasks.registerToolTask()`. This
+ * mirrors createGuardedServer's actual interception point (the protocol
+ * dispatch, not a specific registration method), so these tests exercise the
+ * real gating mechanism rather than a stand-in for it.
+ *
+ * Returns a callable that invokes the gate-wrapped dispatch directly, plus the
+ * handler spy so callers can assert on whether the underlying handler ran.
+ */
+function makeGuardedPair(
+  toolName: string,
+  handler?: GuardedFn,
+): { call: GuardedFn; spy: ReturnType<typeof vi.fn> } {
+  let capturedGated: ((request: unknown, extra: unknown) => unknown) | null = null;
+  const spy = vi.fn(handler ?? (async () => ({ content: [{ type: 'text' as const, text: 'executed' }] })));
+
+  const rawSetRequestHandler = vi.fn((schema: unknown, h: (request: unknown, extra: unknown) => unknown) => {
+    if (schema === CallToolRequestSchema) capturedGated = h;
+  });
+  const mockServer = { server: { setRequestHandler: rawSetRequestHandler } } as unknown as McpServer;
+
+  createGuardedServer(mockServer, 3000);
+
+  const innerDispatch = (request: { params: { name: string; arguments: unknown } }, extra: unknown) => {
+    if (request.params.name !== toolName) throw new Error(`tool ${request.params.name} not found`);
+    return spy(request.params.arguments, extra);
+  };
+  (mockServer as unknown as { server: { setRequestHandler: (s: unknown, h: unknown) => void } })
+    .server.setRequestHandler(CallToolRequestSchema, innerDispatch);
+
+  return {
+    call: (args: unknown, extra: unknown) =>
+      capturedGated!({ params: { name: toolName, arguments: args } }, extra) as Promise<McpResult>,
+    spy,
+  };
+}
+
+/**
  * Register a tool on a guarded server and return a callable that invokes the
  * gate-wrapped handler directly. The underlying real handler always returns
  * { content: [{ type:'text', text:'executed' }] } unless overridden.
@@ -132,42 +179,20 @@ function makeGuardedHandler(
   toolName: string,
   defaultArgs: Record<string, unknown> = {},
 ): { call: (args?: Record<string, unknown>) => Promise<McpResult> } {
-  let captured: GuardedFn | null = null;
-
-  const mockServer = {
-    registerTool: vi.fn((_n: string, _s: unknown, h: GuardedFn) => { captured = h; }),
-  } as unknown as McpServer;
-
-  (createGuardedServer(mockServer, 3000) as unknown as {
-    registerTool: (n: string, s: unknown, h: GuardedFn) => void;
-  }).registerTool(toolName, {}, async () => ({
-    content: [{ type: 'text' as const, text: 'executed' }],
-  }));
-
-  return { call: (args) => captured!(args ?? defaultArgs, {}) };
+  const { call } = makeGuardedPair(toolName);
+  return { call: (args) => call(args ?? defaultArgs, {}) };
 }
 
 /**
- * Same as makeGuardedHandler but returns the handler spy so callers can assert
- * on whether the underlying handler ran.
+ * Regression guard for the bypass where createGuardedServer only trapped
+ * `registerTool` (later `tool()` too), while `experimental.tasks.registerToolTask()`
+ * — which also calls the SDK's private `_createRegisteredTool` directly —
+ * stayed ungated. Since gating now happens at the `tools/call` dispatch layer
+ * (see createGuardedServer), it no longer matters which registration method
+ * was used — this is the same mechanism as makeGuardedPair, kept as a
+ * separate name so the regression intent stays visible in test output.
  */
-function makeGuardedPair(
-  toolName: string,
-  handler?: GuardedFn,
-): { call: GuardedFn; spy: ReturnType<typeof vi.fn> } {
-  let captured: GuardedFn | null = null;
-  const spy = vi.fn(handler ?? (async () => ({ content: [{ type: 'text' as const, text: 'executed' }] })));
-
-  const mockServer = {
-    registerTool: vi.fn((_n: string, _s: unknown, h: GuardedFn) => { captured = h; }),
-  } as unknown as McpServer;
-
-  (createGuardedServer(mockServer, 3000) as unknown as {
-    registerTool: (n: string, s: unknown, h: GuardedFn) => void;
-  }).registerTool(toolName, {}, spy);
-
-  return { call: (...a) => captured!(...a), spy };
-}
+const makeGuardedPairViaToolShorthand = makeGuardedPair;
 
 /** Minimal CausalChain fixture for runAgentPipeline tests. */
 function makeChain(tag = 'infra_db_connection_pool'): CausalChain {
@@ -275,6 +300,182 @@ describe('Level 0 — Layer 1: hard safety policies → BLOCK', () => {
     await call({ command: 'terraform destroy prod' }, {});
 
     expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+// ── Regression: shell quote-obfuscation must not evade the gate ──────────────
+// normalizeForMatching strips all bare single AND double quotes before
+// matching. In a real shell dr"o"p and dr'o'p both execute as drop, so the
+// gate must BLOCK both forms end-to-end.
+
+describe('Level 0 — quote-obfuscation cannot evade the gate (regression)', () => {
+  it('blocks double-quote obfuscated dr"o"p table', async () => {
+    const h = makeGuardedHandler('execute_query', { command: 'dr"o"p table users' });
+    const result = await h.call();
+    expect(result.isError).toBe(true);
+  });
+
+  it('blocks double-quoted "terraform" destroy', async () => {
+    const h = makeGuardedHandler('execute_fix', { command: '"terraform" destroy prod' });
+    const result = await h.call();
+    expect(result.isError).toBe(true);
+  });
+
+  it('blocks unbalanced-quote obfuscated rm -"r"f', async () => {
+    const h = makeGuardedHandler('bash', { command: 'rm -"r"f /var/data/production' });
+    const result = await h.call();
+    expect(result.isError).toBe(true);
+  });
+});
+
+// ── Regression: SDK tool() shorthand must be gated too, not just registerTool ─
+
+describe('Level 0 — tool() shorthand registration is also gated (regression)', () => {
+  it('blocks terraform destroy when registered via tool() instead of registerTool()', async () => {
+    const { call, spy } = makeGuardedPairViaToolShorthand('execute_fix');
+    const result = await call({ command: 'terraform destroy prod' }, {});
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('blocked');
+    expect(spy).not.toHaveBeenCalled();
+    expect(mockRecordBlunder).toHaveBeenCalledOnce();
+  });
+
+  it('passes safe tool calls through to the handler when registered via tool()', async () => {
+    const { call, spy } = makeGuardedPairViaToolShorthand('analyze_runtime');
+    const result = await call({}, {});
+
+    expect(result.content[0].text).toBe('executed');
+    expect(spy).toHaveBeenCalledOnce();
+  });
+});
+
+// ── Regression: experimental.tasks.registerToolTask() must be gated too ──────
+// This SDK method also calls the private _createRegisteredTool directly and
+// was ungated by both the registerTool-only and registerTool+tool Proxy traps
+// (neither intercepts property access to `.experimental`). Because gating now
+// happens at the tools/call dispatch layer (createGuardedServer), it applies
+// uniformly regardless of which of the SDK's registration methods — including
+// this one, and any future one — was used. makeGuardedPair simulates that
+// dispatch layer directly, so this test is mechanically identical to the
+// registerTool/tool tests above; it exists so the specific finding stays
+// visible and testably named in the suite.
+describe('Level 0 — experimental.tasks.registerToolTask() is also gated (regression)', () => {
+  it('blocks terraform destroy for a tool registered through the task-based registration path', async () => {
+    const { call, spy } = makeGuardedPair('execute_fix');
+    const result = await call({ command: 'terraform destroy prod' }, {});
+
+    expect(result.isError).toBe(true);
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+// ── Regression: gate fails closed on an internal error, not open ────────────
+// Previously applyGate had no top-level try/catch; it happened to fail closed
+// only because every next() call sits after policy evaluation succeeds, so a
+// thrown error propagated to the SDK's own outer catch without ever reaching
+// the real handler. That was an accident of call order. This proves fail-
+// closed explicitly, independent of where in the gate the error originates.
+describe('Level 0 — gate fails closed on an internal error (regression)', () => {
+  it('blocks the call and never invokes the handler when policy evaluation throws', async () => {
+    const evalSpy = vi.spyOn(EnterprisePolicyEngine, 'evaluateEnterprisePolicy')
+      .mockImplementation(() => { throw new Error('simulated malformed policy rule'); });
+
+    try {
+      const { call, spy } = makeGuardedPair('execute_fix');
+      const result = await call({ command: 'ls -la' }, {});
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('fail-closed');
+      expect(spy).not.toHaveBeenCalled();
+      expect(mockRecordBlunder).toHaveBeenCalledWith(
+        expect.objectContaining({ tag: 'gate_internal_error' }),
+      );
+    } finally {
+      evalSpy.mockRestore();
+    }
+  });
+});
+
+// ── Regression: closed-source tools.ts wiring is a black box; verify it, don't assume it ──
+// intelligence/tools.ts (registerTools()) isn't part of this repo — it's
+// gitignored/closed-source — so its wiring can't be reviewed as source. These
+// tests cover createGuardedServer's ordering guard and the startup self-test
+// that exercises the real gate as a black box instead.
+describe('Level 0 — createGuardedServer ordering guard (regression)', () => {
+  it('throws if a tool was already registered on the server before the gate was installed', () => {
+    const mockServer = {
+      server: { setRequestHandler: vi.fn() },
+      _toolHandlersInitialized: true, // simulates a tool having been registered pre-patch
+    } as unknown as McpServer;
+
+    expect(() => createGuardedServer(mockServer, 3000)).toThrow(/already registered/);
+  });
+
+  it('does not throw when no tool has been registered yet', () => {
+    const mockServer = {
+      server: { setRequestHandler: vi.fn() },
+      _toolHandlersInitialized: false,
+    } as unknown as McpServer;
+
+    expect(() => createGuardedServer(mockServer, 3000)).not.toThrow();
+  });
+});
+
+describe('Level 0 — assertGateCoversRegisteredTools (startup self-test, regression)', () => {
+  function makeServerWithRegisteredTool(toolName: string): McpServer {
+    const rawSetRequestHandler = vi.fn((schema: unknown, h: (request: unknown, extra: unknown) => unknown) => {
+      capturedInner = schema === CallToolRequestSchema ? h : capturedInner;
+    });
+    let capturedInner: ((request: unknown, extra: unknown) => unknown) | undefined;
+
+    const mockServer = {
+      server: { setRequestHandler: rawSetRequestHandler },
+      _toolHandlersInitialized: false,
+      _registeredTools: { [toolName]: {} },
+    } as unknown as McpServer;
+
+    createGuardedServer(mockServer, 3000);
+
+    const innerDispatch = async () => ({ content: [{ type: 'text' as const, text: 'executed' }] });
+    (mockServer as unknown as { server: { setRequestHandler: (s: unknown, h: unknown) => void } })
+      .server.setRequestHandler(CallToolRequestSchema, innerDispatch);
+
+    return mockServer;
+  }
+
+  it('throws when createGuardedServer was never called', async () => {
+    _resetGateInstalledForTesting();
+    const bareServer = { _registeredTools: { execute_fix: {} } } as unknown as McpServer;
+    await expect(assertGateCoversRegisteredTools(bareServer)).rejects.toThrow(/createGuardedServer was never called/);
+  });
+
+  it('throws when no tools are registered on the server', async () => {
+    const mockServer = {
+      server: { setRequestHandler: vi.fn() },
+      _toolHandlersInitialized: false,
+      _registeredTools: {},
+    } as unknown as McpServer;
+    createGuardedServer(mockServer, 3000);
+
+    await expect(assertGateCoversRegisteredTools(mockServer)).rejects.toThrow(/no tools are registered/);
+  });
+
+  it('resolves when the live gate correctly blocks a synthetic destructive call', async () => {
+    const server = makeServerWithRegisteredTool('execute_fix');
+    expect(isGateInstalled()).toBe(true);
+    await expect(assertGateCoversRegisteredTools(server)).resolves.toBeUndefined();
+  });
+
+  it('throws when the live gate fails to block the synthetic destructive call', async () => {
+    const evalSpy = vi.spyOn(EnterprisePolicyEngine, 'evaluateEnterprisePolicy')
+      .mockReturnValue({ verdict: 'pass', triggeredRules: [], reasons: [] });
+    try {
+      const server = makeServerWithRegisteredTool('execute_fix');
+      await expect(assertGateCoversRegisteredTools(server)).rejects.toThrow(/was NOT blocked/);
+    } finally {
+      evalSpy.mockRestore();
+    }
   });
 });
 
