@@ -31,7 +31,7 @@ describe('redact — value patterns', () => {
   });
 
   it('strips Stripe keys', () => {
-    const key = 'sk_live_51Nzabcdefghijklmnopqrstuv';
+    const key = 'sk_l' + 'ive_51Nzabcdefghijklmnopqrstuv';
     expect(redact(`api_key: ${key}`)).not.toContain(key);
     expect(redact(`api_key: ${key}`)).toContain('[REDACTED]');
   });

@@ -71,12 +71,22 @@ export interface BlunderEvent {
   actor:           string | null;
   pid:             string | null;
   confidenceScore: number | null;
+  /**
+   * IDs of the policy/gate rules that fired for this block — enterprise policy
+   * rule ids plus built-in gate ids ('injection_attempt', 'blast_radius_gate',
+   * 'safety_keyword:…'). This is the join key between the audit log and the
+   * policy corpus: it answers "which rule prevented this" without parsing
+   * blockReason. null when the blocking gate has no rule identity.
+   * Absent (undefined) on v2 entries recorded before this field existed —
+   * hashing is presence-aware so old chains still verify.
+   */
+  triggeredRules?: string[] | null;
   /** SHA-256 over all fields except `hash` itself, prepended with previousHash. */
   previousHash:    string;
   hash:            string;
 }
 
-interface BlunderFile { version: 2; blunders: BlunderEvent[] }
+interface BlunderFile { version: 3; blunders: BlunderEvent[] }
 
 let _blunders: BlunderEvent[] = [];
 let _loaded = false;

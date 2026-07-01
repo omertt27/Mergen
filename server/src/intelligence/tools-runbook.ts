@@ -870,7 +870,7 @@ export function registerRunbookTools(server: McpServer): void {
 
     const tag   = latest?.topHypothesis?.tag ?? null;
     const svc   = latest?.topHypothesis?.service ?? null;
-    const conf  = latest?.topHypothesis?.confidence ?? 0;
+    const conf  = Number(latest?.topHypothesis?.confidence ?? 0);
     const fix   = latest?.topHypothesis?.fix ?? null;
     const errors = latest?.chain?.errors ?? [];
 
@@ -1006,7 +1006,7 @@ export function registerRunbookTools(server: McpServer): void {
       return { content: [{ type: 'text', text: 'No query provided and no active hypothesis found. Run `analyze_runtime` first or pass a query string.' }] };
     }
 
-    const results = await hybridSearch(effectiveQ, limit);
+    const results = await hybridSearch(effectiveQ, { topK: limit });
 
     if (results.length === 0) {
       return { content: [{ type: 'text', text: `## Similar Past Incidents\n\nNo matches found for query: \`${effectiveQ}\`\n\nCorpus size: ${postmortemStore.count()} postmortems.` }] };
@@ -1035,7 +1035,7 @@ export function registerRunbookTools(server: McpServer): void {
         `| **Fix** | ${pm.fixCommand ? `\`${pm.fixCommand}\`` : '_not recorded_'} |`,
         `| **MTTR** | ${mttrLabel} |`,
         `| **Resolution** | ${autoLabel} |`,
-        `| **Date** | ${pm.resolvedAt ? new Date(pm.resolvedAt).toISOString().slice(0, 10) : 'unknown'} |`,
+        `| **Date** | ${pm.generatedAt ? new Date(pm.generatedAt).toISOString().slice(0, 10) : 'unknown'} |`,
         '',
         pm.fixCommand ? `**↳ To apply this fix:** \`execute_fix(command: "${pm.fixCommand}", confirm: true)\`` : '',
         '',

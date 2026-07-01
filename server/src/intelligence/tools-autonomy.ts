@@ -526,7 +526,7 @@ export function registerAutonomyTools(server: McpServer): void {
             lines.push(`🚫 **Blocked:** ${execResult.blockReason}`, '', 'Apply manually and validate.');
           } else if (!execResult.ok) {
             span.setAttribute('mergen.execution.ok', false);
-            span.setAttribute('mergen.execution.exit_code', execResult.exitCode);
+            span.setAttribute('mergen.execution.exit_code', execResult.exitCode ?? -1);
             lines.push(`❌ Command failed (exit ${execResult.exitCode}).`);
             if (execResult.stderr.trim()) {
               lines.push('', '```', execResult.stderr.trim().slice(0, 500), '```');

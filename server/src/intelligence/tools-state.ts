@@ -2,13 +2,25 @@ import { planAllowsGate, minPlanForGate, getPlan, describeEntitlement } from './
 import { getActivePlanId } from './license.js';
 
 /**
- * Entitlement summary for the active plan, as plain string arrays. Re-exported
- * through this module (which already depends on plans.js) so heavy tool modules
- * can render it without importing plans.js directly — a direct import trips the
- * MCP SDK's registerTool inference depth limit.
+ * Fully-formatted entitlement block (governance capabilities + upgrade CTA) for
+ * the active plan, ready to splice into a status message. Returns `[]` when
+ * there is nothing to show.
+ *
+ * Returns a flat `string[]` and lives in this module (which already depends on
+ * plans.js) so heavy `registerTool` tool modules can render it with a single
+ * `lines.push(...entitlementLines())` — no destructuring, maps, or direct
+ * plans.js import, all of which push those modules over the MCP SDK's
+ * type-checking budget.
  */
-export function entitlementLines(): { unlocked: string[]; upgradeLines: string[] } {
-  return describeEntitlement(getActivePlanId());
+export function entitlementLines(): string[] {
+  const { unlocked, upgradeLines } = describeEntitlement(getActivePlanId());
+  const out: string[] = [];
+  if (unlocked.length > 0) {
+    out.push('', '**Governance unlocked:**');
+    for (const cap of unlocked) out.push(`  • ${cap}`);
+  }
+  if (upgradeLines.length > 0) out.push('', ...upgradeLines);
+  return out;
 }
 
 export const KNOWN_TOOLS = new Set([

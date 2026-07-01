@@ -128,7 +128,7 @@ describe('Feature 2 — Multi-turn threat sequencing', () => {
 
   test('no false positive: two unrelated safe calls → no sequence detected', () => {
     const sid = 'session-seq-5';
-    recordSessionCall(sid, 'analyze_runtime', null, 'PASS');
+    recordSessionCall(sid, 'analyze_runtime', '', 'PASS');
     const result = detectSequenceThreat(sid, 'get_recent_logs');
     expect(result.threat).toBe(false);
   });
@@ -161,17 +161,17 @@ describe('Feature 3 — Contamination chain tracking', () => {
     const sid = 'session-contam-3';
     markContaminated(sid, 'override', 3);
     expect(isSessionContaminated(sid)).toBe(true);
-    recordSessionCall(sid, 'analyze_runtime', null, 'PASS'); // call 1
-    recordSessionCall(sid, 'get_recent_logs', null, 'PASS'); // call 2
-    recordSessionCall(sid, 'validate_fix', null, 'PASS');    // call 3 — should clear
+    recordSessionCall(sid, 'analyze_runtime', '', 'PASS'); // call 1
+    recordSessionCall(sid, 'get_recent_logs', '', 'PASS'); // call 2
+    recordSessionCall(sid, 'validate_fix', '', 'PASS');    // call 3 — should clear
     expect(isSessionContaminated(sid)).toBe(false);
   });
 
   test('contamination does NOT clear before N calls expire', () => {
     const sid = 'session-contam-4';
     markContaminated(sid, 'override', 5);
-    recordSessionCall(sid, 'analyze_runtime', null, 'PASS');
-    recordSessionCall(sid, 'get_recent_logs', null, 'PASS');
+    recordSessionCall(sid, 'analyze_runtime', '', 'PASS');
+    recordSessionCall(sid, 'get_recent_logs', '', 'PASS');
     // Only 2 of 5 used — still contaminated
     expect(isSessionContaminated(sid)).toBe(true);
   });

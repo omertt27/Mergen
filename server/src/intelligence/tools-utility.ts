@@ -50,15 +50,9 @@ export function registerUtilityTools(server: McpServer): void {
       }
 
       // ── Governance capabilities + contextual upgrade CTA ──
-      // Formatting lives in plans.ts so the wide Plan types stay out of this
-      // MCP tool module (avoids a TS instantiation-depth blow-up).
-      const { unlocked, upgradeLines } = entitlementLines();
-      if (unlocked.length > 0) {
-        lines.push('', '**Governance unlocked:**', ...unlocked.map((cap) => `  • ${cap}`));
-      }
-      if (upgradeLines.length > 0) {
-        lines.push('', ...upgradeLines);
-      }
+      // Pre-formatted in tools-state (single spread) to keep this MCP tool
+      // module under the SDK's type-checking budget.
+      lines.push(...entitlementLines());
 
       if (licState?.customerEmail) {
         lines.push('', `**Account:** ${licState.customerEmail}  |  Last validated: ${licState.validatedAt?.slice(0, 10)}`);

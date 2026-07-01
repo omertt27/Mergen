@@ -107,7 +107,7 @@ type GuardedFn = (args: unknown, extra: unknown) => Promise<McpResult>;
 // directly instead of stubbing registerTool.
 function makeGuardedPair(toolName: string): { call: GuardedFn; spy: ReturnType<typeof vi.fn> } {
   let capturedGated: ((request: unknown, extra: unknown) => unknown) | null = null;
-  const spy = vi.fn(async () => ({ content: [{ type: 'text' as const, text: 'executed' }] }));
+  const spy = vi.fn(async (_args?: unknown, _extra?: unknown) => ({ content: [{ type: 'text' as const, text: 'executed' }] }));
 
   const rawSetRequestHandler = vi.fn((schema: unknown, h: (request: unknown, extra: unknown) => unknown) => {
     if (schema === CallToolRequestSchema) capturedGated = h;
