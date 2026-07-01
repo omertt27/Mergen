@@ -15,6 +15,7 @@ const EnterprisePolicyRuleSchema = z.object({
   description: z.string(),
   action:      z.enum(['block', 'warn', 'pass']),
   reason:      z.string(),
+  riskTier:    z.enum(['low', 'medium', 'high']).optional(),
   conditions:  z.object({
     files:        z.array(z.string()).optional(),
     commands:     z.array(z.string()).optional(),

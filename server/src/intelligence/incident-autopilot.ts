@@ -44,6 +44,7 @@ import { cacheIncidentResult, getCachedIncidentResult } from './incident-result-
 import type { ShadowEntry } from './shadow-log.js';
 import { getStores } from '../storage/store-registry.js';
 import { getAutopilotLevel, autopilotLevelPermits, classifyCommandRisk, autopilotLevelDescription } from './action-risk.js';
+import { evaluateEnterprisePolicy, loadEnterprisePolicy } from './enterprise-policy-engine.js';
 import { recordBlunder } from '../sensor/agent-blunder-store.js';
 import { getStatsForTag } from './calibration.js';
 import { runAgentPipeline } from './agent-pipeline.js';
@@ -606,10 +607,33 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
   }
 
   // ── Approval gate: deploy/full-tier commands require a Slack Approve/Deny ──
+  let hasHighRiskPolicy = false;
+  try {
+    const evalRes = evaluateEnterprisePolicy({
+      files: [],
+      commands: [command],
+      actor: 'autopilot',
+      service,
+    });
+    if (evalRes.triggeredRules.length > 0) {
+      const policyConfig = loadEnterprisePolicy();
+      const triggeredRulesWithRisk = policyConfig.rules.filter(r => 
+        evalRes.triggeredRules.includes(r.id) &&
+        (r.riskTier === 'medium' || r.riskTier === 'high')
+      );
+      if (triggeredRulesWithRisk.length > 0) {
+        hasHighRiskPolicy = true;
+        logger.info({ triggeredRules: triggeredRulesWithRisk.map(r => r.id) }, 'incident-autopilot: command matched a medium/high risk policy rule');
+      }
+    }
+  } catch (err) {
+    logger.error({ err }, 'incident-autopilot: failed to evaluate enterprise policy risk rules');
+  }
+
   const commandTier = classifyCommandRisk(command);
   const blastRadius = computeBlastRadius(command, { service });
-  if (commandTier !== 'restart' && getAutopilotLevel() !== 'full') {
-    logger.info({ service, pid, command, commandTier, blastScope: blastRadius.scope }, 'incident-autopilot: routing through approval gate');
+  if (hasHighRiskPolicy || (commandTier !== 'restart' && getAutopilotLevel() !== 'full')) {
+    logger.info({ service, pid, command, commandTier, blastScope: blastRadius.scope, hasHighRiskPolicy }, 'incident-autopilot: routing through approval gate');
     const approvalPosted = await postApprovalRequest(pid, command, commandTier, execConfidence, blastRadius);
     if (!approvalPosted) {
       // Slack is down — we cannot post the approval block, so the engineer has no

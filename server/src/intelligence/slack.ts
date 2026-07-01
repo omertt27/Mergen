@@ -357,6 +357,38 @@ async function _openOverrideModal(triggerId: string, pid: string): Promise<void>
   await _slackApi('/api/views.open', { trigger_id: triggerId, view });
 }
 
+async function _openEditCommandModal(triggerId: string, pid: string, command: string): Promise<void> {
+  const view = {
+    type: 'modal',
+    callback_id: 'edit_command_modal',
+    private_metadata: pid,
+    title: { type: 'plain_text', text: 'Edit and Execute' },
+    submit: { type: 'plain_text', text: 'Approve & Run' },
+    close: { type: 'plain_text', text: 'Cancel' },
+    blocks: [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: 'Modify the proposed command below before executing it on the target system.'
+        }
+      },
+      {
+        type: 'input',
+        block_id: 'command_block',
+        element: {
+          type: 'plain_text_input',
+          action_id: 'command_input',
+          initial_value: command,
+          multiline: true,
+        },
+        label: { type: 'plain_text', text: 'Command to Execute' }
+      }
+    ]
+  };
+  await _slackApi('/api/views.open', { trigger_id: triggerId, view });
+}
+
 /**
  * Post a reply to an existing Slack thread.
  * Returns true if posted successfully, false when Slack is unavailable or no thread exists.
@@ -466,6 +498,12 @@ export async function postApprovalRequest(
           text: { type: 'plain_text', text: '✅ Execute', emoji: true },
           value: JSON.stringify({ pid, command }),
           style: 'primary',
+        },
+        {
+          type: 'button',
+          action_id: `edit_fix_trigger_${pid}`,
+          text: { type: 'plain_text', text: '✏️ Edit & Execute', emoji: true },
+          value: JSON.stringify({ pid, command }),
         },
         {
           type: 'button',
@@ -853,6 +891,44 @@ export async function handleSlackActions(req: Request, res: Response): Promise<v
       actions?: Array<{ action_id: string; value: string }>;
     };
 
+    if (payload.type === 'view_submission' && payload.view?.callback_id === 'edit_command_modal') {
+      const pid = payload.view.private_metadata;
+      const values = payload.view.state.values;
+      const commandBlock = values['command_block'];
+      const commandInput = commandBlock ? commandBlock['command_input'] : null;
+      const modifiedCommand = commandInput?.value ?? '';
+
+      if (!modifiedCommand.trim()) {
+        res.status(200).json({
+          response_action: 'errors',
+          errors: { command_block: 'Command cannot be empty.' }
+        });
+        return;
+      }
+
+      const userId = (payload as Record<string, unknown> & { user?: { id?: string } }).user?.id ?? 'slack-user';
+      const record = approveExecution(pid);
+      if (record) {
+        logger.info({ pid, originalCommand: record.command, modifiedCommand, userId }, 'slack: fix execution approved with edits');
+        void postThreadReply(pid, `⚙️ _Fix approved with edits by <@${userId}> — executing…_\n\`${modifiedCommand}\``);
+        void executeRemediation(modifiedCommand, { cwd: record.cwd, actor: userId }).then((result) => {
+          if (result.blocked) {
+            void postThreadReply(pid, `🚫 *Fix blocked by safety filter:* ${result.blockReason}`);
+            updateShadowReasonByPid(pid, 'blocked-by-safety-filter');
+          } else if (!result.ok) {
+            void postThreadReply(pid, `❌ *Fix command failed* (exit ${result.exitCode})\n${result.stderr.slice(0, 500)}`);
+            updateShadowReasonByPid(pid, 'executed-failure');
+          } else {
+            void postThreadReply(pid, `✅ *Fix executed* (${result.durationMs}ms)`);
+            updateShadowReasonByPid(pid, 'executed');
+          }
+        });
+      }
+
+      res.status(200).send('');
+      return;
+    }
+
     if (payload.type === 'view_submission' && payload.view?.callback_id === 'override_modal') {
       const rawMeta = payload.view.private_metadata;
       const values = payload.view.state.values;
@@ -990,6 +1066,16 @@ export async function handleSlackActions(req: Request, res: Response): Promise<v
           }
         } catch (err) {
           logger.warn({ err, action }, 'slack: failed to handle execute_fix action');
+        }
+      }
+
+      // Execution gate — edit trigger (open modal)
+      if (action.action_id.startsWith('edit_fix_trigger_') && payload.trigger_id) {
+        try {
+          const { pid, command } = JSON.parse(action.value) as { pid: string; command: string };
+          await _openEditCommandModal(payload.trigger_id, pid, command);
+        } catch (err) {
+          logger.warn({ err, action }, 'slack: failed to open edit command modal');
         }
       }
 
