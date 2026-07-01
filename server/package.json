@@ -65,7 +65,7 @@
     "test:watch": "vitest",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
-    "check:arch": "tsx src/scripts/check-arch.ts",
+    "check:arch": "node scripts/check-arch.mjs",
     "test:coverage": "vitest run --coverage",
     "test:ci": "vitest run --config vitest.config.ci.ts",
     "test:ci:coverage": "vitest run --config vitest.config.ci.ts --coverage",

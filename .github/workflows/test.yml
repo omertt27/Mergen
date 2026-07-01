@@ -37,6 +37,10 @@ jobs:
         env:
           NODE_OPTIONS: '--max-old-space-size=12288'
 
+      - name: Lint
+        working-directory: server
+        run: npm run lint
+
       - name: Build
         working-directory: server
         run: npm run build:server
@@ -81,6 +85,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20.x
-      - run: npm audit --audit-level=high
+      # Blocking: an AEG/security product must not ship a known critical CVE.
+      - name: npm audit — fail on critical
         working-directory: server
+        run: npm audit --audit-level=critical
+      # Advisory: surface high-severity findings without blocking the build.
+      - name: npm audit — high (advisory)
+        working-directory: server
+        run: npm audit --audit-level=high
         continue-on-error: true
