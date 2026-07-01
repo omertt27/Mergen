@@ -39,6 +39,7 @@
   window.onClear      = onClear;
   window.approveBypassToken = (token) => vscode.postMessage({ type: 'approveBypass', token });
   window.approveBypassTokenWithRemember = (token) => vscode.postMessage({ type: 'approveBypass', token, remember: true });
+  window.denyBypassToken = (token) => vscode.postMessage({ type: 'denyBypass', token });
   window.toggleRule = (id, action) => vscode.postMessage({ type: 'toggleRule', id, action });
 
   let _advancedOpen = false;
@@ -232,6 +233,45 @@
     const connected = state.connected;
     document.getElementById('dot').className = 'dot' + (connected ? ' ok' : '');
     showEl('disconnected',   !connected);
+
+    // Update header Gateway status and active policies count
+    const gatewayStatus = document.getElementById('gateway-status');
+    const gatewayPolicies = document.getElementById('gateway-policies-active');
+    if (connected) {
+      const pols = state.policies;
+      const pending = state.health?.pendingBypassesCount ?? 0;
+      const blocked = state.health?.blockedActionsCount ?? 0;
+
+      if (pols) {
+        const activeCount = pols.rules.filter(r => r.action !== 'pass').length;
+        if (gatewayPolicies) gatewayPolicies.textContent = activeCount + ' active';
+      } else {
+        if (gatewayPolicies) gatewayPolicies.textContent = '0 active';
+      }
+
+      if (gatewayStatus) {
+        if (pending > 0) {
+          gatewayStatus.textContent = `Pending Approval (${pending})`;
+          gatewayStatus.style.color = 'var(--vscode-charts-yellow)';
+        } else if (blocked > 0) {
+          gatewayStatus.textContent = `Action Blocked (${blocked})`;
+          gatewayStatus.style.color = 'var(--vscode-charts-red)';
+        } else if (pols && !pols.enabled) {
+          gatewayStatus.textContent = 'Shadow Mode (Passive)';
+          gatewayStatus.style.color = 'var(--vscode-charts-yellow)';
+        } else {
+          gatewayStatus.textContent = 'Protected ✓';
+          gatewayStatus.style.color = 'var(--vscode-charts-green)';
+        }
+      }
+    } else {
+      if (gatewayPolicies) gatewayPolicies.textContent = '0 active';
+      if (gatewayStatus) {
+        gatewayStatus.textContent = 'Offline';
+        gatewayStatus.style.color = 'var(--vscode-charts-red)';
+      }
+    }
+
     showEl('card-buffer',     connected);
     showEl('card-server',     connected);
     showEl('card-security-metrics', connected);
@@ -434,6 +474,7 @@
               <div style="display:flex;gap:6px">
                 <button class="primary" style="flex:1;padding:3.5px 6px;font-size:10px;border:1px solid var(--vscode-button-border,transparent);border-radius:4px;background:var(--vscode-button-background);color:var(--vscode-button-foreground);cursor:pointer" onclick="approveBypassToken('${b.token}')">Approve</button>
                 <button style="flex:1.2;padding:3.5px 6px;font-size:10px;border:1px solid var(--vscode-button-border,transparent);border-radius:4px;background:var(--vscode-button-secondaryBackground, rgba(127,127,127,0.1));color:var(--vscode-button-secondaryForeground, var(--vscode-foreground));cursor:pointer" onclick="approveBypassTokenWithRemember('${b.token}')">Approve & Remember</button>
+                <button style="flex:0.8;padding:3.5px 6px;font-size:10px;border:1px solid var(--vscode-button-border,transparent);border-radius:4px;background:var(--vscode-button-secondaryBackground, rgba(239,68,68,0.15));color:var(--vscode-charts-red);cursor:pointer" onclick="denyBypassToken('${b.token}')">Block</button>
               </div>
             </div>
           `;

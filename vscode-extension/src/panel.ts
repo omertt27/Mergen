@@ -192,6 +192,9 @@ export class MergenPanel implements vscode.WebviewViewProvider {
       if (msg.type === 'approveBypass' && msg.token) {
         await this.approveBypass(msg.token, !!msg.remember);
       }
+      if (msg.type === 'denyBypass' && msg.token) {
+        await this.denyBypass(msg.token);
+      }
       if (msg.type === 'toggleRule' && msg.id && msg.action) {
         await this.toggleRule(msg.id, msg.action as 'block' | 'warn' | 'pass');
       }
@@ -237,6 +240,7 @@ export class MergenPanel implements vscode.WebviewViewProvider {
           'mergen.refresh',
           'mergen.clearBuffer',
           'mergen.whyThisFile',
+          'mergen.openPolicies',
         ]);
         if (ALLOWED.has(msg.command)) {
           await vscode.commands.executeCommand(msg.command);
@@ -626,6 +630,29 @@ export class MergenPanel implements vscode.WebviewViewProvider {
       }
     } catch (err) {
       vscode.window.showErrorMessage(`Failed to approve bypass: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  private async denyBypass(token: string): Promise<void> {
+    const port = this._getPort();
+    const secret = this._getSharedSecret();
+    const base = `http://127.0.0.1:${port}`;
+    try {
+      const res = await httpPost(
+        `${base}/hitl/deny`,
+        { token },
+        2000,
+        secret ? { 'x-mergen-secret': secret } : undefined
+      ) as { ok: boolean; error?: string };
+      
+      if (res && res.ok) {
+        vscode.window.showInformationMessage(`Bypass denied and command execution blocked.`);
+        await this._poll();
+      } else {
+        vscode.window.showErrorMessage(`Failed to deny bypass: ${res?.error || 'unknown error'}`);
+      }
+    } catch (err) {
+      vscode.window.showErrorMessage(`Failed to deny bypass: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -1385,6 +1412,9 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     <div class="credit-bar-wrap" style="height:6px; background:rgba(127,127,127,0.2);">
       <div class="credit-bar-fill" id="coverage-bar" style="width:0%; background:var(--vscode-charts-green)"></div>
     </div>
+  </div>
+  <div style="margin-top:10px">
+    <a class="signal-run" href="command:mergen.openPolicies" style="text-align:center;display:block" title="Open Web Policy Editor">⚙ Open Policy Editor</a>
   </div>
 </div>
 

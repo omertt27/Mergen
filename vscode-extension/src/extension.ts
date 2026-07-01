@@ -73,6 +73,8 @@ interface HealthPayload {
   warnings?: number;
   networkErrors?: number;
   buffered?: number;
+  pendingBypassesCount?: number;
+  blockedActionsCount?: number;
 }
 
 async function fetchHealth(port: number): Promise<HealthPayload | null> {
@@ -97,8 +99,8 @@ async function refreshStatusBar(): Promise<void> {
   const health = await fetchHealth(port);
 
   if (!health?.ok) {
-    _statusBar.text    = '$(debug-disconnect) Mergen';
-    _statusBar.tooltip = 'Mergen server not running — click to start';
+    _statusBar.text    = '$(shield) Gateway Offline';
+    _statusBar.tooltip = 'Mergen gateway server not running — click to start';
     _statusBar.backgroundColor = undefined;
     _statusBar.command = 'mergen.startServer';
     _prevErrorCount    = 0;
@@ -106,48 +108,43 @@ async function refreshStatusBar(): Promise<void> {
     return;
   }
 
-  const errors  = health.errors  ?? 0;
-  const warns   = health.warnings ?? 0;
-  const netErrs = health.networkErrors ?? 0;
-  const total   = errors + netErrs;
+  const pending = health.pendingBypassesCount ?? 0;
+  const blocked = health.blockedActionsCount ?? 0;
 
-  if (total > 0) {
-    _statusBar.text    = `$(error) Mergen: ${total} error${total !== 1 ? 's' : ''}${warns > 0 ? ` · ${warns} warn` : ''}`;
-    _statusBar.tooltip = `${errors} console error${errors !== 1 ? 's' : ''}, ${netErrs} network error${netErrs !== 1 ? 's' : ''} · Click to ask AI`;
-    _statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
-    _statusBar.command = 'mergen.askAI';
-  } else if (warns > 0) {
-    _statusBar.text    = `$(warning) Mergen: ${warns} warning${warns !== 1 ? 's' : ''}`;
-    _statusBar.tooltip = 'Click to ask AI about these warnings';
+  if (pending > 0) {
+    _statusBar.text    = `$(shield) Gateway: ${pending} Pending`;
+    _statusBar.tooltip = `${pending} AI agent action${pending !== 1 ? 's' : ''} requiring approval · Click to open panel`;
     _statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
-    _statusBar.command = 'mergen.askAI';
+    _statusBar.command = 'mergen.openPanel';
+  } else if (blocked > 0) {
+    _statusBar.text    = `$(shield) Gateway: ${blocked} Blocked`;
+    _statusBar.tooltip = `${blocked} hazardous action${blocked !== 1 ? 's' : ''} blocked by safety policy · Click to open panel`;
+    _statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+    _statusBar.command = 'mergen.openPanel';
   } else {
-    _statusBar.text    = `$(pass) Mergen`;
-    _statusBar.tooltip = `Buffer clean — ${health.buffered ?? 0} total events · click to open panel`;
+    _statusBar.text    = `$(shield) Gateway: Active`;
+    _statusBar.tooltip = 'Agent Execution Gateway is active and enforcing policies · Click to open panel';
     _statusBar.backgroundColor = undefined;
     _statusBar.command = 'mergen.openPanel';
   }
 
-  // Proactive notification: first time errors appear this session
-  if (total > 0 && _prevErrorCount === 0 && !_notifiedThisSession) {
+  const totalAlerts = pending + blocked;
+
+  // Proactive notification: first time an interception (pending or blocked) occurs this session
+  if (totalAlerts > 0 && _prevErrorCount === 0 && !_notifiedThisSession) {
     _notifiedThisSession = true;
-    const action = await vscode.window.showWarningMessage(
-      `Mergen captured ${total} error${total !== 1 ? 's' : ''} in your browser. Ask your AI assistant to analyze it.`,
-      'Analyze with AI',
-      'Why this code?',
-      'Show panel',
-    );
-    if (action === 'Analyze with AI') {
-      await vscode.commands.executeCommand('mergen.askAI');
-    } else if (action === 'Why this code?') {
-      await vscode.commands.executeCommand('mergen.whyThisFile');
-    } else if (action === 'Show panel') {
+    const msg = pending > 0
+      ? `Mergen intercepted ${pending} AI agent action${pending !== 1 ? 's' : ''} requiring manual approval.`
+      : `Mergen blocked a dangerous AI agent action matching your local safety policy.`;
+    const action = await vscode.window.showWarningMessage(msg, 'Open Panel', 'Dismiss');
+    if (action === 'Open Panel') {
       await vscode.commands.executeCommand('mergen.openPanel');
     }
   }
-  // Reset notification gate when errors are cleared
-  if (total === 0 && _prevErrorCount > 0) _notifiedThisSession = false;
-  _prevErrorCount = total;
+  
+  // Reset notification gate when alerts are cleared
+  if (totalAlerts === 0 && _prevErrorCount > 0) _notifiedThisSession = false;
+  _prevErrorCount = totalAlerts;
 }
 
 async function refreshAnnotations(port: number): Promise<void> {
@@ -312,6 +309,11 @@ export function activate(context: vscode.ExtensionContext): void {
       vscode.env.openExternal(vscode.Uri.parse(FEEDBACK_URL)),
     ),
     vscode.commands.registerCommand('mergen.openCalibration', () => openCalibration()),
+    vscode.commands.registerCommand('mergen.openPolicies', () => {
+      const cfg = vscode.workspace.getConfiguration('mergen');
+      const port = cfg.get<number>('serverPort', 3000);
+      vscode.env.openExternal(vscode.Uri.parse(`http://127.0.0.1:${port}/policies`));
+    }),
 
     // ── mergen.askAI — one-click: error → AI chat pre-filled with context ──
     // Works with GitHub Copilot, Cursor, or any AI chat that responds to

@@ -75,6 +75,8 @@ export function createSensorRouter(serverVersion: string): Router {
       costGuard: getCostGuardStats(),
       degradation: getDegradationState(),
       gateHeartbeat: getGateHeartbeatStatus(),
+      pendingBypassesCount: (getPendingBypasses() ?? []).length,
+      blockedActionsCount: getBlunderStats().total,
     });
   });
 
@@ -524,6 +526,8 @@ export function createSensorRouter(serverVersion: string): Router {
         ? { enabled: true, memberName: teamState?.memberName, connectedPeers: 0 }
         : { enabled: false },
       costGuard: getCostGuardStats(),
+      pendingBypassesCount: (getPendingBypasses() ?? []).length,
+      blockedActionsCount: getBlunderStats().total,
     };
 
     const usage = getUsageSnapshot();

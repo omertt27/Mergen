@@ -37,6 +37,8 @@ export interface HealthResponse {
   networkErrors:  number;
   signals:        SessionSignal[];
   version:        string;
+  pendingBypassesCount?: number;
+  blockedActionsCount?:  number;
   [key: string]:  unknown;
 }
 
