@@ -29,6 +29,7 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { OVERRIDE_CORPUS_FILE, DATA_DIR } from '../sensor/paths.js';
 import logger from '../sensor/logger.js';
+import { normalizeForMatching } from './normalize.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -283,10 +284,47 @@ export interface CompactedRule {
   hourWindow: [number, number] | null;
   /** Number of override events this rule was distilled from. */
   occurrences: number;
+  /**
+   * Normalized command signatures (first few significant tokens) drawn from
+   * this bucket's actual proposedCommand text — e.g. 'kubectl set env' rather
+   * than the full 'kubectl set env deployment/api DB_POOL_MAX=50'. Scopes any
+   * synthesized policy rule to the commands that were actually overridden
+   * instead of every AI action against the service. Empty only if every event
+   * in the bucket had an unparseable command.
+   */
+  commandSignatures: string[];
   compactedAt: number;
 }
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+// Number of leading whitespace-separated tokens kept as a command's "signature" —
+// enough to identify the operation (e.g. 'kubectl set env', 'terraform destroy')
+// without pinning to the specific resource name / value that varies per incident.
+const SIGNATURE_TOKEN_COUNT = 3;
+// Cap on distinct signatures carried into a single synthesized rule — keeps the
+// rule from ballooning into an unbounded commands list when a bucket really does
+// span many unrelated commands.
+export const MAX_COMMAND_SIGNATURES = 5;
+
+/** Exported so storage backends (e.g. pg-override-corpus.ts) compact with the same algorithm. */
+export function commandSignature(proposedCommand: string): string {
+  const normalized = normalizeForMatching(proposedCommand).trim();
+  return normalized.split(' ').slice(0, SIGNATURE_TOKEN_COUNT).join(' ');
+}
+
+/** Exported so storage backends (e.g. pg-override-corpus.ts) compact with the same algorithm. */
+export function dominantCommandSignatures(events: OverrideEvent[]): string[] {
+  const sigCounts = new Map<string, number>();
+  for (const e of events) {
+    const sig = commandSignature(e.proposedCommand);
+    if (sig) sigCounts.set(sig, (sigCounts.get(sig) ?? 0) + 1);
+  }
+  return [...sigCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, MAX_COMMAND_SIGNATURES)
+    .map(([sig]) => sig);
+}
 
 /**
  * Distills the override event ring into a compact set of actionable rules.
@@ -343,6 +381,10 @@ export function compactCorpus(): CompactedRule[] {
       if (maxH - minH < 20) hourWindow = [minH, maxH + 1];
     }
 
+    // Command signatures: rank distinct signatures by frequency, keep the top
+    // MAX_COMMAND_SIGNATURES. Drops empty signatures (blank/unparseable commands).
+    const commandSignatures = dominantCommandSignatures(events);
+
     rules.push({
       incidentTag:    first.incidentTag,
       service:        first.service,
@@ -350,6 +392,7 @@ export function compactCorpus(): CompactedRule[] {
       dayOfWeek:      dominantDay,
       hourWindow,
       occurrences:    events.length,
+      commandSignatures,
       compactedAt:    Date.now(),
     });
   }

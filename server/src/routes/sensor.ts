@@ -29,6 +29,12 @@ import { getStats } from '../intelligence/calibration.js';
 import { getDegradationState } from '../intelligence/degradation-watcher.js';
 import { getPendingBypasses } from '../intelligence/tool-guard.js';
 import { getGateHeartbeatStatus } from '../sensor/gate-heartbeat.js';
+import { getRecentActivity } from '../intelligence/activity-feed.js';
+import { loadEnterprisePolicy, IMMUTABLE_RULE_IDS, getGateCoverageSummary, getLastEvalLatencyMs } from '../intelligence/enterprise-policy-engine.js';
+import { getRuleFirings } from '../intelligence/gate-analytics.js';
+import { agentCallCount } from '../intelligence/tools-state.js';
+import { getBlunderStats } from '../sensor/agent-blunder-store.js';
+import { getBypassStats } from '../sensor/bypass-tracker.js';
 
 export function createSensorRouter(serverVersion: string): Router {
   const router = Router();
@@ -687,13 +693,51 @@ export function createSensorRouter(serverVersion: string): Router {
       rows: rows.slice(-limit),
     };
 
-    const edges = await getStores().incidents.getInteractionGraph(undefined, req.tenantId);
+        const edges = await getStores().incidents.getInteractionGraph(undefined, req.tenantId);
     const interactionServices = [...new Set(edges.flatMap((e) => [e.source, e.target]))];
     const interactions = {
       edges,
       services: interactionServices,
     };
     const services = getSdkServices();
+
+    const policy = loadEnterprisePolicy();
+    const firings = getRuleFirings();
+    const policies = {
+      enabled: policy.enabled,
+      rules: policy.rules.map(r => ({
+        id: r.id,
+        name: r.name,
+        description: r.description,
+        action: r.action,
+        triggerCount: firings.get(r.id) ?? 0,
+        immutable: IMMUTABLE_RULE_IDS.has(r.id),
+      })),
+    };
+    const gateCovers = getGateCoverageSummary();
+    const activity = getRecentActivity(20);
+
+    const blunderStats = getBlunderStats();
+    const bypassStats = getBypassStats();
+
+    let blockRuleTriggerCount = 0;
+    let warnRuleTriggerCount = 0;
+    for (const rule of policy.rules) {
+      const count = firings.get(rule.id) ?? 0;
+      if (rule.action === 'block') {
+        blockRuleTriggerCount += count;
+      } else if (rule.action === 'warn') {
+        warnRuleTriggerCount += count;
+      }
+    }
+
+    const securityMetrics = {
+      protectedActions: agentCallCount,
+      blockedActions: blunderStats.total,
+      approvalsRequested: (getPendingBypasses() ?? []).length + warnRuleTriggerCount,
+      shadowViolations: bypassStats.totalBypasses + warnRuleTriggerCount,
+      latencyMs: getLastEvalLatencyMs(),
+    };
 
     res.json({
       health,
@@ -705,6 +749,10 @@ export function createSensorRouter(serverVersion: string): Router {
       services,
       interactions,
       pendingBypasses: getPendingBypasses(),
+      activity,
+      policies,
+      gateCovers,
+      securityMetrics,
     });
   });
 

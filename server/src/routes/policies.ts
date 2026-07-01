@@ -5,6 +5,7 @@ import {
   saveEnterprisePolicy,
   EnterprisePolicyRule,
   EnterprisePolicyConfig,
+  IMMUTABLE_RULE_IDS,
 } from '../intelligence/enterprise-policy-engine.js';
 import { getRuleFirings, getGateEvents } from '../intelligence/gate-analytics.js';
 import { evaluateEnterprisePolicy } from '../intelligence/enterprise-policy-engine.js';
@@ -32,7 +33,13 @@ export function createPoliciesRouter(localSecret = ''): Router {
     res.json({
       ok: true,
       enabled: policy.enabled,
-      rules: policy.rules.map(r => ({ ...r, triggerCount: firings.get(r.id) ?? 0 })),
+      rules: policy.rules.map(r => ({
+        ...r,
+        triggerCount: firings.get(r.id) ?? 0,
+        // Immutable rules are evaluated even when `enabled` is false and cannot
+        // be edited/deleted/replaced via this API — see IMMUTABLE_RULE_IDS.
+        immutable: IMMUTABLE_RULE_IDS.has(r.id),
+      })),
     });
   });
 
@@ -103,6 +110,10 @@ export function createPoliciesRouter(localSecret = ''): Router {
     }).strict();
     const parsed = PatchSchema.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: parsed.error.issues }); return; }
+    if (IMMUTABLE_RULE_IDS.has(id)) {
+      res.status(403).json({ error: `Rule '${id}' is a hard-safety guardrail and cannot be modified via this API.` });
+      return;
+    }
     const policy = loadEnterprisePolicy();
     const idx = policy.rules.findIndex(r => r.id === id);
     if (idx === -1) { res.status(404).json({ error: 'Rule not found' }); return; }
@@ -120,6 +131,10 @@ export function createPoliciesRouter(localSecret = ''): Router {
   // ── DELETE /policies/rules/:id — remove rule ─────────────────────────────────
   router.delete('/policies/rules/:id', (req, res) => {
     const { id } = req.params;
+    if (IMMUTABLE_RULE_IDS.has(id)) {
+      res.status(403).json({ error: `Rule '${id}' is a hard-safety guardrail and cannot be deleted via this API.` });
+      return;
+    }
     const policy = loadEnterprisePolicy();
     if (!policy.rules.some(r => r.id === id)) { res.status(404).json({ error: 'Rule not found' }); return; }
     try {
@@ -174,7 +189,14 @@ export function createPoliciesRouter(localSecret = ''): Router {
       const newRules = incoming.rules.filter(r => !existingIds.has(r.id));
       merged = { ...local, rules: [...local.rules, ...newRules] };
     } else {
-      merged = incoming;
+      // Replace mode: incoming fully replaces local — EXCEPT immutable hard-safety
+      // rules, which survive any replace the same way they survive remote
+      // policy-sync (policy-sync.ts) and per-rule PATCH/DELETE, so a bulk import
+      // can't be used as a side door to remove block_destructive_commands.
+      const local = loadEnterprisePolicy();
+      const immutableRules = local.rules.filter(r => IMMUTABLE_RULE_IDS.has(r.id));
+      const incomingWithoutImmutable = incoming.rules.filter(r => !IMMUTABLE_RULE_IDS.has(r.id));
+      merged = { ...incoming, rules: [...immutableRules, ...incomingWithoutImmutable] };
     }
 
     try {
@@ -436,10 +458,9 @@ function buildPoliciesHtml(localSecret: string): string {
 </div>
 
 <div class="card">
-  <div class="card-title">Hard Safety Rules <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;font-size:11px">(built-in autonomy guardrails — not editable)</span></div>
+  <div class="card-title">Hard Safety Rules <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;font-size:11px">(immutable — cannot be disabled, edited, or deleted via this API or the Policy Status toggle above)</span></div>
   <div id="hard-rules">
-    <div class="readonly-rule"><div class="name">Blocked keywords</div><div class="desc">rm -rf, drop table, terraform destroy, kubectl delete, truncate, format c:, destroy, nuke, wipe — always blocked before execution, regardless of policy settings.</div></div>
-    <div class="readonly-rule"><div class="name">Destructive service mutations</div><div class="desc">Commands that irreversibly mutate or delete cloud resources are blocked by the hard safety layer independent of enterprise policy.</div></div>
+    <div class="readonly-rule"><div class="name">Blocked keywords</div><div class="desc">rm -rf, drop table, terraform destroy, kubectl delete, truncate, format c:, destroy, nuke, wipe — always evaluated, including while Policy Status above is toggled off. Only this specific rule set (IMMUTABLE_RULE_IDS) carries this guarantee; rules in the Enterprise Rules table below do not.</div></div>
   </div>
 </div>
 
@@ -458,11 +479,15 @@ function flash(msg, ok=true){
 async function loadPolicy(){
   const d=await fetch('/policies/json', {headers: SECRET ? {'x-mergen-secret': SECRET} : {}}).then(r=>r.json());
   document.getElementById('policy-enabled').checked=d.enabled;
-  document.getElementById('enabled-label').textContent=d.enabled?'Policy active — gate is enforcing rules':'Policy disabled — all tool calls pass through';
-  document.getElementById('rule-count').textContent='('+d.rules.length+' rules)';
+  document.getElementById('enabled-label').textContent=d.enabled?'Policy active — gate is enforcing rules':'Policy disabled — editable Enterprise Rules below are off; Hard Safety Rules stay enforced';
+  // Immutable rules render in the read-only "Hard Safety Rules" card above, not
+  // in this editable table — they can't be Saved/Deleted, so showing them here
+  // with live-looking action buttons would be misleading.
+  const editableRules=d.rules.filter(r=>!r.immutable);
+  document.getElementById('rule-count').textContent='('+editableRules.length+' rules)';
   const tbody=document.getElementById('rules-body');
-  if(!d.rules.length){tbody.innerHTML='<tr><td colspan="5" style="color:var(--muted);text-align:center;padding:20px">No enterprise rules yet — add one below.</td></tr>';return;}
-  tbody.innerHTML=d.rules.map(r=>\`
+  if(!editableRules.length){tbody.innerHTML='<tr><td colspan="5" style="color:var(--muted);text-align:center;padding:20px">No enterprise rules yet — add one below.</td></tr>';return;}
+  tbody.innerHTML=editableRules.map(r=>\`
     <tr id="row-\${escHtml(r.id)}">
       <td><strong>\${escHtml(r.name)}</strong><br><span style="color:var(--muted);font-size:10px">\${escHtml(r.id)}</span></td>
       <td><select id="action-\${escHtml(r.id)}" style="width:auto">
@@ -481,9 +506,9 @@ async function loadPolicy(){
 }
 
 async function toggleEnabled(val){
-  document.getElementById('enabled-label').textContent=val?'Policy active — gate is enforcing rules':'Policy disabled — all tool calls pass through';
+  document.getElementById('enabled-label').textContent=val?'Policy active — gate is enforcing rules':'Policy disabled — editable Enterprise Rules below are off; Hard Safety Rules stay enforced';
   const r=await fetch('/policies/enabled',{method:'PATCH',headers:authHeaders,body:JSON.stringify({enabled:val})});
-  flash(val?'Policy enabled':'Policy disabled', r.ok);
+  flash(val?'Policy enabled':'Policy disabled — hard safety rules remain active', r.ok);
 }
 
 async function saveRule(id){

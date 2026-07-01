@@ -1,15 +1,18 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 const fsState: { content: string | null } = { content: null };
+let mockRecords: any[] = [];
 
-vi.mock('../intelligence/calibration.js', () => {
+// Dynamic doMock ensures it intercepts ./calibration.js correctly when resolved to stubs
+vi.doMock('../__stubs__/calibration.js', () => {
   return {
-    getRecords: () => [],
+    getRecords: () => mockRecords,
     getStats: () => [],
     _resetForTesting: () => {},
   };
 });
 
+// Mock fs to simulate federated files
 vi.mock('fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs')>();
   
@@ -40,15 +43,16 @@ vi.mock('fs', async (importOriginal) => {
   };
 });
 
-import { _resetForTesting } from '../__stubs__/calibration.js';
-import { invalidatePlattCache } from '../intelligence/platt-scaling.js';
-
 describe('platt-scaling federated calibration', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.resetModules();
+    fsState.content = null;
+    mockRecords = [];
+    
+    const { _resetForTesting } = await import('../__stubs__/calibration.js');
+    const { invalidatePlattCache } = await import('../intelligence/platt-scaling.js');
     _resetForTesting();
     invalidatePlattCache();
-    fsState.content = null;
   });
 
   it('falls back to federated-platt when federated file is present', async () => {
@@ -73,5 +77,80 @@ describe('platt-scaling federated calibration', () => {
     const result = plattScale(0.8, 'some_unknown_tag');
     expect(result.source).toBe('raw');
     expect(result.calibrated).toBe(0.8);
+  });
+
+  describe('Platt fitting calibration logic (smoothed labels and LOOCV accuracy)', () => {
+    beforeEach(async () => {
+      mockRecords = [];
+      const { invalidatePlattCache } = await import('../intelligence/platt-scaling.js');
+      invalidatePlattCache();
+    });
+
+    it('stays bounded and converges on a fully separable 10-sample dataset', async () => {
+      // 10 samples: 5 correct (score >= 0.6), 5 wrong (score < 0.6)
+      mockRecords = [
+        { tag: 'sep_tag', confidenceScore: 0.1, verdict: 'wrong', numericScore: 0.1 },
+        { tag: 'sep_tag', confidenceScore: 0.2, verdict: 'wrong', numericScore: 0.2 },
+        { tag: 'sep_tag', confidenceScore: 0.3, verdict: 'wrong', numericScore: 0.3 },
+        { tag: 'sep_tag', confidenceScore: 0.4, verdict: 'wrong', numericScore: 0.4 },
+        { tag: 'sep_tag', confidenceScore: 0.5, verdict: 'wrong', numericScore: 0.5 },
+        { tag: 'sep_tag', confidenceScore: 0.6, verdict: 'correct', numericScore: 0.6 },
+        { tag: 'sep_tag', confidenceScore: 0.7, verdict: 'correct', numericScore: 0.7 },
+        { tag: 'sep_tag', confidenceScore: 0.8, verdict: 'correct', numericScore: 0.8 },
+        { tag: 'sep_tag', confidenceScore: 0.9, verdict: 'correct', numericScore: 0.9 },
+        { tag: 'sep_tag', confidenceScore: 1.0, verdict: 'correct', numericScore: 1.0 },
+      ];
+
+      const { plattScale, getPlattDiagnostics } = await import('../intelligence/platt-scaling.js');
+      // Trigger calibration fit for 'sep_tag'
+      plattScale(0.8, 'sep_tag');
+
+      const diagnostics = getPlattDiagnostics();
+      const model = diagnostics.find((d) => d.tag === 'sep_tag');
+      expect(model).toBeDefined();
+      expect(model!.n).toBe(10);
+      
+      // Confirm parameters A and B are bounded (didn't blow up/diverge)
+      expect(Math.abs(model!.A)).toBeLessThan(100);
+      expect(Math.abs(model!.B)).toBeLessThan(100);
+      expect(model!.holdoutAccuracy).toBeDefined();
+    });
+
+    it('changes the holdout accuracy when parameters A and B are perturbed', async () => {
+      // 10 samples
+      mockRecords = [
+        { tag: 'perturb_tag', confidenceScore: 0.1, verdict: 'wrong', numericScore: 0.1 },
+        { tag: 'perturb_tag', confidenceScore: 0.2, verdict: 'wrong', numericScore: 0.2 },
+        { tag: 'perturb_tag', confidenceScore: 0.3, verdict: 'correct', numericScore: 0.3 },
+        { tag: 'perturb_tag', confidenceScore: 0.4, verdict: 'wrong', numericScore: 0.4 },
+        { tag: 'perturb_tag', confidenceScore: 0.5, verdict: 'wrong', numericScore: 0.5 },
+        { tag: 'perturb_tag', confidenceScore: 0.6, verdict: 'correct', numericScore: 0.6 },
+        { tag: 'perturb_tag', confidenceScore: 0.7, verdict: 'wrong', numericScore: 0.7 },
+        { tag: 'perturb_tag', confidenceScore: 0.8, verdict: 'correct', numericScore: 0.8 },
+        { tag: 'perturb_tag', confidenceScore: 0.9, verdict: 'correct', numericScore: 0.9 },
+        { tag: 'perturb_tag', confidenceScore: 1.0, verdict: 'correct', numericScore: 1.0 },
+      ];
+
+      const { plattScale, getPlattDiagnostics, invalidatePlattCache } = await import('../intelligence/platt-scaling.js');
+      plattScale(0.8, 'perturb_tag');
+
+      const diagnostics = getPlattDiagnostics();
+      const model = diagnostics.find((d) => d.tag === 'perturb_tag');
+      expect(model).toBeDefined();
+
+      const originalAccuracy = model!.holdoutAccuracy;
+      expect(originalAccuracy).toBeGreaterThanOrEqual(0);
+      expect(originalAccuracy).toBeLessThanOrEqual(1.0);
+
+      // Change the records to be completely wrong (all wrong) to force a different fit and accuracy
+      mockRecords = mockRecords.map(r => ({ ...r, verdict: 'wrong' }));
+      invalidatePlattCache();
+      plattScale(0.8, 'perturb_tag');
+      
+      const newDiagnostics = getPlattDiagnostics();
+      const newModel = newDiagnostics.find((d) => d.tag === 'perturb_tag');
+      
+      expect(newModel!.holdoutAccuracy).not.toBe(originalAccuracy);
+    });
   });
 });

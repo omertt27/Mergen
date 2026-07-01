@@ -201,4 +201,28 @@ export interface UnifiedDashboardResponse {
   services:        Record<string, ServiceInfo> | null;
   interactions:    ServiceInteractions | null;
   pendingBypasses: PendingBypass[] | null;
+  activity?:       ActivityEvent[];
+  policies?: {
+    enabled: boolean;
+    rules: Array<{
+      id: string;
+      name: string;
+      description: string;
+      action: 'block' | 'warn' | 'pass';
+      triggerCount: number;
+      immutable: boolean;
+    }>;
+  };
+  gateCovers?: {
+    hardBlocks: string[];
+    humanReviewRequired: string[];
+    totalPatterns: number;
+  };
+  securityMetrics?: {
+    protectedActions: number;
+    blockedActions: number;
+    approvalsRequested: number;
+    shadowViolations: number;
+    latencyMs?: number;
+  };
 }

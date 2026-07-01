@@ -50,8 +50,8 @@ import { initTeam, broadcastToTeam } from './intelligence/team.js';
 import { initTelemetry, maybeSendTelemetry } from './intelligence/telemetry.js';
 import { getPlan } from './intelligence/plans.js';
 import { registerTools, toolCallCounts } from './intelligence/tools.js';
-import { createGuardedServer, loadBypasses, persistBypasses, setBypassSecret, denyStaleHoldsOnStartup } from './intelligence/tool-guard.js';
-import { setPolicySigningSecret } from './intelligence/enterprise-policy-engine.js';
+import { createGuardedServer, loadBypasses, persistBypasses, setBypassSecret, denyStaleHoldsOnStartup, assertGateCoversRegisteredTools } from './intelligence/tool-guard.js';
+import { setPolicySigningSecret, assertUnsignedPolicyFlagIsSafe } from './intelligence/enterprise-policy-engine.js';
 import { flushApprovals } from './intelligence/execution-gate.js';
 import { registerResources } from './intelligence/mcp-resources.js';
 import { registerPrompts } from './intelligence/mcp-prompts.js';
@@ -331,10 +331,31 @@ async function main(): Promise<void> {
   const { hydrateGateAnalytics } = await import('./intelligence/gate-analytics.js');
   await hydrateGateAnalytics();
 
-  // Wire the local secret into both the bypass and policy HMAC signing mechanisms
-  // before loading from disk, so verification has the key on first read.
+  // Refuse to run with tamper-evidence silently disabled unless explicitly
+  // double-confirmed — see assertUnsignedPolicyFlagIsSafe's doc comment.
+  assertUnsignedPolicyFlagIsSafe();
+
+  // Wire signing secrets before loading from disk, so verification has the key
+  // on first read.
   setBypassSecret(localSecret);
-  setPolicySigningSecret(localSecret);
+  // Policy-file HMAC: prefer a dedicated, env-injected secret over the on-disk
+  // localSecret. localSecret lives at ~/.mergen/secret — the same directory as
+  // enterprise-policy.json — so anything with the filesystem access an AI coding
+  // agent has (the exact threat this signature is meant to defend against) can
+  // read it and forge a valid signature for a tampered policy file. Setting
+  // MERGEN_POLICY_SIGNING_SECRET to a value injected only via the process
+  // environment (secrets manager, systemd EnvironmentFile, CI/CD secret) — never
+  // written to disk — closes that gap for production/team deployments.
+  const policySigningSecret = process.env.MERGEN_POLICY_SIGNING_SECRET || localSecret;
+  if (!process.env.MERGEN_POLICY_SIGNING_SECRET) {
+    logger.warn(
+      'startup: MERGEN_POLICY_SIGNING_SECRET not set — enterprise-policy.json is signed with the ' +
+      'same on-disk secret (~/.mergen/secret) used for admin API auth. Anything with local filesystem ' +
+      'access can read that file and forge a valid policy signature. Set MERGEN_POLICY_SIGNING_SECRET ' +
+      'to a value supplied only via the environment (never written to disk) for production/team deployments.',
+    );
+  }
+  setPolicySigningSecret(policySigningSecret);
 
   // Restore pending bypass tokens so a server restart doesn't strand in-flight
   // `mergen approve <token>` commands issued just before shutdown.
@@ -472,9 +493,18 @@ async function main(): Promise<void> {
   //   PASS  → handler runs immediately (<1ms overhead)
   //   BLOCK → MCP error returned, blunder logged
   //   HOLD  → Promise held until POST /hitl/approve or /hitl/deny
-  registerTools(createGuardedServer(mcp, port));
+  const guardedMcp = createGuardedServer(mcp, port);
+  registerTools(guardedMcp);
   registerResources(mcp);
   registerPrompts(mcp);
+
+  // registerTools() lives in intelligence/tools.ts — closed-source, not part of
+  // this repo, so its wiring can't be reviewed as source here. This exercises
+  // it as a black box instead of assuming it registered every tool on the
+  // guarded instance it was handed: fires a synthetic destructive call through
+  // the actual live dispatch handler and refuses to start if it isn't blocked.
+  await assertGateCoversRegisteredTools(guardedMcp);
+
   const transport = new StdioServerTransport();
   await mcp.connect(transport);
   logger.info('MCP server ready (stdio transport)');

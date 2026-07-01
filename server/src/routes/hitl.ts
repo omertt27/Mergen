@@ -24,9 +24,10 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import type { Request } from 'express';
 import { Router } from 'express';
 import logger from '../sensor/logger.js';
-import { approveToolCall, denyToolCall, getPendingHolds, approveBypass, invalidateBypassToken } from '../intelligence/tool-guard.js';
+import { approveToolCall, denyToolCall, getPendingHolds, approveBypass, invalidateBypassToken, getPendingBypassDetail } from '../intelligence/tool-guard.js';
 import { getHitlFatigueStatus } from '../intelligence/gate-analytics.js';
 import { timingSafeSecretEqualAny } from '../sensor/security-utils.js';
+import { getStores } from '../storage/store-registry.js';
 
 // ── HITL-specific auth helpers ────────────────────────────────────────────────
 // Fix #8: Browser form POSTs (from Slack confirmation pages) cannot send custom
@@ -171,7 +172,7 @@ export function createHitlRouter(localSecret: string): Router {
   });
 
   // ── POST /hitl/approve — self-authenticated via token+nonce or x-mergen-secret ──
-  router.post('/hitl/approve', (req, res) => {
+  router.post('/hitl/approve', async (req, res) => {
     const ip = (req.socket.remoteAddress ?? 'unknown').replace(/^::ffff:/, '');
     if (hitlRateLimited(ip)) {
       logger.warn({ ip }, 'hitl: rate limit exceeded on /hitl/approve');
@@ -185,7 +186,39 @@ export function createHitlRouter(localSecret: string): Router {
       res.status(401).json({ error: 'unauthorized' });
       return;
     }
-    const released = approveToolCall(token);
+    let released = approveToolCall(token);
+    let bypassDetail: ReturnType<typeof approveBypass> | null = null;
+    if (!released) {
+      const detail = getPendingBypassDetail(token);
+      const bRes = approveBypass(token);
+      if (bRes.ok) {
+        released = true;
+        bypassDetail = bRes;
+
+        const remember = req.query.remember === 'true' || req.body?.remember === true;
+        if (remember && detail) {
+          try {
+            const overrideEvent = await getStores().overrides.recordOverride({
+              incidentTag: detail.triggeredRules?.[0] || 'bypass_override',
+              proposedCommand: detail.commandArg || detail.toolName,
+              overrideReason: 'on-call-discretion',
+              note: 'Automatically remembered via Gateway approval',
+              rationale: 'Operator approved bypass and requested permanent policy rule creation',
+              service: 'api',
+              environment: 'production',
+              actor: 'developer',
+            }, req.tenantId);
+
+            await getStores().overrides.markOverrideReviewed(overrideEvent.id, req.tenantId);
+            autoActivateReviewedRules(overrideEvent.incidentTag, overrideEvent.service);
+            logger.info({ token, tag: overrideEvent.incidentTag }, 'hitl: bypass auto-recorded and promoted to policy');
+          } catch (err) {
+            logger.error({ err, token }, 'hitl: failed to automatically promote bypass to policy');
+          }
+        }
+      }
+    }
+
     if (!released) {
       logger.warn({ ip, token }, 'hitl: approve attempted with unknown or expired token');
       const exhausted = recordFailedTokenAttempt(token);
@@ -203,7 +236,7 @@ export function createHitlRouter(localSecret: string): Router {
 </body></html>`);
       return;
     }
-    res.json({ ok: true, action: 'approved', token });
+    res.json({ ok: true, action: 'approved', token, toolName: bypassDetail?.toolName, commandArg: bypassDetail?.commandArg });
   });
 
   // ── POST /hitl/deny — self-authenticated via token+nonce or x-mergen-secret ──

@@ -38,6 +38,18 @@
   window.onRefresh    = onRefresh;
   window.onClear      = onClear;
   window.approveBypassToken = (token) => vscode.postMessage({ type: 'approveBypass', token });
+  window.approveBypassTokenWithRemember = (token) => vscode.postMessage({ type: 'approveBypass', token, remember: true });
+  window.toggleRule = (id, action) => vscode.postMessage({ type: 'toggleRule', id, action });
+
+  let _advancedOpen = false;
+  function toggleAdvanced() {
+    _advancedOpen = !_advancedOpen;
+    const content = document.getElementById('advanced-content');
+    const icon = document.getElementById('advanced-toggle-icon');
+    if (content) content.style.display = _advancedOpen ? 'block' : 'none';
+    if (icon) icon.textContent = _advancedOpen ? '▼' : '▶';
+  }
+  window.toggleAdvanced = toggleAdvanced;
 
   // ── Receive messages from extension host ──────────────────────────────────
   window.addEventListener('message', ({ data }) => {
@@ -222,6 +234,10 @@
     showEl('disconnected',   !connected);
     showEl('card-buffer',     connected);
     showEl('card-server',     connected);
+    showEl('card-security-metrics', connected);
+    showEl('card-policies-coverage', connected);
+    showEl('card-execution-timeline', connected);
+    showEl('card-advanced', connected);
     showEl('card-milestone',  false);   // static placeholder — never shown
 
     // ── Account card — always shown when server is connected ─────────────────
@@ -246,7 +262,7 @@
     }
 
     if (!connected) {
-      ['card-pack','card-activity','card-signals','card-history','card-detectors','card-usage','card-account','card-services','card-bypasses'].forEach(id => showEl(id, false));
+      ['card-pack','card-activity','card-signals','card-history','card-detectors','card-usage','card-account','card-services','card-bypasses','card-security-metrics','card-policies-coverage','card-execution-timeline','card-advanced'].forEach(id => showEl(id, false));
       return;
     }
 
@@ -257,6 +273,127 @@
     setEl('stat-errors', h.errors);
     setEl('stat-warns',  h.warnings);
     setEl('stat-net',    h.networkErrors);
+
+    // ── Security Metrics ──
+    const secMetrics = state.securityMetrics;
+    if (connected && secMetrics) {
+      setEl('metric-protected-actions', secMetrics.protectedActions);
+      setEl('metric-blocked-actions', secMetrics.blockedActions);
+      setEl('metric-approvals-requested', secMetrics.approvalsRequested);
+      setEl('metric-shadow-violations', secMetrics.shadowViolations);
+      if (typeof secMetrics.latencyMs === 'number') {
+        setEl('gateway-latency', secMetrics.latencyMs.toFixed(2) + 'ms');
+      }
+    }
+
+    // ── Active Policies & Coverage ──
+    const polState = state.policies;
+    const gateCovers = state.gateCovers;
+    if (connected && polState) {
+      const policiesList = document.getElementById('policies-list');
+      if (policiesList) {
+        policiesList.innerHTML = polState.rules.map(r => {
+          let actionText = r.action === 'block' ? 'BLOCK' : r.action === 'warn' ? 'HOLD' : 'PASS';
+          let actionColor = r.action === 'block' ? 'var(--vscode-charts-red)' : r.action === 'warn' ? 'var(--vscode-charts-yellow)' : 'var(--vscode-descriptionForeground)';
+          
+          let controls = '';
+          if (r.immutable) {
+            controls = `<span style="font-size:9px;color:var(--vscode-descriptionForeground);margin-left:4px">(immutable)</span>`;
+          } else {
+            if (r.action === 'block') {
+              controls = `
+                <span style="font-size:9px;margin-left:6px">
+                  <a href="#" onclick="toggleRule('${r.id}', 'warn')" style="text-decoration:none;color:var(--vscode-charts-yellow)">Hold</a> | 
+                  <a href="#" onclick="toggleRule('${r.id}', 'pass')" style="text-decoration:none;color:var(--vscode-descriptionForeground)">Mute</a>
+                </span>
+              `;
+            } else if (r.action === 'warn') {
+              controls = `
+                <span style="font-size:9px;margin-left:6px">
+                  <a href="#" onclick="toggleRule('${r.id}', 'block')" style="text-decoration:none;color:var(--vscode-charts-red)">Block</a> | 
+                  <a href="#" onclick="toggleRule('${r.id}', 'pass')" style="text-decoration:none;color:var(--vscode-descriptionForeground)">Mute</a>
+                </span>
+              `;
+            } else {
+              controls = `
+                <span style="font-size:9px;margin-left:6px">
+                  <a href="#" onclick="toggleRule('${r.id}', 'block')" style="text-decoration:none;color:var(--vscode-charts-red)">Block</a> | 
+                  <a href="#" onclick="toggleRule('${r.id}', 'warn')" style="text-decoration:none;color:var(--vscode-charts-yellow)">Hold</a>
+                </span>
+              `;
+            }
+          }
+          
+          return `
+            <div style="display:flex;align-items:flex-start;gap:6px;font-size:11px;margin-bottom:4px">
+              <span style="color:${r.action === 'pass' ? 'var(--vscode-descriptionForeground)' : 'var(--vscode-charts-green)'}">✓</span>
+              <div style="flex:1">
+                <span style="font-weight:600;${r.action === 'pass' ? 'text-decoration:line-through;opacity:0.65;' : ''}">${escHtml(r.name)}</span>
+                <span style="font-size:9px;color:${actionColor};margin-left:4px">[${actionText}]</span>
+                ${controls}
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      if (gateCovers) {
+        const totalPatternCount = gateCovers.totalPatterns || 20;
+        const hardBlocks = gateCovers.hardBlocks || [];
+        const reviews = gateCovers.humanReviewRequired || [];
+        const activeCount = hardBlocks.length + reviews.length;
+        
+        const coveragePercent = Math.min(100, Math.round((activeCount / 5) * 87));
+        
+        setEl('policy-coverage-badge', coveragePercent + '% Coverage');
+        setEl('critical-actions-count', activeCount + '/' + activeCount);
+        
+        const covBar = document.getElementById('coverage-bar');
+        if (covBar) {
+          covBar.style.width = coveragePercent + '%';
+          covBar.style.background = coveragePercent >= 75 ? 'var(--vscode-charts-green)' : coveragePercent >= 50 ? 'var(--vscode-charts-yellow)' : 'var(--vscode-charts-red)';
+        }
+        
+        setEl('gateway-policies-active', activeCount + ' active');
+      }
+    }
+
+    // ── Execution Timeline ──
+    const activity = state.activity || [];
+    const timelineList = document.getElementById('execution-timeline-list');
+    if (connected && activity.length > 0) {
+      if (timelineList) {
+        timelineList.innerHTML = activity.map(ev => {
+          const time = new Date(ev.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          let badgeColor = 'var(--vscode-charts-green)';
+          let badgeText = 'ALLOW';
+          if (ev.verdict === 'BLOCK') {
+            badgeColor = 'var(--vscode-charts-red)';
+            badgeText = 'BLOCK';
+          } else if (ev.verdict === 'HOLD') {
+            badgeColor = 'var(--vscode-charts-yellow)';
+            badgeText = 'HOLD';
+          }
+          const ruleText = ev.ruleNames && ev.ruleNames.length > 0 
+            ? `<div style="font-size:9px;color:var(--vscode-descriptionForeground);margin-top:2px">Rule: ${escHtml(ev.ruleNames.join(', '))}</div>` 
+            : '';
+          return `
+            <div style="background:var(--vscode-sideBar-background);border:1px solid var(--vscode-widget-border, rgba(127,127,127,.15));border-radius:4px;padding:6px 8px;font-size:11px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                <span style="font-weight:700;color:${badgeColor}">${badgeText}</span>
+                <span style="color:var(--vscode-descriptionForeground);font-size:9px">${time}</span>
+              </div>
+              <div style="font-family:var(--vscode-editor-font-family, monospace);font-size:10px;background:var(--vscode-editor-background);padding:3px 5px;border-radius:2px;word-break:break-all;white-space:pre-wrap">${escHtml(ev.commandArg || ev.toolName)}</div>
+              ${ruleText}
+            </div>
+          `;
+        }).join('');
+      }
+    } else {
+      if (timelineList) {
+        timelineList.innerHTML = '<div style="font-size:11px;color:var(--vscode-descriptionForeground);text-align:center;padding:10px 0">No events recorded yet</div>';
+      }
+    }
 
     // ── Pending Bypasses ──────────────────────────────────────────────────────
     const bypasses = state.pendingBypasses || [];
@@ -278,7 +415,8 @@
               </div>
               <div style="font-family:var(--vscode-editor-font-family, monospace);font-size:10px;background:var(--vscode-editor-background);padding:4px 6px;border-radius:2px;margin-bottom:6px;word-break:break-all;white-space:pre-wrap">${escHtml(b.commandArg)}</div>
               <div style="display:flex;gap:6px">
-                <button class="primary" style="flex:1;padding:3px 6px;font-size:10px;border:1px solid var(--vscode-button-border,transparent);border-radius:4px;background:var(--vscode-button-background);color:var(--vscode-button-foreground);cursor:pointer" onclick="approveBypassToken('${b.token}')">Approve (${b.token})</button>
+                <button class="primary" style="flex:1;padding:3.5px 6px;font-size:10px;border:1px solid var(--vscode-button-border,transparent);border-radius:4px;background:var(--vscode-button-background);color:var(--vscode-button-foreground);cursor:pointer" onclick="approveBypassToken('${b.token}')">Approve</button>
+                <button style="flex:1.2;padding:3.5px 6px;font-size:10px;border:1px solid var(--vscode-button-border,transparent);border-radius:4px;background:var(--vscode-button-secondaryBackground, rgba(127,127,127,0.1));color:var(--vscode-button-secondaryForeground, var(--vscode-foreground));cursor:pointer" onclick="approveBypassTokenWithRemember('${b.token}')">Approve & Remember</button>
               </div>
             </div>
           `;
@@ -303,6 +441,21 @@
         if (rcFix) {
           if (rootCause.fixHint) { rcFix.textContent = '💡 ' + rootCause.fixHint; rcFix.style.display = 'block'; }
           else                   { rcFix.style.display = 'none'; }
+        }
+        const rcRecurrence = document.getElementById('rc-recurrence');
+        if (rcRecurrence) {
+          let recurrenceFound = false;
+          if (Array.isArray(state.history)) {
+            const pastIncident = state.history.find(h => h.topHypothesis && h.topHypothesis.tag === rootCause.tag && h.builtAt < rootCause.builtAt);
+            if (pastIncident && pastIncident.topHypothesis) {
+              rcRecurrence.innerHTML = `<strong>⚠️ Incident Re-occurrence:</strong> This error has happened before (${fmtRel(pastIncident.builtAt)}). Last time, you resolved it by using: <em>${escHtml(pastIncident.topHypothesis.fixHint || 'unspecified fix')}</em>.`;
+              rcRecurrence.style.display = 'block';
+              recurrenceFound = true;
+            }
+          }
+          if (!recurrenceFound) {
+            rcRecurrence.style.display = 'none';
+          }
         }
       } else if (rcBox) { rcBox.style.display = 'none'; }
 

@@ -35,7 +35,7 @@ interface PlattParams {
   A: number;
   B: number;
   n: number;     // training set size
-  accuracy: number; // empirical accuracy used for validation
+  holdoutAccuracy: number; // Leave-one-out cross validation accuracy
 }
 
 interface FederatedData {
@@ -72,10 +72,33 @@ function getFederatedParams(tag: string): PlattParams | null {
       A: val.A,
       B: val.B,
       n: val.n,
-      accuracy: val.accuracy,
+      holdoutAccuracy: val.accuracy,
     };
   }
   return null;
+}
+
+function fitPlattParams(
+  samples: Array<{ score: number; isCorrect: boolean }>,
+  y_pos: number,
+  y_neg: number
+): { A: number; B: number } {
+  let A = -1.0;  // initialise with slight negative slope (scores tend to be overconfident)
+  let B =  0.0;
+
+  for (let epoch = 0; epoch < EPOCHS; epoch++) {
+    let dA = 0, dB = 0;
+    for (const { score, isCorrect } of samples) {
+      const p = sigmoid(A * score + B);
+      const y = isCorrect ? y_pos : y_neg;
+      const err = p - y;
+      dA += err * score;
+      dB += err;
+    }
+    A -= LEARNING_RATE * dA / samples.length;
+    B -= LEARNING_RATE * dB / samples.length;
+  }
+  return { A, B };
 }
 
 /**
@@ -85,24 +108,36 @@ function getFederatedParams(tag: string): PlattParams | null {
 function fitPlatt(samples: Array<{ score: number; isCorrect: boolean }>): PlattParams | null {
   if (samples.length < MIN_SAMPLES) return null;
 
-  let A = -1.0;  // initialise with slight negative slope (scores tend to be overconfident)
-  let B =  0.0;
+  // Platt label smoothing
+  const N_pos = samples.filter((s) => s.isCorrect).length;
+  const N_neg = samples.length - N_pos;
+  const y_pos = (N_pos + 1) / (N_pos + 2);
+  const y_neg = 1 / (N_neg + 2);
 
-  for (let epoch = 0; epoch < EPOCHS; epoch++) {
-    let dA = 0, dB = 0;
-    for (const { score, isCorrect } of samples) {
-      const p = sigmoid(A * score + B);
-      const y = isCorrect ? 1 : 0;
-      const err = p - y;
-      dA += err * score;
-      dB += err;
+  // 1. Fit parameters A and B on the entire sample set
+  const { A, B } = fitPlattParams(samples, y_pos, y_neg);
+
+  // 2. Compute LOOCV holdout accuracy
+  let looCorrect = 0;
+  for (let i = 0; i < samples.length; i++) {
+    const subset = samples.slice(0, i).concat(samples.slice(i + 1));
+    const sub_N_pos = subset.filter((s) => s.isCorrect).length;
+    const sub_N_neg = subset.length - sub_N_pos;
+    const sub_y_pos = (sub_N_pos + 1) / (sub_N_pos + 2);
+    const sub_y_neg = 1 / (sub_N_neg + 2);
+
+    const { A: subA, B: subB } = fitPlattParams(subset, sub_y_pos, sub_y_neg);
+    const target = samples[i];
+    const p = sigmoid(subA * target.score + subB);
+    const predictedCorrect = p >= 0.5;
+    if (predictedCorrect === target.isCorrect) {
+      looCorrect++;
     }
-    A -= LEARNING_RATE * dA / samples.length;
-    B -= LEARNING_RATE * dB / samples.length;
   }
 
-  const correct = samples.filter((s) => s.isCorrect).length;
-  return { A, B, n: samples.length, accuracy: correct / samples.length };
+  const holdoutAccuracy = looCorrect / samples.length;
+
+  return { A, B, n: samples.length, holdoutAccuracy };
 }
 
 type ScoredRecord = PredictionRecord & { numericScore?: number; confidenceScore?: number };
@@ -209,10 +244,16 @@ export function invalidatePlattCache(): void {
 
 /** Diagnostic snapshot of all fitted models. */
 export function getPlattDiagnostics(): Array<{
-  tag: string; A: number; B: number; n: number; accuracy: number;
+  tag: string; A: number; B: number; n: number; holdoutAccuracy: number;
 }> {
   const now = Date.now();
   return [..._cache.entries()]
     .filter(([, v]) => now - v.fittedAt < CACHE_TTL_MS)
-    .map(([tag, { params }]) => ({ tag, ...params }));
+    .map(([tag, { params }]) => ({
+      tag,
+      A: params.A,
+      B: params.B,
+      n: params.n,
+      holdoutAccuracy: params.holdoutAccuracy,
+    }));
 }

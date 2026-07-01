@@ -146,6 +146,12 @@ mergen-server start
 MERGEN_AUTOPILOT=true              # enable autonomous fix execution
 MERGEN_SHADOW_MODE=true            # dry-run mode: diagnose but never execute fixes
 MERGEN_SECRET=mysecret             # shared secret for mutating API endpoints (x-mergen-secret header)
+MERGEN_POLICY_SIGNING_SECRET=...   # dedicated HMAC key for enterprise-policy.json signing. Recommended for
+                                   # production/team deployments — without it, the policy file is signed with
+                                   # the same on-disk secret (~/.mergen/secret) used for API auth, which is
+                                   # readable by anything with the local filesystem access an AI coding agent
+                                   # has. Set this via an env-only mechanism (secrets manager, systemd
+                                   # EnvironmentFile) that never writes the value to disk.
 
 # ── Slack ─────────────────────────────────────────────────────────────────────
 MERGEN_SLACK_BOT_TOKEN=xoxb-...    # Slack Web API token (threads + replies)
@@ -365,6 +371,10 @@ curl -X POST http://127.0.0.1:3000/slack/routing \
 - Cloud mode: TLS + SHA-256 hashed API keys + sliding-window rate limiting
 - PII shield: always-on regex patterns (email, phone, AWS keys, PEM certs, JWTs, credit cards) + configurable via `~/.mergen/pii-config.json`
 - Tenant isolation: events tagged at ingest, filtered on every read
+- Policy-file tamper evidence: enterprise-policy.json is HMAC-signed. By default the signing key lives at
+  `~/.mergen/secret` alongside the policy file — set `MERGEN_POLICY_SIGNING_SECRET` (env-only, never written
+  to disk) in production/team deployments so the signing key isn't readable by anything with the local
+  filesystem access an AI coding agent has
 
 ```bash
 # Optional shared secret (local mode)

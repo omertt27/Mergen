@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { loadEnterprisePolicy, saveEnterprisePolicy, EnterprisePolicyConfig } from './enterprise-policy-engine.js';
+import { loadEnterprisePolicy, saveEnterprisePolicy, EnterprisePolicyConfig, IMMUTABLE_RULE_IDS } from './enterprise-policy-engine.js';
 import logger from '../sensor/logger.js';
 
 export interface PolicySyncOptions {
@@ -7,10 +7,6 @@ export interface PolicySyncOptions {
   intervalMs?: number;
   mergeMode?:  'replace' | 'merge';
 }
-
-// Rule IDs that are never removed or overridden by a remote policy, regardless
-// of merge mode. These are the hard-safety guardrails that must always be active.
-const IMMUTABLE_RULE_IDS = new Set(['block_destructive_commands']);
 
 let _lastEtag = '';
 

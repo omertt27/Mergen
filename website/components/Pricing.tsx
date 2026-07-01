@@ -4,10 +4,10 @@ import { useState } from 'react'
 
 const plans = [
   {
-    name: 'Solo / Open Source',
+    name: 'Local',
     price: '$0',
     period: '/forever',
-    pitch: 'Deterministic agent execution gateway on a workstation. Local execution gate, override corpus, pre-commit guard, Agent Blunder Log. No cloud, no card.',
+    pitch: 'Deterministic agent execution gateway on your local workstation. Local execution gate, override corpus, Git Guard pre-commit checks, and Blunder Log.',
     pilotCondition: null,
     cta: 'Get Started',
     ctaClass: 'btn btn-outline',
@@ -15,14 +15,14 @@ const plans = [
     featured: false,
   },
   {
-    name: 'Growth',
+    name: 'Team',
     price: '$299',
     period: '/mo',
-    pitch: 'Team-wide execution policy enforcement. Shared override corpus, Slack-to-corpus loop, agent execution visualizer, ROI dashboard. Up to 10 services.',
+    pitch: 'Team-wide execution policy enforcement. Shared override corpus, Slack authorization loops, runtime visualizer, and centralized audit trail.',
     pilotCondition: 'Pilot succeeds when Mergen correctly intercepts 1 unsafe agent action in your environment within 7 days.',
-    cta: 'Start Growth Pilot →',
+    cta: 'Start Team Pilot →',
     ctaClass: 'btn btn-outline',
-    href: 'mailto:hello@mergen.dev?subject=Growth%20Pilot%20Request',
+    href: 'mailto:hello@mergen.dev?subject=Team%20Pilot%20Request',
     featured: false,
   },
   {
@@ -130,8 +130,8 @@ export default function Pricing() {
             <thead>
               <tr>
                 <th style={{ width: '48%' }}>Feature</th>
-                <th>Solo</th>
-                <th>Growth</th>
+                <th>Local</th>
+                <th>Team</th>
                 <th>Enterprise</th>
               </tr>
             </thead>

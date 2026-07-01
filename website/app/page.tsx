@@ -1,11 +1,11 @@
 import Nav from '@/components/Nav'
 import Hero from '@/components/Hero'
-import InterceptionGate from '@/components/InterceptionGate'
+import HowItWorks from '@/components/HowItWorks'
+import Features from '@/components/Features'
 import CausalCanvas from '@/components/CausalCanvas'
 import LegacyVsMergen from '@/components/LegacyVsMergen'
-import Features from '@/components/Features'
-import EvalProof from '@/components/EvalProof'
 import Integrations from '@/components/Integrations'
+import EvalProof from '@/components/EvalProof'
 import Pricing from '@/components/Pricing'
 import Footer from '@/components/Footer'
 
@@ -15,9 +15,16 @@ export default function Home() {
       <Nav />
       <main className="page-main">
         <div className="wrap">
+          {/* 1. Hero Section */}
           <Hero />
-          <InterceptionGate />
+
+          {/* 2. How It Works (Agent -> Mergen -> Tools) */}
+          <HowItWorks />
+
+          {/* 3 & 4. Core Capabilities (Prevent, Govern, Audit) & Detailed Features */}
+          <Features />
           
+          {/* Showcase section for Runtime Visualizer (CausalCanvas) */}
           <section id="visualizer" className="visualizer-section">
             <span className="section-label">VISUAL_AUDIT_TRAIL</span>
             <h2 className="section-title">
@@ -31,10 +38,16 @@ export default function Home() {
             <CausalCanvas />
           </section>
 
+          {/* Inline controls vs reactive triage timeline comparison */}
           <LegacyVsMergen />
-          <Features />
-          <EvalProof />
+
+          {/* 5. System Integrations */}
           <Integrations />
+
+          {/* 6. Adversarial Harness Benchmark */}
+          <EvalProof />
+
+          {/* 7. Pricing & Access Tiers */}
           <Pricing />
         </div>
       </main>
@@ -42,4 +55,3 @@ export default function Home() {
     </>
   )
 }
-

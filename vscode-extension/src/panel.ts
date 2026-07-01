@@ -64,6 +64,41 @@ function httpPost(url: string, body: unknown, timeoutMs: number, customHeaders?:
   });
 }
 
+/** PATCH helper using Node http module */
+function httpPatch(url: string, body: unknown, timeoutMs: number, customHeaders?: Record<string, string>): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const payload = body ? JSON.stringify(body) : '';
+    const parsed = new URL(url);
+    const options: http.RequestOptions = {
+      hostname: parsed.hostname,
+      port: parsed.port,
+      path: parsed.pathname,
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload),
+        ...(customHeaders || {}),
+      },
+      timeout: timeoutMs,
+    };
+    const req = http.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk: string) => { data += chunk; });
+      res.on('end', () => {
+        if (res.statusCode && res.statusCode >= 400) {
+          reject(Object.assign(new Error(`HTTP ${res.statusCode}`), { statusCode: res.statusCode, body: data }));
+        } else {
+          try { resolve(JSON.parse(data)); } catch { resolve(data); }
+        }
+      });
+    });
+    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+    req.on('error', reject);
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
+
 // SessionSignal, HealthResponse, UsageSnapshot, CalibrationStats, Hypothesis,
 // LastPack, HistoryEntry, CalibrationOverview, TimelineRow, RootCause,
 // FilePRContext, AccountState, ServiceInfo, ServiceInteractions, PendingBypass
@@ -85,6 +120,10 @@ interface ServerState {
   services:       Record<string, ServiceInfo> | null;
   interactions:   ServiceInteractions | null;
   pendingBypasses: PendingBypass[] | null;
+  activity:       ActivityEvent[] | null;
+  policies:       UnifiedDashboardResponse['policies'] | null;
+  gateCovers:     UnifiedDashboardResponse['gateCovers'] | null;
+  securityMetrics: UnifiedDashboardResponse['securityMetrics'] | null;
 }
 
 function getNonce(): string {
@@ -104,6 +143,10 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     account: null, fileIntent: null, error: null,
     services: null, interactions: null,
     pendingBypasses: null,
+    activity: null,
+    policies: null,
+    gateCovers: null,
+    securityMetrics: null,
   };
   private _pollTimer?: ReturnType<typeof setTimeout>;
   private _activeFile: string | null = null;
@@ -139,12 +182,15 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     webviewView.webview.html = this._getHtml(webviewView.webview);
 
     // Handle messages from the webview
-    webviewView.webview.onDidReceiveMessage(async (msg: { type: string; tool?: string; text?: string; command?: string; pid?: string; verdict?: string; token?: string }) => {
+    webviewView.webview.onDidReceiveMessage(async (msg: { type: string; tool?: string; text?: string; command?: string; pid?: string; verdict?: string; token?: string; remember?: boolean; id?: string; action?: string }) => {
       if (msg.type === 'clear') await this.clearBuffer();
       if (msg.type === 'refresh') await this.refresh();
       if (msg.type === 'startCapture') await this.startCapture();
       if (msg.type === 'approveBypass' && msg.token) {
-        await this.approveBypass(msg.token);
+        await this.approveBypass(msg.token, !!msg.remember);
+      }
+      if (msg.type === 'toggleRule' && msg.id && msg.action) {
+        await this.toggleRule(msg.id, msg.action as 'block' | 'warn' | 'pass');
       }
       if (msg.type === 'connectAccount') {
         await vscode.commands.executeCommand('mergen.connectAccount');
@@ -346,6 +392,10 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     services:        Record<string, ServiceInfo> | null;
     interactions:    ServiceInteractions | null;
     pendingBypasses: PendingBypass[] | null;
+    activity:        ActivityEvent[] | null;
+    policies:        UnifiedDashboardResponse['policies'] | null;
+    gateCovers:      UnifiedDashboardResponse['gateCovers'] | null;
+    securityMetrics: UnifiedDashboardResponse['securityMetrics'] | null;
   } | null> {
     try {
       const base = `http://127.0.0.1:${port}`;
@@ -388,6 +438,10 @@ export class MergenPanel implements vscode.WebviewViewProvider {
         services:        dashData.services,
         interactions:    dashData.interactions,
         pendingBypasses: dashData.pendingBypasses ?? [],
+        activity:        dashData.activity ?? null,
+        policies:        dashData.policies ?? null,
+        gateCovers:      dashData.gateCovers ?? null,
+        securityMetrics: dashData.securityMetrics ?? null,
       };
     } catch {
       return null;
@@ -411,6 +465,10 @@ export class MergenPanel implements vscode.WebviewViewProvider {
         services: result.services,
         interactions: result.interactions,
         pendingBypasses: result.pendingBypasses,
+        activity: result.activity ?? [],
+        policies: result.policies ?? null,
+        gateCovers: result.gateCovers ?? null,
+        securityMetrics: result.securityMetrics ?? null,
       };
     } else {
       const found = await this._discoverPort(port);
@@ -427,6 +485,10 @@ export class MergenPanel implements vscode.WebviewViewProvider {
           services: null,
           interactions: null,
           pendingBypasses: null,
+          activity: [],
+          policies: null,
+          gateCovers: null,
+          securityMetrics: null,
         };
       }
     }
@@ -448,6 +510,10 @@ export class MergenPanel implements vscode.WebviewViewProvider {
           services: result.services,
           interactions: result.interactions,
           pendingBypasses: result.pendingBypasses,
+          activity: result.activity ?? [],
+          policies: result.policies ?? null,
+          gateCovers: result.gateCovers ?? null,
+          securityMetrics: result.securityMetrics ?? null,
         };
         await vscode.workspace.getConfiguration('mergen').update('serverPort', p, vscode.ConfigurationTarget.Workspace);
         return true;
@@ -525,26 +591,53 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     return null;
   }
 
-  private async approveBypass(token: string): Promise<void> {
+  private async approveBypass(token: string, remember = false): Promise<void> {
     const port = this._getPort();
     const secret = this._getSharedSecret();
     const base = `http://127.0.0.1:${port}`;
     try {
       const res = await httpPost(
-        `${base}/hitl/bypass/approve`,
-        { token },
+        `${base}/hitl/approve`,
+        { token, remember },
         2000,
         secret ? { 'x-mergen-secret': secret } : undefined
       ) as { ok: boolean; error?: string; toolName?: string; commandArg?: string };
       
       if (res && res.ok) {
-        vscode.window.showInformationMessage(`Bypass approved! ${res.commandArg ? `Execution of "${res.commandArg}"` : `Tool call to ${res.toolName}`} is allowed.`);
+        if (remember) {
+          vscode.window.showInformationMessage(`Bypass approved and remembered as policy!`);
+        } else {
+          vscode.window.showInformationMessage(`Bypass approved! ${res.commandArg ? `Execution of "${res.commandArg}"` : `Tool call to ${res.toolName}`} is allowed.`);
+        }
         await this._poll();
       } else {
         vscode.window.showErrorMessage(`Failed to approve bypass: ${res?.error || 'unknown error'}`);
       }
     } catch (err) {
       vscode.window.showErrorMessage(`Failed to approve bypass: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  private async toggleRule(id: string, action: 'block' | 'warn' | 'pass'): Promise<void> {
+    const port = this._getPort();
+    const secret = this._getSharedSecret();
+    const base = `http://127.0.0.1:${port}`;
+    try {
+      const res = await httpPatch(
+        `${base}/policies/rules/${id}`,
+        { action },
+        3000,
+        secret ? { 'x-mergen-secret': secret } : undefined
+      ) as { ok: boolean; error?: string };
+      
+      if (res && res.ok) {
+        vscode.window.showInformationMessage(`Rule '${id}' action updated to ${action.toUpperCase()}!`);
+        await this._poll();
+      } else {
+        vscode.window.showErrorMessage(`Failed to update rule: ${res?.error || 'unknown error'}`);
+      }
+    } catch (err) {
+      vscode.window.showErrorMessage(`Failed to update rule: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -1007,6 +1100,17 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   .calib-failmodes ul { margin: 2px 0 0 14px; padding: 0; }
   .calib-failmodes li { margin: 1px 0; }
 
+  .adv-section {
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--vscode-widget-border, rgba(127,127,127,.15));
+  }
+  .adv-section:last-child {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+  }
+
   /* ── Detector health row (global calibration table) ── */
   .det-row {
     display: flex;
@@ -1148,9 +1252,16 @@ export class MergenPanel implements vscode.WebviewViewProvider {
 <body>
 
 <!-- Header -->
-<div class="header">
-  <span class="header-title"><span class="dot" id="dot"></span>Mergen</span>
-  <span class="badge" id="plan-badge">—</span>
+<div class="header" style="flex-direction: column; align-items: stretch; gap: 8px;">
+  <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+    <span class="header-title"><span class="dot" id="dot"></span>Mergen Gateway</span>
+    <span class="badge" id="plan-badge">—</span>
+  </div>
+  <div class="gateway-status-bar" style="display: flex; justify-content: space-between; font-size: 10px; color: var(--vscode-descriptionForeground); border-top: 1px solid var(--vscode-widget-border, rgba(127,127,127,.15)); padding-top: 6px; margin-top: 4px; width: 100%;">
+    <span>Status: <span id="gateway-status" style="color: var(--vscode-charts-green); font-weight: 600;">Protected ✓</span></span>
+    <span>Latency: <span id="gateway-latency">0.84ms</span></span>
+    <span>Policies: <span id="gateway-policies-active">0 active</span></span>
+  </div>
 </div>
 
 <!-- Low-credit notice -->
@@ -1214,6 +1325,69 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   </div>
 </div>
 
+<!-- Security Metrics -->
+<div class="card" id="card-security-metrics" style="display:none">
+  <div class="card-title">Security Metrics</div>
+  <div class="stats-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px;">
+    <div class="stat-box" style="background: var(--vscode-sideBar-background); border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.15)); border-radius: 4px; padding: 8px; text-align: center; border-left: 3px solid var(--vscode-charts-blue);">
+      <div style="font-size: 15px; font-weight: 700; color: var(--vscode-charts-blue);" id="metric-protected-actions">—</div>
+      <div style="font-size: 9px; color: var(--vscode-descriptionForeground); text-transform: uppercase; margin-top: 2px;">Protected Actions</div>
+    </div>
+    <div class="stat-box" style="background: var(--vscode-sideBar-background); border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.15)); border-radius: 4px; padding: 8px; text-align: center; border-left: 3px solid var(--vscode-charts-red);">
+      <div style="font-size: 15px; font-weight: 700; color: var(--vscode-charts-red);" id="metric-blocked-actions">—</div>
+      <div style="font-size: 9px; color: var(--vscode-descriptionForeground); text-transform: uppercase; margin-top: 2px;">Blocked Actions</div>
+    </div>
+    <div class="stat-box" style="background: var(--vscode-sideBar-background); border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.15)); border-radius: 4px; padding: 8px; text-align: center; border-left: 3px solid var(--vscode-charts-yellow);">
+      <div style="font-size: 15px; font-weight: 700; color: var(--vscode-charts-yellow);" id="metric-approvals-requested">—</div>
+      <div style="font-size: 9px; color: var(--vscode-descriptionForeground); text-transform: uppercase; margin-top: 2px;">Approvals Req</div>
+    </div>
+    <div class="stat-box" style="background: var(--vscode-sideBar-background); border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.15)); border-radius: 4px; padding: 8px; text-align: center; border-left: 3px solid var(--vscode-charts-orange, #d18616);">
+      <div style="font-size: 15px; font-weight: 700; color: var(--vscode-charts-orange, #d18616);" id="metric-shadow-violations">—</div>
+      <div style="font-size: 9px; color: var(--vscode-descriptionForeground); text-transform: uppercase; margin-top: 2px;">Shadow Violations</div>
+    </div>
+  </div>
+</div>
+
+<!-- Policies & Coverage -->
+<div class="card" id="card-policies-coverage" style="display:none">
+  <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+    <span>Active Policies</span>
+    <span id="policy-coverage-badge" style="font-size:10px;font-weight:700;background:var(--vscode-charts-green);color:#fff;border-radius:3px;padding:1px 5px">— Coverage</span>
+  </div>
+  <div style="font-size:10px;color:var(--vscode-descriptionForeground);margin-bottom:8px">Safety policies enforced on all autonomous agents.</div>
+  
+  <div id="policies-list" style="display:flex;flex-direction:column;gap:5px;margin-bottom:10px">
+    <!-- Active policies list -->
+  </div>
+
+  <div style="border-top:1px solid var(--vscode-widget-border, rgba(127,127,127,.15));padding-top:8px;margin-top:8px">
+    <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px">
+      <span style="color:var(--vscode-descriptionForeground)">Critical Actions Protected</span>
+      <span style="font-weight:600" id="critical-actions-count">—</span>
+    </div>
+    <div class="credit-bar-wrap" style="height:6px; background:rgba(127,127,127,0.2);">
+      <div class="credit-bar-fill" id="coverage-bar" style="width:0%; background:var(--vscode-charts-green)"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Execution Timeline -->
+<div class="card" id="card-execution-timeline" style="display:none">
+  <div class="card-title">Execution Timeline</div>
+  <div style="font-size:10px;color:var(--vscode-descriptionForeground);margin-bottom:8px">Real-time log of agent decisions and safety checks.</div>
+  <div id="execution-timeline-list" style="display:flex;flex-direction:column;gap:6px"></div>
+</div>
+
+<!-- Pending Bypasses -->
+<div class="card" id="card-bypasses" style="display:none">
+  <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
+    <span>Pending Bypasses</span>
+    <span style="font-size:10px;font-weight:700;background:var(--vscode-charts-red);color:#fff;border-radius:3px;padding:1px 5px" id="bypasses-count">0</span>
+  </div>
+  <div style="font-size:10px;color:var(--vscode-descriptionForeground);margin-bottom:8px">AI agent tool executions requiring manual approval.</div>
+  <div id="bypasses-list" style="display:flex;flex-direction:column;gap:6px"></div>
+</div>
+
 <!-- Live Context Pack — promoted to first: root cause is the primary question -->
 <div class="card" id="card-pack" style="display:none">
   <div class="card-title">Context Pack <span id="pack-time" class="pack-time"></span></div>
@@ -1248,16 +1422,6 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   </div>
 </div>
 
-<!-- Pending Bypasses -->
-<div class="card" id="card-bypasses" style="display:none">
-  <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
-    <span>Pending Bypasses</span>
-    <span style="font-size:10px;font-weight:700;background:var(--vscode-charts-red);color:#fff;border-radius:3px;padding:1px 5px" id="bypasses-count">0</span>
-  </div>
-  <div style="font-size:10px;color:var(--vscode-descriptionForeground);margin-bottom:8px">AI agent tool executions requiring manual approval.</div>
-  <div id="bypasses-list" style="display:flex;flex-direction:column;gap:6px"></div>
-</div>
-
 <!-- Service Map (Execution Visualizer) -->
 <div class="card" id="card-services" style="display:none">
   <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
@@ -1277,13 +1441,14 @@ export class MergenPanel implements vscode.WebviewViewProvider {
 
 <!-- Unified Timeline -->
 <div class="card" id="card-activity" style="display:none">
-  <div class="card-title">Unified Timeline</div>
+  <div class="card-title">Diagnostics Timeline</div>
   <div id="root-cause-box" style="display:none;margin-bottom:8px;padding:8px 10px;border-radius:4px;background:rgba(255,100,100,.08);border-left:3px solid var(--vscode-charts-red)">
     <div style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--vscode-charts-red);margin-bottom:3px">
       Root Cause · <span id="rc-confidence"></span>
     </div>
     <div id="rc-hypothesis" style="font-size:11px;color:var(--vscode-foreground);line-height:1.4"></div>
     <div id="rc-fix" style="display:none;font-size:10px;color:var(--vscode-descriptionForeground);margin-top:4px"></div>
+    <div id="rc-recurrence" style="display:none;margin-top:6px;padding:6px 8px;background:rgba(255,200,0,0.08);border-left:2px solid var(--vscode-charts-yellow);font-size:10px;border-radius:0 4px 4px 0"></div>
   </div>
   <div id="activity-list"></div>
 </div>
@@ -1303,56 +1468,75 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   <div id="intent-list"></div>
 </div>
 
-<!-- Confidence Milestone Dashboard -->
-<div class="card" id="card-milestone" style="display:none">
-  <div class="card-title">Autopilot Milestone</div>
-  <div style="font-size:11px;color:var(--vscode-foreground);margin-bottom:8px">
-    Mergen is learning to resolve <b id="milestone-tag">api-service</b> issues automatically.
+<!-- Collapsible Advanced Section -->
+<div class="card" id="card-advanced" style="display:none">
+  <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none" onclick="toggleAdvanced()">
+    <span>Advanced Diagnostics</span>
+    <span id="advanced-toggle-icon">▶</span>
   </div>
-  <div class="credit-bar-wrap" style="height:8px; background:rgba(127,127,127,0.2);">
-    <div class="credit-bar-fill" id="milestone-bar" style="width:82%; background:var(--vscode-charts-green)"></div>
-  </div>
-  <div class="credit-meta" style="margin-top:4px; justify-content:space-between;">
-    <span id="milestone-progress" style="font-weight:600">82% Confidence reached</span>
-    <a href="#" id="milestone-action" style="color:var(--vscode-textLink-foreground);text-decoration:none;">Promote to Autopilot?</a>
-  </div>
-</div>
+  <div id="advanced-content" style="display:none;margin-top:10px;border-top:1px solid var(--vscode-widget-border, rgba(127,127,127,.15));padding-top:10px">
+    
+    <!-- Detector Health -->
+    <div class="adv-section" id="card-detectors" style="display:none">
+      <div style="font-size:11px;font-weight:600;margin-bottom:6px;display:flex;justify-content:space-between">
+        <span>Detector Health</span>
+        <span id="detector-summary" style="font-size:9px;color:var(--vscode-descriptionForeground)"></span>
+      </div>
+      <div id="detector-list"></div>
+    </div>
+    
+    <!-- Buffer stats -->
+    <div class="adv-section" id="card-buffer" style="display:none">
+      <div style="font-size:11px;font-weight:600;margin-bottom:6px">Buffer Diagnostics</div>
+      <div class="stats" style="margin-bottom:8px">
+        <div class="stat">
+          <div class="stat-value red"   id="stat-errors">0</div>
+          <div class="stat-label">Errors</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value amber" id="stat-warns">0</div>
+          <div class="stat-label">Warnings</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value blue"  id="stat-net">0</div>
+          <div class="stat-label">Net Errors</div>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="primary" id="btn-refresh" onclick="onRefresh()">
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-right:4px;vertical-align:middle;"><path d="M13.6 4.6A7 7 0 1 0 15 8h-2a5 5 0 1 1-1-3l2.2-2.2v4.8h-4.8z"/></svg>Refresh
+        </button>
+        <button id="btn-capture" onclick="send('startCapture')" title="Mark a start point — reproduce your bug — then ask your AI what happened since capture">
+          <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--vscode-charts-red);margin-right:4px;vertical-align:middle;"></span>Capture
+        </button>
+        <button id="btn-clear" onclick="onClear()">
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-right:4px;vertical-align:middle;"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>Clear
+        </button>
+      </div>
+      <div id="capture-status" style="display:none;margin-top:6px;font-size:10px;color:var(--vscode-charts-green)"></div>
+    </div>
 
-<!-- Buffer stats — moved after signals; raw counts are secondary to explanations -->
-<div class="card" id="card-buffer" style="display:none">
-  <div class="card-title">Buffer</div>
-  <div class="stats">
-    <div class="stat">
-      <div class="stat-value red"   id="stat-errors">0</div>
-      <div class="stat-label">Errors</div>
-    </div>
-    <div class="stat">
-      <div class="stat-value amber" id="stat-warns">0</div>
-      <div class="stat-label">Warnings</div>
-    </div>
-    <div class="stat">
-      <div class="stat-value blue"  id="stat-net">0</div>
-      <div class="stat-label">Net Errors</div>
+    <!-- Server info -->
+    <div class="adv-section" id="card-server" style="display:none">
+      <div style="font-size:11px;font-weight:600;margin-bottom:6px">Server Details</div>
+      <div class="row">
+        <span class="row-label">Port</span>
+        <span class="row-value" id="server-port">—</span>
+      </div>
+      <div class="row">
+        <span class="row-label">Version</span>
+        <span class="row-value" id="server-version">—</span>
+      </div>
+      <div class="row">
+        <span class="row-label">Buffer</span>
+        <span class="row-value" id="server-buffered">—</span>
+      </div>
+      <div class="row" title="Automatic causal-chain rebuilds — Mergen's continuous-watch metric">
+        <span class="row-label">Analyses today</span>
+        <span class="row-value" id="server-analyses">—</span>
+      </div>
     </div>
   </div>
-  <div class="btn-row" style="margin-top:10px">
-    <button class="primary" id="btn-refresh" onclick="onRefresh()">
-      <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-right:4px;vertical-align:middle;"><path d="M13.6 4.6A7 7 0 1 0 15 8h-2a5 5 0 1 1-1-3l2.2-2.2v4.8h-4.8z"/></svg>Refresh
-    </button>
-    <button id="btn-capture" onclick="send('startCapture')" title="Mark a start point — reproduce your bug — then ask your AI what happened since capture">
-      <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--vscode-charts-red);margin-right:4px;vertical-align:middle;"></span>Capture
-    </button>
-    <button id="btn-clear" onclick="onClear()">
-      <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-right:4px;vertical-align:middle;"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>Clear
-    </button>
-  </div>
-  <div id="capture-status" style="display:none;margin-top:6px;font-size:10px;color:var(--vscode-charts-green)"></div>
-</div>
-
-<!-- Hypothesis history (C1) -->
-<div class="card" id="card-history" style="display:none">
-  <div class="card-title">Recent Diagnoses</div>
-  <div id="history-list"></div>
 </div>
 
 <!-- Credits -->
@@ -1397,34 +1581,10 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   </div>
 </div>
 
-<!-- Detector health (the global calibration view) -->
-<div class="card" id="card-detectors" style="display:none">
-  <div class="card-title">
-    Detector Health
-    <span class="pack-time" id="detector-summary"></span>
-  </div>
-  <div id="detector-list"></div>
-</div>
-
-<!-- Server info -->
-<div class="card" id="card-server" style="display:none">
-  <div class="card-title">Server</div>
-  <div class="row">
-    <span class="row-label">Port</span>
-    <span class="row-value" id="server-port">—</span>
-  </div>
-  <div class="row">
-    <span class="row-label">Version</span>
-    <span class="row-value" id="server-version">—</span>
-  </div>
-  <div class="row">
-    <span class="row-label">Buffer</span>
-    <span class="row-value" id="server-buffered">—</span>
-  </div>
-  <div class="row" title="Automatic causal-chain rebuilds — Mergen's continuous-watch metric">
-    <span class="row-label">Analyses today</span>
-    <span class="row-value" id="server-analyses">—</span>
-  </div>
+<!-- Hypothesis history (C1) -->
+<div class="card" id="card-history" style="display:none">
+  <div class="card-title">Recent Diagnoses</div>
+  <div id="history-list"></div>
 </div>
 
 <script src="${scriptUri}"></script>

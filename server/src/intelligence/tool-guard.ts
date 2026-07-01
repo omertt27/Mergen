@@ -1,8 +1,10 @@
 /**
  * tool-guard.ts — Synchronous local policy gate for every MCP tool call.
  *
- * Wraps McpServer.registerTool via a Proxy so every tool invocation passes
- * through the local policy engine before the handler runs. Three outcomes:
+ * Patches the McpServer's low-level `tools/call` dispatch (see
+ * createGuardedServer below) so every tool invocation passes through the
+ * local policy engine before the handler runs, regardless of which SDK
+ * method registered the tool. Three outcomes:
  *
  *   PASS  — policy clear, handler called immediately (<1ms overhead)
  *   BLOCK — destructive pattern matched, MCP error returned, blunder logged
@@ -25,6 +27,7 @@ import { randomUUID, randomBytes, createHmac, createHash } from 'crypto';
 import { hostname } from 'os';
 import fs from 'fs';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { evaluateEnterprisePolicy, loadEnterprisePolicy } from './enterprise-policy-engine.js';
 import { computeBlastRadius, mostSevereBlast } from './blast-radius.js';
 import { recordBlunder } from '../sensor/agent-blunder-store.js';
@@ -184,6 +187,12 @@ export function getPendingBypasses(): Array<{ token: string; toolName: string; c
     }
   }
   return list;
+}
+
+export function getPendingBypassDetail(token: string) {
+  const b = _pendingBypasses.get(token);
+  if (!b || Date.now() > b.expiresAt) return null;
+  return b;
 }
 
 /** Forcibly invalidate a bypass token — called after too many failed approval attempts. */
@@ -632,7 +641,54 @@ async function fireHitlEscalation(token: string, toolName: string): Promise<void
 
 // ── Core gate logic ───────────────────────────────────────────────────────────
 
+/**
+ * Public entry point — wraps applyGateInner in an explicit fail-closed
+ * try/catch. Previously, a thrown exception anywhere in the gate (malformed
+ * policy rule, unexpected input shape, etc.) happened to fail closed only
+ * because every `next()` call site sits after evaluation completes
+ * successfully, so a rejected promise propagated to the SDK's own outer
+ * catch without ever reaching the real handler. That was an accident of call
+ * order, not a guarantee — a future change that reordered or wrapped
+ * evaluation could silently turn it into fail-open. This makes fail-closed
+ * an explicit, tested property of the gate itself.
+ */
 async function applyGate(
+  toolName: string,
+  args:     unknown,
+  next:     () => Promise<McpResult>,
+  port:     number,
+): Promise<McpResult> {
+  try {
+    return await applyGateInner(toolName, args, next, port);
+  } catch (err) {
+    logger.error({ err, toolName }, 'tool-guard: applyGate threw an unexpected error — failing closed');
+    recordBlunder({
+      blunderType:     'pipeline_block',
+      command:         toolName,
+      blockReason:     `Gate threw an unexpected error and failed closed: ${err instanceof Error ? err.message : String(err)}`,
+      service:         'mcp',
+      tag:             'gate_internal_error',
+      actor:           'agent',
+      pid:             null,
+      confidenceScore: null,
+    });
+    return {
+      content: [{
+        type: 'text',
+        text: [
+          `🚫 **Mergen fail-closed: the local execution gate hit an internal error while evaluating this call.**`,
+          ``,
+          `**Tool:** \`${toolName}\``,
+          ``,
+          `_The tool call was not executed. This event has been logged to the Agent Blunder Log._`,
+        ].join('\n'),
+      }],
+      isError: true,
+    };
+  }
+}
+
+async function applyGateInner(
   toolName: string,
   args:     unknown,
   next:     () => Promise<McpResult>,
@@ -1017,26 +1073,160 @@ async function applyGate(
 
 // ── Server factory ────────────────────────────────────────────────────────────
 
+/** Set to true the first time installProtocolGate() successfully patches a
+ *  server's dispatch handler — read by assertGateIsInstalled() so startup can
+ *  refuse to accept connections if the patch never took effect. */
+let _gateInstalled = false;
+
+/** For tests and the startup self-check: true once a guarded server has been created. */
+export function isGateInstalled(): boolean {
+  return _gateInstalled;
+}
+
+/** Reset for testing only. */
+export function _resetGateInstalledForTesting(): void {
+  _gateInstalled = false;
+}
+
+/** Per-instance record of the live gated tools/call dispatch handler, keyed by
+ *  server so assertGateCoversRegisteredTools can invoke it directly instead of
+ *  re-triggering setRequestHandler (which would install a second wrapped layer
+ *  rather than reading the existing one back). */
+const _installedGatedHandlers = new WeakMap<McpServer, (request: unknown, extra: unknown) => Promise<McpResult>>();
+
 /**
- * Returns a Proxy over the McpServer that intercepts registerTool and wraps
- * every handler with applyGate. Pass the returned value to registerTools().
+ * Patches every McpServer instance passed through here so that the MCP
+ * `tools/call` JSON-RPC dispatch — the single point every tool invocation
+ * must cross to actually execute — runs through applyGate first.
+ *
+ * This intercepts at the protocol boundary instead of enumerating SDK
+ * registration methods. The previous approach trapped `registerTool` and,
+ * after a bypass was found, also `tool()` — but the SDK exposes a third,
+ * currently-unaudited path (`server.experimental.tasks.registerToolTask()`,
+ * which also calls the private `_createRegisteredTool` directly) that neither
+ * trap covers, and any future registration sugar the SDK adds would reproduce
+ * the same gap. `registerTool`, `tool`, and `registerToolTask` all populate
+ * `_registeredTools`, but regardless of which one was used, invoking a tool
+ * only ever happens through the low-level `Server`'s dispatch for the
+ * `tools/call` method (identified here by reference to the SDK's own exported
+ * `CallToolRequestSchema`, not by re-deriving its internal method-literal
+ * logic). Patching that one call site is stable across SDK versions because
+ * it's dictated by the MCP protocol itself, not by how many registration
+ * methods the SDK happens to expose today.
  *
  * @param port - The HTTP port so /hitl approve/deny URLs are correct in webhooks
  */
 export function createGuardedServer(server: McpServer, port: number): McpServer {
-  return new Proxy(server, {
-    get(target, prop, receiver) {
-      if (prop !== 'registerTool') return Reflect.get(target, prop, receiver);
-      return (
-        name:    string,
-        schema:  unknown,
-        handler: (args: unknown, extra: unknown) => Promise<McpResult>,
-      ) => {
-        const guarded = (args: unknown, extra: unknown): Promise<McpResult> =>
-          applyGate(name, args, () => handler(args, extra), port);
-        return (target as unknown as Record<string, (...a: unknown[]) => unknown>)
-          .registerTool.call(target, name, schema, guarded);
-      };
-    },
-  });
+  // Ordering guard: if any tool was already registered on this exact instance
+  // before createGuardedServer ran, the SDK will have already installed its
+  // unpatched tools/call dispatch handler (_toolHandlersInitialized flips true
+  // the first time any registration method executes) — the patch below would
+  // have nothing left to wrap, and those tools would be permanently ungated.
+  // index.ts's `registerTools(createGuardedServer(mcp, port))` call order
+  // already prevents this, but that's a convention this function can't see
+  // from inside itself — assert it instead of assuming it holds forever.
+  if ((server as unknown as { _toolHandlersInitialized?: boolean })._toolHandlersInitialized) {
+    throw new Error(
+      'createGuardedServer: a tool was already registered on this McpServer before the gate was ' +
+      'installed — the tools/call dispatch handler is already active and unpatched. Call ' +
+      'createGuardedServer(mcp, port) before any registerTool/tool/registerToolTask call, never after.',
+    );
+  }
+
+  const lowLevel = (server as unknown as {
+    server: { setRequestHandler: (schema: unknown, handler: (...a: unknown[]) => unknown) => unknown };
+  }).server;
+
+  const originalSetRequestHandler = lowLevel.setRequestHandler.bind(lowLevel);
+
+  lowLevel.setRequestHandler = (schema: unknown, handler: (request: unknown, extra: unknown) => unknown) => {
+    if (schema !== CallToolRequestSchema) {
+      return originalSetRequestHandler(schema, handler);
+    }
+    const gated = (request: { params?: { name?: string; arguments?: unknown } }, extra: unknown): Promise<McpResult> => {
+      const toolName = request?.params?.name ?? 'unknown_tool';
+      const args      = request?.params?.arguments;
+      return applyGate(toolName, args, () => Promise.resolve(handler(request, extra)) as Promise<McpResult>, port);
+    };
+    // Recorded so assertGateCoversRegisteredTools can invoke the exact live
+    // dispatch handler directly — calling lowLevel.setRequestHandler again to
+    // "read it back" would install yet another wrapped layer on top of this
+    // one instead of reading it, corrupting the real dispatch table entry.
+    _installedGatedHandlers.set(server, gated);
+    return originalSetRequestHandler(schema, gated);
+  };
+
+  _gateInstalled = true;
+  return server;
+}
+
+/**
+ * Startup self-check for the one thing this module cannot see from inside
+ * itself: whether the closed-source `intelligence/tools.ts` (registerTools())
+ * actually registered its tools on the exact guarded instance it was handed,
+ * using it consistently for every tool. That file isn't part of this
+ * open-source layer, so its wiring can't be reviewed as source here — this
+ * exercises it as a black box instead of assuming it's correct.
+ *
+ * Two checks, both against the REAL running gate, not a mock:
+ *   1. At least one tool was actually registered on `server` — catches
+ *      registerTools() silently doing nothing (empty _registeredTools).
+ *   2. A synthetic, unmistakably destructive tools/call request — fired
+ *      through the actual installed dispatch handler for whatever tool name
+ *      IS registered — comes back blocked, and the real handler behind it is
+ *      never invoked. This proves the live gate blocks destructive commands
+ *      right now, in this process, with whatever policy is actually loaded —
+ *      not just that createGuardedServer ran.
+ *
+ * Call after registerTools(createGuardedServer(mcp, port)) and before
+ * mcp.connect(transport). Throws (does not return a boolean) so a failure
+ * can't be silently ignored by a caller that forgets to check a return value.
+ */
+export async function assertGateCoversRegisteredTools(server: McpServer): Promise<void> {
+  if (!isGateInstalled()) {
+    throw new Error('assertGateCoversRegisteredTools: createGuardedServer was never called on this server.');
+  }
+
+  const registeredTools = (server as unknown as { _registeredTools?: Record<string, unknown> })._registeredTools ?? {};
+  const toolNames = Object.keys(registeredTools);
+  if (toolNames.length === 0) {
+    throw new Error(
+      'assertGateCoversRegisteredTools: no tools are registered on this server — registerTools() ' +
+      'appears to have registered nothing. Refusing to start with an empty, unverifiable tool set.',
+    );
+  }
+
+  const installedHandler = _installedGatedHandlers.get(server);
+  if (!installedHandler) {
+    throw new Error(
+      'assertGateCoversRegisteredTools: no tools/call dispatch handler is installed — ' +
+      'setToolRequestHandlers() may never have run despite tools being present in _registeredTools.',
+    );
+  }
+
+  const syntheticRequest = {
+    params: { name: toolNames[0], arguments: { command: 'terraform destroy prod-mergen-selftest' } },
+  };
+  // The real dispatch handler ultimately calls executeToolHandler → the actual
+  // tool implementation if PASS. We can't safely invoke that for an arbitrary
+  // registered tool (unknown side effects), so a thrown error here is treated
+  // the same as "not blocked" — either way the gate did not return a clean
+  // isError:true block, which is the only acceptable outcome for this payload.
+  let result: unknown;
+  try {
+    result = await installedHandler(syntheticRequest, { signal: new AbortController().signal });
+  } catch (err) {
+    throw new Error(
+      `assertGateCoversRegisteredTools: self-test call raised instead of being cleanly blocked by the ` +
+      `gate: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  const isBlocked = !!(result && typeof result === 'object' && (result as { isError?: boolean }).isError === true);
+  if (!isBlocked) {
+    throw new Error(
+      'assertGateCoversRegisteredTools: a synthetic "terraform destroy" call was NOT blocked by the ' +
+      'live tools/call dispatch handler — the gate is not enforcing on this server. Refusing to start.',
+    );
+  }
 }

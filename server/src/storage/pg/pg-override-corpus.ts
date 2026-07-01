@@ -15,6 +15,7 @@ import type {
   CompactedRule,
   OverrideSummary,
 } from '../../intelligence/override-corpus.js';
+import { dominantCommandSignatures } from '../../intelligence/override-corpus.js';
 import type { IOverrideCorpus } from '../interfaces.js';
 
 const DEFAULT_TENANT = 'local';
@@ -316,6 +317,7 @@ function _compactEvents(events: OverrideEvent[]): CompactedRule[] {
       dayOfWeek: dominantDay,
       hourWindow,
       occurrences: evs.length,
+      commandSignatures: dominantCommandSignatures(evs),
       compactedAt: now,
     });
   }

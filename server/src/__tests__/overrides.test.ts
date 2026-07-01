@@ -24,21 +24,30 @@ const mockOverrideEvent = {
   outcome: null,
 };
 
-const mockRecordOverride = vi.fn().mockReturnValue(mockOverrideEvent);
-const mockUpdateOutcome  = vi.fn().mockReturnValue(true);
-const mockGetSummary     = vi.fn().mockReturnValue([{ tag: 'db_timeout', count: 3, dominantReason: 'wrong-fix' }]);
-const mockGetForTag      = vi.fn().mockReturnValue([mockOverrideEvent]);
+const mockRecordOverride    = vi.fn().mockReturnValue(mockOverrideEvent);
+const mockUpdateOutcome     = vi.fn().mockReturnValue(true);
+const mockGetSummary        = vi.fn().mockReturnValue([{ tag: 'db_timeout', count: 3, dominantReason: 'wrong-fix' }]);
+const mockGetForTag         = vi.fn().mockReturnValue([mockOverrideEvent]);
+const mockMarkReviewed      = vi.fn().mockReturnValue(true);
+const mockGetOverrideById   = vi.fn().mockReturnValue(mockOverrideEvent);
 
 vi.mock('../intelligence/override-corpus.js', () => ({
   recordOverride: (...args: unknown[]) => mockRecordOverride(...args),
   updateOutcome:  (...args: unknown[]) => mockUpdateOutcome(...args),
   getOverrideSummary: () => mockGetSummary(),
   getOverridesForTag: (...args: unknown[]) => mockGetForTag(...args),
+  markOverrideReviewed: (...args: unknown[]) => mockMarkReviewed(...args),
+  getOverrideById: (...args: unknown[]) => mockGetOverrideById(...args),
   OVERRIDE_REASONS: [
     'batch-window', 'cost-constraint', 'on-call-discretion',
     'compliance-hold', 'prefer-read-replica', 'maintenance-window',
     'wrong-diagnosis', 'wrong-fix', 'other',
   ],
+}));
+
+const mockAutoActivate = vi.fn().mockReturnValue([]);
+vi.mock('../intelligence/corpus-to-policy.js', () => ({
+  autoActivateReviewedRules: (...args: unknown[]) => mockAutoActivate(...args),
 }));
 
 vi.mock('../intelligence/slack.js', () => ({
@@ -77,6 +86,9 @@ beforeEach(async () => {
   mockUpdateOutcome.mockReturnValue(true);
   mockGetSummary.mockReturnValue([{ tag: 'db_timeout', count: 3, dominantReason: 'wrong-fix' }]);
   mockGetForTag.mockReturnValue([mockOverrideEvent]);
+  mockMarkReviewed.mockReturnValue(true);
+  mockGetOverrideById.mockReturnValue(mockOverrideEvent);
+  mockAutoActivate.mockReturnValue([]);
 
   port = await findFreePort();
   const app = createApp({ serverVersion: '0.0.0-test', localSecret: TEST_SECRET, port, bindHost: '127.0.0.1' });
@@ -202,6 +214,46 @@ describe('GET /override-corpus', () => {
   it('returns 401 without secret', async () => {
     const res = await fetch(`http://127.0.0.1:${port}/override-corpus`);
     expect(res.status).toBe(401);
+  });
+});
+
+describe('POST /overrides/:id/review', () => {
+  it('marks reviewed and auto-activates corpus rules for that (tag, service)', async () => {
+    mockAutoActivate.mockReturnValue([
+      { rule: { id: 'corpus_auto_abc123', name: '[Auto] api: incorrect fix applied previously', action: 'warn' }, sourceOccurrences: 3 },
+    ]);
+    const res = await fetch(`http://127.0.0.1:${port}/overrides/evt-1/review`, {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { ok: boolean; reviewedAt: number; activatedRules: Array<{ id: string }> };
+    expect(body.ok).toBe(true);
+    expect(mockMarkReviewed).toHaveBeenCalledWith('evt-1');
+    expect(mockGetOverrideById).toHaveBeenCalledWith('evt-1');
+    expect(mockAutoActivate).toHaveBeenCalledWith('db_timeout', 'api');
+    expect(body.activatedRules).toEqual([{ id: 'corpus_auto_abc123', name: '[Auto] api: incorrect fix applied previously', action: 'warn' }]);
+  });
+
+  it('returns 404 when override is not found', async () => {
+    mockMarkReviewed.mockReturnValue(false);
+    const res = await fetch(`http://127.0.0.1:${port}/overrides/missing/review`, {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    expect(res.status).toBe(404);
+    expect(mockAutoActivate).not.toHaveBeenCalled();
+  });
+
+  it('returns empty activatedRules when no corpus rule clears the threshold', async () => {
+    mockAutoActivate.mockReturnValue([]);
+    const res = await fetch(`http://127.0.0.1:${port}/overrides/evt-1/review`, {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { activatedRules: unknown[] };
+    expect(body.activatedRules).toEqual([]);
   });
 });
 

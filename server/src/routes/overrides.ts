@@ -14,6 +14,7 @@ import {
   type OverrideReason,
   type OverrideOutcome,
 } from '../intelligence/override-corpus.js';
+import { autoActivateReviewedRules } from '../intelligence/corpus-to-policy.js';
 import { getStores } from '../storage/store-registry.js';
 import logger from '../sensor/logger.js';
 
@@ -155,7 +156,22 @@ export function createOverridesRouter(): Router {
       res.status(404).json({ error: 'override not found' });
       return;
     }
-    res.json({ ok: true, reviewedAt: Date.now() });
+
+    // A human review is the HITL signal that this pattern still reflects real
+    // policy — promote any corpus rule for this (tag, service) that has already
+    // cleared the occurrence threshold straight into the live enforcement gate.
+    let activatedRules: Array<{ id: string; name: string; action: string }> = [];
+    const event = await getStores().overrides.getOverrideById(req.params.id, req.tenantId);
+    if (event) {
+      try {
+        const activated = autoActivateReviewedRules(event.incidentTag, event.service);
+        activatedRules = activated.map((a) => ({ id: a.rule.id, name: a.rule.name, action: a.rule.action }));
+      } catch (err) {
+        logger.warn({ err, id: req.params.id }, 'overrides: failed to auto-activate corpus rules after review');
+      }
+    }
+
+    res.json({ ok: true, reviewedAt: Date.now(), activatedRules });
   });
 
   // ── Raw history for a tag ──────────────────────────────────────────────────

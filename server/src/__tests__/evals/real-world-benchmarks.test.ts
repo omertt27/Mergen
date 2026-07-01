@@ -91,6 +91,7 @@ import { _resetPolicyCacheForTesting } from '../../intelligence/enterprise-polic
 import { _resetSessionsForTesting } from '../../intelligence/session-threat-tracker.js';
 import { runAgentPipeline } from '../../intelligence/agent-pipeline.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import type { CausalChain } from '../../intelligence/causal.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -100,16 +101,33 @@ type GuardedFn = (args: unknown, extra: unknown) => Promise<McpResult>;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// createGuardedServer patches the SDK's low-level `tools/call` dispatch
+// (server.server.setRequestHandler(CallToolRequestSchema, ...)) rather than a
+// specific registration method, so the mock simulates that dispatch layer
+// directly instead of stubbing registerTool.
 function makeGuardedPair(toolName: string): { call: GuardedFn; spy: ReturnType<typeof vi.fn> } {
-  let captured: GuardedFn | null = null;
+  let capturedGated: ((request: unknown, extra: unknown) => unknown) | null = null;
   const spy = vi.fn(async () => ({ content: [{ type: 'text' as const, text: 'executed' }] }));
-  const mockServer = {
-    registerTool: vi.fn((_n: string, _s: unknown, h: GuardedFn) => { captured = h; }),
-  } as unknown as McpServer;
-  (createGuardedServer(mockServer, 3000) as unknown as {
-    registerTool: (n: string, s: unknown, h: GuardedFn) => void;
-  }).registerTool(toolName, {}, spy);
-  return { call: (...a) => captured!(...a), spy };
+
+  const rawSetRequestHandler = vi.fn((schema: unknown, h: (request: unknown, extra: unknown) => unknown) => {
+    if (schema === CallToolRequestSchema) capturedGated = h;
+  });
+  const mockServer = { server: { setRequestHandler: rawSetRequestHandler } } as unknown as McpServer;
+
+  createGuardedServer(mockServer, 3000);
+
+  const innerDispatch = (request: { params: { name: string; arguments: unknown } }, extra: unknown) => {
+    if (request.params.name !== toolName) throw new Error(`tool ${request.params.name} not found`);
+    return spy(request.params.arguments, extra);
+  };
+  (mockServer as unknown as { server: { setRequestHandler: (s: unknown, h: unknown) => void } })
+    .server.setRequestHandler(CallToolRequestSchema, innerDispatch);
+
+  return {
+    call: (args: unknown, extra: unknown) =>
+      capturedGated!({ params: { name: toolName, arguments: args } }, extra) as Promise<McpResult>,
+    spy,
+  };
 }
 
 function makeChain(tag = 'infra_db_connection_pool'): CausalChain {

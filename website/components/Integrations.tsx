@@ -1,19 +1,15 @@
 const sources = [
-  { name: 'PagerDuty',     type: 'Alerting',    tag: 'Incident trigger' },
-  { name: 'Datadog',       type: 'APM',         tag: 'Traces + Logs' },
-  { name: 'Slack',         type: 'Enforcement', tag: 'Postmortem → corpus' },
-  { name: 'Git',           type: 'Policy',      tag: 'ADR → corpus' },
-  { name: 'Kubernetes',    type: 'Infra',       tag: 'Events + Manifests' },
-  { name: 'Prometheus',    type: 'Metrics',     tag: 'OpenTelemetry' },
+  { name: 'PagerDuty',     type: 'Alerting',    tag: 'Incident triggers' },
+  { name: 'Datadog',       type: 'APM',         tag: 'Traces + logs' },
+  { name: 'Slack',         type: 'Approvals',   tag: 'Authorization loops' },
+  { name: 'Kubernetes',    type: 'Infra',       tag: 'Least privilege gates' },
   { name: 'GitHub',        type: 'CI/CD',       tag: 'PR security gate' },
-  { name: 'AWS/GCP',       type: 'Cloud',       tag: 'Config + Topology' },
 ]
 
 const ides = [
-  { name: 'Claude Code',    tag: 'triage_incident' },
-  { name: 'Cursor',         tag: 'analyze_runtime' },
-  { name: 'Windsurf',       tag: 'execute_fix' },
-  { name: 'VS Code',        tag: 'validate_fix' },
+  { name: 'Claude Code',    tag: 'terminal_gateway' },
+  { name: 'Cursor',         tag: 'editor_intercept' },
+  { name: 'VS Code',        tag: 'extension_policy' },
 ]
 
 export default function Integrations() {
@@ -28,7 +24,7 @@ export default function Integrations() {
 
       <div className="integ-grid mt-lg">
         <div>
-          <p className="integ-label">Data Sources</p>
+          <p className="integ-label">Data Sources & Platforms</p>
           <div className="integ-row">
             {sources.map((s) => (
               <div key={s.name} className="integ-card">
@@ -41,15 +37,15 @@ export default function Integrations() {
 
         <div className="integ-divider">
           <div className="integ-arrow">→</div>
-          <span style={{ fontSize: '0.55rem', color: 'var(--gray-600)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+          <span style={{ fontSize: '0.55rem', color: 'var(--gray-600)', letterSpacing: '0.1em', textTransform: 'uppercase', textAlign: 'center' }}>
             Policy<br />Engine
           </span>
           <div className="integ-arrow">→</div>
         </div>
 
         <div>
-          <p className="integ-label">AI IDEs</p>
-          <div className="integ-row integ-row-sm">
+          <p className="integ-label">AI Agent IDEs & CLI Tools</p>
+          <div className="integ-row integ-row-sm" style={{ gridTemplateColumns: '1fr' }}>
             {ides.map((ide) => (
               <div key={ide.name} className="integ-card integ-card-accent">
                 <span className="integ-name">{ide.name}</span>
