@@ -45,7 +45,7 @@ import type { ShadowEntry } from './shadow-log.js';
 import { getStores } from '../storage/store-registry.js';
 import { getAutopilotLevel, autopilotLevelPermits, classifyCommandRisk, autopilotLevelDescription } from './action-risk.js';
 import { evaluateEnterprisePolicy, loadEnterprisePolicy } from './enterprise-policy-engine.js';
-import { recordBlunder } from '../sensor/agent-blunder-store.js';
+
 import { getStatsForTag } from './calibration.js';
 import { runAgentPipeline } from './agent-pipeline.js';
 import { detectCascade } from './cascade-detector.js';
@@ -589,13 +589,13 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
 
     // Record blunders only for active blocks (not low-confidence or shadow-mode skips)
     if (skipReason === 'override-corpus') {
-      recordBlunder({ blunderType: 'override_corpus_block', command, blockReason: slackReason, service, tag: topHyp.tag, actor: 'autopilot', pid: topHyp.pid ?? pid, confidenceScore: execConfidence });
+      await getStores().blunders.record({ blunderType: 'override_corpus_block', command, blockReason: slackReason, service, tag: topHyp.tag, actor: 'autopilot', pid: topHyp.pid ?? pid, confidenceScore: execConfidence });
       // Cache the block so the next trigger for the same fingerprint skips LLM inference.
       cacheIncidentResult({ fingerprint: pid, service, incidentTag: topHyp.tag, corpusBlocked: true, blockReason: slackReason, executedCommand: null });
     } else if (skipReason === 'pipeline-block' || skipReason === 'level-restricted') {
-      recordBlunder({ blunderType: 'pipeline_block', command, blockReason: slackReason, service, tag: topHyp.tag, actor: 'autopilot', pid: topHyp.pid ?? pid, confidenceScore: execConfidence });
+      await getStores().blunders.record({ blunderType: 'pipeline_block', command, blockReason: slackReason, service, tag: topHyp.tag, actor: 'autopilot', pid: topHyp.pid ?? pid, confidenceScore: execConfidence });
     } else if (skipReason === 'planning-gate') {
-      recordBlunder({ blunderType: 'planning_gate_block', command, blockReason: slackReason, service, tag: topHyp.tag, actor: 'autopilot', pid: topHyp.pid ?? pid, confidenceScore: execConfidence });
+      await getStores().blunders.record({ blunderType: 'planning_gate_block', command, blockReason: slackReason, service, tag: topHyp.tag, actor: 'autopilot', pid: topHyp.pid ?? pid, confidenceScore: execConfidence });
     }
 
     const icon = isShadowMode() ? '👁️' : '⚠️';
@@ -639,7 +639,7 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
       // Slack is down — we cannot post the approval block, so the engineer has no
       // way to click Approve. Abort rather than leaving an unresolvable pending approval.
       logger.error({ service, pid, command }, 'incident-autopilot: aborting approval gate — Slack notification failed, engineer cannot approve');
-      recordBlunder({ blunderType: 'pipeline_block', command, blockReason: 'Slack unavailable — approval block could not be delivered', service, tag: topHyp.tag, actor: 'autopilot', pid: topHyp.pid ?? pid, confidenceScore: execConfidence });
+      await getStores().blunders.record({ blunderType: 'pipeline_block', command, blockReason: 'Slack unavailable — approval block could not be delivered', service, tag: topHyp.tag, actor: 'autopilot', pid: topHyp.pid ?? pid, confidenceScore: execConfidence });
       return;
     }
     requestApproval({ pid, command, tier: commandTier, service, remediationConfidence: execConfidence, cwd, blastRadius });
@@ -665,7 +665,7 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
     logger.warn({ service, pid, reason: execResult.blockReason }, 'incident-autopilot: fix blocked by safety filter');
     await replyToThread(pid, `🚫 *Fix blocked by safety filter*: ${execResult.blockReason}\nApply manually.`);
     const execBlunderType = typeof execResult.blockReason === 'string' && /inject/i.test(execResult.blockReason) ? 'injection_attempt' : 'allowlist_block';
-    recordBlunder({ blunderType: execBlunderType, command, blockReason: execResult.blockReason ?? '', service, tag: topHyp.tag, actor: 'autopilot', pid: topHyp.pid ?? pid, confidenceScore: execConfidence });
+    await getStores().blunders.record({ blunderType: execBlunderType, command, blockReason: execResult.blockReason ?? '', service, tag: topHyp.tag, actor: 'autopilot', pid: topHyp.pid ?? pid, confidenceScore: execConfidence });
     void getStores().shadowLog.recordShadow({
       pid: topHyp.pid ?? pid,
       incidentTag: topHyp.tag,

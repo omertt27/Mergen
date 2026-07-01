@@ -6,6 +6,7 @@ import { resolveFrameAndStack } from './sourcemap.js';
 import { redact } from './redact.js';
 import logger from './logger.js';
 import type { BlunderType } from './agent-blunder-store.js';
+import { getStores } from '../storage/store-registry.js';
 import { layer2Store } from './layer2-store.js';
 import { layer3Store } from './layer3-store.js';
 import { layer4Store } from './layer4-store.js';
@@ -135,9 +136,8 @@ export function createIngestRouter(localSecret: string): Router {
           res.status(400).json({ error: 'invalid blunder event fields' });
           return;
         }
-        const { recordBlunder } = await import('./agent-blunder-store.js');
         try {
-          recordBlunder({
+          await getStores().blunders.record({
             id: typeof id === 'string' ? id : undefined,
             recordedAt: typeof recordedAt === 'number' ? recordedAt : undefined,
             blunderType: blunderType as BlunderType,

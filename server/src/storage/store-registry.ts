@@ -18,6 +18,7 @@ import { SqliteIncidentStore } from './sqlite/sqlite-incident-store.js';
 import { SqliteOverrideCorpus } from './sqlite/sqlite-override-corpus.js';
 import { SqliteApprovalStore } from './sqlite/sqlite-approval-store.js';
 import { SqliteShadowLog } from './sqlite/sqlite-shadow-log.js';
+import { SqliteBlunderStore } from './sqlite/sqlite-blunder-store.js';
 
 let _stores: Stores | null = null;
 
@@ -33,6 +34,7 @@ export function getStores(): Stores {
       overrides: new SqliteOverrideCorpus(),
       approvals: new SqliteApprovalStore(),
       shadowLog: new SqliteShadowLog(),
+      blunders:  new SqliteBlunderStore(),
     };
   }
   return _stores;

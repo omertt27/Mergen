@@ -136,6 +136,37 @@ export interface IShadowLog {
   exportShadowCsv(tenantId?: string): Promise<string>;
 }
 
+// ── Blunder store ─────────────────────────────────────────────────────────────
+
+import type { BlunderEvent } from '../sensor/agent-blunder-store.js';
+
+export interface IBlunderStore {
+  record(
+    event: Omit<BlunderEvent, 'hash' | 'previousHash' | 'id' | 'recordedAt'> & {
+      id?: string;
+      recordedAt?: number;
+    },
+    tenantId?: string,
+  ): Promise<void>;
+  list(tenantId?: string): Promise<BlunderEvent[]>;
+  getStats(tenantId?: string): Promise<{
+    total: number;
+    byType: Record<string, number>;
+    last7Days: number;
+    last30Days: number;
+  }>;
+  verifyChain(tenantId?: string): Promise<{
+    valid: boolean;
+    truncated?: boolean;
+    verifiedFrom?: string;
+    verified?: number;
+    firstInvalidIdx?: number;
+    reason?: string;
+    note?: string;
+  }>;
+  isIntegrityViolated(): boolean;
+}
+
 // ── Approval store ────────────────────────────────────────────────────────────
 
 export interface IApprovalStore {

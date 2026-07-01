@@ -20,7 +20,7 @@
  */
 
 import { Router } from 'express';
-import { getBlunders, getBlunderStats, verifyChain } from '../sensor/agent-blunder-store.js';
+import { getStores } from '../storage/store-registry.js';
 import { getRefinementCandidates, getBypassStats } from '../sensor/bypass-tracker.js';
 import { getGateCoverageSummary } from '../intelligence/enterprise-policy-engine.js';
 import { buildReport, renderMarkdown } from '../intelligence/case-study-generator.js';
@@ -28,10 +28,11 @@ import { buildReport, renderMarkdown } from '../intelligence/case-study-generato
 export function createAgentBlundersRouter(): Router {
   const router = Router();
 
-  router.get('/agent-blunders', (req, res) => {
+  router.get('/agent-blunders', async (req, res) => {
     const limit = Math.min(100, Math.max(1, Number(req.query.limit ?? 20)));
-    const stats = getBlunderStats();
-    const recent = getBlunders().slice(-limit).reverse();
+    const store = getStores().blunders;
+    const [stats, all] = await Promise.all([store.getStats(), store.list()]);
+    const recent = all.slice(-limit).reverse();
     const policyRefinementCandidates = getRefinementCandidates();
     const bypassStats = getBypassStats();
     const gateCovers = getGateCoverageSummary();
@@ -61,8 +62,8 @@ export function createAgentBlundersRouter(): Router {
    *   verifiedFrom — id of the oldest entry included in the verified range
    *   firstInvalidIdx / reason — present only when valid: false
    */
-  router.get('/agent-blunders/verify', (_req, res) => {
-    const result = verifyChain();
+  router.get('/agent-blunders/verify', async (_req, res) => {
+    const result = await getStores().blunders.verifyChain();
     res.json({ ok: true, ...result });
   });
 
@@ -86,11 +87,11 @@ export function createAgentBlundersRouter(): Router {
    *
    * Deduplication: repeated identical block patterns appear as a single case.
    */
-  router.get('/agent-blunders/case-study-export', (req, res) => {
+  router.get('/agent-blunders/case-study-export', async (req, res) => {
     const format = req.query.format === 'md' ? 'md' : 'json';
     const limit  = Math.min(100, Math.max(1, Number(req.query.limit ?? 20)));
 
-    const blunders = getBlunders();
+    const blunders = await getStores().blunders.list();
     const report   = buildReport(blunders);
     report.cases   = report.cases.slice(0, limit);
 

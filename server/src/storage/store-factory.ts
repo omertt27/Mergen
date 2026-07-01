@@ -14,12 +14,13 @@
  *   setStores(stores);
  */
 
-import type { IEventStore, IIncidentStore, IOverrideCorpus, IApprovalStore, IShadowLog } from './interfaces.js';
+import type { IEventStore, IIncidentStore, IOverrideCorpus, IApprovalStore, IShadowLog, IBlunderStore } from './interfaces.js';
 import { SqliteEventStore } from './sqlite/sqlite-event-store.js';
 import { SqliteIncidentStore } from './sqlite/sqlite-incident-store.js';
 import { SqliteOverrideCorpus } from './sqlite/sqlite-override-corpus.js';
 import { SqliteApprovalStore } from './sqlite/sqlite-approval-store.js';
 import { SqliteShadowLog } from './sqlite/sqlite-shadow-log.js';
+import { SqliteBlunderStore } from './sqlite/sqlite-blunder-store.js';
 
 export interface Stores {
   events: IEventStore;
@@ -27,6 +28,7 @@ export interface Stores {
   overrides: IOverrideCorpus;
   approvals: IApprovalStore;
   shadowLog: IShadowLog;
+  blunders: IBlunderStore;
 }
 
 export async function createStores(): Promise<Stores> {
@@ -41,12 +43,14 @@ export async function createStores(): Promise<Stores> {
       { PgOverrideCorpus },
       { PgApprovalStore },
       { PgShadowLog },
+      { PgBlunderStore },
     ] = await Promise.all([
       import('./pg/pg-event-store.js'),
       import('./pg/pg-incident-store.js'),
       import('./pg/pg-override-corpus.js'),
       import('./pg/pg-approval-store.js'),
       import('./pg/pg-shadow-log.js'),
+      import('./pg/pg-blunder-store.js'),
     ]);
 
     return {
@@ -55,6 +59,7 @@ export async function createStores(): Promise<Stores> {
       overrides: new PgOverrideCorpus(),
       approvals: new PgApprovalStore(),
       shadowLog: new PgShadowLog(),
+      blunders:  new PgBlunderStore(),
     };
   }
 
@@ -64,5 +69,6 @@ export async function createStores(): Promise<Stores> {
     overrides: new SqliteOverrideCorpus(),
     approvals: new SqliteApprovalStore(),
     shadowLog: new SqliteShadowLog(),
+    blunders:  new SqliteBlunderStore(),
   };
 }

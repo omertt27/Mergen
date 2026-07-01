@@ -26,13 +26,13 @@
  */
 
 import { Router } from 'express';
-import { getBlunders, verifyChain } from '../sensor/agent-blunder-store.js';
+import { getStores } from '../storage/store-registry.js';
 import { getAuditLog } from '../sensor/audit-log.js';
 
 export function createAuditExportRouter(): Router {
   const router = Router();
 
-  router.get('/audit/export', (req, res) => {
+  router.get('/audit/export', async (req, res) => {
     const now      = Date.now();
     const format   = ((req.query.format as string) ?? 'ndjson').toLowerCase();
     const type     = ((req.query.type   as string) ?? 'all').toLowerCase();
@@ -42,9 +42,10 @@ export function createAuditExportRouter(): Router {
 
     const lines: string[] = [];
 
+    const blunderStore = getStores().blunders;
     // ── Blunder entries (hash-chained) ────────────────────────────────────────
     if (type === 'blunders' || type === 'all') {
-      const blunders = getBlunders().filter(
+      const blunders = (await blunderStore.list()).filter(
         (b) => b.recordedAt >= from && b.recordedAt <= to,
       );
       for (const b of blunders) {
@@ -93,7 +94,9 @@ export function createAuditExportRouter(): Router {
 
     if (format === 'soc2') {
       // Prepend a metadata header line for auditors
-      const chainVerification = getBlunders().length > 0 ? verifyChain() : { valid: true, verified: 0 };
+      const chainVerification = (await blunderStore.list()).length > 0
+        ? await blunderStore.verifyChain()
+        : { valid: true, verified: 0 };
       const header = JSON.stringify({
         source:         '__export_header__',
         exportFormat:   'mergen-soc2-v1',

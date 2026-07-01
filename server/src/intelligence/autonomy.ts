@@ -31,7 +31,7 @@ import os from 'os';
 import path from 'path';
 import { recordExecutionAudit } from '../sensor/audit-log.js';
 import { hasPermission } from '../sensor/rbac.js';
-import { recordBlunder } from '../sensor/agent-blunder-store.js';
+import { getStores } from '../storage/store-registry.js';
 import logger from '../sensor/logger.js';
 import { SAFETY_POLICY_FILE } from '../sensor/paths.js';
 
@@ -309,7 +309,7 @@ export async function executeRemediation(
     };
     _auditExecution(command, result, actor);
     logger.warn({ actor, command }, 'autonomy: command blocked by RBAC (insufficient role)');
-    recordBlunder({ blunderType: 'rbac_block', command, blockReason: result.blockReason!, service: null, tag: null, actor, pid: null, confidenceScore: null });
+    await getStores().blunders.record({ blunderType: 'rbac_block', command, blockReason: result.blockReason!, service: null, tag: null, actor, pid: null, confidenceScore: null });
     return result;
   }
 
@@ -324,7 +324,7 @@ export async function executeRemediation(
     _auditExecution(command, result, actor);
     logger.warn({ command, blockReason }, 'autonomy: command blocked by allowlist');
     const blunderType = typeof blockReason === 'string' && /inject/i.test(blockReason) ? 'injection_attempt' : 'allowlist_block';
-    recordBlunder({ blunderType, command, blockReason: blockReason ?? '', service: null, tag: null, actor, pid: null, confidenceScore: null });
+    await getStores().blunders.record({ blunderType, command, blockReason: blockReason ?? '', service: null, tag: null, actor, pid: null, confidenceScore: null });
     return result;
   }
 
@@ -338,7 +338,7 @@ export async function executeRemediation(
     };
     _auditExecution(command, result, actor);
     logger.warn({ command, blockReason: safetyCheck.blockReason }, 'autonomy: command blocked by safety policy');
-    recordBlunder({
+    await getStores().blunders.record({
       blunderType: 'pipeline_block',
       command,
       blockReason: safetyCheck.blockReason ?? '',

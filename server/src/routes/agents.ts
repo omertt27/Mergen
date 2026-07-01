@@ -19,7 +19,7 @@ import {
   AgentProfile,
 } from '../intelligence/agent-profiles.js';
 import { getGateEvents } from '../intelligence/gate-analytics.js';
-import { getBlunders } from '../sensor/agent-blunder-store.js';
+import { getStores } from '../storage/store-registry.js';
 
 const ProfileSchema = z.object({
   id:              z.string().min(1).max(60).regex(/^[a-z0-9_-]+$/, 'id must be lowercase alphanumeric, hyphens, underscores'),
@@ -92,7 +92,7 @@ export function createAgentsRouter(): Router {
   //   limit  — max events to return (default 100, max 500)
   //   from   — Unix ms start (default: 24h ago)
   //   to     — Unix ms end (default: now)
-  router.get('/agents/:id/timeline', (req, res) => {
+  router.get('/agents/:id/timeline', async (req, res) => {
     const agentId = req.params.id;
     const now     = Date.now();
     const from    = Number(req.query.from ?? now - 24 * 60 * 60 * 1_000);
@@ -115,7 +115,7 @@ export function createAgentsRouter(): Router {
       }));
 
     // Blunders from hash-chained log
-    const blunderEntries = getBlunders()
+    const blunderEntries = (await getStores().blunders.list())
       .filter((b) => b.actor === agentId && b.recordedAt >= from && b.recordedAt <= to)
       .map((b) => ({
         type:        'blunder' as const,

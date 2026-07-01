@@ -29,7 +29,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { evaluateEnterprisePolicy, loadEnterprisePolicy } from './enterprise-policy-engine.js';
 import { computeBlastRadius, mostSevereBlast } from './blast-radius.js';
-import { recordBlunder } from '../sensor/agent-blunder-store.js';
+import { getStores } from '../storage/store-registry.js';
 import {
   recordGateBlock,
   recordGatePass,
@@ -118,7 +118,7 @@ async function applyGate(
     return await applyGateInner(toolName, args, next, port);
   } catch (err) {
     logger.error({ err, toolName }, 'tool-guard: applyGate threw an unexpected error — failing closed');
-    recordBlunder({
+    await getStores().blunders.record({
       blunderType:     'pipeline_block',
       command:         toolName,
       blockReason:     `Gate threw an unexpected error and failed closed: ${err instanceof Error ? err.message : String(err)}`,
@@ -154,7 +154,7 @@ async function applyGateInner(
   const heartbeat = assertGateHeartbeatFresh();
   if (!heartbeat.ok) {
     recordGateBlock(['gate_heartbeat_stale']);
-    recordBlunder({
+    await getStores().blunders.record({
       blunderType:     'pipeline_block',
       command:         toolName,
       blockReason:     `Gate heartbeat fail-closed: ${heartbeat.reason}`,
@@ -199,7 +199,7 @@ async function applyGateInner(
   if (sequenceThreat) {
     updateAgentReputation(agentId, 'sequence');
     recordGateBlock(['sequence_threat']);
-    recordBlunder({
+    await getStores().blunders.record({
       blunderType:     'pipeline_block',
       command:         toolName,
       blockReason:     `Multi-turn threat sequence detected: ${sequenceLabel}`,
@@ -236,7 +236,7 @@ async function applyGateInner(
     // Feature 3: contaminate the session for the next 5 calls
     markContaminated(sessionId, injectionMatch, 5);
     recordGateBlock(['injection_attempt']);
-    recordBlunder({
+    await getStores().blunders.record({
       blunderType:     'injection_attempt',
       command:         toolName,
       blockReason:     `Prompt injection pattern detected in tool arguments: ${injectionMatch}`,
@@ -276,7 +276,7 @@ async function applyGateInner(
     if (hardEval.verdict === 'block') {
       const hardReason = hardEval.reasons.join('; ');
       recordGateBlock(hardEval.triggeredRules);
-      recordBlunder({
+      await getStores().blunders.record({
         blunderType:     'pipeline_block',
         command:         toolName,
         blockReason:     `Hard policy block — bypass cannot override: ${hardReason}`,
@@ -313,7 +313,7 @@ async function applyGateInner(
   const profileBlock = checkAgentProfile(toolName);
   if (profileBlock) {
     recordGateBlock([]);
-    recordBlunder({
+    await getStores().blunders.record({
       blunderType:     'rbac_block',
       command:         toolName,
       blockReason:     profileBlock,
@@ -415,7 +415,7 @@ async function applyGateInner(
     updateAgentReputation(agentId, 'block');
     recordGateBlock(evaluation.triggeredRules);
     trackBlock(toolName, evaluation.triggeredRules);
-    recordBlunder({
+    await getStores().blunders.record({
       blunderType:     'pipeline_block',
       command:         toolName,
       blockReason:     reason,

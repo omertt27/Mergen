@@ -214,8 +214,8 @@ export function createPoliciesRouter(localSecret = ''): Router {
   // Returns command patterns that have been blocked 5+ times in 30 days but have
   // no matching named policy rule. Use this to formalise organic patterns into
   // explicit enforcement policy.
-  router.get('/policy-suggestions', (_req, res) => {
-    const suggestions = computePolicySuggestions();
+  router.get('/policy-suggestions', async (_req, res) => {
+    const suggestions = await computePolicySuggestions();
     const uncovered = suggestions.filter((s) => !s.alreadyCovered);
     // HOLD-only corpus proposals awaiting approval (MERGEN_AUTO_CORPUS_PROPOSE).
     // These are inert until approved — surfaced here for one-click review.

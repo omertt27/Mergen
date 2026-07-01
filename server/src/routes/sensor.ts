@@ -33,14 +33,13 @@ import { getRecentActivity } from '../intelligence/activity-feed.js';
 import { loadEnterprisePolicy, IMMUTABLE_RULE_IDS, getGateCoverageSummary, getLastEvalLatencyMs } from '../intelligence/enterprise-policy-engine.js';
 import { getRuleFirings } from '../intelligence/gate-analytics.js';
 import { agentCallCount } from '../intelligence/tools-state.js';
-import { getBlunderStats } from '../sensor/agent-blunder-store.js';
 import { getBypassStats } from '../sensor/bypass-tracker.js';
 
 export function createSensorRouter(serverVersion: string): Router {
   const router = Router();
 
   // ── Health ────────────────────────────────────────────────────────────────
-  router.get('/health', (req, res) => {
+  router.get('/health', async (req, res) => {
     const tid = req.tenantId;
     const teamState = getTeamState();
     const counters = store.getCounters(tid);
@@ -76,7 +75,7 @@ export function createSensorRouter(serverVersion: string): Router {
       degradation: getDegradationState(),
       gateHeartbeat: getGateHeartbeatStatus(),
       pendingBypassesCount: (getPendingBypasses() ?? []).length,
-      blockedActionsCount: getBlunderStats().total,
+      blockedActionsCount: (await getStores().blunders.getStats(tid)).total,
     });
   });
 
@@ -527,7 +526,7 @@ export function createSensorRouter(serverVersion: string): Router {
         : { enabled: false },
       costGuard: getCostGuardStats(),
       pendingBypassesCount: (getPendingBypasses() ?? []).length,
-      blockedActionsCount: getBlunderStats().total,
+      blockedActionsCount: (await getStores().blunders.getStats(tid)).total,
     };
 
     const usage = getUsageSnapshot();
@@ -721,7 +720,7 @@ export function createSensorRouter(serverVersion: string): Router {
     const gateCovers = getGateCoverageSummary();
     const activity = getRecentActivity(20);
 
-    const blunderStats = getBlunderStats();
+    const blunderStats = await getStores().blunders.getStats(tid);
     const bypassStats = getBypassStats();
 
     let blockRuleTriggerCount = 0;

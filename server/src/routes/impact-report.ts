@@ -28,7 +28,7 @@
 import { randomUUID } from 'crypto';
 import { Router } from 'express';
 import { getShadowLog } from '../intelligence/shadow-log.js';
-import { getBlunderStats, verifyChain, type BlunderType } from '../sensor/agent-blunder-store.js';
+import { type BlunderType } from '../sensor/agent-blunder-store.js';
 import { getStats } from '../intelligence/calibration.js';
 import { getStores } from '../storage/store-registry.js';
 import { postmortemStore } from '../intelligence/postmortem-store.js';
@@ -344,8 +344,10 @@ async function computeImpactData(windowDays: number, tenantId?: string): Promise
   const corpusPostmortems = postmortemStore.count();
 
   // AEG gate enforcement summary
-  const blunderStats = getBlunderStats();
-  const chainResult = verifyChain();
+  const [blunderStats, chainResult] = await Promise.all([
+    getStores().blunders.getStats(tenantId),
+    getStores().blunders.verifyChain(tenantId),
+  ]);
   const agentBlunderSummary = {
     totalPrevented: blunderStats.total,
     byType: blunderStats.byType as Partial<Record<BlunderType, number>>,

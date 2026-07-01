@@ -19,7 +19,7 @@
  * without anyone having to remember to do it.
  */
 
-import { getBlunders } from '../sensor/agent-blunder-store.js';
+import { getStores } from '../storage/store-registry.js';
 import { loadEnterprisePolicy } from './enterprise-policy-engine.js';
 import { synthesizeRulesFromCorpus } from './corpus-to-policy.js';
 import logger from '../sensor/logger.js';
@@ -62,10 +62,10 @@ function isCoveredByPolicy(prefix: string): boolean {
   return false;
 }
 
-export function computePolicySuggestions(): PolicySuggestion[] {
+export async function computePolicySuggestions(): Promise<PolicySuggestion[]> {
   const now = Date.now();
   const cutoff = now - THIRTY_DAYS_MS;
-  const recent = getBlunders().filter((b) => b.recordedAt >= cutoff);
+  const recent = (await getStores().blunders.list()).filter((b) => b.recordedAt >= cutoff);
 
   // Cluster by command prefix
   const clusters = new Map<string, { count: number; lastSeenAt: number; services: Set<string> }>();
@@ -186,8 +186,8 @@ function msUntilNextMonday0900Utc(): number {
 
 function scheduleNext(): void {
   const delay = msUntilNextMonday0900Utc();
-  setTimeout(() => {
-    const suggestions = computePolicySuggestions();
+  setTimeout(async () => {
+    const suggestions = await computePolicySuggestions();
     void postSuggestionsToSlack(suggestions);
     scheduleNext();
   }, delay).unref();
@@ -195,8 +195,8 @@ function scheduleNext(): void {
 
 export function startPolicySuggesterCron(): void {
   // Run once shortly after startup (30s delay to let blunder store load)
-  setTimeout(() => {
-    const suggestions = computePolicySuggestions();
+  setTimeout(async () => {
+    const suggestions = await computePolicySuggestions();
     if (suggestions.length > 0) {
       logger.info({ count: suggestions.length }, 'policy-suggester: startup scan complete');
     }

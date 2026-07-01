@@ -15,7 +15,6 @@
  */
 
 import { Router } from 'express';
-import { getBlunders, getBlunderStats } from '../sensor/agent-blunder-store.js';
 import { getStores } from '../storage/store-registry.js';
 import { loadEnterprisePolicy } from '../intelligence/enterprise-policy-engine.js';
 
@@ -71,8 +70,10 @@ const TYPE_DESCRIPTIONS: Record<string, string> = {
 };
 
 async function computeRiskData(tenantId?: string): Promise<RiskReportData> {
-  const stats   = getBlunderStats();
-  const blunders = getBlunders();
+  const [stats, blunders] = await Promise.all([
+    getStores().blunders.getStats(tenantId),
+    getStores().blunders.list(tenantId),
+  ]);
   const overrides = await getStores().overrides.getOverrideSummary(tenantId);
   const policy  = loadEnterprisePolicy();
 
