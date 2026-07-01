@@ -6,7 +6,7 @@
  * Postgres — same algorithm as override-corpus.ts, different data source.
  */
 
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
 import { getSql } from './pg-client.js';
 import type {
   OverrideEvent,
@@ -56,11 +56,29 @@ export class PgOverrideCorpus implements IOverrideCorpus {
     const now = new Date();
     const id = randomUUID();
 
+    const lastRows = await sql`
+      SELECT hash FROM override_corpus
+      WHERE tenant_id = ${tid}
+      ORDER BY recorded_at DESC, id DESC
+      LIMIT 1
+    `;
+    const prevHash = lastRows.length > 0 && lastRows[0].hash ? String(lastRows[0].hash) : 'genesis_override';
+
+    const payload = [
+      id,
+      input.incidentTag,
+      input.proposedCommand.slice(0, 500),
+      input.overrideReason,
+      input.service,
+      input.actor
+    ].join('|');
+    const hash = createHash('sha256').update(payload + prevHash).digest('hex');
+
     const rows = await sql`
       INSERT INTO override_corpus (
         id, tenant_id, incident_tag, proposed_command, override_reason,
         note, service, environment, day_of_week, hour_of_day,
-        manual_action, actor, recorded_at
+        manual_action, actor, recorded_at, hash, prev_hash
       ) VALUES (
         ${id}, ${tid},
         ${input.incidentTag},
@@ -73,7 +91,9 @@ export class PgOverrideCorpus implements IOverrideCorpus {
         ${now.getUTCHours()},
         ${input.manualAction?.slice(0, 500) ?? null},
         ${input.actor},
-        ${now}
+        ${now},
+        ${hash},
+        ${prevHash}
       )
       RETURNING *
     `;

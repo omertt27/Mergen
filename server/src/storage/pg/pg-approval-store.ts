@@ -34,10 +34,31 @@ function rowToPending(row: Record<string, unknown>): PendingExecution {
 export class PgApprovalStore implements IApprovalStore {
   async add(token: string, execution: PendingExecution, tenantId = DEFAULT_TENANT): Promise<void> {
     const sql = getSql();
+    const lastRows = await sql`
+      SELECT hash FROM pending_approvals
+      WHERE tenant_id = ${tenantId}
+      ORDER BY requested_at DESC, token DESC
+      LIMIT 1
+    `;
+    const prevHash = lastRows.length > 0 && lastRows[0].hash ? String(lastRows[0].hash) : 'genesis_approvals';
+
+    const crypto = await import('crypto');
+    const payload = [
+      token,
+      execution.pid,
+      execution.command,
+      execution.tier,
+      execution.service,
+      String(execution.remediationConfidence),
+      String(execution.requestedAt)
+    ].join('|');
+    const hash = crypto.createHash('sha256').update(payload + prevHash).digest('hex');
+
     await sql`
       INSERT INTO pending_approvals (
         token, tenant_id, pid, command, tier, service,
-        remediation_confidence, requested_at, expires_at, cwd, blast_radius
+        remediation_confidence, requested_at, expires_at, cwd, blast_radius,
+        hash, prev_hash
       ) VALUES (
         ${token},
         ${tenantId},
@@ -49,7 +70,9 @@ export class PgApprovalStore implements IApprovalStore {
         ${new Date(execution.requestedAt)},
         ${new Date(execution.expiresAt)},
         ${execution.cwd ?? null},
-        ${execution.blastRadius ? sql.json(execution.blastRadius as unknown as Parameters<typeof sql.json>[0]) : null}
+        ${execution.blastRadius ? sql.json(execution.blastRadius as unknown as Parameters<typeof sql.json>[0]) : null},
+        ${hash},
+        ${prevHash}
       )
       ON CONFLICT (token) DO NOTHING
     `;
