@@ -75,21 +75,6 @@ export async function postDailyDigest(): Promise<void> {
   const overrideSummary = getOverrideSummary().slice(0, 3);
   const staleOverrides  = getStaleOverrides(60);
 
-  // Stale override corpus entries (not reviewed in >60 days)
-  if (staleOverrides.length > 0) {
-    const topStale = staleOverrides.slice(0, 3);
-    const staleLines = [
-      `*⚠️ Override Corpus — ${staleOverrides.length} Stale ${staleOverrides.length === 1 ? 'Entry' : 'Entries'} (>60 days without review)*`,
-      ...topStale.map((e) => {
-        const age = Math.floor((Date.now() - (e.reviewedAt ?? e.recordedAt)) / 86_400_000);
-        return `• \`${e.incidentTag}\` · ${e.service} · ${e.overrideReason} — _${age}d since last review_`;
-      }),
-      staleOverrides.length > 3 ? `_…and ${staleOverrides.length - 3} more. Review at_ \`GET /override-corpus/stale\`` : '',
-      `_Re-affirm: \`POST /overrides/{id}/review\`  ·  Remove: \`DELETE /overrides/{id}\`_`,
-    ].filter(Boolean);
-    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: staleLines.join('\n') } });
-  }
-
   // Pending runbook approvals — runbooks created but not yet approved
   const pendingRunbooks: Runbook[] = [];
   try {
@@ -149,6 +134,21 @@ export async function postDailyDigest(): Promise<void> {
       ),
     ];
     blocks.push({ type: 'section', text: { type: 'mrkdwn', text: overrideLines.join('\n') } });
+  }
+
+  // Stale override corpus entries (not reviewed in >60 days)
+  if (staleOverrides.length > 0) {
+    const topStale = staleOverrides.slice(0, 3);
+    const staleLines = [
+      `*⚠️ Override Corpus — ${staleOverrides.length} Stale ${staleOverrides.length === 1 ? 'Entry' : 'Entries'} (>60 days without review)*`,
+      ...topStale.map((e) => {
+        const age = Math.floor((Date.now() - (e.reviewedAt ?? e.recordedAt)) / 86_400_000);
+        return `• \`${e.incidentTag}\` · ${e.service} · ${e.overrideReason} — _${age}d since last review_`;
+      }),
+      staleOverrides.length > 3 ? `_…and ${staleOverrides.length - 3} more. Review at_ \`GET /override-corpus/stale\`` : '',
+      `_Re-affirm: \`POST /overrides/{id}/review\`  ·  Remove: \`DELETE /overrides/{id}\`_`,
+    ].filter(Boolean);
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: staleLines.join('\n') } });
   }
 
   // Pending runbook approvals

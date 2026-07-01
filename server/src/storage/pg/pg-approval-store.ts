@@ -49,7 +49,7 @@ export class PgApprovalStore implements IApprovalStore {
         ${new Date(execution.requestedAt)},
         ${new Date(execution.expiresAt)},
         ${execution.cwd ?? null},
-        ${execution.blastRadius ? sql.json(execution.blastRadius as object) : null}
+        ${execution.blastRadius ? sql.json(execution.blastRadius as unknown as Parameters<typeof sql.json>[0]) : null}
       )
       ON CONFLICT (token) DO NOTHING
     `;

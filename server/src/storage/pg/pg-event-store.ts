@@ -33,7 +33,7 @@ export class PgEventStore implements IEventStore {
 
     await sql`
       INSERT INTO events (tenant_id, type, level, data, ts)
-      VALUES (${tid}, ${type}, ${level}, ${sql.json(event as object)}, ${ts})
+      VALUES (${tid}, ${type}, ${level}, ${sql.json(event as Parameters<typeof sql.json>[0])}, ${ts})
     `;
   }
 

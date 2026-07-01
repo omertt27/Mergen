@@ -113,7 +113,9 @@ export function computePolicySuggestions(): PolicySuggestion[] {
       suggestedRule: {
         id:         rule.id,
         name:       rule.name,
-        action:     rule.action,
+        // Corpus-synthesized rules are only ever 'warn' or 'block' (never 'pass');
+        // narrow away 'pass' to satisfy the suggestion type.
+        action:     rule.action as 'warn' | 'block',
         reason:     rule.reason,
         conditions: rule.conditions as PolicySuggestion['suggestedRule']['conditions'],
       },

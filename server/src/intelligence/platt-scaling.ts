@@ -140,7 +140,7 @@ function fitPlatt(samples: Array<{ score: number; isCorrect: boolean }>): PlattP
   return { A, B, n: samples.length, holdoutAccuracy };
 }
 
-type ScoredRecord = PredictionRecord & { numericScore?: number; confidenceScore?: number };
+type ScoredRecord = ReturnType<typeof getRecords>[number] & { numericScore?: number; confidenceScore?: number };
 
 function scoreOfRecord(r: ScoredRecord): number {
   return r.numericScore ?? r.confidenceScore ?? 0;

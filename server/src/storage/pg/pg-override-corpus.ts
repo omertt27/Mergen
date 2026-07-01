@@ -37,6 +37,11 @@ function rowToOverrideEvent(row: Record<string, unknown>): OverrideEvent {
     recordedAt: row.recorded_at instanceof Date
       ? (row.recorded_at as Date).getTime()
       : new Date(String(row.recorded_at ?? 0)).getTime(),
+    reviewedAt: row.reviewed_at == null
+      ? undefined
+      : row.reviewed_at instanceof Date
+        ? (row.reviewed_at as Date).getTime()
+        : new Date(String(row.reviewed_at)).getTime(),
     actor: String(row.actor ?? ''),
   };
 }
@@ -270,6 +275,32 @@ export class PgOverrideCorpus implements IOverrideCorpus {
   ): Promise<OverrideEvent[]> {
     const single = await this.compileOverrideFromSlackThread(slackThread, service, tenantId);
     return single ? [single] : [];
+  }
+
+  async getStaleOverrides(daysThreshold = 60, tenantId?: string): Promise<OverrideEvent[]> {
+    const sql = getSql();
+    const tid = tenantId ?? DEFAULT_TENANT;
+    // Stale = never-or-long-ago reviewed. Fall back to recorded_at when the
+    // entry has never been reviewed (reviewed_at IS NULL).
+    const rows = await sql`
+      SELECT * FROM override_corpus
+      WHERE tenant_id = ${tid}
+        AND COALESCE(reviewed_at, recorded_at) < NOW() - (${daysThreshold} * INTERVAL '1 day')
+      ORDER BY COALESCE(reviewed_at, recorded_at) ASC
+    `;
+    return rows.map((r) => rowToOverrideEvent(r as Record<string, unknown>));
+  }
+
+  async markOverrideReviewed(id: string, tenantId?: string): Promise<boolean> {
+    const sql = getSql();
+    const tid = tenantId ?? DEFAULT_TENANT;
+    const rows = await sql`
+      UPDATE override_corpus
+      SET reviewed_at = NOW()
+      WHERE tenant_id = ${tid} AND id = ${id}
+      RETURNING 1
+    `;
+    return rows.length > 0;
   }
 }
 

@@ -7,7 +7,7 @@
  */
 
 import { Worker } from 'bullmq';
-import { getRedisConnection, type ValidationJobData } from './queues.js';
+import { bullConnection, type ValidationJobData } from './queues.js';
 import logger from '../sensor/logger.js';
 
 export function startValidationWorker(): Worker<ValidationJobData> {
@@ -19,7 +19,7 @@ export function startValidationWorker(): Worker<ValidationJobData> {
       await runPostFixValidation({ service, pid, command, beforeCount, fixAppliedAt, tenantId });
     },
     {
-      connection: getRedisConnection(),
+      connection: bullConnection(),
       concurrency: 5,
     },
   );

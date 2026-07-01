@@ -96,7 +96,7 @@ async function notifyNtfy(message: string, opts?: NotifyOptions): Promise<void> 
  * @param opts  — Optional routing hints.
  */
 export async function notify(pid: string, message: string, opts?: NotifyOptions): Promise<void> {
-  const tasks: Promise<void>[] = [];
+  const tasks: Promise<unknown>[] = [];
 
   if (pid) {
     tasks.push(

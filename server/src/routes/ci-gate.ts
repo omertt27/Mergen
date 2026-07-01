@@ -204,7 +204,7 @@ function inferTagsFromContext(files: string[], prTitle: string): string[] {
   // Also pull any tags from postmortem corpus that mention these file paths
   try {
     const tagStats = postmortemStore.tagStats();
-    for (const { tag } of tagStats.data.slice(0, 20)) {
+    for (const { tag } of tagStats.slice(0, 20)) {
       // If a tag name appears as a substring of any changed file, include it
       const tagSlug = tag.replace(/^infra_/, '').replace(/_/g, '');
       if (files.some((f) => f.toLowerCase().replace(/[^a-z]/g, '').includes(tagSlug))) {

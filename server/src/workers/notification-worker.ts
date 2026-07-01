@@ -6,7 +6,7 @@
  */
 
 import { Worker } from 'bullmq';
-import { getRedisConnection, type NotificationJobData } from './queues.js';
+import { bullConnection, type NotificationJobData } from './queues.js';
 import logger from '../sensor/logger.js';
 
 export function startNotificationWorker(): Worker<NotificationJobData> {
@@ -25,7 +25,7 @@ export function startNotificationWorker(): Worker<NotificationJobData> {
       }
     },
     {
-      connection: getRedisConnection(),
+      connection: bullConnection(),
       concurrency: 10,
     },
   );

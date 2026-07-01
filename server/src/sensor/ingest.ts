@@ -5,6 +5,7 @@ import { store, BrowserEventSchema, type BrowserEvent } from './buffer.js';
 import { resolveFrameAndStack } from './sourcemap.js';
 import { redact } from './redact.js';
 import logger from './logger.js';
+import type { BlunderType } from './agent-blunder-store.js';
 import { layer2Store } from './layer2-store.js';
 import { layer3Store } from './layer3-store.js';
 import { layer4Store } from './layer4-store.js';
@@ -139,13 +140,13 @@ export function createIngestRouter(localSecret: string): Router {
           recordBlunder({
             id: typeof id === 'string' ? id : undefined,
             recordedAt: typeof recordedAt === 'number' ? recordedAt : undefined,
-            blunderType,
-            command: typeof command === 'string' ? command : undefined,
+            blunderType: blunderType as BlunderType,
+            command: typeof command === 'string' ? command : null,
             blockReason,
             service: typeof service === 'string' ? service : null,
             tag: typeof tag === 'string' ? tag : null,
             actor,
-            pid: typeof pid === 'number' ? pid : null,
+            pid: typeof pid === 'string' ? pid : null,
             confidenceScore: typeof confidenceScore === 'number' ? confidenceScore : null,
           });
           res.status(204).end();

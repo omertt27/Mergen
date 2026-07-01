@@ -11,7 +11,9 @@
 
 import { execSync, spawn, spawnSync } from 'child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import * as path from 'path';
 import { resolve, dirname, join } from 'path';
+import * as os from 'os';
 import { homedir } from 'os';
 import { createInterface } from 'readline';
 import { fileURLToPath } from 'url';

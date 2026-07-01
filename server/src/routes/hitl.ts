@@ -28,6 +28,7 @@ import { approveToolCall, denyToolCall, getPendingHolds, approveBypass, invalida
 import { getHitlFatigueStatus } from '../intelligence/gate-analytics.js';
 import { timingSafeSecretEqualAny } from '../sensor/security-utils.js';
 import { getStores } from '../storage/store-registry.js';
+import { autoActivateReviewedRules } from '../intelligence/corpus-to-policy.js';
 
 // ── HITL-specific auth helpers ────────────────────────────────────────────────
 // Fix #8: Browser form POSTs (from Slack confirmation pages) cannot send custom

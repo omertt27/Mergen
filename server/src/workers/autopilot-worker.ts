@@ -6,7 +6,7 @@
  */
 
 import { Worker } from 'bullmq';
-import { getRedisConnection, type AutopilotJobData } from './queues.js';
+import { bullConnection, type AutopilotJobData } from './queues.js';
 import { runIncidentAutopilotLocal } from '../intelligence/incident-autopilot.js';
 import logger from '../sensor/logger.js';
 
@@ -19,7 +19,7 @@ export function startAutopilotWorker(): Worker<AutopilotJobData> {
       await runIncidentAutopilotLocal({ service, pid, firedAt, tenantId, cwd });
     },
     {
-      connection: getRedisConnection(),
+      connection: bullConnection(),
       concurrency: 3,
     },
   );

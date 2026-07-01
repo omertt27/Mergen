@@ -253,7 +253,7 @@ export function createPoliciesRouter(localSecret = ''): Router {
     const parsed = RuleSchema.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: parsed.error.issues }); return; }
 
-    const rule = parsed.data as PolicyRule;
+    const rule = parsed.data as EnterprisePolicyRule;
     const events = getGateEvents();
 
     let wouldBlock = 0;
