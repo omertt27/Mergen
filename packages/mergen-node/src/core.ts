@@ -11,9 +11,12 @@ import * as https from 'https';
 import * as crypto from 'crypto';
 import * as path from 'path';
 
-export const MERGEN_PORT   = parseInt(process.env['MERGEN_PORT']   ?? '3000', 10);
-export const MERGEN_HOST   = process.env['MERGEN_HOST']   ?? '127.0.0.1';
-export const MERGEN_SECRET = process.env['MERGEN_SECRET'] ?? null;
+export const MERGEN_PORT    = parseInt(process.env['MERGEN_PORT']   ?? '3000', 10);
+export const MERGEN_HOST    = process.env['MERGEN_HOST']   ?? '127.0.0.1';
+export const MERGEN_SECRET  = process.env['MERGEN_SECRET'] ?? null;
+// License key identifies which plan this instrumented service belongs to, so the
+// server can attribute ingest and enforce per-plan buffer/credit limits at source.
+export const MERGEN_LICENSE = process.env['MERGEN_LICENSE_KEY'] ?? null;
 export const PROCESS_NAME  = process.env['MERGEN_NAME']   ?? resolveProcessName();
 export const PROCESS_URL   = `mergen://node/${PROCESS_NAME}`;
 
@@ -39,7 +42,8 @@ export function post(event: Record<string, unknown>): void {
       'Content-Type':   'application/json',
       'Content-Length': Buffer.byteLength(body),
     };
-    if (MERGEN_SECRET) headers['x-mergen-secret'] = MERGEN_SECRET;
+    if (MERGEN_SECRET)  headers['x-mergen-secret']  = MERGEN_SECRET;
+    if (MERGEN_LICENSE) headers['x-mergen-license'] = MERGEN_LICENSE;
 
     const req = _origHttpRequest({
       hostname: MERGEN_HOST,

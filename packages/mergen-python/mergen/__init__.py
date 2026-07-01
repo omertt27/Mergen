@@ -27,6 +27,7 @@ def init(
     port: Optional[int] = None,
     host: Optional[str] = None,
     secret: Optional[str] = None,
+    license_key: Optional[str] = None,
     name: Optional[str] = None,
     instrument_logging: bool = True,
     instrument_requests: bool = True,
@@ -39,9 +40,10 @@ def init(
 
     # Override env-based config if kwargs are provided
     import mergen.core as _core
-    if port   is not None: _core.MERGEN_PORT   = port
-    if host   is not None: _core.MERGEN_HOST   = host
-    if secret is not None: _core.MERGEN_SECRET = secret
+    if port        is not None: _core.MERGEN_PORT    = port
+    if host        is not None: _core.MERGEN_HOST    = host
+    if secret      is not None: _core.MERGEN_SECRET  = secret
+    if license_key is not None: _core.MERGEN_LICENSE = license_key
     if name   is not None:
         _core.PROCESS_NAME = name
         _core.PROCESS_URL  = f"mergen://python/{name}"

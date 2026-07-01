@@ -15,9 +15,12 @@ import time
 import urllib.request
 from typing import Any, Dict, Optional
 
-MERGEN_PORT   = int(os.environ.get("MERGEN_PORT",   "3000"))
-MERGEN_HOST   = os.environ.get("MERGEN_HOST",   "127.0.0.1")
-MERGEN_SECRET = os.environ.get("MERGEN_SECRET", None)
+MERGEN_PORT    = int(os.environ.get("MERGEN_PORT",   "3000"))
+MERGEN_HOST    = os.environ.get("MERGEN_HOST",   "127.0.0.1")
+MERGEN_SECRET  = os.environ.get("MERGEN_SECRET", None)
+# License key identifies the plan this instrumented service belongs to, so the
+# server can attribute ingest and enforce per-plan limits at source.
+MERGEN_LICENSE = os.environ.get("MERGEN_LICENSE_KEY", None)
 
 
 def _resolve_process_name() -> str:
@@ -55,6 +58,8 @@ def _send_http(event: Dict[str, Any]) -> None:
         }
         if MERGEN_SECRET:
             headers["x-mergen-secret"] = MERGEN_SECRET
+        if MERGEN_LICENSE:
+            headers["x-mergen-license"] = MERGEN_LICENSE
         req = urllib.request.Request(
             f"http://{MERGEN_HOST}:{MERGEN_PORT}/ingest",
             data=body,

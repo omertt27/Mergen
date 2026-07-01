@@ -259,6 +259,23 @@
       if (signedIn) {
         setEl('account-email', acct.email || acct.name || 'Connected');
       }
+      // ── Contextual upgrade CTA ──
+      const upgrade = document.getElementById('account-upgrade');
+      if (upgrade) {
+        const next = acct.nextPlan;
+        if (next) {
+          setEl('account-upgrade-title', 'Upgrade to ' + next.name + ' — ' + (next.priceDescription || ''));
+          setEl('account-upgrade-tagline', next.tagline || '');
+          const link = document.getElementById('account-upgrade-link');
+          if (link) {
+            link.setAttribute('href', next.ctaUrl || acct.ctaUrl || 'https://mergen.dev/pricing');
+            link.textContent = '↑ Upgrade to ' + next.name;
+          }
+          upgrade.style.display = 'block';
+        } else {
+          upgrade.style.display = 'none';
+        }
+      }
     }
 
     if (!connected) {

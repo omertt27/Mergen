@@ -1,4 +1,4 @@
-import { planAllowsTier, type ToolTier } from './plans.js';
+import { planAllowsGate, minPlanForGate, getPlan } from './plans.js';
 import { getActivePlanId } from './license.js';
 
 export const KNOWN_TOOLS = new Set([
@@ -102,32 +102,38 @@ type McpResult = { content: Array<{ type: 'text'; text: string }>; isError?: boo
 type ToolHandler<A extends unknown[]> = (...args: A) => Promise<McpResult>;
 
 /**
- * Wraps a tool handler with a plan-tier check.
+ * Wraps a tool handler with a plan gate.
  *
  * Usage in tools.ts:
- *   server.registerTool('execute_fix', schema, withTierGate('pro', async (args) => { ... }))
+ *   server.registerTool('execute_fix', schema, withTierGate(getTierForTool(name), handler))
  *
- * Free-plan callers receive a structured upgrade prompt instead of an error —
- * the AI can surface the message directly to the user.
+ * The gate spec is either a coarse tier (`free`/`pro`/`all`) or an ordered
+ * minimum plan id (`starter`/`team`/…). Callers below the required plan receive
+ * a structured upgrade prompt — naming the specific plan and its checkout link —
+ * instead of an error, so the AI can surface it directly to the user.
  */
 export function withTierGate<A extends unknown[]>(
-  tier: ToolTier,
+  gate: string,
   handler: ToolHandler<A>,
 ): ToolHandler<A> {
-  if (tier === 'free' || tier === 'all') return handler;
+  // `free`/`all` are available to everyone — no wrapper needed.
+  if (gate === 'free' || gate === 'all') return handler;
 
   return async (...args: A): Promise<McpResult> => {
     const planId = getActivePlanId();
-    if (!planAllowsTier(planId, tier)) {
+    if (!planAllowsGate(planId, gate)) {
+      const currentPlan  = getPlan(planId);
+      const requiredPlan = getPlan(minPlanForGate(gate));
       return {
         content: [{
           type: 'text',
           text: [
-            `## Tool unavailable on Free plan`,
+            `## Tool requires the ${requiredPlan.name} plan`,
             '',
-            'This tool requires a paid Mergen plan.',
+            `You are on **${currentPlan.name}**. This tool unlocks on ` +
+              `**${requiredPlan.name}** (${requiredPlan.priceDescription as string}) and above.`,
             '',
-            '**Upgrade at:** https://mergen.dev/pricing',
+            `**Upgrade at:** ${requiredPlan.ctaUrl as string}`,
             '',
             'To check your current plan: call `get_status`.',
             'To activate a license key: `POST /license { "key": "..." }`',

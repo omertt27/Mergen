@@ -154,10 +154,13 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   // Backoff: consecutive failure count — reset on success, increments on miss.
   private _failCount = 0;
 
-  // Account data is static (plan, email) — cached per port to skip the
-  // /license round-trip on every 2s poll tick.
+  // Account data (plan, email, capabilities) is cached to skip the /license
+  // round-trip on every 2s poll tick, but revalidated on a short TTL so a plan
+  // upgrade mid-session is reflected without a reconnect.
   private _cachedAccount: AccountState | null = null;
   private _cachedAccountPort: number | null = null;
+  private _cachedAccountAt = 0;
+  private static readonly ACCOUNT_TTL_MS = 30_000;
 
   // SSE: persistent connection to /activity-feed/stream for push events
   // (HOLD/BLOCK verdicts surface instantly without waiting for the next poll).
@@ -400,16 +403,20 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     try {
       const base = `http://127.0.0.1:${port}`;
 
-      // Only fetch /license when the port changed or we haven't fetched yet.
-      // Account/plan data is static between sessions — no need to re-request
-      // it on every 2s poll tick.
-      const needsAccount = this._cachedAccountPort !== port || this._cachedAccount === null;
+      // Re-fetch /license on port change, first fetch, or after the TTL — so a
+      // mid-session plan upgrade is reflected without waiting for a reconnect.
+      const accountStale = Date.now() - this._cachedAccountAt > MergenPanel.ACCOUNT_TTL_MS;
+      const needsAccount = this._cachedAccountPort !== port || this._cachedAccount === null || accountStale;
 
       const [dashData, licenseData] = await Promise.all([
         httpGet(`${base}/unified-dashboard`, timeoutMs) as Promise<UnifiedDashboardResponse>,
         needsAccount
           ? (httpGet(`${base}/license`, timeoutMs) as Promise<{
-              plan: { id: string; name: string };
+              plan: {
+                id: string; name: string;
+                capabilities?: AccountState['capabilities']; ctaUrl?: string | null;
+              };
+              nextPlan: AccountState['nextPlan'];
               license: { status: string; email: string | null; name: string | null } | null;
             }>).catch(() => null)
           : Promise.resolve(null),
@@ -417,13 +424,17 @@ export class MergenPanel implements vscode.WebviewViewProvider {
 
       if (licenseData) {
         this._cachedAccount = {
-          email:    licenseData.license?.email ?? null,
-          name:     licenseData.license?.name  ?? null,
-          planId:   licenseData.plan?.id   ?? 'free',
-          planName: licenseData.plan?.name ?? 'Free',
-          status:   (licenseData.license?.status as AccountState['status']) ?? null,
+          email:        licenseData.license?.email ?? null,
+          name:         licenseData.license?.name  ?? null,
+          planId:       licenseData.plan?.id   ?? 'free',
+          planName:     licenseData.plan?.name ?? 'Free',
+          status:       (licenseData.license?.status as AccountState['status']) ?? null,
+          capabilities: licenseData.plan?.capabilities ?? null,
+          ctaUrl:       licenseData.plan?.ctaUrl ?? null,
+          nextPlan:     licenseData.nextPlan ?? null,
         };
         this._cachedAccountPort = port;
+        this._cachedAccountAt   = Date.now();
       }
 
       return {
@@ -1322,6 +1333,12 @@ export class MergenPanel implements vscode.WebviewViewProvider {
       <button class="primary" onclick="send('connectAccount')">→ Connect Account</button>
       <button onclick="send('enterKey')">Enter key…</button>
     </div>
+  </div>
+  <!-- Contextual upgrade CTA — shown when a higher plan is available -->
+  <div id="account-upgrade" style="display:none; margin-top:10px; border-top:1px solid var(--vscode-widget-border,rgba(127,127,127,.2)); padding-top:10px">
+    <div style="font-size:11px; font-weight:600; margin-bottom:2px" id="account-upgrade-title"></div>
+    <div style="font-size:11px; opacity:0.75; margin-bottom:8px" id="account-upgrade-tagline"></div>
+    <a class="signal-run primary" id="account-upgrade-link" href="#" title="Upgrade your Mergen plan" style="text-align:center; display:block">↑ Upgrade</a>
   </div>
 </div>
 

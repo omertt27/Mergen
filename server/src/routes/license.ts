@@ -7,7 +7,7 @@
  */
 import { Router } from 'express';
 import { getLicenseState, activateKey, deactivateKey, getActivePlanId } from '../intelligence/license.js';
-import { getPlan } from '../intelligence/plans.js';
+import { getPlan, PLANS, PLAN_ORDER } from '../intelligence/plans.js';
 import logger from '../sensor/logger.js';
 
 export function createLicenseRouter(): Router {
@@ -17,14 +17,31 @@ export function createLicenseRouter(): Router {
     const state  = getLicenseState();
     const planId = getActivePlanId();
     const plan   = getPlan(planId);
+
+    // The next plan up the ladder (if any) — drives the extension's upgrade CTA.
+    const nextPlanId = PLAN_ORDER.find((id) => PLANS[id].rank === plan.rank + 1);
+    const nextPlan   = nextPlanId ? getPlan(nextPlanId) : null;
+
     res.json({
       plan: {
         id:   plan.id,
         name: plan.name,
+        rank: plan.rank,
         bufferSize: plan.bufferSize,
+        maxServices: plan.maxServices === Infinity ? null : plan.maxServices,
+        capabilities: plan.capabilities,
+        ctaUrl: plan.ctaUrl,
         analyzeCreditsPerMonth: (plan.analyzeCreditsPerMonth as number) === Infinity
           ? null : plan.analyzeCreditsPerMonth,
       },
+      nextPlan: nextPlan ? {
+        id:               nextPlan.id,
+        name:             nextPlan.name,
+        tagline:          nextPlan.tagline,
+        priceDescription: nextPlan.priceDescription,
+        ctaUrl:           nextPlan.ctaUrl,
+        capabilities:     nextPlan.capabilities,
+      } : null,
       license: state ? {
         status:      (state as Record<string, unknown>).status ?? 'active',
         email:       state.customerEmail ?? null,

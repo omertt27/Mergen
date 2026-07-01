@@ -22,6 +22,12 @@ export interface MergenConfig {
   endpoint?: string;
   /** Service name. Default: window.location.hostname */
   service?: string;
+  /**
+   * License key used to attribute this browser service to a plan. Sent as the
+   * `x-mergen-license` header so the server can enforce per-plan limits. Use a
+   * public/browser-scoped key — never a secret admin key in client-side code.
+   */
+  licenseKey?: string;
   /** Intercept console.log/warn/error. Default: true */
   captureConsole?: boolean;
   /** Intercept fetch and XMLHttpRequest. Default: true */
@@ -39,7 +45,7 @@ export function init(config: MergenConfig = {}): void {
   const captureConsole = config.captureConsole !== false;
   const captureNetwork = config.captureNetwork !== false;
 
-  const exporter = new OtlpExporter({ endpoint, service });
+  const exporter = new OtlpExporter({ endpoint, service, licenseKey: config.licenseKey });
 
   const teardowns: Array<() => void> = [];
   if (captureConsole) teardowns.push(patchConsole(exporter));

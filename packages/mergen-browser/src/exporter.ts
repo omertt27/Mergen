@@ -3,6 +3,8 @@ import { msToNano } from './trace.js';
 export interface ExporterConfig {
   endpoint: string;
   service: string;
+  /** Optional license key sent as `x-mergen-license` for plan attribution. */
+  licenseKey?: string;
 }
 
 export interface LogRecord {
@@ -40,12 +42,14 @@ export class OtlpExporter {
   private readonly logsEndpoint: string;
   private readonly tracesEndpoint: string;
   private readonly resource: object;
+  private readonly licenseKey?: string;
 
   constructor(config: ExporterConfig) {
     const base = config.endpoint.replace(/\/$/, '');
     this.logsEndpoint   = `${base}/v1/logs`;
     this.tracesEndpoint = `${base}/v1/traces`;
     this.resource       = { attributes: [attr('service.name', config.service)] };
+    this.licenseKey     = config.licenseKey;
   }
 
   sendLog(rec: LogRecord): void {
@@ -103,18 +107,23 @@ export class OtlpExporter {
   }
 
   private _post(url: string, body: unknown): void {
-    // Use sendBeacon for reliability during page unload; fall back to fetch.
     const json = JSON.stringify(body);
-    try {
-      if (navigator.sendBeacon) {
-        const blob = new Blob([json], { type: 'application/json' });
-        if (navigator.sendBeacon(url, blob)) return;
-      }
-    } catch { /* ignore */ }
-    // Fetch fallback — fire and forget, never reject.
+    // sendBeacon can't attach custom headers, so when a license key must be
+    // sent we go straight to fetch (with keepalive for unload reliability).
+    if (!this.licenseKey) {
+      try {
+        if (navigator.sendBeacon) {
+          const blob = new Blob([json], { type: 'application/json' });
+          if (navigator.sendBeacon(url, blob)) return;
+        }
+      } catch { /* ignore */ }
+    }
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (this.licenseKey) headers['x-mergen-license'] = this.licenseKey;
+    // Fire and forget, never reject.
     fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: json,
       // keepalive keeps the request alive after page navigation
       keepalive: true,

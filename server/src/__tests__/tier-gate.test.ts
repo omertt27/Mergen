@@ -8,7 +8,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { planAllowsTier } from '../intelligence/plans.js';
+import {
+  planAllowsTier, planAllowsGate, planMeetsMin, planHasCapability,
+  minPlanForGate, getPlanRank,
+} from '../intelligence/plans.js';
 import { getTierForTool, ALL_TOOLS } from '../intelligence/tool-manifest.js';
 
 // Mock license module so withTierGate tests can control the active plan.
@@ -88,13 +91,29 @@ describe('withTierGate', () => {
     expect(result).toBe(successResult);
   });
 
-  it('blocks pro tool on free plan and returns upgrade prompt', async () => {
+  it('blocks pro tool on free plan and returns upgrade prompt naming the plan', async () => {
     mockGetActivePlanId.mockReturnValue('free');
     const handler = vi.fn().mockResolvedValue(successResult);
     const result = await withTierGate('pro', handler)();
     expect(handler).not.toHaveBeenCalled();
-    expect(result.content[0].text).toContain('unavailable on Free plan');
+    expect(result.content[0].text).toContain('requires the Starter plan');
     expect(result.content[0].text).toContain('mergen.dev/pricing');
+  });
+
+  it('blocks a team-gated tool on starter and names the Team plan', async () => {
+    mockGetActivePlanId.mockReturnValue('starter');
+    const handler = vi.fn().mockResolvedValue(successResult);
+    const result = await withTierGate('team', handler)();
+    expect(handler).not.toHaveBeenCalled();
+    expect(result.content[0].text).toContain('requires the Team plan');
+  });
+
+  it('allows a team-gated tool on platform (higher plan)', async () => {
+    mockGetActivePlanId.mockReturnValue('platform');
+    const handler = vi.fn().mockResolvedValue(successResult);
+    const result = await withTierGate('team', handler)();
+    expect(handler).toHaveBeenCalledOnce();
+    expect(result).toBe(successResult);
   });
 
   it('upgrade prompt mentions get_status and /license endpoint', async () => {
@@ -152,9 +171,84 @@ describe('getTierForTool', () => {
     expect(getTierForTool('nonexistent_tool')).toBe('all');
   });
 
-  it('every tool in ALL_TOOLS is found by getTierForTool', () => {
+  it('escalates to minPlan when a tool defines one', () => {
+    expect(getTierForTool('get_blast_radius')).toBe('team');
+    expect(getTierForTool('get_attribution_accuracy')).toBe('team');
+    expect(getTierForTool('get_audit_log')).toBe('team');
+  });
+
+  it('every tool in ALL_TOOLS resolves to its minPlan ?? tier', () => {
     for (const entry of ALL_TOOLS) {
-      expect(getTierForTool(entry.name)).toBe(entry.tier);
+      expect(getTierForTool(entry.name)).toBe(entry.minPlan ?? entry.tier);
     }
+  });
+});
+
+// ── Ordered ladder helpers ──────────────────────────────────────────────────────
+
+describe('ordered plan ladder', () => {
+  it('ranks ascend free < starter < team < platform < enterprise', () => {
+    expect(getPlanRank('free')).toBeLessThan(getPlanRank('starter'));
+    expect(getPlanRank('starter')).toBeLessThan(getPlanRank('team'));
+    expect(getPlanRank('team')).toBeLessThan(getPlanRank('platform'));
+    expect(getPlanRank('platform')).toBeLessThan(getPlanRank('enterprise'));
+  });
+
+  it('legacy aliases share the rank of their canonical plan', () => {
+    expect(getPlanRank('solo_starter')).toBe(getPlanRank('starter'));
+    expect(getPlanRank('solo_pro')).toBe(getPlanRank('team'));
+    expect(getPlanRank('solo_power')).toBe(getPlanRank('platform'));
+    expect(getPlanRank('pay_as_you_go')).toBe(getPlanRank('enterprise'));
+  });
+
+  it('planMeetsMin is an inclusive rank comparison', () => {
+    expect(planMeetsMin('team', 'team')).toBe(true);
+    expect(planMeetsMin('platform', 'team')).toBe(true);
+    expect(planMeetsMin('starter', 'team')).toBe(false);
+    expect(planMeetsMin(undefined, 'starter')).toBe(false);
+  });
+
+  it('planAllowsGate handles both coarse tiers and min-plan ids', () => {
+    expect(planAllowsGate('starter', 'pro')).toBe(true);
+    expect(planAllowsGate('free', 'pro')).toBe(false);
+    expect(planAllowsGate('starter', 'team')).toBe(false);
+    expect(planAllowsGate('team', 'team')).toBe(true);
+    expect(planAllowsGate('free', 'all')).toBe(true);
+  });
+
+  it('minPlanForGate maps tiers to the lowest satisfying plan', () => {
+    expect(minPlanForGate('free')).toBe('free');
+    expect(minPlanForGate('all')).toBe('free');
+    expect(minPlanForGate('pro')).toBe('starter');
+    expect(minPlanForGate('team')).toBe('team');
+  });
+});
+
+// ── Capability flags ────────────────────────────────────────────────────────────
+
+describe('planHasCapability', () => {
+  it('free and starter unlock no governance primitives', () => {
+    for (const cap of ['hitlApproval', 'overrideCorpusEnforce', 'ciGate', 'agentIam'] as const) {
+      expect(planHasCapability('free', cap)).toBe(false);
+      expect(planHasCapability('starter', cap)).toBe(false);
+    }
+  });
+
+  it('team unlocks HITL + override corpus enforcement, not CI or IAM', () => {
+    expect(planHasCapability('team', 'hitlApproval')).toBe(true);
+    expect(planHasCapability('team', 'overrideCorpusEnforce')).toBe(true);
+    expect(planHasCapability('team', 'ciGate')).toBe(false);
+    expect(planHasCapability('team', 'agentIam')).toBe(false);
+  });
+
+  it('platform adds the CI gate; only enterprise unlocks Agent IAM', () => {
+    expect(planHasCapability('platform', 'ciGate')).toBe(true);
+    expect(planHasCapability('platform', 'agentIam')).toBe(false);
+    expect(planHasCapability('enterprise', 'agentIam')).toBe(true);
+  });
+
+  it('legacy aliases inherit their canonical plan capabilities', () => {
+    expect(planHasCapability('solo_pro', 'overrideCorpusEnforce')).toBe(true);
+    expect(planHasCapability('pay_as_you_go', 'agentIam')).toBe(true);
   });
 });

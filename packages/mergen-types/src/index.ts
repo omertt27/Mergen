@@ -158,12 +158,31 @@ export interface FilePRContext {
 
 // ── Account ───────────────────────────────────────────────────────────────────
 
+export interface PlanCapabilities {
+  hitlApproval:          boolean;
+  overrideCorpusEnforce: boolean;
+  ciGate:                boolean;
+  agentIam:              boolean;
+}
+
+/** The next plan up the ladder, used to render a contextual upgrade CTA. */
+export interface UpgradeTarget {
+  id:               string;
+  name:             string;
+  tagline:          string;
+  priceDescription: string;
+  ctaUrl:           string;
+}
+
 export interface AccountState {
-  email:    string | null;
-  name:     string | null;
-  planId:   string;
-  planName: string;
-  status:   'active' | 'inactive' | null;
+  email:        string | null;
+  name:         string | null;
+  planId:       string;
+  planName:     string;
+  status:       'active' | 'inactive' | null;
+  capabilities: PlanCapabilities | null;
+  ctaUrl:       string | null;
+  nextPlan:     UpgradeTarget | null;
 }
 
 // ── Services / interactions ───────────────────────────────────────────────────

@@ -9,10 +9,19 @@
  * it must be registered there and vice versa.
  */
 
+import type { PlanId } from './plans.js';
+
 export interface ToolEntry {
   name: string;
   module: string;
+  /** Coarse legacy tier. `free`/`all` = everyone, `pro` = any paid plan. */
   tier: 'free' | 'pro' | 'all';
+  /**
+   * Optional ordered minimum plan that escalates the gate above `tier`.
+   * Use this to place a tool higher on the ladder than the binary free/paid
+   * split — e.g. blast-radius analysis on `team`, CI governance on `platform`.
+   */
+  minPlan?: PlanId;
 }
 
 /** All MCP tools exposed to AI IDEs. */
@@ -53,8 +62,9 @@ export const ALL_TOOLS: readonly ToolEntry[] = [
   { name: 'get_code_owners',          module: 'tools-infra',          tier: 'pro'  },
 
   // ── Blast radius ───────────────────────────────────────────────────────────
-  { name: 'get_blast_radius',         module: 'tools-blast-radius',   tier: 'pro'  },
-  { name: 'get_attribution_accuracy', module: 'tools-blast-radius',   tier: 'pro'  },
+  // Blast-radius analysis is a team-and-above governance primitive.
+  { name: 'get_blast_radius',         module: 'tools-blast-radius',   tier: 'pro',  minPlan: 'team' },
+  { name: 'get_attribution_accuracy', module: 'tools-blast-radius',   tier: 'pro',  minPlan: 'team' },
 
   // ── Frequency / baseline ──────────────────────────────────────────────────
   { name: 'get_error_frequency',      module: 'tools-analysis',       tier: 'all'  },
@@ -100,7 +110,8 @@ export const ALL_TOOLS: readonly ToolEntry[] = [
 
   // ── Sessions / audit ──────────────────────────────────────────────────────
   { name: 'get_session_replay',       module: 'tools-sessions',       tier: 'all'  },
-  { name: 'get_audit_log',            module: 'tools-sessions',       tier: 'pro'  },
+  // Immutable audit trail is a team-and-above governance primitive.
+  { name: 'get_audit_log',            module: 'tools-sessions',       tier: 'pro',  minPlan: 'team' },
 
   // ── Agent memory + operational knowledge ─────────────────────────────────
   { name: 'store_agent_memory',       module: 'tools-memory',         tier: 'all'  },
@@ -136,14 +147,26 @@ export const ALL_TOOLS: readonly ToolEntry[] = [
 
 export const ALL_TOOL_NAMES: readonly string[] = ALL_TOOLS.map((t) => t.name);
 
-const _tierMap = new Map<string, ToolEntry['tier']>(ALL_TOOLS.map((t) => [t.name, t.tier]));
+const _gateMap = new Map<string, string>(
+  // A tool's effective gate is its escalated `minPlan` when present, else its
+  // coarse tier. Registration passes this straight to withTierGate, so the
+  // higher of the two thresholds is what's actually enforced.
+  ALL_TOOLS.map((t) => [t.name, (t.minPlan ?? t.tier) as string]),
+);
 
 /**
- * Returns the tier required to call a tool, or 'all' if not found.
- * Use this in tools.ts to avoid hardcoding tiers in two places:
+ * Returns the gate a tool requires (coarse tier or ordered minimum plan), or
+ * 'all' if not found. Use in tools.ts so the tier/min-plan is defined once:
  *
  *   server.registerTool(name, schema, withTierGate(getTierForTool(name), handler))
+ *
+ * Typed as `string` (a widened gate spec) so the large plan-id union never
+ * flows into the generic `withTierGate` call sites — that combination tripped
+ * TS's instantiation-depth limit in large tool modules.
  */
-export function getTierForTool(name: string): ToolEntry['tier'] {
-  return _tierMap.get(name) ?? 'all';
+export function getTierForTool(name: string): string {
+  return _gateMap.get(name) ?? 'all';
 }
+
+/** Alias with a clearer name for the ordered-gate semantics. */
+export const getGateForTool = getTierForTool;

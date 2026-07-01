@@ -37,20 +37,28 @@ export const uploadCalibrationBatch = noopAsync;
 export const getActivePlanId = (): string => 'free';
 export const getPlan = (): Record<string, unknown> => ({ bufferSize: 2000, name: 'free' });
 
-const _PAID_PLANS = new Set([
-  'starter',
-  'team',
-  'platform',
-  'enterprise',
-  'solo_starter',
-  'solo_pro',
-  'solo_power',
-  'pay_as_you_go',
-]);
-export const planAllowsTier = (planId: string | undefined, tier: string): boolean => {
-  if (tier === 'free' || tier === 'all') return true;
-  return _PAID_PLANS.has(planId ?? '');
+const _PLAN_RANK: Record<string, number> = {
+  free: 0,
+  starter: 1, solo_starter: 1,
+  team: 2, solo_pro: 2,
+  platform: 3, solo_power: 3,
+  enterprise: 4, pay_as_you_go: 4,
 };
+const _rank = (planId?: string): number => _PLAN_RANK[planId ?? ''] ?? 0;
+const _minRankForGate = (gate: string): number =>
+  gate === 'free' || gate === 'all' ? 0 : gate === 'pro' ? 1 : (_PLAN_RANK[gate] ?? 0);
+
+export const PLAN_ORDER = ['free', 'starter', 'team', 'platform', 'enterprise'];
+export const getPlanRank = (planId?: string): number => _rank(planId);
+export const planMeetsMin = (planId: string | undefined, minPlanId: string): boolean =>
+  _rank(planId) >= _rank(minPlanId);
+export const minPlanForGate = (gate: string): string =>
+  gate === 'free' || gate === 'all' ? 'free' : gate === 'pro' ? 'starter' : gate;
+export const planAllowsGate = (planId: string | undefined, gate: string): boolean =>
+  _rank(planId) >= _minRankForGate(gate);
+export const planHasCapability = (_planId: string | undefined, _cap: string): boolean => false;
+export const planAllowsTier = (planId: string | undefined, tier: string): boolean =>
+  planAllowsGate(planId, tier);
 
 // ── Usage accessors ───────────────────────────────────────────────────────────
 export const getIncidentCount       = (): number => 0;
