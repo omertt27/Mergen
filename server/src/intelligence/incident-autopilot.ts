@@ -794,3 +794,56 @@ async function _runAutopilotCore(service: string, pid: string, firedAt: number, 
 
   logger.info({ service, pid, statusLabel, afterCount, beforeCount }, 'incident-autopilot: complete');
 }
+
+// ── BullMQ integration exports ────────────────────────────────────────────────
+
+/**
+ * Export alias so the autopilot BullMQ worker can import the triage function
+ * directly without going through the queue (the worker IS the queue consumer).
+ */
+export { runIncidentAutopilot as runIncidentAutopilotLocal };
+
+/**
+ * Post-fix validation stub — full extraction deferred to Phase 5.
+ * In the current architecture, validation runs inline inside runIncidentAutopilot
+ * immediately after fix execution. This export satisfies the validation-worker
+ * import contract and is ready for the inline logic to be moved here.
+ */
+export async function runPostFixValidation(_opts: {
+  service: string;
+  pid: string;
+  command: string;
+  beforeCount: number;
+  fixAppliedAt: number;
+  tenantId?: string;
+}): Promise<void> {
+  // Post-fix validation — full extraction in Phase 5.
+  // For now validation runs inline inside runIncidentAutopilot.
+  logger.warn({ pid: _opts.pid }, 'runPostFixValidation: stub — validation still runs inline in runIncidentAutopilot');
+}
+
+/**
+ * Enqueue an autopilot job via BullMQ when cloud/BullMQ mode is active,
+ * or run the triage loop inline (fire-and-forget) in local mode.
+ *
+ * Use this function everywhere the PagerDuty webhook would trigger triage,
+ * instead of calling runIncidentAutopilot() directly.
+ */
+export async function enqueueAutopilot(opts: {
+  service: string;
+  pid: string;
+  firedAt: number;
+  tenantId?: string;
+  cwd?: string;
+}): Promise<void> {
+  const useBullMQ =
+    (process.env.MERGEN_CLOUD_MODE === 'true' || process.env.MERGEN_BULLMQ === 'true') &&
+    process.env.MERGEN_REDIS_URL;
+
+  if (useBullMQ) {
+    const { getAutopilotQueue } = await import('../workers/queues.js');
+    await getAutopilotQueue().add('triage-incident', opts, { jobId: opts.pid });
+  } else {
+    void runIncidentAutopilot(opts);
+  }
+}

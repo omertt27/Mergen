@@ -512,6 +512,13 @@ async function main(): Promise<void> {
   // ── Graduated urgency — local desktop notification on sustained degradation ─
   try { startDegradationWatcher(); } catch (err) { logger.error({ err }, 'startup: startDegradationWatcher failed — degradation watcher disabled'); }
 
+  // ── BullMQ workers (cloud mode or MERGEN_BULLMQ=true) ─────────────────────
+  if ((process.env.MERGEN_CLOUD_MODE === 'true' || process.env.MERGEN_BULLMQ === 'true')
+      && process.env.MERGEN_REDIS_URL) {
+    const { startWorkers } = await import('./workers/worker-registry.js');
+    await startWorkers();
+  }
+
   // ── Continuous watcher ────────────────────────────────────────────────────
   startWatcher();
 
@@ -585,12 +592,20 @@ async function main(): Promise<void> {
     persistBypasses();
 
     Promise.all([flushOverageOnShutdown(), flushPendingRebuild()]).finally(() => {
-      stopDockerMonitor();
-      stopDockerLogStream();
-      stopAllProcessWatchers();
-      stopFileWatch();
-      stopRedisStore();
-      httpServer.close(() => { logger.info('HTTP server closed'); process.exit(0); });
+      const workerShutdown =
+        (process.env.MERGEN_CLOUD_MODE === 'true' || process.env.MERGEN_BULLMQ === 'true') &&
+        process.env.MERGEN_REDIS_URL
+          ? import('./workers/worker-registry.js').then(({ stopWorkers }) => stopWorkers()).catch(() => {})
+          : Promise.resolve();
+
+      void workerShutdown.finally(() => {
+        stopDockerMonitor();
+        stopDockerLogStream();
+        stopAllProcessWatchers();
+        stopFileWatch();
+        stopRedisStore();
+        httpServer.close(() => { logger.info('HTTP server closed'); process.exit(0); });
+      });
       // 30-second hard timeout: enough time for Redis flush + pending writes while
       // still bounding the shutdown window. Exits with code 1 so process managers
       // (systemd, Docker) know the shutdown was not clean.
