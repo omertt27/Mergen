@@ -5,6 +5,10 @@ dist/
 .DS_Store
 .claude/worktrees/
 
+# ── Next.js build artifacts (website) ─────────────────────────────────────────
+website/.next/
+website/out/
+
 # ── Intelligence layer — closed source ────────────────────────────────────────
 # Sensor layer (sensor/) is open. These files are the moat: causal chain
 # construction, hypothesis ranking, calibration feedback loop, detectors,
