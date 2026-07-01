@@ -10,6 +10,9 @@ import {
 import { getRuleFirings, getGateEvents } from '../intelligence/gate-analytics.js';
 import { evaluateEnterprisePolicy } from '../intelligence/enterprise-policy-engine.js';
 import { computePolicySuggestions } from '../intelligence/policy-suggester.js';
+import { getProposals, getProposal, markProposalDecided } from '../intelligence/policy-proposals.js';
+import { activateProposedRule } from '../intelligence/corpus-to-policy.js';
+import { recordActivity } from '../intelligence/activity-feed.js';
 
 export function createPoliciesRouter(localSecret = ''): Router {
   const router = Router();
@@ -214,15 +217,58 @@ export function createPoliciesRouter(localSecret = ''): Router {
   router.get('/policy-suggestions', (_req, res) => {
     const suggestions = computePolicySuggestions();
     const uncovered = suggestions.filter((s) => !s.alreadyCovered);
+    // HOLD-only corpus proposals awaiting approval (MERGEN_AUTO_CORPUS_PROPOSE).
+    // These are inert until approved — surfaced here for one-click review.
+    const proposals = getProposals('proposed');
     res.json({
       ok: true,
       total: suggestions.length,
       uncoveredCount: uncovered.length,
       suggestions,
+      proposals,
+      pendingProposalCount: proposals.length,
       note: uncovered.length > 0
         ? `${uncovered.length} pattern${uncovered.length !== 1 ? 's' : ''} blocked repeatedly without a named policy rule. POST /policies/rules to formalise them.`
         : 'All frequent blunder patterns are already covered by named rules.',
     });
+  });
+
+  // ── Corpus proposal review (MERGEN_AUTO_CORPUS_PROPOSE) ───────────────────────
+  // Proposals are HOLD-only rules staged from the override corpus. They are inert
+  // until an operator approves one here, at which point the rule is installed into
+  // live policy (as a HOLD). Mutation guard: /policies is in app.ts MUTATING_PATHS,
+  // so these POSTs require the x-mergen-secret header.
+
+  router.get('/policies/proposals', (_req, res) => {
+    res.json({ ok: true, proposals: getProposals('proposed') });
+  });
+
+  router.post('/policies/proposals/:id/approve', (req, res) => {
+    const proposal = getProposal(req.params.id);
+    if (!proposal)                      { res.status(404).json({ error: 'proposal not found' }); return; }
+    if (proposal.status !== 'proposed') { res.status(409).json({ error: `proposal already ${proposal.status}` }); return; }
+    try {
+      // Safety re-check: never install anything but a HOLD from this path.
+      if (proposal.rule.action !== 'warn') {
+        res.status(422).json({ error: 'proposal is not HOLD-only — refusing to activate' });
+        return;
+      }
+      activateProposedRule(proposal.rule);
+      markProposalDecided(proposal.id, 'approved');
+      recordActivity({
+        toolName: 'policy-proposal', commandArg: proposal.rule.id,
+        verdict: 'HOLD', triggeredRules: [proposal.rule.id], ruleNames: [proposal.rule.name],
+      });
+      res.json({ ok: true, activated: proposal.rule.id });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  router.post('/policies/proposals/:id/reject', (req, res) => {
+    const decided = markProposalDecided(req.params.id, 'rejected');
+    if (!decided) { res.status(404).json({ error: 'proposal not found or already decided' }); return; }
+    res.json({ ok: true, rejected: decided.id });
   });
 
   // ── POST /policies/simulate — replay a rule against recent gate events ────────

@@ -578,6 +578,21 @@ async function main(): Promise<void> {
     try { startSlackOverrideLoop(); } catch (err) { logger.error({ err }, 'startup: startSlackOverrideLoop failed — override loop disabled'); }
   }
 
+  // ── Corpus → HOLD-only policy proposals (opt-in, every 6h) ───────────────
+  // When enabled, repeatedly-overridden corpus patterns are staged as HOLD-only
+  // proposals for one-click operator approval at GET /policy-suggestions. Never
+  // auto-activates and never proposes a BLOCK — see corpus-to-policy.ts.
+  if (process.env.MERGEN_AUTO_CORPUS_PROPOSE === 'true') {
+    const { proposeRulesFromCorpus } = await import('./intelligence/corpus-to-policy.js');
+    const runProposalScan = () => {
+      try { proposeRulesFromCorpus(); }
+      catch (err) { logger.error({ err }, 'corpus-propose: scan failed'); }
+    };
+    runProposalScan();
+    setInterval(runProposalScan, 6 * 60 * 60 * 1000).unref();
+    logger.info('startup: corpus→proposal bridge enabled (MERGEN_AUTO_CORPUS_PROPOSE)');
+  }
+
   // ── Graduated urgency — local desktop notification on sustained degradation ─
   try { startDegradationWatcher(); } catch (err) { logger.error({ err }, 'startup: startDegradationWatcher failed — degradation watcher disabled'); }
 

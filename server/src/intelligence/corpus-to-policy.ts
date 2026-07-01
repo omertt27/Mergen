@@ -28,6 +28,7 @@
 import { createHash } from 'crypto';
 import { compactCorpus, type CompactedRule, type OverrideReason } from './override-corpus.js';
 import { loadEnterprisePolicy, saveEnterprisePolicy, type EnterprisePolicyRule } from './enterprise-policy-engine.js';
+import { stageProposal, type PolicyProposal } from './policy-proposals.js';
 import logger from '../sensor/logger.js';
 
 const MIN_OCCURRENCES = 3;
@@ -206,4 +207,45 @@ export function autoActivateReviewedRules(incidentTag: string, service: string):
     );
   }
   return staged;
+}
+
+// ── Opt-in proposal path (MERGEN_AUTO_CORPUS_PROPOSE) ─────────────────────────
+
+/** True when the opt-in corpus→proposal bridge is enabled. Default: off. */
+export function autoCorpusProposeEnabled(): boolean {
+  return process.env.MERGEN_AUTO_CORPUS_PROPOSE === 'true';
+}
+
+/**
+ * The opt-in, HOLD-only counterpart to autoActivateReviewedRules().
+ *
+ * Synthesizes rules from the current corpus and, for each, stages a HOLD-only
+ * proposal (action forced to 'warn', never 'block') into the proposal store for
+ * one-click operator approval. Nothing is committed to live policy here — a
+ * proposed rule stays inert until POST /policies/proposals/:id/approve.
+ * Idempotent via the proposal store's ruleHash dedup.
+ *
+ * No-op unless MERGEN_AUTO_CORPUS_PROPOSE=true, so importing/calling it is safe
+ * on the default configuration.
+ */
+export function proposeRulesFromCorpus(scope?: { incidentTag: string; service: string }): PolicyProposal[] {
+  if (!autoCorpusProposeEnabled()) return [];
+  const synthesized = synthesizeRulesFromCorpus(scope);
+  const proposals: PolicyProposal[] = [];
+  for (const { rule, sourceOccurrences } of synthesized) {
+    // Invariant: proposals are ALWAYS HOLD. A corpus 'block' rule is downgraded
+    // to 'warn' so the opt-in bridge can never auto-escalate to a hard block.
+    const holdRule: EnterprisePolicyRule = { ...rule, action: 'warn' };
+    const staged = stageProposal(rule.id, holdRule, sourceOccurrences);
+    if (staged) proposals.push(staged);
+  }
+  if (proposals.length > 0) {
+    logger.info({ count: proposals.length }, 'corpus-to-policy: staged HOLD-only policy proposals');
+  }
+  return proposals;
+}
+
+/** Activate a previously-approved proposal's rule into live policy. */
+export function activateProposedRule(rule: EnterprisePolicyRule): void {
+  _activateRule(rule);
 }
