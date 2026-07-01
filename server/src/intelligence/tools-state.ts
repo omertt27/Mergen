@@ -1,5 +1,15 @@
-import { planAllowsGate, minPlanForGate, getPlan } from './plans.js';
+import { planAllowsGate, minPlanForGate, getPlan, describeEntitlement } from './plans.js';
 import { getActivePlanId } from './license.js';
+
+/**
+ * Entitlement summary for the active plan, as plain string arrays. Re-exported
+ * through this module (which already depends on plans.js) so heavy tool modules
+ * can render it without importing plans.js directly — a direct import trips the
+ * MCP SDK's registerTool inference depth limit.
+ */
+export function entitlementLines(): { unlocked: string[]; upgradeLines: string[] } {
+  return describeEntitlement(getActivePlanId());
+}
 
 export const KNOWN_TOOLS = new Set([
   // Analysis

@@ -147,11 +147,20 @@ export const ALL_TOOLS: readonly ToolEntry[] = [
 
 export const ALL_TOOL_NAMES: readonly string[] = ALL_TOOLS.map((t) => t.name);
 
-const _gateMap = new Map<string, string>(
+/**
+ * The narrow set of gates a tool can actually resolve to: the coarse legacy
+ * tiers plus any plan id used as a `minPlan` escalation. Kept intentionally
+ * small — feeding the full 11-member plan-id union into the generic
+ * `withTierGate` call sites trips TS's instantiation-depth limit in large tool
+ * modules. Add a plan id here only when a tool escalates to it via `minPlan`.
+ */
+export type ResolvedGate = ToolEntry['tier'] | 'team';
+
+const _gateMap = new Map<string, ResolvedGate>(
   // A tool's effective gate is its escalated `minPlan` when present, else its
   // coarse tier. Registration passes this straight to withTierGate, so the
   // higher of the two thresholds is what's actually enforced.
-  ALL_TOOLS.map((t) => [t.name, (t.minPlan ?? t.tier) as string]),
+  ALL_TOOLS.map((t) => [t.name, (t.minPlan ?? t.tier) as ResolvedGate]),
 );
 
 /**
@@ -159,12 +168,8 @@ const _gateMap = new Map<string, string>(
  * 'all' if not found. Use in tools.ts so the tier/min-plan is defined once:
  *
  *   server.registerTool(name, schema, withTierGate(getTierForTool(name), handler))
- *
- * Typed as `string` (a widened gate spec) so the large plan-id union never
- * flows into the generic `withTierGate` call sites — that combination tripped
- * TS's instantiation-depth limit in large tool modules.
  */
-export function getTierForTool(name: string): string {
+export function getTierForTool(name: string): ResolvedGate {
   return _gateMap.get(name) ?? 'all';
 }
 

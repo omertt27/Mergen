@@ -4,7 +4,7 @@ import { store } from '../sensor/buffer.js';
 import { getUsageSnapshot } from './usage.js';
 import { getLicenseState } from './license.js';
 import { layer3Store } from '../sensor/layer3-store.js';
-import { trackCall, buildCreditBar, setLastClearAt, withTierGate } from './tools-state.js';
+import { trackCall, buildCreditBar, setLastClearAt, withTierGate, entitlementLines } from './tools-state.js';
 import { getTierForTool } from './tool-manifest.js';
 import { saveSessionToHistory } from '../sensor/session-history.js';
 import { adrStore } from '../sensor/adr-store.js';
@@ -49,11 +49,15 @@ export function registerUtilityTools(server: McpServer): void {
         );
       }
 
-      if (snap.planId === 'free') {
-        lines.push('',
-          '> **Upgrade to Pro ($29/mo)** — 200 incidents/month, $50 overage ceiling, autopilot execution, auto-rollback.',
-          '> https://mergen.dev/pricing',
-        );
+      // ── Governance capabilities + contextual upgrade CTA ──
+      // Formatting lives in plans.ts so the wide Plan types stay out of this
+      // MCP tool module (avoids a TS instantiation-depth blow-up).
+      const { unlocked, upgradeLines } = entitlementLines();
+      if (unlocked.length > 0) {
+        lines.push('', '**Governance unlocked:**', ...unlocked.map((cap) => `  • ${cap}`));
+      }
+      if (upgradeLines.length > 0) {
+        lines.push('', ...upgradeLines);
       }
 
       if (licState?.customerEmail) {
@@ -120,7 +124,7 @@ export function registerUtilityTools(server: McpServer): void {
           .describe('Optional filename label (default: session-<ISO timestamp>)'),
       },
     },
-    async ({ label }) => {
+    async ({ label }: { label?: string }) => {
       const { writeFileSync } = await import('fs');
       const { resolve }       = await import('path');
 
