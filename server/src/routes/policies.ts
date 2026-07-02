@@ -5,6 +5,7 @@ import {
   saveEnterprisePolicy,
   EnterprisePolicyRule,
   EnterprisePolicyConfig,
+  EnterprisePolicyConditionsSchema,
   IMMUTABLE_RULE_IDS,
 } from '../intelligence/enterprise-policy-engine.js';
 import { getRuleFirings, getGateEvents } from '../intelligence/gate-analytics.js';
@@ -14,6 +15,7 @@ import { getProposals, getProposal, markProposalDecided } from '../intelligence/
 import { activateProposedRule } from '../intelligence/corpus-to-policy.js';
 import { recordActivity } from '../intelligence/activity-feed.js';
 import { getPolicyHistory } from '../sensor/policy-history.js';
+import { getStores } from '../storage/store-registry.js';
 
 export function createPoliciesRouter(localSecret = ''): Router {
   const router = Router();
@@ -68,14 +70,7 @@ export function createPoliciesRouter(localSecret = ''): Router {
       description: z.string(),
       action:      z.enum(['block', 'warn', 'pass']),
       reason:      z.string(),
-      conditions:  z.object({
-        files:      z.array(z.string()).optional(),
-        commands:   z.array(z.string()).optional(),
-        actorType:  z.enum(['ai', 'human', 'all']).optional(),
-        daysOfWeek: z.array(z.number().int().min(0).max(6)).optional(),
-        hourWindow: z.tuple([z.number().int().min(0).max(23), z.number().int().min(0).max(24)]).optional(),
-        services:   z.array(z.string()).optional(),
-      }),
+      conditions:  EnterprisePolicyConditionsSchema,
     });
     const parsed = RuleSchema.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: parsed.error.issues }); return; }
@@ -100,17 +95,7 @@ export function createPoliciesRouter(localSecret = ''): Router {
       description: z.string().optional(),
       action:      z.enum(['block', 'warn', 'pass']).optional(),
       reason:      z.string().optional(),
-      conditions:  z.object({
-        files:        z.array(z.string()).optional(),
-        commands:     z.array(z.string()).optional(),
-        actorType:    z.enum(['ai', 'human', 'all']).optional(),
-        daysOfWeek:   z.array(z.number().int().min(0).max(6)).optional(),
-        hourWindow:   z.tuple([z.number().int().min(0).max(23), z.number().int().min(0).max(24)]).optional(),
-        services:     z.array(z.string()).optional(),
-        environments: z.array(z.string()).optional(),
-        repos:        z.array(z.string()).optional(),
-        agentIds:     z.array(z.string()).optional(),
-      }).optional(),
+      conditions:  EnterprisePolicyConditionsSchema.optional(),
     }).strict();
     const parsed = PatchSchema.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: parsed.error.issues }); return; }
@@ -220,17 +205,7 @@ export function createPoliciesRouter(localSecret = ''): Router {
       description: z.string(),
       action:      z.enum(['block', 'warn', 'pass']),
       reason:      z.string(),
-      conditions:  z.object({
-        files:        z.array(z.string()).optional(),
-        commands:     z.array(z.string()).optional(),
-        actorType:    z.enum(['ai', 'human', 'all']).optional(),
-        daysOfWeek:   z.array(z.number().int().min(0).max(6)).optional(),
-        hourWindow:   z.tuple([z.number().int().min(0).max(23), z.number().int().min(0).max(24)]).optional(),
-        services:     z.array(z.string()).optional(),
-        environments: z.array(z.string()).optional(),
-        repos:        z.array(z.string()).optional(),
-        agentIds:     z.array(z.string()).optional(),
-      }),
+      conditions:  EnterprisePolicyConditionsSchema,
     });
     const body = z.object({
       policy: z.object({ enabled: z.boolean(), rules: z.array(ImportRuleSchema) }),
@@ -339,17 +314,7 @@ export function createPoliciesRouter(localSecret = ''): Router {
       description: z.string().default(''),
       action:      z.enum(['block', 'warn', 'pass']).default('block'),
       reason:      z.string().default('Simulated block'),
-      conditions:  z.object({
-        files:        z.array(z.string()).optional(),
-        commands:     z.array(z.string()).optional(),
-        actorType:    z.enum(['ai', 'human', 'all']).optional(),
-        daysOfWeek:   z.array(z.number().int().min(0).max(6)).optional(),
-        hourWindow:   z.tuple([z.number().int().min(0).max(23), z.number().int().min(0).max(24)]).optional(),
-        services:     z.array(z.string()).optional(),
-        environments: z.array(z.string()).optional(),
-        repos:        z.array(z.string()).optional(),
-        agentIds:     z.array(z.string()).optional(),
-      }),
+      conditions:  EnterprisePolicyConditionsSchema,
     });
 
     const parsed = RuleSchema.safeParse(req.body);
@@ -465,19 +430,7 @@ export function createPoliciesRouter(localSecret = ''): Router {
         description: z.string().default(''),
         action:      z.enum(['block', 'warn', 'pass']).default('block'),
         reason:      z.string().default('Preview block'),
-        conditions:  z.object({
-          files:        z.array(z.string()).optional(),
-          commands:     z.array(z.string()).optional(),
-          actorType:    z.enum(['ai', 'human', 'all']).optional(),
-          daysOfWeek:   z.array(z.number().int().min(0).max(6)).optional(),
-          hourWindow:   z.tuple([z.number().int().min(0).max(23), z.number().int().min(0).max(24)]).optional(),
-          services:     z.array(z.string()).optional(),
-          environments: z.array(z.string()).optional(),
-          repos:        z.array(z.string()).optional(),
-          agentIds:     z.array(z.string()).optional(),
-          roles:        z.array(z.string()).optional(),
-          branches:     z.array(z.string()).optional(),
-        }),
+        conditions:  EnterprisePolicyConditionsSchema,
       })),
     });
 

@@ -9,7 +9,7 @@ import * as os from 'os';
 import { homedir } from 'os';
 import { createInterface } from 'readline';
 import { fileURLToPath } from 'url';
-import { log, success, error, hr, ask, sleep, VERSION, SERVER_ENTRY, findPort, maybeFlushOfflineBlunders } from './shared.js';
+import { log, success, error, hr, ask, sleep, VERSION, SERVER_ENTRY, CLI_ENTRY, findPort, maybeFlushOfflineBlunders } from './shared.js';
 import { connectCommand, backfillCommand } from './github.js';
 import { guardCommand } from './policy.js';
 import { watchCommand } from './incident.js';
@@ -733,6 +733,7 @@ export async function configureIDE(ide: string): Promise<void> {
         log('Run manually:', 'ℹ');
         console.log(`  claude mcp add mergen --transport stdio -- node "${serverPath}"`);
       }
+      installClaudeCodePreToolUseHook();
       break;
 
     case 'cursor': {
@@ -787,6 +788,70 @@ export async function configureIDE(ide: string): Promise<void> {
       log(`Manual setup required for ${ide}`, '⚠');
       console.log(`  Add this to your IDE config:`);
       console.log(`  { "command": "node", "args": ["${serverPath}"] }`);
+  }
+}
+
+/**
+ * Registers `mergen-server gate-check` as a Claude Code PreToolUse hook for
+ * the Bash tool, in ~/.claude/settings.json. This closes the gap where the
+ * MCP gate (tool-guard.ts) only covers MCP tool calls — Claude Code's Bash
+ * tool goes through the model's own tool-execution path, not MCP, so without
+ * this hook a raw shell command was completely unobserved by Mergen.
+ *
+ * NOTE: the exact PreToolUse hook I/O contract (settings.json shape, stdin
+ * JSON payload fields, exit-code semantics) was not verified against live
+ * Claude Code documentation when this was written — gate-check's stdin
+ * parser (commands/gate.ts) is written defensively and fails closed if the
+ * payload shape doesn't match what's expected here, but this installer
+ * should be treated as best-effort and verified in a real Claude Code
+ * session (run a destructive command via the Bash tool with the hook
+ * installed and confirm it's actually blocked) before relying on it.
+ *
+ * Merges into any existing settings.json rather than overwriting it, and is
+ * idempotent — re-running setup does not duplicate the hook entry.
+ *
+ * settingsPath is overridable (tests point it at a scratch file rather than
+ * mutating the real ~/.claude/settings.json).
+ */
+export function installClaudeCodePreToolUseHook(
+  settingsPath: string = resolve(homedir(), '.claude', 'settings.json'),
+): void {
+  try {
+    let settings: Record<string, unknown> = {};
+    if (existsSync(settingsPath)) {
+      try {
+        settings = JSON.parse(readFileSync(settingsPath, 'utf8')) as Record<string, unknown>;
+      } catch {
+        log(`~/.claude/settings.json exists but is not valid JSON — skipping automatic hook install. Add it manually (see: mergen-server --help).`, '⚠');
+        return;
+      }
+    }
+
+    const hookCommand = `node "${CLI_ENTRY}" gate-check`;
+    const hooks = (settings.hooks as Record<string, unknown> | undefined) ?? {};
+    const preToolUse = Array.isArray(hooks.PreToolUse) ? hooks.PreToolUse as Array<Record<string, unknown>> : [];
+
+    const alreadyInstalled = preToolUse.some((entry) => {
+      const entryHooks = Array.isArray(entry.hooks) ? entry.hooks as Array<Record<string, unknown>> : [];
+      return entryHooks.some((h) => h.type === 'command' && h.command === hookCommand);
+    });
+    if (alreadyInstalled) {
+      log('Claude Code PreToolUse hook already installed.');
+      return;
+    }
+
+    preToolUse.push({
+      matcher: 'Bash',
+      hooks: [{ type: 'command', command: hookCommand }],
+    });
+    settings.hooks = { ...hooks, PreToolUse: preToolUse };
+
+    mkdirSync(dirname(settingsPath), { recursive: true });
+    writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
+    log(`Installed a PreToolUse hook for the Bash tool → ${settingsPath}`);
+    log('This covers Claude Code\'s Bash tool specifically — it does not extend MCP gate coverage to other IDEs or raw terminal use outside Claude Code.', 'ℹ');
+  } catch (err) {
+    log(`Could not install the Claude Code PreToolUse hook automatically: ${err instanceof Error ? err.message : String(err)}`, '⚠');
   }
 }
 

@@ -63,7 +63,7 @@ runs:
         script: |
           if (!context.payload.pull_request) {
             core.warning('Mergen AEG gate: not a pull_request event — skipping');
-            return { files: [], diff: '', prTitle: '', actor: 'unknown', prNumber: null };
+            return { files: [], diff: '', prTitle: '', actor: 'unknown', prNumber: null, diffStats: null };
           }
 
           const pr = context.payload.pull_request;
@@ -71,7 +71,10 @@ runs:
           const prTitle = pr.title ?? '';
           const actor = pr.user?.login ?? 'unknown';
 
-          // Changed files
+          // Changed files — listFiles already returns per-file additions/deletions/changes;
+          // previously discarded (files kept as filenames only). Aggregate them into
+          // diffStats so the server's diff-size check has real numbers instead of
+          // parsing them back out of the (possibly truncated) diff text below.
           const { data: fileList } = await github.rest.pulls.listFiles({
             owner: context.repo.owner,
             repo: context.repo.repo,
@@ -79,6 +82,11 @@ runs:
             per_page: 100,
           });
           const files = fileList.map(f => f.filename);
+          const diffStats = {
+            filesChanged: fileList.length,
+            additions: fileList.reduce((sum, f) => sum + (f.additions || 0), 0),
+            deletions: fileList.reduce((sum, f) => sum + (f.deletions || 0), 0),
+          };
 
           // PR diff (truncated) — used for semantic destructive-command detection
           let diff = '';
@@ -101,7 +109,7 @@ runs:
             }
           }
 
-          return { files, diff, prTitle, actor, prNumber };
+          return { files, diff, prTitle, actor, prNumber, diffStats };
 
     - name: Evaluate AEG corpus gate
       id: gate
@@ -138,6 +146,7 @@ runs:
                 diff: ctx.diff,
                 service: service || undefined,
                 actor: ctx.actor,
+                diffStats: ctx.diffStats || undefined,
               }),
               signal: AbortSignal.timeout(15_000),
             });

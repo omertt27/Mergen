@@ -12,6 +12,9 @@ import { readFileSync } from 'fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const SERVER_ENTRY = resolve(__dirname, '../index.js');
+/** Compiled CLI entry (dist/cli.js) — used when a generated hook/config needs
+ *  an absolute, PATH-independent way to invoke `mergen-server <subcommand>`. */
+export const CLI_ENTRY = resolve(__dirname, '../cli.js');
 const _pkg = JSON.parse(readFileSync(resolve(__dirname, '../../package.json'), 'utf8')) as { version: string };
 export const VERSION = _pkg.version;
 

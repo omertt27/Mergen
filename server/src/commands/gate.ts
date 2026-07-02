@@ -48,14 +48,68 @@ export async function evaluateViaGate(command: string, toolName?: string): Promi
   return { reachable: true, isError: body.isError, text: body.text };
 }
 
+function readStdin(): Promise<string> {
+  return new Promise((resolve) => {
+    let data = '';
+    if (process.stdin.isTTY) { resolve(''); return; }
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (chunk) => { data += chunk; });
+    process.stdin.on('end', () => resolve(data));
+    process.stdin.on('error', () => resolve(data));
+  });
+}
+
+/**
+ * Extracts the shell command from a Claude Code PreToolUse hook's stdin JSON
+ * payload. Checked defensively against a few plausible field paths since this
+ * hook I/O shape was not verified against live Claude Code docs at the time
+ * this was written — if the shape has changed, extraction fails and the
+ * caller fails closed (blocks) rather than silently allowing.
+ */
+export function extractCommandFromHookPayload(raw: string): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object') return null;
+  const obj = parsed as Record<string, unknown>;
+  const toolInput = obj.tool_input as Record<string, unknown> | undefined;
+  const candidate =
+    toolInput?.command ??
+    toolInput?.cmd ??
+    obj.command ??
+    obj.cmd;
+  return typeof candidate === 'string' && candidate.length > 0 ? candidate : null;
+}
+
+/**
+ * `mergen-server gate-check -- <command...>` — decision only, does not
+ * execute. Two invocation modes:
+ *   1. Explicit command: `gate-check -- <command>` (scripts, manual testing)
+ *   2. Claude Code PreToolUse hook mode: invoked with no `--` args, reads the
+ *      hook's JSON payload from stdin. Exit code is the contract Claude Code
+ *      hooks use to allow (0) or block (non-zero) — see
+ *      extractCommandFromHookPayload's doc comment re: unverified I/O shape.
+ */
 export async function gateCheckCommand(args: string[]): Promise<void> {
   const dashDash = args.indexOf('--');
   const cmdParts = dashDash >= 0 ? args.slice(dashDash + 1) : args;
-  if (cmdParts.length === 0) {
-    error('Usage: mergen-server gate-check -- <command> [args...]');
-    process.exit(1);
+
+  let fullCommand: string;
+  if (cmdParts.length > 0) {
+    fullCommand = cmdParts.join(' ');
+  } else {
+    const raw = await readStdin();
+    const extracted = raw ? extractCommandFromHookPayload(raw) : null;
+    if (!extracted) {
+      error('gate-check: no command given (pass -- <command>, or a Claude Code hook JSON payload on stdin) — failing closed.');
+      process.exit(1);
+      return;
+    }
+    fullCommand = extracted;
   }
-  const fullCommand = cmdParts.join(' ');
 
   let evaluation: GateEvaluation;
   try {

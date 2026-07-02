@@ -17,17 +17,20 @@
  * format=soc2 wraps the output in a header object with metadata:
  *   { mergenVersion, exportedAt, chainValid, entryCount, ... }
  *
+ * format=siem is the pull-based counterpart to intelligence/siem-forward.ts's
+ * push (webhook/Splunk HEC) delivery — same blunder-log NDJSON body, for
+ * connectors that prefer polling this endpoint over receiving a push.
+ *
  * Query params:
- *   format  — "ndjson" (default) | "soc2" (adds header metadata line)
- *   type    — "blunders" | "http" | "all" (default: "all")
+ *   format  — "ndjson" (default) | "soc2" (adds header metadata line) | "siem" (blunders only, polling-friendly filename)
+ *   type    — "blunders" | "http" | "all" (default: "all"; ignored for format=siem, which is always blunders-only)
  *   from    — Unix ms start (default: 30 days ago)
  *   to      — Unix ms end (default: now)
  *   limit   — max entries (default: 5000, max: 50000)
  */
 
 import { Router } from 'express';
-import { getStores } from '../storage/store-registry.js';
-import { getAuditLog } from '../sensor/audit-log.js';
+import { fetchBlunderEntries, fetchHttpAuditEntries, fetchChainVerification } from '../sensor/audit-fetch.js';
 
 export function createAuditExportRouter(): Router {
   const router = Router();
@@ -35,19 +38,16 @@ export function createAuditExportRouter(): Router {
   router.get('/audit/export', async (req, res) => {
     const now      = Date.now();
     const format   = ((req.query.format as string) ?? 'ndjson').toLowerCase();
-    const type     = ((req.query.type   as string) ?? 'all').toLowerCase();
+    const type     = format === 'siem' ? 'blunders' : ((req.query.type as string) ?? 'all').toLowerCase();
     const from     = Number(req.query.from  ?? now - 30 * 24 * 60 * 60 * 1_000);
     const to       = Number(req.query.to    ?? now);
     const limit    = Math.min(50_000, Math.max(1, Number(req.query.limit ?? 5_000)));
 
     const lines: string[] = [];
 
-    const blunderStore = getStores().blunders;
     // ── Blunder entries (hash-chained) ────────────────────────────────────────
     if (type === 'blunders' || type === 'all') {
-      const blunders = (await blunderStore.list()).filter(
-        (b) => b.recordedAt >= from && b.recordedAt <= to,
-      );
+      const blunders = await fetchBlunderEntries(from, to);
       for (const b of blunders) {
         lines.push(JSON.stringify({
           source:        'blunder_log',
@@ -70,10 +70,7 @@ export function createAuditExportRouter(): Router {
 
     // ── HTTP audit entries ────────────────────────────────────────────────────
     if (type === 'http' || type === 'all') {
-      const httpEntries = getAuditLog(50_000).filter((e) => {
-        const ts = new Date(e.ts).getTime();
-        return ts >= from && ts <= to;
-      });
+      const httpEntries = await fetchHttpAuditEntries(from, to);
       for (const e of httpEntries) {
         lines.push(JSON.stringify({
           source:     'http_audit',
@@ -94,9 +91,7 @@ export function createAuditExportRouter(): Router {
 
     if (format === 'soc2') {
       // Prepend a metadata header line for auditors
-      const chainVerification = (await blunderStore.list()).length > 0
-        ? await blunderStore.verifyChain()
-        : { valid: true, verified: 0 };
+      const chainVerification = await fetchChainVerification();
       const header = JSON.stringify({
         source:         '__export_header__',
         exportFormat:   'mergen-soc2-v1',
@@ -108,12 +103,25 @@ export function createAuditExportRouter(): Router {
         chainValid:     chainVerification.valid,
         chainVerified:  chainVerification.verified ?? 0,
         chainTruncated: (chainVerification as { truncated?: boolean }).truncated ?? false,
-        note:           'Verify blunder log integrity: SHA-256(previousHash + JSON(fields)) === hash for each entry. Chain starts from the genesis hash (64 zeros) or the oldest surviving entry when the ring buffer has wrapped.',
+        // What guarantee actually applies given this deployment's configuration —
+        // not a blanket "tamper-evident" claim regardless of setup. See
+        // agent-blunder-store.ts's tamperEvidenceLevel() for the precise semantics.
+        tamperEvidenceLevel: (chainVerification as { tamperEvidenceLevel?: string }).tamperEvidenceLevel ?? 'unknown',
+        hmacProtected:       (chainVerification as { hmacProtected?: boolean }).hmacProtected ?? false,
+        note:           'Verify blunder log integrity: SHA-256(previousHash + JSON(fields)) === hash for each entry. Chain starts from the genesis hash (64 zeros) or the oldest surviving entry when the ring buffer has wrapped. tamperEvidenceLevel "hash-chain" (not "hmac-sealed") means an attacker with the same local filesystem access as the Mergen process could re-link the chain around a deletion — set MERGEN_AUDIT_SECRET for hmac-sealed protection.',
       });
       res.setHeader('Content-Type', 'application/x-ndjson');
       res.setHeader('Content-Disposition', `attachment; filename="mergen-audit-soc2-${new Date(now).toISOString().slice(0, 10)}.ndjson"`);
       res.setHeader('Cache-Control', 'no-store');
       res.send([header, ...trimmed].join('\n') + '\n');
+      return;
+    }
+
+    if (format === 'siem') {
+      res.setHeader('Content-Type', 'application/x-ndjson');
+      res.setHeader('Content-Disposition', `attachment; filename="mergen-siem-${new Date(now).toISOString().slice(0, 10)}.ndjson"`);
+      res.setHeader('Cache-Control', 'no-store');
+      res.send(trimmed.join('\n') + '\n');
       return;
     }
 

@@ -47,12 +47,14 @@ beforeEach(async () => {
 
 afterEach(() => { server.close(); });
 
-function post(body: object): Promise<{ status: number; body: { isError?: boolean; text?: string; error?: string } }> {
-  return fetch(`http://127.0.0.1:${port}/gate/evaluate`, {
+async function post(body: object): Promise<{ status: number; body: { isError?: boolean; text?: string; error?: string } }> {
+  const res = await fetch(`http://127.0.0.1:${port}/gate/evaluate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  }).then(async (res) => ({ status: res.status, body: await res.json() }));
+  });
+  const json = await res.json() as { isError?: boolean; text?: string; error?: string };
+  return { status: res.status, body: json };
 }
 
 describe('POST /gate/evaluate', () => {

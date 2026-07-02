@@ -196,11 +196,16 @@ export class PgBlunderStore implements IBlunderStore {
     firstInvalidIdx?: number;
     reason?: string;
     note?: string;
+    tamperEvidenceLevel?: string;
+    hmacProtected?: boolean;
   }> {
+    // No HMAC sidecar in Postgres mode (see this file's header comment) — the
+    // hash chain is the only tamper-evidence mechanism, never 'hmac-sealed'.
+    const hmacProtected = false;
     const blunders = await this.list(tenantId);
 
     if (blunders.length === 0) {
-      return { valid: true, verified: 0, note: 'Log is empty — nothing to verify' };
+      return { valid: true, verified: 0, note: 'Log is empty — nothing to verify', tamperEvidenceLevel: 'none', hmacProtected };
     }
 
     const firstV2Idx = blunders.findIndex((b) => !!b.hash);
@@ -208,6 +213,7 @@ export class PgBlunderStore implements IBlunderStore {
       return {
         valid: true, verified: 0, truncated: false,
         note: 'No cryptographically-verified entries — all entries predate hash-chain migration. Chain integrity cannot be confirmed.',
+        tamperEvidenceLevel: 'none', hmacProtected,
       };
     }
 
@@ -219,19 +225,19 @@ export class PgBlunderStore implements IBlunderStore {
     for (let i = firstV2Idx; i < blunders.length; i++) {
       const b = blunders[i];
       if (!b.hash) {
-        return { valid: false, firstInvalidIdx: i, reason: `entry at index ${i} (id=${b.id}) is missing hash field after v2 section began — possible injection` };
+        return { valid: false, firstInvalidIdx: i, reason: `entry at index ${i} (id=${b.id}) is missing hash field after v2 section began — possible injection`, tamperEvidenceLevel: 'hash-chain', hmacProtected };
       }
       if (!seenFirstV2) {
         seenFirstV2 = true;
       } else {
         if (b.previousHash !== expectedPrev) {
-          return { valid: false, firstInvalidIdx: i, reason: `previousHash mismatch at index ${i}: expected ${expectedPrev.slice(0, 8)}… got ${b.previousHash.slice(0, 8)}…` };
+          return { valid: false, firstInvalidIdx: i, reason: `previousHash mismatch at index ${i}: expected ${expectedPrev.slice(0, 8)}… got ${b.previousHash.slice(0, 8)}…`, tamperEvidenceLevel: 'hash-chain', hmacProtected };
         }
       }
       const { hash: _h, previousHash: _p, ...rest } = b;
       const recomputed = _computeHash(rest, b.previousHash);
       if (recomputed !== b.hash) {
-        return { valid: false, firstInvalidIdx: i, reason: `hash mismatch at index ${i} (id=${b.id}): content was modified after recording` };
+        return { valid: false, firstInvalidIdx: i, reason: `hash mismatch at index ${i} (id=${b.id}): content was modified after recording`, tamperEvidenceLevel: 'hash-chain', hmacProtected };
       }
       expectedPrev = b.hash;
     }
@@ -241,6 +247,8 @@ export class PgBlunderStore implements IBlunderStore {
       truncated,
       verifiedFrom: anchor.id,
       verified:     blunders.length - firstV2Idx,
+      tamperEvidenceLevel: 'hash-chain',
+      hmacProtected,
     };
   }
 

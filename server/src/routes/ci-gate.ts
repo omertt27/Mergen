@@ -16,7 +16,8 @@ import type { CompactedRule } from '../intelligence/override-corpus.js';
 import { getStores } from '../storage/store-registry.js';
 import { analyzeSemanticRisk } from '../intelligence/action-risk.js';
 import { postmortemStore } from '../intelligence/postmortem-store.js';
-import { evaluateEnterprisePolicy } from '../intelligence/enterprise-policy-engine.js';
+import { evaluateEnterprisePolicy, isAiActor } from '../intelligence/enterprise-policy-engine.js';
+import { evaluateDiffSize } from '../intelligence/diff-size.js';
 import logger from '../sensor/logger.js';
 
 export function createCIGateRouter(): Router {
@@ -30,12 +31,20 @@ export function createCIGateRouter(): Router {
       diff?: string;
       service?: string;
       actor?: string;
+      diffStats?: { filesChanged?: number; additions?: number; deletions?: number };
     };
 
     const files: string[] = Array.isArray(body.files) ? body.files : [];
     const prTitle: string = typeof body.prTitle === 'string' ? body.prTitle.slice(0, 300) : '';
     const diff: string = typeof body.diff === 'string' ? body.diff.slice(0, 20_000) : '';
     const actor: string = typeof body.actor === 'string' ? body.actor.slice(0, 100) : 'unknown';
+    const diffStats = body.diffStats && typeof body.diffStats === 'object'
+      ? {
+          filesChanged: Number(body.diffStats.filesChanged) || 0,
+          additions:    Number(body.diffStats.additions)    || 0,
+          deletions:    Number(body.diffStats.deletions)    || 0,
+        }
+      : null;
 
     // 1. Infer service from files or explicit param
     const service = inferService(body.service, files);
@@ -114,6 +123,21 @@ export function createCIGateRouter(): Router {
       reasons.push(...enterpriseResult.reasons);
     }
 
+    // 4.75. Diff explosion / diff-size check — only runs when the caller
+    // supplies aggregate stats (action.yml computes these from listFiles());
+    // absent for callers that only send a truncated diff string.
+    let diffSizeReport: ReturnType<typeof evaluateDiffSize> | null = null;
+    if (diffStats) {
+      diffSizeReport = evaluateDiffSize(diffStats, { actorIsAi: isAiActor(actor) });
+      if (diffSizeReport.requiresApproval) {
+        if (verdict !== 'block') verdict = 'warn'; // flag, don't hard-block on size alone — see recommendation text
+        reasons.push(`Diff size HIGH (${diffSizeReport.score}/100): ${diffSizeReport.recommendation}`);
+      } else if (diffSizeReport.level === 'MEDIUM' && verdict === 'pass') {
+        verdict = 'warn';
+        reasons.push(`Diff size MEDIUM (${diffSizeReport.score}/100): ${diffSizeReport.recommendation}`);
+      }
+    }
+
     // 5. PR title keyword check against corpus tags
     if (prTitle) {
       const titleLower = prTitle.toLowerCase();
@@ -152,6 +176,7 @@ export function createCIGateRouter(): Router {
       recommendation,
       corpusMatches: matchedRules,
       lineHits,
+      diffSize: diffSizeReport,
       meta: { service, inferredTags, filesChecked: files.length, actor },
     });
   });
@@ -245,7 +270,7 @@ function _linkDiffToDecisions(
   const patterns: Array<{ pattern: RegExp; reason: string }> = [];
 
   for (const rule of matchedRules) {
-    const tag = rule.tag ?? '';
+    const tag = rule.incidentTag ?? '';
     const slug = tag.replace(/_/g, '[-_\\s]').replace(/\//g, '\\/');
     if (slug) patterns.push({ pattern: new RegExp(slug, 'i'), reason: `Corpus rule: ${tag} (${rule.overrideReason})` });
   }

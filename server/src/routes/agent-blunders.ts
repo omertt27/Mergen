@@ -70,10 +70,24 @@ export function createAgentBlundersRouter(): Router {
    *   verified     — count of entries that passed verification
    *   verifiedFrom — id of the oldest entry included in the verified range
    *   firstInvalidIdx / reason — present only when valid: false
+   *   tamperEvidenceLevel — 'none' | 'hash-chain' | 'hmac-sealed': what
+   *                  guarantee actually applies given this deployment's
+   *                  configuration, not a blanket claim regardless of setup
+   *   hmacProtected — whether a keyed HMAC secret is configured (vs. just the
+   *                  unkeyed hash chain, which an attacker with the same
+   *                  filesystem access as this process could re-link)
+   *   checkpoints  — cross-check against locally-recorded checkpoints (file
+   *                  backend only); a mismatch here is stronger evidence of
+   *                  tampering than the chain check alone
    */
   router.get('/agent-blunders/verify', async (_req, res) => {
     const result = await getStores().blunders.verifyChain();
-    res.json({ ok: true, ...result });
+    let checkpoints: { checked: number; mismatches: unknown[] } | undefined;
+    try {
+      const { verifyCheckpoints } = await import('../sensor/agent-blunder-store.js');
+      checkpoints = verifyCheckpoints();
+    } catch { /* not available on this backend (e.g. Postgres) — omit */ }
+    res.json({ ok: true, ...result, ...(checkpoints ? { checkpoints } : {}) });
   });
 
   /**

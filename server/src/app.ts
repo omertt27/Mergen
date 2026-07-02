@@ -78,6 +78,7 @@ import { createAgentsRouter } from './routes/agents.js';
 import { createActivityFeedRouter } from './routes/activity-feed.js';
 import { createAuditExportRouter } from './routes/audit-export.js';
 import { createGateRouter } from './routes/gate.js';
+import { createComplianceReportRouter } from './routes/compliance-report.js';
 import { cloudAuthMiddleware, CLOUD_MODE } from './sensor/cloud-auth.js';
 import { handleSlackActions, handleFeedbackLink } from './intelligence/slack.js';
 import { getPrometheusMetrics } from './sensor/otel-exporter.js';
@@ -366,6 +367,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
     '/agents',                // per-agent identity + forensics timeline
     '/activity-feed',         // live tool call stream — reveals agent activity patterns
     '/risk-report',           // CISO-grade security risk report — reveals incident rates & rules
+    '/compliance/report',     // SOC2-structured report — RBAC membership, policy rules, blocked-action counts
   ];
   if (localSecret) {
     app.use((req, res, next) => {
@@ -449,6 +451,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createActivityFeedRouter());  // Real-time agent activity feed (JSON + SSE)
   app.use(createAuditExportRouter());   // Compliance-grade audit export (SOC 2 / ISO 27001)
   app.use(createGateRouter(port));      // CLI/hook entrypoint into the same gate MCP calls use
+  app.use(createComplianceReportRouter()); // SOC2-structured human-readable compliance report
 
   // GET /service-graph — in cloud mode, require API key (exposes internal topology)
   app.get('/service-graph', ...(CLOUD_MODE ? [cloudAuthMiddleware] : []), (_req, res) => {

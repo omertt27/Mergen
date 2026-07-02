@@ -6,7 +6,9 @@ Sentry and Datadog tell you after an AI agent has corrupted your database or lea
 
 When an agent calls `terraform destroy prod`, Mergen intercepts the MCP tool call in under 1ms — before the handler runs — and returns a structured error with a guided alternative: *why* the call was blocked and *what to do instead*. The handler never executes. The agent reformulates and retries within policy. When an agent attempts a schema migration, Mergen holds the Promise and fires a Slack webhook: a human approves or denies with one click. When an engineer overrides an automated fix — "skip pool resize during the Friday settlement window" — Mergen encodes that as enforcement policy. The next agent that touches that system is bound by it.
 
-Mergen is the **first Agent Execution Governance (AEG) platform**: a local MCP and CLI proxy that physically intercepts every tool call, evaluates it against your deterministic policy engine, and either passes, blocks, or holds it for human approval. No probabilistic guardrails. No LLM in the critical path. No cloud credentials exposed.
+Mergen is the **first Agent Execution Governance (AEG) platform**: a local MCP proxy — plus a Claude Code Bash-tool hook and a `mergen-server exec`/`gate-check` CLI entrypoint for non-MCP invocation — that physically intercepts tool calls, evaluates them against your deterministic policy engine, and either passes, blocks, or holds them for human approval. No probabilistic guardrails. No LLM in the critical path. No cloud credentials exposed.
+
+**Coverage, precisely:** every MCP `tools/call` is covered unconditionally, on every supported IDE (Claude Code, Cursor, Windsurf, VS Code) — this is the core, always-on guarantee. Claude Code's built-in `Bash` tool is additionally covered via a `PreToolUse` hook that `mergen-server setup` installs (run setup once per machine). A raw shell command typed outside an IDE, or a non-MCP tool call in an IDE without an equivalent hook mechanism, is not covered — run it through `mergen-server exec -- <cmd>` to get the same gate explicitly.
 
 All data stays on your infrastructure. No cloud. No copy-paste.
 
@@ -38,7 +40,7 @@ Post-incident monitoring tools (Datadog, PagerDuty, Grafana) alert engineers aft
 Mergen is architected as a deliberate, technically honest progression. Never sell the next layer before you've built it; each layer is the natural team upgrade point from the one before it.
 
 **Layer 1 — Local Execution Gate (Today, developer-first):**
-Mergen runs directly on the developer's machine at the protocol layer. It wraps local terminal processes and MCP tool registrations. Before an agent runs a command or executes a tool call, the local rules engine evaluates the payload in under 1ms. If it detects an unsafe command or an untrusted path, it halts the execution loop on the host machine. This is technically honest, operates on the current Node/SQLite architecture, and provides immediate, friction-free value.
+Mergen runs directly on the developer's machine at the protocol layer. It intercepts MCP tool calls unconditionally, and Claude Code's Bash tool via an installed `PreToolUse` hook. Before a covered command or tool call executes, the local rules engine evaluates the payload in under 1ms. If it detects an unsafe command or an untrusted path, it halts the execution loop on the host machine. This is technically honest, operates on the current Node/SQLite architecture, and provides immediate, friction-free value — see the Coverage note above for what "wraps local terminal processes" does and doesn't include today.
 
 **Layer 2 — CI/CD Security Gate (Next, team upgrade point):**
 When developers collaborate, Mergen graduates from local process wrapping to a CI/CD Security Gate. If an autonomous agent generates a pull request or attempts a deployment, Mergen intercepts the workflow, flags high-risk changes, runs automated blast-radius calculations, and enforces HITL approval via Slack webhook before any code can be merged or executed. Achievable in under three months. This establishes team-wide policy enforcement using standard API structures and webhook loops.
@@ -54,17 +56,17 @@ Because Mergen is already embedded as the local tool execution gatekeeper, it is
 
 > "AI agents don't know your security, infrastructure, or compliance boundaries — and prompts are not boundaries, they are just suggestions. Sentry and Datadog will only tell you about a disaster after it happens.
 >
-> Mergen is the inline Execution and Security Gateway for AI agents. We start directly on the developer's laptop, using a lightweight MCP and CLI proxy to physically block destructive actions and prompt injections locally. As teams scale, Mergen graduates to an enterprise Agent IAM control plane — federating human identities, managing non-human credentials, and enforcing deterministic governance gates across your entire automated pipeline."
+> Mergen is the inline Execution and Security Gateway for AI agents. We start directly on the developer's laptop, using a lightweight MCP proxy — plus a Claude Code Bash hook and CLI entrypoint — to physically block destructive actions and prompt injections locally. As teams scale, Mergen graduates to an enterprise Agent IAM control plane — federating human identities, managing non-human credentials, and enforcing deterministic governance gates across your entire automated pipeline."
 
 ---
 
 ## The three-layer execution governance architecture
 
-Before any autonomous tool call executes, Mergen applies three layers in order:
+There are two decision points in Mergen, and being precise about which layer applies to which one matters: **Gate A** (`tool-guard.ts` + `enterprise-policy-engine.ts`) is the firewall that blocks or holds *any* tool call, from any agent, before it executes. **Gate B** (`agent-pipeline.ts` + `incident-autopilot.ts`) is the autopilot's own decision about whether to auto-run a fix *it just diagnosed*. Layer 1 always applies to Gate A. Layers 2 and 3 apply to Gate A only where noted below — don't read "Mergen checks the override corpus" as true for every tool call from every agent unless one of those specific paths applies.
 
-1. **Hard Safety Policies (immutable guardrails):** Explicit, unconditional constraints — "never execute terraform destroy regardless of confidence." JSON rules evaluated in <1ms. No LLM in the path. No amount of agent persuasion bypasses them.
-2. **Override Corpus (enforcement policy):** Every human override is encoded as binding policy. Before a tool call executes, Mergen checks whether the same action was ever overridden in the same context — and blocks or holds if it was. The corpus grows with every incident.
-3. **Calibrated Confidence Gate (Platt scaling):** As engineers tag diagnoses (correct/wrong/partial), the confidence model calibrates to the team's specific infrastructure. Autonomous execution only proceeds above the threshold you set.
+1. **Hard Safety Policies (immutable guardrails) — Gate A, always:** Explicit, unconditional constraints — "never execute terraform destroy regardless of confidence." JSON rules evaluated in <1ms. No LLM in the path. No amount of agent persuasion bypasses them.
+2. **Override Corpus (enforcement policy) — Gate B always; Gate A via three specific paths:** Every human override is encoded as binding policy and checked automatically before the *autopilot* executes its own diagnosed fix (Gate B). It reaches the tool-call firewall (Gate A) three ways, never implicitly on every call: (a) a human explicitly re-reviews an override at `POST /overrides/:id/review`, which promotes the corpus pattern into a live rule; (b) the corpus→proposal bridge (`MERGEN_AUTO_CORPUS_PROPOSE`, on by default) stages repeatedly-overridden patterns as `HOLD`-only proposals for one-click approval at `GET /policy-suggestions` — never a `BLOCK`, by three independent guards; (c) an operator writes an explicit `requireCorpusMatch` condition on a specific rule, opting that rule into a live corpus lookup. This keeps Gate A deterministic and explainable — every decision traces to a rule a human wrote or approved, not a hidden dependency on a corpus that changes underneath it.
+3. **Calibrated Confidence Gate (Platt scaling) — Gate B only:** As engineers tag diagnoses (correct/wrong/partial), the confidence model calibrates to the team's specific infrastructure. This governs whether the *autopilot* proceeds with autonomous execution above the threshold you set — it is not part of Gate A's per-call decision for arbitrary tool calls.
 
 ---
 
@@ -183,6 +185,14 @@ DATADOG_SITE=datadoghq.com
 
 # ── Sentry ────────────────────────────────────────────────────────────────────
 MERGEN_SENTRY_SECRET=...           # HMAC secret to verify inbound Sentry webhook events
+
+# ── SIEM forwarding (Agent Blunder Log) ────────────────────────────────────────
+MERGEN_SIEM_WEBHOOK_URL=...        # generic webhook — every blunder is POSTed here as JSON, fire-and-forget
+MERGEN_SIEM_WEBHOOK_TOKEN=...      # optional bearer token for the generic webhook
+MERGEN_SPLUNK_HEC_URL=...          # Splunk HTTP Event Collector endpoint, e.g. https://splunk.internal:8088/services/collector
+MERGEN_SPLUNK_HEC_TOKEN=...        # Splunk HEC token — sent as `Authorization: Splunk <token>`
+                                   # Both push modes are opt-in and independent (set either, both, or neither).
+                                   # Pull-based alternative for polling connectors: GET /audit/export?format=siem
 
 # ── GitHub ────────────────────────────────────────────────────────────────────
 GITHUB_TOKEN=ghp_...               # required for `mergen-server backfill github` and PR commenting

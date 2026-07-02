@@ -170,6 +170,11 @@ export interface IBlunderStore {
     firstInvalidIdx?: number;
     reason?: string;
     note?: string;
+    /** What tamper-evidence guarantee actually applies given this backend's
+     *  configuration — 'none' | 'hash-chain' | 'hmac-sealed'. Optional because
+     *  not every backend has computed this yet (treat absent as unknown, not 'none'). */
+    tamperEvidenceLevel?: string;
+    hmacProtected?: boolean;
   }>;
   isIntegrityViolated(): boolean;
 }

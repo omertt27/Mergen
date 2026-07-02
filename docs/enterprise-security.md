@@ -271,13 +271,23 @@ The local secret is generated as a UUID on first start and is readable only by t
 
 ### SOC 2 readiness
 
-| Control | Mergen |
-|---------|--------|
-| Access control | RBAC with viewer / responder / admin roles |
-| Audit logging | Append-only JSONL at `~/.mergen/audit.log` |
-| Change management | Every fix execution logged with actor, command, outcome |
-| Incident response | Shadow mode provides pre-autopilot review period |
-| Data residency | All data on your infrastructure by default |
+Run `GET /compliance/report` (add `?format=html` for a printable page) for a
+live snapshot of these controls against your actual current configuration —
+not a static claim, since several rows below depend on env vars you set
+(`MERGEN_AUDIT_SECRET`, RBAC membership, whether the policy is enabled).
+
+| Trust Service Criterion | Control | Mergen mechanism | Depends on |
+|---|---|---|---|
+| Security | Access control | RBAC with viewer / responder / admin roles (`GET /rbac/members`) | Members must be registered — `POST /rbac/members` |
+| Security | Least privilege for agents | Per-agent-profile tool/service allowlists, enforced only for a cryptographically verified identity (`MERGEN_AGENT_TOKEN`, not the bare `MERGEN_AGENT_ID` env var) | `mergen-server agent-register <profile-id>` |
+| Security | Change management | Every blocked/held action logged (actor, command, outcome, triggered rule) to the Agent Blunder Log | Always on |
+| Security | Audit log integrity | Hash-chained blunder log (`GET /agent-blunders/verify`); tamper-evidence level is reported honestly as `none` / `hash-chain` / `hmac-sealed` depending on whether a signing secret is configured — an unkeyed hash chain alone does not survive an attacker with the same filesystem access this process has | `MERGEN_AUDIT_SECRET` for `hmac-sealed` (falls back to the per-install `~/.mergen/secret` otherwise, which is weaker against the exact adversary this control is meant to cover) |
+| Security | Incident response | Shadow mode provides a pre-autopilot review period before autonomous execution is trusted | `MERGEN_SHADOW_MODE=true` |
+| Confidentiality | Data residency | All data on your infrastructure by default | Default — no cloud mode configured |
+| Confidentiality | PII redaction | Always-on regex shield (email, phone, AWS keys, PEM certs, JWTs, credit cards); extensible via `~/.mergen/pii-config.json` | Always on |
+| Availability | Not applicable | Mergen governs your infrastructure; it does not host your production systems, so uptime/DR controls for what Mergen governs are your own responsibility, not Mergen's | N/A |
+
+Raw tamper-evident audit data for an external auditor to independently verify: `GET /audit/export?format=soc2`.
 
 ### GDPR / CCPA
 

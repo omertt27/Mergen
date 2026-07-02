@@ -309,3 +309,101 @@ describe('assertUnsignedPolicyFlagIsSafe — double opt-in for MERGEN_ALLOW_UNSI
     expect(exitSpy).not.toHaveBeenCalled();
   });
 });
+
+// ── P1.1: rule condition composition (anyOf / allOf / not) ────────────────────
+//
+// Base case (no anyOf/allOf/not) must stay byte-identical to the pre-existing
+// flat-AND evaluator — every rule that predates this feature has none of
+// these three fields. The recursive cases let an operator express what the
+// flat structure alone couldn't: OR across categories, and negation.
+
+describe('evaluateEnterprisePolicy — condition composition (anyOf/allOf/not)', () => {
+  beforeEach(() => {
+    _resetPolicyCacheForTesting();
+  });
+
+  function policyWith(conditions: import('../intelligence/enterprise-policy-engine.js').EnterprisePolicyConditions) {
+    return {
+      enabled: true,
+      rules: [{ id: 'compose_test', name: 'compose test', description: '', action: 'block' as const, reason: 'test', conditions }],
+    };
+  }
+
+  it('a rule with no anyOf/allOf/not evaluates exactly as the flat evaluator did (regression)', () => {
+    const policy = policyWith({ commands: ['terraform destroy'] });
+    const hit  = evaluateEnterprisePolicy({ files: [], commands: ['terraform destroy prod'], actor: 'agent', service: 'infra' }, policy);
+    const miss = evaluateEnterprisePolicy({ files: [], commands: ['terraform plan'], actor: 'agent', service: 'infra' }, policy);
+    expect(hit.verdict).toBe('block');
+    expect(miss.verdict).toBe('pass');
+  });
+
+  it('anyOf: fires when at least one nested condition set matches (OR across categories)', () => {
+    // Previously inexpressible as a single rule: "commands X OR environment Y"
+    // — every top-level category was implicitly ANDed with no way to OR
+    // across categories.
+    const policy = policyWith({
+      anyOf: [
+        { commands: ['deploy-canary'] },
+        { environments: ['production'] },
+      ],
+    });
+    const matchByCommand = evaluateEnterprisePolicy({ files: [], commands: ['deploy-canary'], actor: 'agent', service: 'api' }, policy);
+    const matchByEnv     = evaluateEnterprisePolicy({ files: [], commands: ['echo hi'], actor: 'agent', service: 'api', environment: 'production' }, policy);
+    const matchNeither    = evaluateEnterprisePolicy({ files: [], commands: ['echo hi'], actor: 'agent', service: 'api', environment: 'staging' }, policy);
+    expect(matchByCommand.verdict).toBe('block');
+    expect(matchByEnv.verdict).toBe('block');
+    expect(matchNeither.verdict).toBe('pass');
+  });
+
+  it('allOf: fires only when every nested condition set matches', () => {
+    const policy = policyWith({
+      allOf: [
+        { commands: ['restart'] },
+        { environments: ['production'] },
+      ],
+    });
+    const both    = evaluateEnterprisePolicy({ files: [], commands: ['restart'], actor: 'agent', service: 'api', environment: 'production' }, policy);
+    const onlyOne = evaluateEnterprisePolicy({ files: [], commands: ['restart'], actor: 'agent', service: 'api', environment: 'staging' }, policy);
+    expect(both.verdict).toBe('block');
+    expect(onlyOne.verdict).toBe('pass');
+  });
+
+  it('not: fires only when the nested condition set does NOT match', () => {
+    const policy = policyWith({
+      commands: ['restart'],
+      not: { environments: ['staging'] },
+    });
+    const prod    = evaluateEnterprisePolicy({ files: [], commands: ['restart'], actor: 'agent', service: 'api', environment: 'production' }, policy);
+    const staging = evaluateEnterprisePolicy({ files: [], commands: ['restart'], actor: 'agent', service: 'api', environment: 'staging' }, policy);
+    expect(prod.verdict).toBe('block');
+    expect(staging.verdict).toBe('pass');
+  });
+
+  it('this level\'s own fields stay ANDed with anyOf/allOf/not, not replaced by them', () => {
+    // A top-level `commands` condition alongside `anyOf` — both must hold.
+    const policy = policyWith({
+      commands: ['restart'],
+      anyOf: [{ environments: ['production'] }, { environments: ['staging'] }],
+    });
+    const rightCommandRightEnv  = evaluateEnterprisePolicy({ files: [], commands: ['restart'], actor: 'agent', service: 'api', environment: 'production' }, policy);
+    const wrongCommandRightEnv  = evaluateEnterprisePolicy({ files: [], commands: ['deploy'], actor: 'agent', service: 'api', environment: 'production' }, policy);
+    expect(rightCommandRightEnv.verdict).toBe('block');
+    expect(wrongCommandRightEnv.verdict).toBe('pass');
+  });
+
+  it('supports nesting anyOf/allOf/not inside each other', () => {
+    // (commands=restart AND environment=production) OR (commands=deploy AND NOT environment=staging)
+    const policy = policyWith({
+      anyOf: [
+        { allOf: [{ commands: ['restart'] }, { environments: ['production'] }] },
+        { commands: ['deploy'], not: { environments: ['staging'] } },
+      ],
+    });
+    const branch1 = evaluateEnterprisePolicy({ files: [], commands: ['restart'], actor: 'agent', service: 'api', environment: 'production' }, policy);
+    const branch2 = evaluateEnterprisePolicy({ files: [], commands: ['deploy'], actor: 'agent', service: 'api', environment: 'production' }, policy);
+    const neither  = evaluateEnterprisePolicy({ files: [], commands: ['deploy'], actor: 'agent', service: 'api', environment: 'staging' }, policy);
+    expect(branch1.verdict).toBe('block');
+    expect(branch2.verdict).toBe('block');
+    expect(neither.verdict).toBe('pass');
+  });
+});

@@ -6,8 +6,105 @@ import { z } from 'zod';
 import { DATA_DIR, zeroRetentionMode } from '../sensor/paths.js';
 import logger from '../sensor/logger.js';
 import { normalizeForMatching } from './normalize.js';
+import { getRulesForTag } from './override-corpus.js';
 
 // ── Zod schemas (single source of truth for both types and runtime validation) ─
+
+// Single source of truth for the `conditions` shape — previously duplicated
+// inline (with drifting subsets of fields) across five routes in
+// routes/policies.ts (POST /policies/rules, PATCH /policies/rules/:id,
+// POST /policies/import, POST /policies/simulate, and the rules/:id/simulate
+// GET route). That drift meant new rules created via some of those endpoints
+// silently couldn't carry conditions the engine itself already supported —
+// import this schema everywhere instead of re-declaring it.
+//
+// Recursive: anyOf/allOf/not let an operator compose the 12 base categories
+// (e.g. "commands X OR environment Y", previously inexpressible — every
+// category was implicitly ANDed with no way to OR across categories or
+// negate). Every existing rule has none of these three fields, and
+// matchesConditionSet's base case is byte-identical to the old flat-AND
+// evaluator, so this is additive: existing rules evaluate exactly as before.
+export interface EnterprisePolicyConditions {
+  files?:        string[];
+  commands?:     string[];
+  actorType?:    'ai' | 'human' | 'all';
+  daysOfWeek?:   number[];
+  hourWindow?:   [number, number];
+  services?:     string[];
+  /** e.g. ['production', 'prod'] — only enforce this rule in matching environments */
+  environments?: string[];
+  /** e.g. ['acme/payments-api'] — only enforce in matching repos (owner/repo or bare name) */
+  repos?:        string[];
+  /** e.g. ['claude-alice', 'ci-bot'] — only enforce for these registered agent IDs */
+  agentIds?:     string[];
+  /**
+   * Role-based scoping — only enforce for actors with one of these roles.
+   * Roles are sourced from MERGEN_ACTOR_ROLES env var (format: "actor:role,actor:role")
+   * or from the x-mergen-actor-role request header on API calls.
+   * e.g. ['ci-bot', 'overnight-agent'] — restrict this rule to only these actor roles.
+   */
+  roles?:        string[];
+  /**
+   * Branch-scoped policies — only enforce when the current git branch matches
+   * one of these glob-like patterns. Sourced from MERGEN_GIT_BRANCH env var or
+   * request param. Supports '*' wildcard within a segment.
+   * e.g. ['main', 'release/*', 'hotfix/*'] — stricter rules for protected branches.
+   */
+  branches?:     string[];
+  /**
+   * Explicit, operator-authored corpus check — only enforce when the override
+   * corpus has at least `minOccurrences` recorded overrides for `incidentTag`
+   * on this rule's matched service. Lets an operator wire "checks your team's
+   * override history" into a specific rule without making every gate
+   * decision implicitly depend on the corpus (see evaluateEnterprisePolicy's
+   * requireCorpusMatch handling for why this stays explicit rather than
+   * automatic). minOccurrences left optional here (rather than mirroring the
+   * schema's runtime `.default(1)`) to keep the hand-written interface's
+   * input and output shape identical — evaluateEnterprisePolicy applies the
+   * same `?? 1` fallback the schema default would.
+   */
+  requireCorpusMatch?: { incidentTag: string; minOccurrences?: number };
+  /** At least one nested ConditionSet must match (in addition to this level's own fields, which stay ANDed in). */
+  anyOf?: EnterprisePolicyConditions[];
+  /** Every nested ConditionSet must match (in addition to this level's own fields). */
+  allOf?: EnterprisePolicyConditions[];
+  /** The nested ConditionSet must NOT match (in addition to this level's own fields). */
+  not?: EnterprisePolicyConditions;
+}
+
+const _baseConditionFields = {
+  files:        z.array(z.string()).optional(),
+  commands:     z.array(z.string()).optional(),
+  actorType:    z.enum(['ai', 'human', 'all']).optional(),
+  daysOfWeek:   z.array(z.number().int().min(0).max(6)).optional(),
+  hourWindow:   z.tuple([z.number().int().min(0).max(23), z.number().int().min(0).max(24)]).optional(),
+  services:     z.array(z.string()).optional(),
+  environments: z.array(z.string()).optional(),
+  repos:        z.array(z.string()).optional(),
+  agentIds:     z.array(z.string()).optional(),
+  roles:        z.array(z.string()).optional(),
+  branches:     z.array(z.string()).optional(),
+  requireCorpusMatch: z.object({
+    incidentTag:    z.string().min(1),
+    minOccurrences: z.number().int().min(1).optional(),
+  }).optional(),
+};
+
+// z.lazy() + an explicit ZodType annotation is the standard pattern for a
+// recursive Zod schema — without the explicit interface, TS would try to
+// infer the type from the schema itself, which for a self-referential
+// z.lazy() either fails to resolve or (per this codebase's own documented
+// history with deeply-inferred Zod types, see plans.ts) risks the
+// TS2589 "instantiation is excessively deep" wall across every file that
+// imports EnterprisePolicyRule/EnterprisePolicyConfig.
+export const EnterprisePolicyConditionsSchema: z.ZodType<EnterprisePolicyConditions> = z.lazy(() =>
+  z.object({
+    ..._baseConditionFields,
+    anyOf: z.array(EnterprisePolicyConditionsSchema).optional(),
+    allOf: z.array(EnterprisePolicyConditionsSchema).optional(),
+    not:   EnterprisePolicyConditionsSchema.optional(),
+  }),
+);
 
 const EnterprisePolicyRuleSchema = z.object({
   id:          z.string().min(1),
@@ -16,34 +113,7 @@ const EnterprisePolicyRuleSchema = z.object({
   action:      z.enum(['block', 'warn', 'pass']),
   reason:      z.string(),
   riskTier:    z.enum(['low', 'medium', 'high']).optional(),
-  conditions:  z.object({
-    files:        z.array(z.string()).optional(),
-    commands:     z.array(z.string()).optional(),
-    actorType:    z.enum(['ai', 'human', 'all']).optional(),
-    daysOfWeek:   z.array(z.number().int().min(0).max(6)).optional(),
-    hourWindow:   z.tuple([z.number().int().min(0).max(23), z.number().int().min(0).max(24)]).optional(),
-    services:     z.array(z.string()).optional(),
-    /** e.g. ['production', 'prod'] — only enforce this rule in matching environments */
-    environments: z.array(z.string()).optional(),
-    /** e.g. ['acme/payments-api'] — only enforce in matching repos (owner/repo or bare name) */
-    repos:        z.array(z.string()).optional(),
-    /** e.g. ['claude-alice', 'ci-bot'] — only enforce for these registered agent IDs */
-    agentIds:     z.array(z.string()).optional(),
-    /**
-     * Role-based scoping — only enforce for actors with one of these roles.
-     * Roles are sourced from MERGEN_ACTOR_ROLES env var (format: "actor:role,actor:role")
-     * or from the x-mergen-actor-role request header on API calls.
-     * e.g. ['ci-bot', 'overnight-agent'] — restrict this rule to only these actor roles.
-     */
-    roles:        z.array(z.string()).optional(),
-    /**
-     * Branch-scoped policies — only enforce when the current git branch matches
-     * one of these glob-like patterns. Sourced from MERGEN_GIT_BRANCH env var or
-     * request param. Supports '*' wildcard within a segment.
-     * e.g. ['main', 'release/*', 'hotfix/*'] — stricter rules for protected branches.
-     */
-    branches:     z.array(z.string()).optional(),
-  }),
+  conditions:  EnterprisePolicyConditionsSchema,
 });
 
 const EnterprisePolicyConfigSchema = z.object({
@@ -550,6 +620,152 @@ export function getLastEvalLatencyMs(): number {
   return _lastEvalLatencyMs;
 }
 
+/** Precomputed, per-evaluation-call values matchesConditionSet needs — built
+ *  once per evaluateEnterprisePolicy() call, reused across every rule and
+ *  every recursive ConditionSet within a rule. */
+interface MatchContext {
+  files: string[];
+  commands: string[];
+  service: string;
+  isAi: boolean;
+  dayOfWeek: number;
+  hourOfDay: number;
+  environment?: string;
+  repo?: string;
+  agentId?: string;
+  resolvedRole: string | null;
+  resolvedBranch: string | null;
+}
+
+/**
+ * Does this ConditionSet match the current call context? Base case (no
+ * anyOf/allOf/not) is byte-identical to the original flat-AND-of-12
+ * evaluator — every existing rule takes only this path. The recursive case
+ * ANDs in anyOf (some nested set matches), allOf (every nested set matches),
+ * and not (the nested set does NOT match) on top of this level's own fields,
+ * letting an operator express "commands X OR environment Y" or "NOT branch Z"
+ * by nesting, which the flat structure alone couldn't express.
+ */
+function matchesConditionSet(cond: EnterprisePolicyConditions, ctx: MatchContext): boolean {
+  let fileMatched    = true;
+  let commandMatched = true;
+  let actorMatched   = true;
+  let dayMatched     = true;
+  let hourMatched    = true;
+  let serviceMatched = true;
+  let envMatched     = true;
+  let repoMatched    = true;
+  let agentMatched   = true;
+  let roleMatched    = true;
+  let branchMatched  = true;
+  let corpusMatched  = true;
+
+  // 1. Files Condition
+  if (cond.files && cond.files.length > 0) {
+    fileMatched = ctx.files.some(file =>
+      cond.files!.some(pattern => file.toLowerCase().includes(pattern.toLowerCase()))
+    );
+  }
+
+  // 2. Commands Condition — word-boundary match for single-word patterns,
+  //    substring match for multi-word patterns (already precise enough).
+  //    normalizeForMatching is applied inside matchesCommandPattern.
+  if (cond.commands && cond.commands.length > 0) {
+    const haystack = ctx.commands.join(' ');
+    commandMatched = cond.commands.some(pattern => matchesCommandPattern(haystack, pattern));
+  }
+
+  // 3. Actor Type Condition
+  if (cond.actorType && cond.actorType !== 'all') {
+    if (cond.actorType === 'ai') {
+      actorMatched = ctx.isAi;
+    } else if (cond.actorType === 'human') {
+      actorMatched = !ctx.isAi;
+    }
+  }
+
+  // 4. Day of Week Condition
+  if (cond.daysOfWeek && cond.daysOfWeek.length > 0) {
+    dayMatched = cond.daysOfWeek.includes(ctx.dayOfWeek);
+  }
+
+  // 5. Hour Window Condition
+  if (cond.hourWindow) {
+    const [start, end] = cond.hourWindow;
+    // Handle windows wrapping around midnight, e.g., 22 to 6
+    if (start <= end) {
+      hourMatched = ctx.hourOfDay >= start && ctx.hourOfDay < end;
+    } else {
+      hourMatched = ctx.hourOfDay >= start || ctx.hourOfDay < end;
+    }
+  }
+
+  // 6. Services Condition
+  if (cond.services && cond.services.length > 0) {
+    serviceMatched = cond.services.some(s => s.toLowerCase() === ctx.service.toLowerCase());
+  }
+
+  // 7. Environment Condition — rule only fires in matching environments
+  if (cond.environments && cond.environments.length > 0) {
+    envMatched = ctx.environment
+      ? cond.environments.some(e => e.toLowerCase() === ctx.environment!.toLowerCase())
+      : false; // no environment provided → rule doesn't apply
+  }
+
+  // 8. Repo Condition — rule only fires in matching repos
+  if (cond.repos && cond.repos.length > 0) {
+    repoMatched = ctx.repo
+      ? cond.repos.some(r => ctx.repo!.toLowerCase().endsWith(r.toLowerCase()))
+      : false;
+  }
+
+  // 9. Agent ID Condition — rule only fires for specific registered agents
+  if (cond.agentIds && cond.agentIds.length > 0) {
+    agentMatched = ctx.agentId
+      ? cond.agentIds.some(a => a.toLowerCase() === ctx.agentId!.toLowerCase())
+      : false;
+  }
+
+  // 10. Role Condition — rule only fires for actors with a matching role
+  if (cond.roles && cond.roles.length > 0) {
+    roleMatched = ctx.resolvedRole
+      ? cond.roles.some((r) => r.toLowerCase() === ctx.resolvedRole!.toLowerCase())
+      : false; // no role → rule doesn't apply
+  }
+
+  // 11. Branch Condition — rule only fires when git branch matches a pattern
+  //     Supports simple glob: '*' matches any sequence of non-slash characters.
+  if (cond.branches && cond.branches.length > 0) {
+    branchMatched = ctx.resolvedBranch
+      ? cond.branches.some((pat) => _matchBranchPattern(ctx.resolvedBranch!, pat))
+      : false;
+  }
+
+  // 12. Corpus Match Condition — explicit, operator-authored live lookup
+  //     against the override corpus. This is the one condition category
+  //     backed by dynamic data instead of a static field on the rule — kept
+  //     opt-in per-rule (not automatic for every gate decision) so Gate A
+  //     stays a deterministic, explainable evaluator: every decision is
+  //     still traceable to a rule an operator explicitly wrote, not an
+  //     implicit coupling to a corpus that changes underneath it.
+  if (cond.requireCorpusMatch) {
+    const { incidentTag, minOccurrences = 1 } = cond.requireCorpusMatch;
+    const matchingRules = getRulesForTag(incidentTag, ctx.service);
+    corpusMatched = matchingRules.some((r) => r.occurrences >= minOccurrences);
+  }
+
+  const baseMatch = fileMatched && commandMatched && actorMatched && dayMatched && hourMatched &&
+    serviceMatched && envMatched && repoMatched && agentMatched && roleMatched && branchMatched && corpusMatched;
+
+  // Composition — vacuously true when the field is absent, so a ConditionSet
+  // with none of these three (every existing rule) reduces to baseMatch alone.
+  const anyOfMatch = !cond.anyOf || cond.anyOf.length === 0 || cond.anyOf.some((c) => matchesConditionSet(c, ctx));
+  const allOfMatch = !cond.allOf || cond.allOf.every((c) => matchesConditionSet(c, ctx));
+  const notMatch    = !cond.not || !matchesConditionSet(cond.not, ctx);
+
+  return baseMatch && anyOfMatch && allOfMatch && notMatch;
+}
+
 export function evaluateEnterprisePolicy(input: EvaluationInput, policyOverride?: EnterprisePolicyConfig): PolicyEvaluationResult {
   const startTime = performance.now();
   try {
@@ -582,105 +798,16 @@ export function evaluateEnterprisePolicy(input: EvaluationInput, policyOverride?
   // Branch: prefer explicit branch param, then MERGEN_GIT_BRANCH env
   const resolvedBranch: string | null = branch ?? process.env.MERGEN_GIT_BRANCH ?? null;
 
+  const ctx: MatchContext = {
+    files, commands, service, isAi, dayOfWeek, hourOfDay,
+    environment, repo, agentId, resolvedRole, resolvedBranch,
+  };
+
   for (const rule of rulesToEvaluate) {
-    const cond = rule.conditions;
-    let fileMatched    = true;
-    let commandMatched = true;
-    let actorMatched   = true;
-    let dayMatched     = true;
-    let hourMatched    = true;
-    let serviceMatched = true;
-    let envMatched     = true;
-    let repoMatched    = true;
-    let agentMatched   = true;
-    let roleMatched    = true;
-    let branchMatched  = true;
-
-    // 1. Files Condition
-    if (cond.files && cond.files.length > 0) {
-      fileMatched = files.some(file =>
-        cond.files!.some(pattern => file.toLowerCase().includes(pattern.toLowerCase()))
-      );
-    }
-
-    // 2. Commands Condition — word-boundary match for single-word patterns,
-    //    substring match for multi-word patterns (already precise enough).
-    //    normalizeForMatching is applied inside matchesCommandPattern.
-    if (cond.commands && cond.commands.length > 0) {
-      const haystack = commands.join(' ');
-      commandMatched = cond.commands.some(pattern => matchesCommandPattern(haystack, pattern));
-    }
-
-    // 3. Actor Type Condition
-    if (cond.actorType && cond.actorType !== 'all') {
-      if (cond.actorType === 'ai') {
-        actorMatched = isAi;
-      } else if (cond.actorType === 'human') {
-        actorMatched = !isAi;
-      }
-    }
-
-    // 4. Day of Week Condition
-    if (cond.daysOfWeek && cond.daysOfWeek.length > 0) {
-      dayMatched = cond.daysOfWeek.includes(dayOfWeek);
-    }
-
-    // 5. Hour Window Condition
-    if (cond.hourWindow) {
-      const [start, end] = cond.hourWindow;
-      // Handle windows wrapping around midnight, e.g., 22 to 6
-      if (start <= end) {
-        hourMatched = hourOfDay >= start && hourOfDay < end;
-      } else {
-        hourMatched = hourOfDay >= start || hourOfDay < end;
-      }
-    }
-
-    // 6. Services Condition
-    if (cond.services && cond.services.length > 0) {
-      serviceMatched = cond.services.some(s => s.toLowerCase() === service.toLowerCase());
-    }
-
-    // 7. Environment Condition — rule only fires in matching environments
-    if (cond.environments && cond.environments.length > 0) {
-      envMatched = environment
-        ? cond.environments.some(e => e.toLowerCase() === environment.toLowerCase())
-        : false; // no environment provided → rule doesn't apply
-    }
-
-    // 8. Repo Condition — rule only fires in matching repos
-    if (cond.repos && cond.repos.length > 0) {
-      repoMatched = repo
-        ? cond.repos.some(r => repo.toLowerCase().endsWith(r.toLowerCase()))
-        : false;
-    }
-
-    // 9. Agent ID Condition — rule only fires for specific registered agents
-    if (cond.agentIds && cond.agentIds.length > 0) {
-      agentMatched = agentId
-        ? cond.agentIds.some(a => a.toLowerCase() === agentId.toLowerCase())
-        : false;
-    }
-
-    // 10. Role Condition — rule only fires for actors with a matching role
-    if (cond.roles && cond.roles.length > 0) {
-      roleMatched = resolvedRole
-        ? cond.roles.some((r) => r.toLowerCase() === resolvedRole.toLowerCase())
-        : false; // no role → rule doesn't apply
-    }
-
-    // 11. Branch Condition — rule only fires when git branch matches a pattern
-    //     Supports simple glob: '*' matches any sequence of non-slash characters.
-    if (cond.branches && cond.branches.length > 0) {
-      branchMatched = resolvedBranch
-        ? cond.branches.some((pat) => _matchBranchPattern(resolvedBranch, pat))
-        : false;
-    }
-
-    if (fileMatched && commandMatched && actorMatched && dayMatched && hourMatched && serviceMatched && envMatched && repoMatched && agentMatched && roleMatched && branchMatched) {
+    if (matchesConditionSet(rule.conditions, ctx)) {
       result.triggeredRules.push(rule.id);
       result.reasons.push(rule.reason);
-      
+
       // Upgrade verdict severity if needed: block > warn > pass
       if (rule.action === 'block') {
         result.verdict = 'block';

@@ -53,6 +53,7 @@ import { registerTools, toolCallCounts } from './intelligence/tools.js';
 import { createGuardedServer, loadBypasses, persistBypasses, setBypassSecret, denyStaleHoldsOnStartup, assertGateCoversRegisteredTools } from './intelligence/tool-guard.js';
 import { setPolicySigningSecret, assertUnsignedPolicyFlagIsSafe } from './intelligence/enterprise-policy-engine.js';
 import { setAgentTokenSecret } from './intelligence/agent-identity.js';
+import { setBlunderHmacSecret } from './sensor/agent-blunder-store.js';
 import { flushApprovals } from './intelligence/execution-gate.js';
 import { registerResources } from './intelligence/mcp-resources.js';
 import { registerPrompts } from './intelligence/mcp-prompts.js';
@@ -371,6 +372,13 @@ async function main(): Promise<void> {
     );
   }
   setAgentTokenSecret(agentTokenSecret);
+
+  // Agent Blunder Log HMAC sidecar: previously fell back to a hardcoded,
+  // publicly-known key when unset (see agent-blunder-store.ts's comment on
+  // this) — now always wired to at least the per-install localSecret, with
+  // MERGEN_AUDIT_SECRET as the env-only override for production/team
+  // deployments (same precedent as the policy and agent-token secrets above).
+  setBlunderHmacSecret(process.env.MERGEN_AUDIT_SECRET || localSecret);
 
   // Restore pending bypass tokens so a server restart doesn't strand in-flight
   // `mergen approve <token>` commands issued just before shutdown.

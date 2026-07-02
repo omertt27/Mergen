@@ -53,6 +53,8 @@ export class SqliteBlunderStore implements IBlunderStore {
     firstInvalidIdx?: number;
     reason?: string;
     note?: string;
+    tamperEvidenceLevel?: string;
+    hmacProtected?: boolean;
   }> {
     return verifyChain();
   }
