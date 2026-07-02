@@ -49,11 +49,18 @@ function _ensureRetryStats(ruleId: string): RetryStats {
   return _retryStats.get(ruleId)!;
 }
 
+// Total BLOCK verdicts issued by the policy gate since server start.
+// Incremented by recordGateBlock() — source of truth for the dashboard "Blocked" counter.
+let _totalBlockedCount = 0;
+
+export function getBlockedActionCount(): number { return _totalBlockedCount; }
+
 /**
  * Call when the gate issues a BLOCK verdict.
  * Resolves any pending retry as retryBlocked, then pushes a new pending entry.
  */
 export function recordGateBlock(triggeredRules: string[]): void {
+  _totalBlockedCount++;
   const now = Date.now();
   const idx = _mostRecentRetryIdx(now);
   if (idx !== -1) {
@@ -162,9 +169,25 @@ export interface GateEvent {
 const RING_CAP = 500;
 const _gateRing: GateEvent[] = [];
 
+// ── SSE subscribers for live gate decision stream ─────────────────────────────
+// Any number of GET /gate/stream clients can subscribe. When a gate decision is
+// recorded, all subscribers receive the event as an SSE message immediately.
+// Subscribers clean themselves up when their response stream closes.
+type SseSubscriber = (event: GateEvent) => void;
+const _sseSubscribers = new Set<SseSubscriber>();
+
+export function subscribeGateStream(cb: SseSubscriber): () => void {
+  _sseSubscribers.add(cb);
+  return () => _sseSubscribers.delete(cb);
+}
+
 export function recordGateEvent(event: GateEvent): void {
   _gateRing.push(event);
   if (_gateRing.length > RING_CAP) _gateRing.shift();
+  // Notify SSE subscribers in the same tick (sync, non-blocking per subscriber)
+  for (const sub of _sseSubscribers) {
+    try { sub(event); } catch { /* subscriber error must not affect gate */ }
+  }
   // Feature 5: trigger behavior-baseline recompute every N events (async, non-blocking)
   if (event.agentId) {
     void import('./behavior-baseline.js').then(({ onGateEvent }) => onGateEvent(event.agentId));

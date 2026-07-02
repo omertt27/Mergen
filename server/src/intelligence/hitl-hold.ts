@@ -9,6 +9,14 @@
  * Owns the pending-holds map, its dead-letter persistence, the outbound Slack/
  * PagerDuty webhook + reminder + escalation, and the mrkdwn sanitiser. tool-guard's
  * applyGateInner delegates the whole HOLD path to holdToolCall().
+ *
+ * New features:
+ *   Multi-approver quorum    — MERGEN_HITL_QUORUM_RULES="terraform:2,DROP TABLE:2"
+ *                              Hold resolves only when N distinct approvers sign off.
+ *   Approve-with-constraints — POST /hitl/approve-constrained passes a constraints
+ *                              object that is validated before execution resumes.
+ *   Delegation chain         — MERGEN_HITL_SECONDARY_WEBHOOK fires at 5-min mark
+ *                              if the primary webhook has not received a response.
  */
 import fs from 'fs';
 import { recordHitlDecision } from './gate-analytics.js';
@@ -21,16 +29,58 @@ type McpResult = { content: Array<{ type: 'text'; text: string }>; isError?: boo
 
 export const HOLD_TIMEOUT_MS = 15 * 60 * 1_000; // 15 minutes — matches execution-gate.ts
 
+// ── Multi-approver quorum ─────────────────────────────────────────────────────
+// MERGEN_HITL_QUORUM_RULES is a comma-separated list of pattern:count pairs.
+// e.g. "terraform:2,DROP TABLE:2,kubectl delete namespace:3"
+// A hold that matches one of these patterns requires N distinct approvers before
+// the Promise resolves. The hold remains HELD (Slack shows "N/M approved") until
+// quorum is reached or the window expires.
+
+interface QuorumRule { pattern: string; required: number }
+
+function _loadQuorumRules(): QuorumRule[] {
+  const raw = process.env.MERGEN_HITL_QUORUM_RULES ?? '';
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => {
+      const lastColon = s.lastIndexOf(':');
+      if (lastColon === -1) return null;
+      const pattern  = s.slice(0, lastColon).trim();
+      const required = parseInt(s.slice(lastColon + 1).trim(), 10);
+      if (!pattern || !Number.isFinite(required) || required < 2) return null;
+      return { pattern, required };
+    })
+    .filter((r): r is QuorumRule => r !== null);
+}
+
+const _quorumRules: QuorumRule[] = _loadQuorumRules();
+
+function _quorumRequired(commandArg: string, toolName: string): number {
+  const haystack = `${toolName} ${commandArg}`.toLowerCase();
+  for (const rule of _quorumRules) {
+    if (haystack.includes(rule.pattern.toLowerCase())) return rule.required;
+  }
+  return 1; // default: single approver
+}
+
 interface PendingHold {
   toolName:       string;
   argsSnapshot:   string;
   policyReason:   string;
   triggeredRules: string[];
   heldAt:         number;
+  commandArg:     string;
   resolve:        (result: McpResult) => void;
   timeoutHandle:  ReturnType<typeof setTimeout>;
   reminderHandle?: ReturnType<typeof setTimeout>;
   escalationHandle?: ReturnType<typeof setTimeout>;
+  // Quorum tracking
+  quorumRequired: number;
+  approvedBy:     Set<string>;
+  // Constrained approval
+  approvedConstraints?: Record<string, unknown>;
 }
 
 const _pendingHolds = new Map<string, PendingHold>();
@@ -46,6 +96,8 @@ interface HoldRecord {
   triggeredRules: string[];
   heldAt:         number;
   expiresAt:      number;
+  quorumRequired?: number;
+  approvedBy?:    string[];
 }
 
 interface HoldsFile { version: 1; holds: HoldRecord[] }
@@ -64,6 +116,8 @@ function _persistHolds(): void {
         triggeredRules: h.triggeredRules,
         heldAt:         h.heldAt,
         expiresAt:      h.heldAt + HOLD_TIMEOUT_MS,
+        quorumRequired: h.quorumRequired,
+        approvedBy:     [...h.approvedBy],
       }));
     const tmp = `${HITL_HOLDS_FILE}.tmp.${process.pid}`;
     fs.writeFileSync(tmp, JSON.stringify({ version: 1, holds: active } satisfies HoldsFile), 'utf8');
@@ -101,20 +155,76 @@ export function denyStaleHoldsOnStartup(): void {
 
 // ── Public resolution API (called by routes/hitl.ts) ─────────────────────────
 
-export function approveToolCall(token: string): boolean {
+export function approveToolCall(token: string, approverId = 'operator'): boolean {
   const hold = _pendingHolds.get(token);
   if (!hold) return false;
+
+  // Quorum: register this approver. If quorum not yet met, send a partial-approval
+  // Slack update and keep the hold alive.
+  hold.approvedBy.add(approverId);
+  const approvedCount = hold.approvedBy.size;
+  const required      = hold.quorumRequired;
+
+  if (approvedCount < required) {
+    // Fire a Slack progress update without resolving
+    void _fireQuorumProgress(token, hold, approvedCount, required);
+    _persistHolds();
+    logger.info({ token, approverId, approvedCount, required }, 'tool-guard: quorum partial approval');
+    return true; // accepted but not yet resolved
+  }
+
+  // Quorum met — resolve
   clearTimeout(hold.timeoutHandle);
-  if (hold.reminderHandle) clearTimeout(hold.reminderHandle);
+  if (hold.reminderHandle)    clearTimeout(hold.reminderHandle);
+  if (hold.escalationHandle)  clearTimeout(hold.escalationHandle);
+  _pendingHolds.delete(token);
+  _persistHolds();
+  recordHitlDecision(hold.triggeredRules, 'approve', hold.heldAt);
+  logger.info({ token, toolName: hold.toolName, approvedBy: [...hold.approvedBy] }, 'tool-guard: HITL approved (quorum met)');
+
+  const constraintNote = hold.approvedConstraints
+    ? `\nApproved with constraints: ${JSON.stringify(hold.approvedConstraints)}`
+    : '';
+  hold.resolve({
+    content: [{ type: 'text', text: `✅ Tool call \`${hold.toolName}\` approved by operator (${approvedCount}/${required}).${constraintNote}` }],
+  });
+  return true;
+}
+
+/**
+ * Approve with constraints — the approver narrows the scope of execution.
+ * Constraints are passed back to the agent in the resolution message so it
+ * can honour them (e.g., "restart only the auth pod, not the whole deployment").
+ * The hold is resolved after constraint validation succeeds.
+ */
+export function approveToolCallConstrained(token: string, constraints: Record<string, unknown>, approverId = 'operator'): { ok: boolean; error?: string } {
+  const hold = _pendingHolds.get(token);
+  if (!hold) return { ok: false, error: 'token not found or already expired' };
+
+  // Basic validation: constraints must be a non-empty object
+  if (typeof constraints !== 'object' || Array.isArray(constraints) || Object.keys(constraints).length === 0) {
+    return { ok: false, error: 'constraints must be a non-empty object' };
+  }
+
+  hold.approvedConstraints = constraints;
+  hold.approvedBy.add(approverId);
+
+  // Constrained approval counts as a full quorum regardless of MERGEN_HITL_QUORUM_RULES
+  // — a constrained approval is a stronger signal than a plain approval.
+  clearTimeout(hold.timeoutHandle);
+  if (hold.reminderHandle)   clearTimeout(hold.reminderHandle);
   if (hold.escalationHandle) clearTimeout(hold.escalationHandle);
   _pendingHolds.delete(token);
   _persistHolds();
   recordHitlDecision(hold.triggeredRules, 'approve', hold.heldAt);
-  logger.info({ token, toolName: hold.toolName }, 'tool-guard: HITL approved');
+  logger.info({ token, toolName: hold.toolName, constraints }, 'tool-guard: HITL approved with constraints');
   hold.resolve({
-    content: [{ type: 'text', text: `✅ Tool call \`${hold.toolName}\` approved by operator.` }],
+    content: [{
+      type: 'text',
+      text: `✅ Tool call \`${hold.toolName}\` approved with constraints by ${approverId}.\nConstraints: ${JSON.stringify(constraints)}\nThe action must be scoped to these constraints before execution.`,
+    }],
   });
-  return true;
+  return { ok: true };
 }
 
 export function denyToolCall(token: string): boolean {
@@ -134,11 +244,13 @@ export function denyToolCall(token: string): boolean {
   return true;
 }
 
-export function getPendingHolds(): Array<{ token: string; toolName: string; policyReason: string }> {
+export function getPendingHolds(): Array<{ token: string; toolName: string; policyReason: string; quorumRequired: number; approvedCount: number }> {
   return [..._pendingHolds.entries()].map(([token, h]) => ({
     token,
-    toolName:     h.toolName,
-    policyReason: h.policyReason,
+    toolName:       h.toolName,
+    policyReason:   h.policyReason,
+    quorumRequired: h.quorumRequired,
+    approvedCount:  h.approvedBy.size,
   }));
 }
 
@@ -170,6 +282,7 @@ async function fireHitlWebhook(
     triggeredRules: string[];
     commandArg:     string;
     suggestedAlt:   string;
+    quorumRequired: number;
   },
 ): Promise<void> {
   const webhookUrl = process.env.MERGEN_HITL_WEBHOOK_URL;
@@ -186,6 +299,7 @@ async function fireHitlWebhook(
   const baseUrl    = (process.env.MERGEN_PUBLIC_URL ?? '').replace(/\/$/, '') || `http://127.0.0.1:${port}`;
   const approveUrl = `${baseUrl}/hitl/approve?token=${token}`;
   const denyUrl    = `${baseUrl}/hitl/deny?token=${token}`;
+  const constrainedUrl = `${baseUrl}/hitl/approve-constrained?token=${token}`;
 
   // Enrich with rule metadata and blast radius
   const policy = loadEnterprisePolicy();
@@ -205,6 +319,10 @@ async function fireHitlWebhook(
 
   const safeToolName    = escapeMrkdwn(toolName);
   const safeArgsSnippet = escapeMrkdwn(argsSnapshot.slice(0, 200));
+
+  const quorumText = opts.quorumRequired > 1
+    ? `*Quorum required: ${opts.quorumRequired} approvers*`
+    : null;
 
   const payload = {
     text: `⚠️ *Mergen HITL Gate* — \`${safeToolName}\` is awaiting approval`,
@@ -232,11 +350,16 @@ async function fireHitlWebhook(
         type: 'section',
         text: { type: 'mrkdwn', text: `*Suggested alternative*\n${opts.suggestedAlt}` },
       },
+      ...(quorumText ? [{
+        type: 'section',
+        text: { type: 'mrkdwn', text: quorumText },
+      }] : []),
       {
         type: 'actions',
         elements: [
           { type: 'button', style: 'primary', text: { type: 'plain_text', text: '▶️ Approve', emoji: true }, url: approveUrl },
           { type: 'button', style: 'danger',  text: { type: 'plain_text', text: '🚫 Deny',    emoji: true }, url: denyUrl },
+          { type: 'button', text: { type: 'plain_text', text: '🔒 Approve with Constraints', emoji: true }, url: constrainedUrl },
         ],
       },
       {
@@ -244,7 +367,7 @@ async function fireHitlWebhook(
         elements: [{ type: 'mrkdwn', text: `Token \`${token}\` · Slack reminder at 5 min · PagerDuty/Slack escalation at 10 min · auto-cancel at 15 min` }],
       },
     ],
-    mergen: { type: 'hitl_gate', token, toolName, reason, approveUrl, denyUrl },
+    mergen: { type: 'hitl_gate', token, toolName, reason, approveUrl, denyUrl, constrainedUrl, quorumRequired: opts.quorumRequired },
   };
 
   try {
@@ -259,6 +382,26 @@ async function fireHitlWebhook(
     }
   } catch (err) {
     logger.warn({ err, token }, 'tool-guard: HITL webhook fire failed');
+  }
+}
+
+// ── Quorum progress notification ──────────────────────────────────────────────
+
+async function _fireQuorumProgress(token: string, hold: PendingHold, approvedCount: number, required: number): Promise<void> {
+  const webhookUrl = process.env.MERGEN_HITL_WEBHOOK_URL;
+  if (!webhookUrl) return;
+  try {
+    await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: `✅ *Quorum progress*: ${approvedCount}/${required} approvers for \`${escapeMrkdwn(hold.toolName)}\`. Token: \`${token}\``,
+        mergen: { type: 'hitl_quorum_progress', token, approvedCount, required },
+      }),
+      signal: AbortSignal.timeout(5_000),
+    });
+  } catch (err) {
+    logger.warn({ err, token }, 'tool-guard: quorum progress webhook failed');
   }
 }
 
@@ -279,6 +422,30 @@ async function fireHitlReminder(token: string, toolName: string, minutesRemainin
     });
   } catch (err) {
     logger.warn({ err, token }, 'tool-guard: HITL reminder webhook failed');
+  }
+}
+
+/**
+ * Delegation chain escalation: fire secondary webhook if configured.
+ * MERGEN_HITL_SECONDARY_WEBHOOK is the fallback on-call channel / secondary
+ * responder webhook. If primary hasn't responded at 5-min mark, fire this.
+ */
+async function fireDelegationChain(token: string, toolName: string): Promise<void> {
+  const secondaryUrl = process.env.MERGEN_HITL_SECONDARY_WEBHOOK;
+  if (!secondaryUrl) return;
+  try {
+    await fetch(secondaryUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: `🔴 *Delegation escalation* — HITL approval for \`${escapeMrkdwn(toolName)}\` has not been responded to after 5 minutes. Escalating to secondary on-call. Token: \`${token}\``,
+        mergen: { type: 'hitl_delegation', token, toolName },
+      }),
+      signal: AbortSignal.timeout(5_000),
+    });
+    logger.info({ token, toolName }, 'tool-guard: HITL delegation chain fired to secondary webhook');
+  } catch (err) {
+    logger.warn({ err, token }, 'tool-guard: HITL delegation chain webhook failed');
   }
 }
 
@@ -345,11 +512,13 @@ export function holdToolCall(opts: {
   port:           number;
 }): Promise<McpResult> {
   const { token, toolName, argsSnapshot, reason, triggeredRules, heldAt, commandArg, suggestedAlt, port } = opts;
+  const quorumRequired = _quorumRequired(commandArg, toolName);
 
   void fireHitlWebhook(token, toolName, argsSnapshot, reason, port, {
     triggeredRules,
     commandArg,
     suggestedAlt,
+    quorumRequired,
   });
 
   return new Promise<McpResult>((resolve) => {
@@ -370,12 +539,14 @@ export function holdToolCall(opts: {
     }, HOLD_TIMEOUT_MS);
     timeoutHandle.unref();
 
-    // Escalation: 5-min reminder, 10-min urgent escalation (PagerDuty or second Slack).
+    // 5-min: reminder + delegation chain (fire secondary webhook if configured).
     const reminderHandle = setTimeout(() => {
       void fireHitlReminder(token, toolName, 10);
+      void fireDelegationChain(token, toolName);
     }, 5 * 60 * 1_000);
     reminderHandle.unref();
 
+    // 10-min: urgent escalation (PagerDuty or second Slack).
     const escalationHandle = setTimeout(() => {
       void fireHitlEscalation(token, toolName);
     }, 10 * 60 * 1_000);
@@ -387,10 +558,13 @@ export function holdToolCall(opts: {
       policyReason:   reason,
       triggeredRules,
       heldAt,
+      commandArg,
       resolve,
       timeoutHandle,
       reminderHandle,
       escalationHandle,
+      quorumRequired,
+      approvedBy:     new Set(),
     });
     // Persist hold metadata so a server restart can inform operators of stale holds.
     _persistHolds();

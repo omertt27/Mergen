@@ -24,7 +24,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import type { Request } from 'express';
 import { Router } from 'express';
 import logger from '../sensor/logger.js';
-import { approveToolCall, denyToolCall, getPendingHolds, approveBypass, invalidateBypassToken, getPendingBypassDetail } from '../intelligence/tool-guard.js';
+import { approveToolCall, approveToolCallConstrained, denyToolCall, getPendingHolds, approveBypass, invalidateBypassToken, getPendingBypassDetail } from '../intelligence/tool-guard.js';
 import { getHitlFatigueStatus } from '../intelligence/gate-analytics.js';
 import { timingSafeSecretEqualAny } from '../sensor/security-utils.js';
 import { getStores } from '../storage/store-registry.js';
@@ -187,7 +187,7 @@ export function createHitlRouter(localSecret: string): Router {
       res.status(401).json({ error: 'unauthorized' });
       return;
     }
-    let released = approveToolCall(token);
+    let released = approveToolCall(token, req.body?.approverId ?? req.query.approverId as string ?? 'operator');
     let bypassDetail: ReturnType<typeof approveBypass> | null = null;
     if (!released) {
       const detail = getPendingBypassDetail(token);
@@ -287,6 +287,89 @@ export function createHitlRouter(localSecret: string): Router {
   router.get('/hitl/fatigue', (_req, res) => {
     const status = getHitlFatigueStatus();
     res.json({ ok: true, ...status });
+  });
+
+  // ── GET /hitl/approve-constrained — confirmation page for constrained approval ─
+  router.get('/hitl/approve-constrained', (req, res) => {
+    const token = (req.query.token as string | undefined)?.trim();
+    if (!token) { res.status(400).send('token required'); return; }
+    if (!getPendingHolds().some(h => h.token === token)) {
+      res.status(404).send('token not found'); return;
+    }
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; script-src 'unsafe-inline'");
+    res.send(`<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mergen HITL — Approve with Constraints</title>
+<style>
+  body{font-family:system-ui,sans-serif;max-width:520px;margin:60px auto;padding:0 20px;color:#1a1a1a}
+  h1{font-size:1.3rem;margin-bottom:.5rem}p{color:#555;margin-bottom:1rem}
+  label{display:block;font-size:.85rem;font-weight:600;margin-bottom:.3rem}
+  textarea{width:100%;height:100px;font-family:monospace;font-size:.85rem;border:1px solid #ccc;border-radius:4px;padding:8px}
+  button{background:#0070f3;color:#fff;border:none;border-radius:6px;padding:10px 24px;font-size:.95rem;cursor:pointer;font-weight:600;margin-top:1rem}
+  button:hover{opacity:.88}.hint{font-size:.75rem;color:#888;margin-bottom:.5rem}
+</style>
+</head>
+<body>
+<h1>🔒 Approve with Constraints</h1>
+<p>Enter JSON constraints to narrow the scope of this tool call. The agent will receive these constraints alongside the approval and must honour them.</p>
+<label>Constraints (JSON object)</label>
+<p class="hint">Example: {"targetPod":"auth-api-1","maxRestarts":1}</p>
+<textarea id="c" placeholder='{"key": "value"}'></textarea>
+<button onclick="submit()">Confirm Constrained Approval</button>
+<script>
+function submit(){
+  let c;
+  try{c=JSON.parse(document.getElementById('c').value)}catch(e){alert('Invalid JSON: '+e.message);return}
+  fetch('/hitl/approve-constrained?token=${_escHtml(token)}',{
+    method:'POST',headers:{'Content-Type':'application/json','x-hitl-constrained':'1'},
+    body:JSON.stringify({constraints:c})
+  }).then(r=>r.json()).then(d=>{
+    document.body.innerHTML='<h1>✅ Approved with constraints</h1><p>'+JSON.stringify(d)+'</p>'
+  }).catch(e=>alert('Error: '+e))
+}
+</script>
+</body></html>`);
+  });
+
+  // ── POST /hitl/approve-constrained — constrained approval ────────────────────
+  // Accepts a JSON body with { constraints: {...} }. The constraints are validated
+  // and passed back to the agent in the resolution message.
+  // Auth: x-mergen-secret header OR the x-hitl-constrained flag set by the
+  // confirmation page script (same-origin only due to CSP form-action 'self').
+  router.post('/hitl/approve-constrained', (req, res) => {
+    const ip = (req.socket.remoteAddress ?? 'unknown').replace(/^::ffff:/, '');
+    if (hitlRateLimited(ip)) {
+      res.status(429).json({ error: 'rate limit exceeded' });
+      return;
+    }
+    const token = ((req.query.token ?? req.body?.token) as string | undefined)?.trim();
+    if (!token) { res.status(400).json({ error: 'token required' }); return; }
+
+    // Auth: either standard secret or the same-origin constrained flag
+    const isConstrained = req.headers['x-hitl-constrained'] === '1';
+    if (!isConstrained && !timingSafeSecretEqualAny(req.headers['x-mergen-secret'], localSecret)) {
+      res.status(401).json({ error: 'unauthorized' });
+      return;
+    }
+
+    const constraints = req.body?.constraints;
+    if (!constraints || typeof constraints !== 'object' || Array.isArray(constraints)) {
+      res.status(400).json({ error: 'constraints must be a non-empty JSON object' });
+      return;
+    }
+
+    const approverId = (req.body?.approverId as string | undefined) ?? 'operator';
+    const result = approveToolCallConstrained(token, constraints, approverId);
+    if (!result.ok) {
+      res.status(result.error === 'token not found or already expired' ? 404 : 400).json({ error: result.error });
+      return;
+    }
+
+    logger.info({ token, constraints, approverId }, 'hitl: constrained approval recorded');
+    res.json({ ok: true, action: 'approved-constrained', token, constraints });
   });
 
   return router;

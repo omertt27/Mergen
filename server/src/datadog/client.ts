@@ -35,7 +35,7 @@ function loadConfig(): DatadogConfig | null {
     return {
       apiKey: process.env.DD_API_KEY,
       appKey: process.env.DD_APP_KEY,
-      site: process.env.DD_SITE ?? 'datadoghq.com',
+      site: process.env.DATADOG_SITE ?? process.env.DD_SITE ?? 'datadoghq.com',
     };
   }
 

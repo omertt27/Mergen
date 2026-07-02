@@ -40,6 +40,7 @@ import {
 import { trackBlock, trackSuccessfulCall } from '../sensor/bypass-tracker.js';
 import { recordActivity } from './activity-feed.js';
 import { checkAgentProfile } from './agent-profiles.js';
+import { resolveAgentIdentity } from './agent-identity.js';
 import {
   detectSequenceThreat,
   recordSessionCall,
@@ -66,25 +67,30 @@ export {
   invalidateBypassToken, persistBypasses, loadBypasses,
 } from './bypass.js';
 export {
-  denyStaleHoldsOnStartup, approveToolCall, denyToolCall, getPendingHolds,
+  denyStaleHoldsOnStartup, approveToolCall, approveToolCallConstrained, denyToolCall, getPendingHolds,
 } from './hitl-hold.js';
 
 type McpResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
 
 // ── Agent fingerprint ─────────────────────────────────────────────────────────
-// When MERGEN_AGENT_ID is not set, derive a stable per-process fingerprint so
-// reputation tracking works for the majority of deployments that don't set the env var.
-// Computed lazily (not at module load) so test overrides of MERGEN_AGENT_ID take effect.
+// Reputation/session tracking accepts an unverified label (a false label here
+// only affects which telemetry bucket a call lands in, not an enforcement
+// decision) — but prefers the verified identity from resolveAgentIdentity()
+// when one is available, so reputation and policy decisions are keyed by the
+// same value instead of two independently-derived, potentially-divergent ones.
+// When not set at all, derive a stable per-process fingerprint so reputation
+// tracking still works for deployments that don't configure agent identity.
+// Computed lazily (not at module load) so test overrides take effect.
 let _warnedNoAgentId = false;
 function _resolveAgentId(): string {
-  const id = process.env.MERGEN_AGENT_ID;
-  if (id && id !== 'agent') return id;
+  const { agentId } = resolveAgentIdentity();
+  if (agentId && agentId !== 'agent') return agentId;
   if (!_warnedNoAgentId) {
     const fp = createHash('sha256')
       .update(`${hostname()}:${process.ppid ?? 0}`)
       .digest('hex')
       .slice(0, 8);
-    logger.info({ fingerprint: `env_${fp}` }, 'tool-guard: MERGEN_AGENT_ID not set — using process fingerprint for reputation tracking');
+    logger.info({ fingerprint: `env_${fp}` }, 'tool-guard: no agent identity configured — using process fingerprint for reputation tracking');
     _warnedNoAgentId = true;
   }
   const fp = createHash('sha256')
@@ -107,8 +113,17 @@ function _resolveAgentId(): string {
  * order, not a guarantee — a future change that reordered or wrapped
  * evaluation could silently turn it into fail-open. This makes fail-closed
  * an explicit, tested property of the gate itself.
+ *
+ * Exported so non-MCP callers (the `mergen-server gate-check` CLI subcommand,
+ * the Claude Code PreToolUse hook) can run the exact same decision path —
+ * policy evaluation, HITL hold/wait, blunder logging, gate analytics, session
+ * and reputation tracking — that MCP tool calls go through, instead of a
+ * parallel, potentially-diverging implementation. For a caller with no real
+ * "next handler" to invoke (the command executes outside Mergen either way),
+ * pass a `next` that just resolves a pass-through result — `applyGate` only
+ * calls it once verdict is already 'pass' (or a bypass token cleared a HOLD).
  */
-async function applyGate(
+export async function applyGate(
   toolName: string,
   args:     unknown,
   next:     () => Promise<McpResult>,
@@ -194,6 +209,16 @@ async function applyGateInner(
   const agentId   = _resolveAgentId();
   const sessionId = agentId;
 
+  // Identity for policy/profile-enforcement purposes: only a verified
+  // MERGEN_AGENT_TOKEN counts — an unverified MERGEN_AGENT_ID must not satisfy
+  // an agent-profile allowlist or a policy conditions.agentIds match, since
+  // that's self-asserted by the same actor Mergen's threat model distrusts.
+  // agentIdLabel is for telemetry/logging fields only (blunder records,
+  // gate-analytics) where a false label affects bucketing, not enforcement.
+  const identity      = resolveAgentIdentity();
+  const verifiedAgentId = identity.verified ? identity.agentId : undefined;
+  const agentIdLabel    = identity.agentId ?? undefined;
+
   // ── Feature 2: Multi-turn threat sequence detection ───────────────────────────
   const { threat: sequenceThreat, label: sequenceLabel } = detectSequenceThreat(sessionId, commandArg || argsSnapshot.slice(0, 200));
   if (sequenceThreat) {
@@ -271,7 +296,7 @@ async function applyGateInner(
       timestamp:   Date.now(),
       environment: process.env.MERGEN_ENVIRONMENT ?? undefined,
       repo:        process.env.MERGEN_REPO ?? undefined,
-      agentId:     process.env.MERGEN_AGENT_ID ?? undefined,
+      agentId:     verifiedAgentId,
     });
     if (hardEval.verdict === 'block') {
       const hardReason = hardEval.reasons.join('; ');
@@ -309,8 +334,11 @@ async function applyGateInner(
     return next();
   }
 
-  // Per-agent profile check — enforced before enterprise policy
-  const profileBlock = checkAgentProfile(toolName);
+  // Per-agent profile check — enforced before enterprise policy. Only a
+  // verified identity may satisfy or be constrained by a profile — an
+  // unverified MERGEN_AGENT_ID must not be able to claim a profile's
+  // allowlist (checkAgentProfile returns null — no-op — when id is undefined).
+  const profileBlock = checkAgentProfile(toolName, undefined, verifiedAgentId);
   if (profileBlock) {
     recordGateBlock([]);
     await getStores().blunders.record({
@@ -319,7 +347,7 @@ async function applyGateInner(
       blockReason:     profileBlock,
       service:         'mcp',
       tag:             'agent_profile',
-      actor:           process.env.MERGEN_AGENT_ID ?? 'agent',
+      actor:           agentIdLabel ?? 'agent',
       pid:             null,
       confidenceScore: null,
       triggeredRules:  ['agent_profile'],
@@ -328,7 +356,7 @@ async function applyGateInner(
     return {
       content: [{
         type: 'text',
-        text: `🚫 **Mergen agent profile gate blocked this tool call.**\n\n**Tool:** \`${toolName}\`\n**Why:** ${profileBlock}\n\n_Adjust permissions at: mergen-server agent-update ${process.env.MERGEN_AGENT_ID ?? ''}_`,
+        text: `🚫 **Mergen agent profile gate blocked this tool call.**\n\n**Tool:** \`${toolName}\`\n**Why:** ${profileBlock}\n\n_Adjust permissions at: mergen-server agent-update ${verifiedAgentId ?? ''}_`,
       }],
       isError: true,
     };
@@ -336,7 +364,8 @@ async function applyGateInner(
 
   // Actor identity is always 'agent' for MCP tool calls — it must not be derived
   // from agent-supplied arguments, which the agent can forge to bypass AI-specific rules.
-  // Environment, repo, and agentId come from server-side env vars set by the operator.
+  // Environment and repo come from server-side env vars set by the operator.
+  // agentId is only the verified identity — see the identity block above.
   // Fix #3: pass ALL extracted strings as commands so non-standard arg keys are evaluated.
   const evaluation = evaluateEnterprisePolicy({
     files:       [toolName],
@@ -346,7 +375,7 @@ async function applyGateInner(
     timestamp:   Date.now(),
     environment: process.env.MERGEN_ENVIRONMENT ?? undefined,
     repo:        process.env.MERGEN_REPO ?? undefined,
-    agentId:     process.env.MERGEN_AGENT_ID ?? undefined,
+    agentId:     verifiedAgentId,
   });
 
   const evalMs = Date.now() - t0;
@@ -398,7 +427,7 @@ async function applyGateInner(
           recordActivity({ toolName, commandArg, verdict: 'PASS', triggeredRules: [], ruleNames: [] });
           recordGateEvent({
             ts: Date.now(), toolName, command: commandArg || null,
-            actor: 'agent', agentId: process.env.MERGEN_AGENT_ID ?? null,
+            actor: 'agent', agentId: agentIdLabel ?? null,
             service: 'mcp', environment: process.env.MERGEN_ENVIRONMENT ?? null,
             verdict: 'pass', triggeredRules: [], guidedAlternative: null,
           });
@@ -430,7 +459,7 @@ async function applyGateInner(
     recordSessionCall(sessionId, toolName, commandArg, 'BLOCK');
     recordGateEvent({
       ts: Date.now(), toolName, command: commandArg || null,
-      actor: 'agent', agentId: process.env.MERGEN_AGENT_ID ?? null,
+      actor: 'agent', agentId: agentIdLabel ?? null,
       service: 'mcp', environment: process.env.MERGEN_ENVIRONMENT ?? null,
       verdict: 'block', triggeredRules: evaluation.triggeredRules, guidedAlternative: alternative,
     });
@@ -472,7 +501,7 @@ async function applyGateInner(
 
   recordGateEvent({
     ts: heldAt, toolName, command: commandArg || null,
-    actor: 'agent', agentId: process.env.MERGEN_AGENT_ID ?? null,
+    actor: 'agent', agentId: agentIdLabel ?? null,
     service: 'mcp', environment: process.env.MERGEN_ENVIRONMENT ?? null,
     verdict: 'hold', triggeredRules: evaluation.triggeredRules, guidedAlternative: alternative,
   });

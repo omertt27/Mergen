@@ -291,21 +291,48 @@ export async function setupCommand(): Promise<void> {
       console.log('');
       const slackToken = (await ask('  Bot token (xoxb-...): ')).trim();
       const slackChannel = (await ask('  Channel for alerts (#incidents): ')).trim() || '#incidents';
-      if (slackToken) {
+
+      // Verify the token against Slack's API before writing anything — a copy-paste
+      // mistake here otherwise fails silently until the first real incident fires.
+      let verifiedToken = slackToken;
+      if (verifiedToken) {
+        process.stdout.write('  Verifying token with Slack... ');
+        try {
+          const res = await fetch('https://slack.com/api/auth.test', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${verifiedToken}` },
+            signal: AbortSignal.timeout(5_000),
+          });
+          const body = await res.json() as { ok?: boolean; team?: string; error?: string };
+          if (body.ok) {
+            console.log(`✓ (workspace: ${body.team ?? 'unknown'})`);
+          } else {
+            console.log(`✗ (${body.error ?? 'invalid token'})`);
+            const saveAnyway = await ask('  Token failed verification — save it anyway? (y/n): ');
+            if (saveAnyway.toLowerCase() !== 'y') verifiedToken = '';
+          }
+        } catch (err) {
+          console.log(`✗ (${err instanceof Error ? err.message : 'network error'})`);
+          const saveAnyway = await ask('  Could not reach Slack to verify — save it anyway? (y/n): ');
+          if (saveAnyway.toLowerCase() !== 'y') verifiedToken = '';
+        }
+      }
+
+      if (verifiedToken) {
         const envPath = path.join(process.cwd(), '.env');
         try {
           const existing = existsSync(envPath) ? readFileSync(envPath, 'utf8') : '';
           let updated = existing;
-          if (!updated.includes('MERGEN_SLACK_BOT_TOKEN')) updated += `\nMERGEN_SLACK_BOT_TOKEN=${slackToken}`;
+          if (!updated.includes('MERGEN_SLACK_BOT_TOKEN')) updated += `\nMERGEN_SLACK_BOT_TOKEN=${verifiedToken}`;
           if (!updated.includes('MERGEN_SLACK_CHANNEL'))   updated += `\nMERGEN_SLACK_CHANNEL=${slackChannel}`;
           writeFileSync(envPath, updated.trimStart() + '\n', 'utf8');
           success(`Slack configured (channel: ${slackChannel}), written to .env`);
         } catch {
           success('Slack configured for this session');
-          log(`Set these in your .env to persist:\n  MERGEN_SLACK_BOT_TOKEN=${slackToken}\n  MERGEN_SLACK_CHANNEL=${slackChannel}`, 'ℹ');
+          log(`Set these in your .env to persist:\n  MERGEN_SLACK_BOT_TOKEN=${verifiedToken}\n  MERGEN_SLACK_CHANNEL=${slackChannel}`, 'ℹ');
         }
       } else {
-        log('No token entered — skipped.', 'ℹ');
+        log('No token saved — skipped.', 'ℹ');
       }
     } else {
       log('Skipped. To add later: set MERGEN_SLACK_BOT_TOKEN and MERGEN_SLACK_CHANNEL in .env', 'ℹ');
@@ -313,7 +340,50 @@ export async function setupCommand(): Promise<void> {
   }
   _markStep('Slack setup');
 
-  // 6. GitHub intent archive
+  // 6. PagerDuty webhook — where incidents originate
+  hr();
+  log('\nPagerDuty webhook (recommended — where incidents originate):');
+  console.log('  Connecting PagerDuty lets Mergen catch incident.triggered events, fetch traces,');
+  console.log('  and post the diagnosis to Slack. Autopilot (if enabled) runs the fix loop from here.');
+
+  if (!yes) {
+    const enablePD = await ask('\nConnect PagerDuty now? (y/n): ');
+    if (enablePD.toLowerCase() === 'y') {
+      const port = process.env.HTTP_PORT ?? '3000';
+      console.log('');
+      console.log('  1. PagerDuty → Service → Integrations → Add a webhook (v3)');
+      console.log(`  2. Endpoint URL: https://your-host:${port}/webhooks/pagerduty`);
+      console.log('  3. Copy the "Webhook signing secret" shown after creation');
+      console.log('');
+      const pdSecret = (await ask('  Webhook signing secret: ')).trim();
+      if (pdSecret) {
+        // No round-trip validation is possible here — PagerDuty only calls the
+        // webhook when a real incident fires. Do a basic sanity check instead.
+        if (pdSecret.length < 16) {
+          log('That looks short for a PagerDuty signing secret — double-check you copied the whole value.', '⚠');
+        }
+        const envPath = path.join(process.cwd(), '.env');
+        try {
+          const existing = existsSync(envPath) ? readFileSync(envPath, 'utf8') : '';
+          let updated = existing;
+          if (!updated.includes('MERGEN_PAGERDUTY_SECRET')) updated += `\nMERGEN_PAGERDUTY_SECRET=${pdSecret}`;
+          writeFileSync(envPath, updated.trimStart() + '\n', 'utf8');
+          success('PagerDuty configured, written to .env');
+        } catch {
+          success('PagerDuty configured for this session');
+          log(`Set this in your .env to persist:\n  MERGEN_PAGERDUTY_SECRET=${pdSecret}`, 'ℹ');
+        }
+        log('Trigger a test event from PagerDuty once the server is running to confirm delivery end-to-end.', 'ℹ');
+      } else {
+        log('No secret entered — skipped.', 'ℹ');
+      }
+    } else {
+      log('Skipped. To add later: set MERGEN_PAGERDUTY_SECRET in .env (webhook → /webhooks/pagerduty)', 'ℹ');
+    }
+  }
+  _markStep('PagerDuty setup');
+
+  // 7. GitHub intent archive
   hr();
   log('\nGitHub intent archive (optional — powers explain_why):');
   console.log('  Connecting GitHub populates PR history so Mergen can answer "why was this changed?"');
@@ -335,7 +405,7 @@ export async function setupCommand(): Promise<void> {
   }
   _markStep('GitHub integration');
 
-  // 7. Git Pre-commit Hook (Recommended for Codex / non-VS Code users)
+  // 8. Git Pre-commit Hook (Recommended for Codex / non-VS Code users)
   hr();
   log('\nGit Pre-commit Hook (Recommended):');
   console.log('  Enforces safety rules before each git commit, protecting your repo from');
@@ -357,11 +427,11 @@ export async function setupCommand(): Promise<void> {
   }
   _markStep('Pre-commit hook');
 
-  // 8. Seed built-in runbooks
+  // 9. Seed built-in runbooks
   await seedBuiltinRunbooks();
   _markStep('Runbook seed');
 
-  // 9. Summary + start server
+  // 10. Summary + start server
   hr();
   log('\n✨ Setup complete!\n');
 
@@ -550,6 +620,34 @@ export async function startCommand(): Promise<void> {
       }
     }
     console.log(ready ? ` ready on :${serverPort}` : ' (timeout — proceeding anyway)');
+
+    // ── Onboarding shadow preview ─────────────────────────────────────────────
+    // If there are gate events from the last 24h, show a shadow summary so the
+    // user can see what Mergen would have blocked before they've enabled anything.
+    // This is the "try before you buy" moment for policy enforcement.
+    if (ready) {
+      try {
+        const mergenHost2 = process.env.MERGEN_HOST ?? '127.0.0.1';
+        const r = await fetch(`http://${mergenHost2}:${serverPort}/gate/heatmap`, {
+          signal: AbortSignal.timeout(2_000),
+        });
+        if (r.ok) {
+          const heatmap = await r.json() as { services?: Array<{ service: string; calls: number; avgBlastScore?: number }> };
+          const services = heatmap.services ?? [];
+          if (services.length > 0) {
+            console.log('');
+            console.log('⬡ Onboarding snapshot — what Mergen has observed so far:');
+            for (const svc of services.slice(0, 5)) {
+              const blast = svc.avgBlastScore != null ? ` (avg blast-radius: ${Math.round((svc.avgBlastScore ?? 0) * 100)}%)` : '';
+              console.log(`  • ${svc.service}: ${svc.calls} gate calls${blast}`);
+            }
+            console.log('  Run: mergen-server shadow-report   for the full picture');
+            console.log('');
+          }
+        }
+      } catch { /* non-fatal — never block startup */ }
+    }
+
     // Run the --then command
     const thenParts = thenCmd.split(/\s+/);
     const thenProc = spawn(thenParts[0], thenParts.slice(1), { stdio: 'inherit' });

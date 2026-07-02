@@ -28,10 +28,11 @@ import { getTeamState, isTeamEnabled } from '../intelligence/team.js';
 import { getStats } from '../intelligence/calibration.js';
 import { getDegradationState } from '../intelligence/degradation-watcher.js';
 import { getPendingBypasses } from '../intelligence/tool-guard.js';
+import { getPendingHolds } from '../intelligence/hitl-hold.js';
 import { getGateHeartbeatStatus } from '../sensor/gate-heartbeat.js';
 import { getRecentActivity } from '../intelligence/activity-feed.js';
 import { loadEnterprisePolicy, IMMUTABLE_RULE_IDS, getGateCoverageSummary, getLastEvalLatencyMs } from '../intelligence/enterprise-policy-engine.js';
-import { getRuleFirings } from '../intelligence/gate-analytics.js';
+import { getRuleFirings, getBlockedActionCount } from '../intelligence/gate-analytics.js';
 import { agentCallCount } from '../intelligence/tools-state.js';
 import { getBypassStats } from '../sensor/bypass-tracker.js';
 
@@ -74,8 +75,8 @@ export function createSensorRouter(serverVersion: string): Router {
       costGuard: getCostGuardStats(),
       degradation: getDegradationState(),
       gateHeartbeat: getGateHeartbeatStatus(),
-      pendingBypassesCount: (getPendingBypasses() ?? []).length,
-      blockedActionsCount: (await getStores().blunders.getStats(tid)).total,
+      pendingBypassesCount: (getPendingBypasses() ?? []).length + getPendingHolds().length,
+      blockedActionsCount: getBlockedActionCount(),
     });
   });
 
@@ -525,8 +526,8 @@ export function createSensorRouter(serverVersion: string): Router {
         ? { enabled: true, memberName: teamState?.memberName, connectedPeers: 0 }
         : { enabled: false },
       costGuard: getCostGuardStats(),
-      pendingBypassesCount: (getPendingBypasses() ?? []).length,
-      blockedActionsCount: (await getStores().blunders.getStats(tid)).total,
+      pendingBypassesCount: (getPendingBypasses() ?? []).length + getPendingHolds().length,
+      blockedActionsCount: getBlockedActionCount(),
     };
 
     const usage = getUsageSnapshot();
@@ -720,25 +721,18 @@ export function createSensorRouter(serverVersion: string): Router {
     const gateCovers = getGateCoverageSummary();
     const activity = getRecentActivity(20);
 
-    const blunderStats = await getStores().blunders.getStats(tid);
     const bypassStats = getBypassStats();
-
-    let blockRuleTriggerCount = 0;
-    let warnRuleTriggerCount = 0;
-    for (const rule of policy.rules) {
-      const count = firings.get(rule.id) ?? 0;
-      if (rule.action === 'block') {
-        blockRuleTriggerCount += count;
-      } else if (rule.action === 'warn') {
-        warnRuleTriggerCount += count;
-      }
-    }
 
     const securityMetrics = {
       protectedActions: agentCallCount,
-      blockedActions: blunderStats.total,
-      approvalsRequested: (getPendingBypasses() ?? []).length + warnRuleTriggerCount,
-      shadowViolations: bypassStats.totalBypasses + warnRuleTriggerCount,
+      // getBlockedActionCount() = real-time in-memory count of BLOCK verdicts from the gate.
+      blockedActions: getBlockedActionCount(),
+      // approvalsRequested = outstanding human-approval queue across both mechanisms:
+      //   • HITL bypass requests (warn-rule triggers awaiting approve/deny)
+      //   • HITL holds (policy holds awaiting quorum approval)
+      approvalsRequested: (getPendingBypasses() ?? []).length + getPendingHolds().length,
+      // shadowViolations = bypasses actually granted (agent got through a warn gate)
+      shadowViolations: bypassStats.totalBypasses,
       latencyMs: getLastEvalLatencyMs(),
     };
 

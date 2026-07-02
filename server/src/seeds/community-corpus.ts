@@ -14,7 +14,7 @@
  * already exists — real team overrides always take precedence.
  */
 
-import { getAllOverrides, recordOverride } from '../intelligence/override-corpus.js';
+import { importOverrides } from '../intelligence/override-corpus.js';
 import logger from '../sensor/logger.js';
 
 interface CommunityEntry {
@@ -183,41 +183,26 @@ const COMMUNITY_ENTRIES: CommunityEntry[] = [
   },
 ];
 
-function entryKey(e: CommunityEntry): string {
-  return `${e.incidentTag}:${e.overrideReason}:${e.dayOfWeek}:${e.hourOfDay}:${e.service}`;
-}
-
 export function loadCommunityCorpus(): { loaded: number; skipped: number } {
-  const existing = getAllOverrides();
-  const existingKeys = new Set(
-    existing.map((e) => `${e.incidentTag}:${e.overrideReason}:${e.dayOfWeek}:${e.hourOfDay}:${e.service}`),
-  );
-
-  let loaded = 0;
-  let skipped = 0;
-
-  for (const entry of COMMUNITY_ENTRIES) {
-    if (existingKeys.has(entryKey(entry))) {
-      skipped++;
-      continue;
-    }
-    try {
-      recordOverride({
+  // importOverrides (not recordOverride): it preserves each entry's intended
+  // dayOfWeek/hourOfDay window instead of stamping the current clock, and
+  // dedups on the same pattern key this seeder previously computed by hand.
+  try {
+    const { imported, skipped } = importOverrides(
+      COMMUNITY_ENTRIES.map(({ actor: _actor, ...entry }) => ({
         ...entry,
-        source: 'community',
         manualAction: 'Deferred — see rationale',
-      });
-      loaded++;
-    } catch (err) {
-      logger.warn({ err, tag: entry.incidentTag }, 'community-corpus: failed to seed entry');
-      skipped++;
+      })),
+      { source: 'community', actor: 'community' },
+    );
+    if (imported > 0) {
+      logger.info({ loaded: imported, skipped }, 'community-corpus: seeded');
     }
+    return { loaded: imported, skipped };
+  } catch (err) {
+    logger.warn({ err }, 'community-corpus: failed to seed');
+    return { loaded: 0, skipped: COMMUNITY_ENTRIES.length };
   }
-
-  if (loaded > 0) {
-    logger.info({ loaded, skipped }, 'community-corpus: seeded');
-  }
-  return { loaded, skipped };
 }
 
 export const COMMUNITY_CORPUS_COUNT = COMMUNITY_ENTRIES.length;

@@ -131,11 +131,15 @@ export function createIngestRouter(localSecret: string): Router {
     const result = BrowserEventSchema.safeParse(req.body);
     if (!result.success) {
       if (req.body && req.body.type === 'blunder') {
-        const { id, recordedAt, blunderType, command, blockReason, service, tag, actor, pid, confidenceScore } = req.body;
+        const { id, recordedAt, blunderType, command, blockReason, service, tag, actor, pid, confidenceScore, triggeredRules } = req.body;
         if (typeof blunderType !== 'string' || typeof blockReason !== 'string' || typeof actor !== 'string') {
           res.status(400).json({ error: 'invalid blunder event fields' });
           return;
         }
+        // Sanitize triggeredRules: string array, bounded (32 rules × 200 chars).
+        const rules = Array.isArray(triggeredRules)
+          ? triggeredRules.filter((r): r is string => typeof r === 'string').slice(0, 32).map((r) => r.slice(0, 200))
+          : null;
         try {
           await getStores().blunders.record({
             id: typeof id === 'string' ? id : undefined,
@@ -148,6 +152,7 @@ export function createIngestRouter(localSecret: string): Router {
             actor,
             pid: typeof pid === 'string' ? pid : null,
             confidenceScore: typeof confidenceScore === 'number' ? confidenceScore : null,
+            triggeredRules: rules,
           });
           res.status(204).end();
           return;

@@ -181,7 +181,9 @@ export function registerAutonomyTools(server: McpServer): void {
       }
 
       // ── Override corpus check ─────────────────────────────────────────────────
-      // Warn when the corpus has a recent override for this (tag, service, time-window).
+      // Hard-block when the corpus has a recent human override for this
+      // (tag, service, time-window) — a human previously said "not this, not now"
+      // in this exact context, so autonomous execution must not proceed silently.
       // The service parameter is required for a meaningful check — skip if absent.
       if (!isDryRun && service) {
         const now = new Date();
@@ -190,12 +192,12 @@ export function registerAutonomyTools(server: McpServer): void {
             content: [{
               type: 'text',
               text: [
-                `⚠️ **Override corpus match** — \`${prediction.tag}\` for service \`${service}\` has been overridden in a similar time window before.`,
+                `🚫 **Blocked by override corpus** — \`${prediction.tag}\` for service \`${service}\` has been overridden in a similar time window before.`,
                 '',
-                'Review the override history at `GET /override-corpus` before proceeding.',
-                'If you still want to execute, omit the `service` parameter to bypass this check, or call `execute_fix` again.',
+                'Review the override history at `GET /override-corpus` and either apply the fix manually or ask an operator to re-review the override at `POST /overrides/:id/review`.',
               ].join('\n'),
             }],
+            isError: true,
           };
         }
       }

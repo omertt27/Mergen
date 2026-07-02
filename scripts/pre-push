@@ -1,0 +1,163 @@
+#!/bin/bash
+# pre-push — Mergen pre-push git hook.
+#
+# Blocks a push if the CI gate returns a BLOCK verdict. Unlike pre-commit
+# (which only sees staged files), pre-push has access to the full branch diff
+# against the remote, giving the policy engine the complete picture.
+#
+# Install:
+#   cp scripts/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+#
+# Or install via Mergen CLI:
+#   mergen-server setup --git-hooks
+#
+# Environment:
+#   MERGEN_URL     — Mergen server URL (default: http://127.0.0.1:3000)
+#   MERGEN_SECRET  — Shared secret for authenticated endpoints (optional)
+#   MERGEN_SERVICE — Service name to pass to the gate (optional, auto-inferred)
+#   MERGEN_BRANCH  — Branch scoping override (default: current branch)
+#   MERGEN_BLOCK_ON_WARN — Set to "true" to treat WARN as a blocking verdict
+#
+# Exit codes:
+#   0 — push allowed (PASS or WARN without MERGEN_BLOCK_ON_WARN)
+#   1 — push blocked (BLOCK, or WARN with MERGEN_BLOCK_ON_WARN=true)
+
+set -e
+
+MERGEN_URL="${MERGEN_URL:-http://127.0.0.1:3000}"
+MERGEN_SECRET="${MERGEN_SECRET:-}"
+SERVICE="${MERGEN_SERVICE:-}"
+BLOCK_ON_WARN="${MERGEN_BLOCK_ON_WARN:-false}"
+ACTOR="$(git config user.name 2>/dev/null || echo 'developer')"
+
+# ── Health check — skip gracefully if Mergen isn't running ───────────────────
+if ! curl -sf --max-time 2 "$MERGEN_URL/health" > /dev/null 2>&1; then
+  echo "⬡ Mergen: server not reachable at $MERGEN_URL — skipping pre-push gate (non-blocking)"
+  exit 0
+fi
+
+echo "⬡ Mergen pre-push gate"
+echo "─────────────────────────────────────────"
+
+# ── Gather remote info from pre-push stdin ───────────────────────────────────
+# Git passes: <local-ref> <local-sha1> <remote-ref> <remote-sha1>
+# We read from stdin to get the remote SHA so we can compute the full branch diff.
+REMOTE_SHA=""
+LOCAL_SHA=""
+while read -r local_ref local_sha remote_ref remote_sha; do
+  LOCAL_SHA="$local_sha"
+  REMOTE_SHA="$remote_sha"
+  break
+done
+
+# Determine the diff range
+if [ -z "$REMOTE_SHA" ] || [ "$REMOTE_SHA" = "0000000000000000000000000000000000000000" ]; then
+  # New branch — diff against the default branch
+  if git rev-parse --verify origin/main > /dev/null 2>&1; then
+    BASE="origin/main"
+  elif git rev-parse --verify origin/master > /dev/null 2>&1; then
+    BASE="origin/master"
+  else
+    BASE="HEAD~1"
+  fi
+  DIFF_RANGE="$BASE...HEAD"
+else
+  DIFF_RANGE="${REMOTE_SHA}...${LOCAL_SHA}"
+fi
+
+# Gather changed files
+CHANGED_FILES="$(git diff --name-only "$DIFF_RANGE" 2>/dev/null || true)"
+if [ -z "$CHANGED_FILES" ]; then
+  echo "✅ No changed files against remote. Pre-push gate passed."
+  exit 0
+fi
+
+# Gather diff content (truncated to 20KB for the gate)
+DIFF_CONTENT="$(git diff "$DIFF_RANGE" 2>/dev/null | head -c 20480 || true)"
+
+# Current branch
+BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')"
+BRANCH="${MERGEN_BRANCH:-$BRANCH}"
+
+# PR title heuristic: use last commit message
+PR_TITLE="$(git log -1 --pretty=%B 2>/dev/null | head -1 || echo '')"
+
+# ── Format payload ────────────────────────────────────────────────────────────
+if ! command -v jq > /dev/null 2>&1; then
+  echo "⬡ Mergen: jq not found — cannot format payload. Skipping gate (non-blocking)."
+  exit 0
+fi
+
+FILES_JSON="$(echo "$CHANGED_FILES" | jq -R . | jq -s .)"
+PAYLOAD="$(jq -n \
+  --argjson files "$FILES_JSON" \
+  --arg prTitle "$PR_TITLE" \
+  --arg service "$SERVICE" \
+  --arg actor "$ACTOR" \
+  --arg branch "$BRANCH" \
+  --arg diff "$DIFF_CONTENT" \
+  '{
+    files: $files,
+    prTitle: $prTitle,
+    actor: $actor,
+    branch: $branch,
+    diff: $diff,
+    service: (if $service == "" then null else $service end)
+  }')"
+
+# ── Call the CI gate ──────────────────────────────────────────────────────────
+RESPONSE="$(curl -sf --max-time 10 -X POST "$MERGEN_URL/ci/gate" \
+  -H "Content-Type: application/json" \
+  ${MERGEN_SECRET:+-H "x-mergen-secret: $MERGEN_SECRET"} \
+  -d "$PAYLOAD" 2>/dev/null || echo '{"verdict":"pass","riskScore":0,"reasons":[]}')"
+
+VERDICT="$(echo "$RESPONSE" | jq -r '.verdict // "pass"')"
+RISK_SCORE="$(echo "$RESPONSE" | jq -r '.riskScore // 0')"
+
+echo "Branch: $BRANCH"
+echo "Files changed: $(echo "$CHANGED_FILES" | wc -l | tr -d ' ')"
+echo "Verdict: ${VERDICT^^}  (Risk score: $RISK_SCORE/100)"
+
+REASONS="$(echo "$RESPONSE" | jq -r '.reasons // [] | .[]' 2>/dev/null || true)"
+if [ -n "$REASONS" ]; then
+  echo ""
+  echo "Reasons:"
+  echo "$RESPONSE" | jq -r '.reasons[] | "  • " + .' 2>/dev/null || true
+fi
+
+# Diff-to-decision line hits
+LINE_HITS="$(echo "$RESPONSE" | jq -r '.lineHits // [] | length' 2>/dev/null || echo 0)"
+if [ "$LINE_HITS" -gt 0 ]; then
+  echo ""
+  echo "Specific lines that triggered the gate:"
+  echo "$RESPONSE" | jq -r '.lineHits[] | "  Line \(.lineNumber): \(.lineContent | .[0:80]) — \(.reason)"' 2>/dev/null || true
+fi
+
+RECOMMENDATION="$(echo "$RESPONSE" | jq -r '.recommendation // ""' 2>/dev/null || true)"
+if [ -n "$RECOMMENDATION" ]; then
+  echo ""
+  echo "$RECOMMENDATION"
+fi
+
+echo "─────────────────────────────────────────"
+
+# ── Verdict ───────────────────────────────────────────────────────────────────
+if [ "$VERDICT" = "block" ]; then
+  echo "🚫 Push blocked by Mergen pre-push gate."
+  echo "   Review the reasons above, fix the flagged patterns, and retry."
+  echo "   To bypass (emergency): git push --no-verify"
+  exit 1
+fi
+
+if [ "$VERDICT" = "warn" ] && [ "$BLOCK_ON_WARN" = "true" ]; then
+  echo "⚠️  Push blocked: MERGEN_BLOCK_ON_WARN=true and verdict is WARN."
+  exit 1
+fi
+
+if [ "$VERDICT" = "warn" ]; then
+  echo "⚠️  Pre-push gate warnings. Review before merging."
+  exit 0
+fi
+
+echo "✅ Mergen pre-push gate passed."
+exit 0

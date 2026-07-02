@@ -84,6 +84,12 @@ export interface OverrideEvent {
   source?: 'team' | 'community';
   /** Unix ms when an operator last explicitly re-affirmed this entry is still valid. */
   reviewedAt?: number;
+  /**
+   * Expiry timestamp (Unix ms). After this time the entry is excluded from gate
+   * evaluation and flagged as stale in GET /overrides/expiring-soon.
+   * Default: recordedAt + 90 days. Set to 0 to make the entry permanent.
+   */
+  expiresAt?: number;
 }
 
 interface CorpusFile {
@@ -156,9 +162,56 @@ function persist(): void {
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
-/** Record an engineer override. Returns the saved event with its assigned id. */
-export function recordOverride(input: Omit<OverrideEvent, 'id' | 'dayOfWeek' | 'hourOfDay' | 'recordedAt'>): OverrideEvent {
+/** Default corpus entry lifetime: 90 days. Set expiresAt: 0 to make permanent. */
+const DEFAULT_EXPIRY_MS = 90 * 24 * 60 * 60 * 1_000;
+
+/**
+ * Detect logical conflicts between a new override and existing entries for the
+ * same tag+service. A conflict exists when one entry says "always do X" and
+ * another says "never do X" for the same incident tag.
+ *
+ * Returns a list of conflicting entry IDs if any contradictions are found.
+ * This is purely advisory — the new entry is still recorded.
+ */
+export function detectConflicts(input: Pick<OverrideEvent, 'incidentTag' | 'service' | 'overrideReason' | 'proposedCommand'>): string[] {
+  loadForRead();
+  const now = Date.now();
+  const CONFLICT_PAIRS: Array<[OverrideReason, OverrideReason]> = [
+    ['batch-window',      'wrong-fix'],
+    ['maintenance-window','wrong-diagnosis'],
+    ['compliance-hold',   'on-call-discretion'],
+  ];
+  const conflicts: string[] = [];
+  for (const ev of _events) {
+    if (ev.incidentTag !== input.incidentTag) continue;
+    if (ev.service !== input.service) continue;
+    // Skip expired entries
+    if (ev.expiresAt && ev.expiresAt > 0 && ev.expiresAt < now) continue;
+    // Conflict: same proposed command, but contradictory override reasons
+    const commandOverlap = ev.proposedCommand.slice(0, 50).toLowerCase() === input.proposedCommand.slice(0, 50).toLowerCase();
+    if (commandOverlap) {
+      for (const [a, b] of CONFLICT_PAIRS) {
+        if ((ev.overrideReason === a && input.overrideReason === b) ||
+            (ev.overrideReason === b && input.overrideReason === a)) {
+          conflicts.push(ev.id);
+        }
+      }
+    }
+  }
+  return conflicts;
+}
+
+/** Record an engineer override. Returns the saved event with its assigned id and any detected conflicts. */
+export function recordOverride(input: Omit<OverrideEvent, 'id' | 'dayOfWeek' | 'hourOfDay' | 'recordedAt'>): OverrideEvent & { conflictsWith?: string[] } {
   const now = new Date();
+  const conflicts = detectConflicts({
+    incidentTag:     input.incidentTag,
+    service:         input.service,
+    overrideReason:  input.overrideReason,
+    proposedCommand: input.proposedCommand,
+  });
+  // Compute expiry: honour explicit expiresAt=0 (permanent), otherwise default 90 days
+  const expiresAt = input.expiresAt === 0 ? 0 : (input.expiresAt ?? now.getTime() + DEFAULT_EXPIRY_MS);
   const event: OverrideEvent = {
     ...input,
     id: randomUUID(),
@@ -169,6 +222,7 @@ export function recordOverride(input: Omit<OverrideEvent, 'id' | 'dayOfWeek' | '
     dayOfWeek: now.getUTCDay(),
     hourOfDay: now.getUTCHours(),
     recordedAt: now.getTime(),
+    expiresAt,
   };
 
   return lockAndExecute(`${OVERRIDE_CORPUS_FILE}.lock`, () => {
@@ -177,8 +231,168 @@ export function recordOverride(input: Omit<OverrideEvent, 'id' | 'dayOfWeek' | '
     if (_events.length > MAX_EVENTS) _events = _events.slice(-MAX_EVENTS);
     _corpusDirty = true;
     persist();
-    logger.info({ id: event.id, tag: event.incidentTag, reason: event.overrideReason, service: event.service }, 'override-corpus: override recorded');
-    return event;
+    if (conflicts.length > 0) {
+      logger.warn({ id: event.id, tag: event.incidentTag, conflicts }, 'override-corpus: conflict detected with existing entries');
+    }
+    logger.info({ id: event.id, tag: event.incidentTag, reason: event.overrideReason, service: event.service, expiresAt }, 'override-corpus: override recorded');
+    return { ...event, conflictsWith: conflicts.length > 0 ? conflicts : undefined };
+  });
+}
+
+/**
+ * Returns corpus entries expiring within the next windowDays (default: 14).
+ * Used by GET /overrides/expiring-soon to surface renewal prompts.
+ */
+export function getExpiringSoon(windowDays = 14): OverrideEvent[] {
+  loadForRead();
+  const now      = Date.now();
+  const cutoffMs = now + windowDays * 24 * 60 * 60 * 1_000;
+  return _events.filter((e) => {
+    if (!e.expiresAt || e.expiresAt === 0) return false; // permanent
+    return e.expiresAt > now && e.expiresAt < cutoffMs;
+  });
+}
+
+// ── Policy packs (export / import) ────────────────────────────────────────────
+// A pack is the shareable form of the corpus: the pattern fields only, with
+// team-local provenance (id, actor, recordedAt, reviewedAt) stripped. Packs are
+// what a team publishes ("our Friday settlement-window rules") and what a fresh
+// install imports to start with a non-empty corpus.
+
+export interface OverridePackEntry {
+  incidentTag: string;
+  proposedCommand: string;
+  overrideReason: OverrideReason;
+  note?: string;
+  rationale?: string;
+  service: string;
+  environment: string;
+  /** 0=Sunday … 6=Saturday, UTC — part of the pattern, preserved on import. */
+  dayOfWeek: number;
+  /** 0–23 UTC — part of the pattern, preserved on import. */
+  hourOfDay: number;
+  manualAction?: string;
+  outcome?: OverrideOutcome;
+  /**
+   * Relative lifetime applied at import time. Omitted = permanent (expiresAt: 0):
+   * pack entries encode structural policy, not recent incident history, so they
+   * don't get the 90-day default that team-recorded overrides do.
+   */
+  expiresInDays?: number;
+}
+
+export interface OverridePack {
+  format: 'mergen-pack';
+  version: 1;
+  name?: string;
+  exportedAt: number;
+  entryCount: number;
+  entries: OverridePackEntry[];
+}
+
+/**
+ * Pattern identity of an entry — same key the community seeder uses. Two
+ * entries with the same key encode the same policy pattern, so import skips
+ * duplicates and export collapses them.
+ */
+export function overridePackKey(
+  e: Pick<OverrideEvent, 'incidentTag' | 'overrideReason' | 'dayOfWeek' | 'hourOfDay' | 'service'>,
+): string {
+  return `${e.incidentTag}:${e.overrideReason}:${e.dayOfWeek}:${e.hourOfDay}:${e.service}`;
+}
+
+/**
+ * Build a shareable pack from corpus events. Pure — callers fetch events from
+ * whichever store backs the deployment. Community-sourced entries are excluded
+ * by default so re-exporting doesn't echo imported packs back into circulation.
+ */
+export function buildOverridePack(
+  events: readonly OverrideEvent[],
+  opts: { name?: string; includeCommunity?: boolean } = {},
+): OverridePack {
+  const seen = new Set<string>();
+  const entries: OverridePackEntry[] = [];
+  for (const e of events) {
+    if (e.source === 'community' && !opts.includeCommunity) continue;
+    const key = overridePackKey(e);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    entries.push({
+      incidentTag:     e.incidentTag,
+      proposedCommand: e.proposedCommand,
+      overrideReason:  e.overrideReason,
+      ...(e.note ? { note: e.note } : {}),
+      ...(e.rationale ? { rationale: e.rationale } : {}),
+      service:         e.service,
+      environment:     e.environment,
+      dayOfWeek:       e.dayOfWeek,
+      hourOfDay:       e.hourOfDay,
+      ...(e.manualAction ? { manualAction: e.manualAction } : {}),
+      ...(e.outcome ? { outcome: e.outcome } : {}),
+    });
+  }
+  return {
+    format: 'mergen-pack',
+    version: 1,
+    ...(opts.name ? { name: opts.name } : {}),
+    exportedAt: Date.now(),
+    entryCount: entries.length,
+    entries,
+  };
+}
+
+/**
+ * Import pack entries into the corpus. Unlike recordOverride, this preserves
+ * each entry's dayOfWeek/hourOfDay — the time window is part of the pattern
+ * ("Friday settlement window"), not a record-time artifact. Entries whose
+ * pattern key already exists are skipped, so import is idempotent and team
+ * overrides always take precedence over pack content.
+ */
+export function importOverrides(
+  entries: OverridePackEntry[],
+  opts: { source?: 'team' | 'community'; actor?: string } = {},
+): { imported: number; skipped: number } {
+  const source = opts.source ?? 'community';
+  const actor  = opts.actor ?? source;
+  return lockAndExecute(`${OVERRIDE_CORPUS_FILE}.lock`, () => {
+    load(true);
+    const existingKeys = new Set(_events.map(overridePackKey));
+    const now = Date.now();
+    let imported = 0;
+    let skipped  = 0;
+    for (const entry of entries) {
+      const dayOfWeek = Math.min(6, Math.max(0, Math.trunc(entry.dayOfWeek)));
+      const hourOfDay = Math.min(23, Math.max(0, Math.trunc(entry.hourOfDay)));
+      const key = overridePackKey({ ...entry, dayOfWeek, hourOfDay });
+      if (existingKeys.has(key)) { skipped++; continue; }
+      existingKeys.add(key);
+      _events.push({
+        id:              randomUUID(),
+        incidentTag:     entry.incidentTag,
+        proposedCommand: entry.proposedCommand.slice(0, 500),
+        overrideReason:  entry.overrideReason,
+        note:            entry.note?.slice(0, 200),
+        rationale:       entry.rationale?.slice(0, 300),
+        service:         entry.service,
+        environment:     entry.environment,
+        dayOfWeek,
+        hourOfDay,
+        manualAction:    entry.manualAction?.slice(0, 500),
+        outcome:         entry.outcome,
+        recordedAt:      now,
+        actor,
+        source,
+        expiresAt:       entry.expiresInDays ? now + entry.expiresInDays * 24 * 60 * 60 * 1_000 : 0,
+      });
+      imported++;
+    }
+    if (imported > 0) {
+      if (_events.length > MAX_EVENTS) _events = _events.slice(-MAX_EVENTS);
+      _corpusDirty = true;
+      persist();
+      logger.info({ imported, skipped, source }, 'override-corpus: pack imported');
+    }
+    return { imported, skipped };
   });
 }
 
@@ -201,6 +415,7 @@ export function updateOutcome(id: string, outcome: OverrideOutcome): boolean {
  *
  * Time matching: same day-of-week ± 1 hour. This captures recurring patterns
  * ("Friday evening batch window") without requiring exact time matching.
+ * Excludes expired entries from evaluation.
  */
 export function hasRecentOverride(
   incidentTag: string,
@@ -209,11 +424,14 @@ export function hasRecentOverride(
   hourOfDay: number,
 ): boolean {
   loadForRead();
-  const cutoff = Date.now() - 90 * 24 * 60 * 60 * 1000;
+  const now    = Date.now();
+  const cutoff = now - 90 * 24 * 60 * 60 * 1000;
   return _events.some((e) => {
     if (e.incidentTag !== incidentTag) return false;
     if (e.service !== service) return false;
     if (e.recordedAt < cutoff) return false;
+    // Skip expired entries — they should not affect gate decisions
+    if (e.expiresAt && e.expiresAt > 0 && e.expiresAt < now) return false;
     if (e.dayOfWeek !== dayOfWeek) return false;
     const hourDiff = Math.abs(e.hourOfDay - hourOfDay);
     return hourDiff <= 1 || hourDiff >= 23; // handles midnight wrap-around
@@ -555,6 +773,12 @@ function _inferReason(text: string): OverrideReason {
   return 'on-call-discretion';
 }
 
+// Bare CLI invocation at the start of a line — captures commands written
+// without backticks, e.g. "kubectl rollout restart deploy/api", "terraform apply".
+// Anchored to the (trimmed) line start and limited to a known binary vocabulary
+// so it does not match prose lines that merely mention these tools mid-sentence.
+const _CLI_START_RE = /^(kubectl|oc|docker|docker-compose|podman|terraform|tofu|pulumi|ansible(?:-playbook)?|helm|kubeadm|nomad|vault|consul|systemctl|service|supervisorctl|pm2|npm|yarn|pnpm|npx|make|rake|rails|flyway|liquibase|alembic|psql|mysql|mongosh|mongo|redis-cli|aws|gcloud|az|git|pg_dump|pg_restore|createdb|dropdb|nginx|apachectl|kill|pkill|rm|chmod|chown|scp|rsync|bash|sh)\b/i;
+
 // Action verbs that appear in operational constraints
 const _ACTION_RE = /\b(restart|kill|delete|drop|destroy|scale|resize|run|migrate|execute|deploy|push|apply|rollback|terminate|truncate|alter|reboot|flush|drain|update|patch)\b/i;
 
@@ -564,25 +788,58 @@ const _NEG_RE = /\b(don'?t|do\s+not|avoid|never|should\s+not|shouldn'?t|must\s+n
 // Phrases that signal a human lesson or constraint being declared
 const _CONSTRAINT_SIGNAL_RE = /\b(constraint:|policy:|rule:|adr:|decided:|going\s+forward[,:]?|lesson(?:\s+learned)?[s:]?|we\s+learned|action\s+item[s:]?|takeaway[s:]?|we\s+(?:shouldn'?t|should\s+not|decided\s+not|won'?t|will\s+not))\b/i;
 
-// CLI tool prefixes that indicate a bare-shell command
-const _CLI_START_RE = /^(kubectl|docker|terraform|helm|systemctl|service|npm|yarn|pnpm|make|psql|mysql|aws|gcloud|az)\s/i;
+// Temporal constraint patterns — "don't touch X until Y", "freeze Z this weekend"
+// These phrases signal time-bounded operational holds.
+const _TEMPORAL_RE = /\b(until|freeze|freeze\s+all|hold\s+off\s+until|not\s+until|embargo|blackout|lock\s+down|halt.*until|pause.*until|suspend.*until|stop.*until|don'?t.*until|this\s+(?:weekend|week|friday|monday|evening|night|morning)|end\s+of\s+(?:day|week|month|sprint|quarter))\b/i;
+
+// Parse a rough duration in ms from a temporal phrase (best-effort)
+function _parseTemporalExpiry(sentence: string): number | undefined {
+  const lc = sentence.toLowerCase();
+  if (/this\s+(weekend|saturday|sunday)/.test(lc)) {
+    // Expires Monday 06:00 UTC
+    const now = new Date();
+    const daysUntilMon = (8 - now.getUTCDay()) % 7 || 7;
+    const expiry = new Date(now);
+    expiry.setUTCDate(now.getUTCDate() + daysUntilMon);
+    expiry.setUTCHours(6, 0, 0, 0);
+    return expiry.getTime();
+  }
+  if (/end\s+of\s+day|tonight|this\s+evening/.test(lc)) {
+    const expiry = new Date();
+    expiry.setUTCHours(23, 59, 0, 0);
+    if (expiry.getTime() < Date.now()) expiry.setUTCDate(expiry.getUTCDate() + 1);
+    return expiry.getTime();
+  }
+  if (/this\s+week|end\s+of\s+week/.test(lc)) {
+    return Date.now() + 7 * 24 * 60 * 60 * 1_000;
+  }
+  if (/end\s+of\s+month/.test(lc)) {
+    return Date.now() + 30 * 24 * 60 * 60 * 1_000;
+  }
+  if (/end\s+of\s+(sprint|quarter)/.test(lc)) {
+    return Date.now() + 14 * 24 * 60 * 60 * 1_000;
+  }
+  return undefined;
+}
 
 interface _Candidate {
   command: string;
   note: string;
   isNegative: boolean;
   manualAction?: string;
+  /** Optional auto-computed expiry timestamp for temporal constraints. */
+  expiresAt?: number;
 }
 
 function _extractCandidates(thread: string): _Candidate[] {
   const candidates: _Candidate[] = [];
   const seen = new Set<string>();
 
-  function _add(command: string, note: string, isNegative: boolean, manualAction?: string): void {
+  function _add(command: string, note: string, isNegative: boolean, manualAction?: string, expiresAt?: number): void {
     const key = command.toLowerCase().slice(0, 50);
     if (!seen.has(key)) {
       seen.add(key);
-      candidates.push({ command: command.slice(0, 500), note: note.slice(0, 300), isNegative, manualAction });
+      candidates.push({ command: command.slice(0, 500), note: note.slice(0, 300), isNegative, manualAction, expiresAt });
     }
   }
 
@@ -628,6 +885,21 @@ function _extractCandidates(thread: string): _Candidate[] {
     _add(sentence.slice(0, 200), sentence, false);
   }
 
+  // ── Path 5: temporal constraint phrases ──────────────────────────────────
+  // "don't deploy until Monday", "freeze all changes this weekend",
+  // "hold off until end of day", "embargo releases until the batch window closes"
+  // Extract with best-effort expiry based on the time phrase detected.
+  for (const sentence of thread.split(/[.!?\n]+/).map(s => s.trim()).filter(s => s.length > 10 && s.length < 400)) {
+    if (!_TEMPORAL_RE.test(sentence)) continue;
+    const lc = sentence.toLowerCase();
+    if ([...seen].some(k => k.length > 10 && lc.includes(k))) continue;
+    const expiresAt = _parseTemporalExpiry(sentence);
+    const label = expiresAt
+      ? `temporal-hold (expires ${new Date(expiresAt).toISOString().slice(0, 16)}Z): ${sentence.slice(0, 120)}`
+      : `temporal-hold: ${sentence.slice(0, 120)}`;
+    _add(label, sentence, true, undefined, expiresAt);
+  }
+
   return candidates;
 }
 
@@ -636,11 +908,12 @@ function _extractCandidates(thread: string): _Candidate[] {
  * Returns one OverrideEvent per distinct constraint — typically 1–5 per thread.
  * Records each into the corpus automatically.
  *
- * Extracts four signal types:
+ * Extracts five signal types:
  *   1. Backtick-quoted command pairs (proposed + manualAction) — highest confidence
  *   2. Bare CLI lines (kubectl, docker, terraform, etc.)
  *   3. Negative decision sentences ("don't restart during settlement window")
  *   4. Constraint declarations ("going forward", "lesson learned", "policy:")
+ *   5. Temporal constraint phrases ("freeze this weekend", "hold off until Monday") with auto-expiry
  */
 export function compileOverridesFromSlackThread(
   slackThread: string,
@@ -673,6 +946,8 @@ export function compileOverridesFromSlackThread(
         environment: 'production',
         manualAction: cand.manualAction,
         actor:       'slack-nlp-parser',
+        // Temporal constraints carry an auto-computed expiry
+        expiresAt: cand.expiresAt,
       });
       events.push(event);
     } catch { /* non-fatal — duplicate or validation error */ }

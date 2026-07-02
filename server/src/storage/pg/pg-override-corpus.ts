@@ -12,10 +12,11 @@ import type {
   OverrideEvent,
   OverrideReason,
   OverrideOutcome,
+  OverridePackEntry,
   CompactedRule,
   OverrideSummary,
 } from '../../intelligence/override-corpus.js';
-import { dominantCommandSignatures } from '../../intelligence/override-corpus.js';
+import { dominantCommandSignatures, overridePackKey } from '../../intelligence/override-corpus.js';
 import type { IOverrideCorpus } from '../interfaces.js';
 
 const DEFAULT_TENANT = 'local';
@@ -34,6 +35,10 @@ function rowToOverrideEvent(row: Record<string, unknown>): OverrideEvent {
     hourOfDay: Number(row.hour_of_day ?? 0),
     manualAction: row.manual_action ? String(row.manual_action) : undefined,
     outcome: row.outcome ? (row.outcome as OverrideOutcome) : undefined,
+    rationale: row.rationale ? String(row.rationale) : undefined,
+    source: row.source === 'community' || row.source === 'team'
+      ? (row.source as 'community' | 'team')
+      : undefined,
     recordedAt: row.recorded_at instanceof Date
       ? (row.recorded_at as Date).getTime()
       : new Date(String(row.recorded_at ?? 0)).getTime(),
@@ -42,6 +47,12 @@ function rowToOverrideEvent(row: Record<string, unknown>): OverrideEvent {
       : row.reviewed_at instanceof Date
         ? (row.reviewed_at as Date).getTime()
         : new Date(String(row.reviewed_at)).getTime(),
+    // NULL = permanent, mapped to 0 (the file store's explicit "permanent" marker).
+    expiresAt: row.expires_at == null
+      ? 0
+      : row.expires_at instanceof Date
+        ? (row.expires_at as Date).getTime()
+        : new Date(String(row.expires_at)).getTime(),
     actor: String(row.actor ?? ''),
   };
 }
@@ -74,24 +85,33 @@ export class PgOverrideCorpus implements IOverrideCorpus {
     ].join('|');
     const hash = createHash('sha256').update(payload + prevHash).digest('hex');
 
+    // Same lifetime semantics as the file store: explicit expiresAt=0 means
+    // permanent (stored as NULL), otherwise default to 90 days.
+    const expiresAt = input.expiresAt === 0
+      ? null
+      : new Date(input.expiresAt ?? now.getTime() + 90 * 24 * 60 * 60 * 1_000);
+
     const rows = await sql`
       INSERT INTO override_corpus (
         id, tenant_id, incident_tag, proposed_command, override_reason,
-        note, service, environment, day_of_week, hour_of_day,
-        manual_action, actor, recorded_at, hash, prev_hash
+        note, rationale, service, environment, day_of_week, hour_of_day,
+        manual_action, actor, source, recorded_at, expires_at, hash, prev_hash
       ) VALUES (
         ${id}, ${tid},
         ${input.incidentTag},
         ${input.proposedCommand.slice(0, 500)},
         ${input.overrideReason},
         ${input.note?.slice(0, 200) ?? null},
+        ${input.rationale?.slice(0, 300) ?? null},
         ${input.service},
         ${input.environment ?? 'production'},
         ${now.getUTCDay()},
         ${now.getUTCHours()},
         ${input.manualAction?.slice(0, 500) ?? null},
         ${input.actor},
+        ${input.source ?? null},
         ${now},
+        ${expiresAt},
         ${hash},
         ${prevHash}
       )
@@ -311,6 +331,20 @@ export class PgOverrideCorpus implements IOverrideCorpus {
     return rows.map((r) => rowToOverrideEvent(r as Record<string, unknown>));
   }
 
+  async getExpiringSoon(windowDays = 14, tenantId?: string): Promise<OverrideEvent[]> {
+    const sql = getSql();
+    const tid = tenantId ?? DEFAULT_TENANT;
+    const rows = await sql`
+      SELECT * FROM override_corpus
+      WHERE tenant_id = ${tid}
+        AND expires_at IS NOT NULL
+        AND expires_at > NOW()
+        AND expires_at < NOW() + (${windowDays} * INTERVAL '1 day')
+      ORDER BY expires_at ASC
+    `;
+    return rows.map((r) => rowToOverrideEvent(r as Record<string, unknown>));
+  }
+
   async markOverrideReviewed(id: string, tenantId?: string): Promise<boolean> {
     const sql = getSql();
     const tid = tenantId ?? DEFAULT_TENANT;
@@ -321,6 +355,89 @@ export class PgOverrideCorpus implements IOverrideCorpus {
       RETURNING 1
     `;
     return rows.length > 0;
+  }
+
+  async importOverrides(
+    entries: OverridePackEntry[],
+    opts?: { source?: 'team' | 'community'; actor?: string },
+    tenantId?: string,
+  ): Promise<{ imported: number; skipped: number }> {
+    const sql = getSql();
+    const tid = tenantId ?? DEFAULT_TENANT;
+    const source = opts?.source ?? 'community';
+    const actor  = opts?.actor ?? source;
+
+    // Pattern-key dedup against the whole tenant corpus (same key as the file
+    // store) so import is idempotent and team overrides take precedence.
+    const existing = await sql`
+      SELECT incident_tag, override_reason, day_of_week, hour_of_day, service
+      FROM override_corpus WHERE tenant_id = ${tid}
+    `;
+    const existingKeys = new Set(existing.map((r) => overridePackKey({
+      incidentTag:    String(r.incident_tag),
+      overrideReason: r.override_reason as OverrideReason,
+      dayOfWeek:      Number(r.day_of_week),
+      hourOfDay:      Number(r.hour_of_day),
+      service:        String(r.service),
+    })));
+
+    let imported = 0;
+    let skipped  = 0;
+    for (const entry of entries) {
+      const dayOfWeek = Math.min(6, Math.max(0, Math.trunc(entry.dayOfWeek)));
+      const hourOfDay = Math.min(23, Math.max(0, Math.trunc(entry.hourOfDay)));
+      const key = overridePackKey({ ...entry, dayOfWeek, hourOfDay });
+      if (existingKeys.has(key)) { skipped++; continue; }
+      existingKeys.add(key);
+
+      const now = new Date();
+      const id  = randomUUID();
+      const lastRows = await sql`
+        SELECT hash FROM override_corpus
+        WHERE tenant_id = ${tid}
+        ORDER BY recorded_at DESC, id DESC
+        LIMIT 1
+      `;
+      const prevHash = lastRows.length > 0 && lastRows[0].hash ? String(lastRows[0].hash) : 'genesis_override';
+      const payload = [
+        id, entry.incidentTag, entry.proposedCommand.slice(0, 500),
+        entry.overrideReason, entry.service, actor,
+      ].join('|');
+      const hash = createHash('sha256').update(payload + prevHash).digest('hex');
+      // Pack entries are structural policy: permanent (NULL) unless the pack
+      // specifies a relative lifetime.
+      const expiresAt = entry.expiresInDays
+        ? new Date(now.getTime() + entry.expiresInDays * 24 * 60 * 60 * 1_000)
+        : null;
+
+      await sql`
+        INSERT INTO override_corpus (
+          id, tenant_id, incident_tag, proposed_command, override_reason,
+          note, rationale, service, environment, day_of_week, hour_of_day,
+          manual_action, actor, source, recorded_at, expires_at, hash, prev_hash
+        ) VALUES (
+          ${id}, ${tid},
+          ${entry.incidentTag},
+          ${entry.proposedCommand.slice(0, 500)},
+          ${entry.overrideReason},
+          ${entry.note?.slice(0, 200) ?? null},
+          ${entry.rationale?.slice(0, 300) ?? null},
+          ${entry.service},
+          ${entry.environment ?? 'production'},
+          ${dayOfWeek},
+          ${hourOfDay},
+          ${entry.manualAction?.slice(0, 500) ?? null},
+          ${actor},
+          ${source},
+          ${now},
+          ${expiresAt},
+          ${hash},
+          ${prevHash}
+        )
+      `;
+      imported++;
+    }
+    return { imported, skipped };
   }
 }
 

@@ -5,8 +5,14 @@
  *   1. retrySuccessRate  — did the agent reformulate successfully after a block?
  *   2. policyCoverage    — unguarded tool calls + dead rules
  *   3. hitlPatterns      — approve/deny ratios + latency per rule
+ *
+ * Additional endpoints:
+ *   GET /gate/stream     — live SSE stream of gate decisions (PASS/BLOCK/HOLD)
+ *   GET /gate/heatmap    — blast-radius service heatmap: per-service call frequency
+ *                          and average blast-radius score
  */
 
+import type { Response } from 'express';
 import { Router } from 'express';
 import { loadEnterprisePolicy } from '../intelligence/enterprise-policy-engine.js';
 import {
@@ -17,7 +23,10 @@ import {
   getHitlStats,
   getReformulationRates,
   getHitlFatigueStatus,
+  getGateEvents,
+  subscribeGateStream,
 } from '../intelligence/gate-analytics.js';
+import { computeBlastRadius, mostSevereBlast } from '../intelligence/blast-radius.js';
 import { computePolicySuggestions } from '../intelligence/policy-suggester.js';
 
 function retryAssessment(passRate: number): string {
@@ -147,6 +156,131 @@ export function createGateAnalyticsRouter(): Router {
         description: 'Approval fatigue detection — when too many HOLDs fire in a short window, engineers stop responding promptly.',
         ...fatigue,
       },
+    });
+  });
+
+  // ── GET /gate/stream — live SSE stream of gate decisions ───────────────────
+  // Emits one Server-Sent Event per gate decision (PASS/BLOCK/HOLD) as it
+  // happens. Clients can use this to build real-time dashboards or dashboards
+  // that show exactly what the agent is attempting in flight.
+  //
+  // Event format (text/event-stream):
+  //   event: gate_decision
+  //   data: {"ts":...,"toolName":"...","verdict":"block","triggeredRules":["..."]}
+  //
+  // Streams are automatically cleaned up when the client disconnects.
+  router.get('/gate/stream', (req, res: Response) => {
+    res.setHeader('Content-Type',  'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection',    'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no'); // disable nginx buffering
+    res.flushHeaders();
+
+    // Send recent events as initial burst so client has context immediately
+    const recent = getGateEvents().slice(-20);
+    for (const ev of recent) {
+      res.write(`event: gate_decision\ndata: ${JSON.stringify(ev)}\n\n`);
+    }
+    res.write(`event: connected\ndata: {"note":"Streaming live gate decisions","recentSent":${recent.length}}\n\n`);
+
+    // Keep-alive heartbeat every 30 seconds
+    const heartbeat = setInterval(() => {
+      res.write(`: heartbeat ${Date.now()}\n\n`);
+    }, 30_000);
+
+    const unsubscribe = subscribeGateStream((event) => {
+      res.write(`event: gate_decision\ndata: ${JSON.stringify(event)}\n\n`);
+    });
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+    });
+  });
+
+  // ── GET /gate/heatmap — blast-radius service heatmap ─────────────────────
+  // Returns per-service tool-call frequency and average blast-radius score
+  // from the gate event ring buffer. Surfaces over-privileged agents (agents
+  // that touch many services with high blast-radius scores).
+  //
+  // Query params:
+  //   windowMs=N  — restrict to the last N milliseconds (default: 1 hour)
+  router.get('/gate/heatmap', (req, res) => {
+    const windowMs = Math.max(60_000, Number(req.query.windowMs ?? 60 * 60 * 1_000));
+    const cutoff   = Date.now() - windowMs;
+    const events   = getGateEvents().filter((e) => e.ts >= cutoff);
+
+    // Aggregate per service
+    type ServiceRow = {
+      service:          string;
+      totalCalls:       number;
+      blocked:          number;
+      held:             number;
+      passed:           number;
+      avgBlastScore:    number;
+      maxBlastScope:    string;
+      topAgents:        string[];
+      topTools:         string[];
+    };
+    const serviceMap = new Map<string, {
+      calls: number; blocked: number; held: number; passed: number;
+      blastScores: number[]; blastScopes: string[];
+      agents: Map<string, number>; tools: Map<string, number>;
+    }>();
+
+    for (const ev of events) {
+      const svc = ev.service ?? 'unknown';
+      let row = serviceMap.get(svc);
+      if (!row) {
+        row = { calls: 0, blocked: 0, held: 0, passed: 0, blastScores: [], blastScopes: [], agents: new Map(), tools: new Map() };
+        serviceMap.set(svc, row);
+      }
+      row.calls++;
+      if (ev.verdict === 'block') row.blocked++;
+      else if (ev.verdict === 'hold') row.held++;
+      else row.passed++;
+
+      if (ev.command) {
+        const blast = computeBlastRadius(ev.command);
+        const scopeScore: Record<string, number> = {
+          'data-destructive': 100, 'cluster': 90, 'namespace': 70,
+          'data-write': 60, 'deployment': 50, 'config-change': 40,
+          'pod': 20, 'unknown': 10,
+        };
+        row.blastScores.push(scopeScore[blast.scope] ?? 10);
+        row.blastScopes.push(blast.scope);
+      }
+
+      const agentKey = ev.agentId ?? ev.actor ?? 'unknown';
+      row.agents.set(agentKey, (row.agents.get(agentKey) ?? 0) + 1);
+      row.tools.set(ev.toolName, (row.tools.get(ev.toolName) ?? 0) + 1);
+    }
+
+    const heatmap: ServiceRow[] = [...serviceMap.entries()]
+      .map(([service, row]) => ({
+        service,
+        totalCalls:    row.calls,
+        blocked:       row.blocked,
+        held:          row.held,
+        passed:        row.passed,
+        avgBlastScore: row.blastScores.length > 0
+          ? Math.round(row.blastScores.reduce((a, b) => a + b, 0) / row.blastScores.length)
+          : 0,
+        maxBlastScope: row.blastScopes.reduce((max, s) => {
+          const order = ['data-destructive','cluster','namespace','data-write','deployment','config-change','pod','unknown'];
+          return order.indexOf(s) < order.indexOf(max) ? s : max;
+        }, 'unknown'),
+        topAgents: [...row.agents.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([a]) => a),
+        topTools:  [...row.tools.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([t]) => t),
+      }))
+      .sort((a, b) => b.avgBlastScore - a.avgBlastScore);
+
+    res.json({
+      ok: true,
+      windowMs,
+      eventsAnalyzed: events.length,
+      services:       heatmap,
+      note: 'Services sorted by average blast-radius score. High score + high call frequency = over-privileged agent.',
     });
   });
 

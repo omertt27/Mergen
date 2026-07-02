@@ -6,8 +6,12 @@
  * profile-level tool allow/block lists on top of enterprise policy.
  *
  * Storage: ~/.mergen/agent-profiles.json
- * Identity: set MERGEN_AGENT_ID=<profile-id> in the environment where the
- *   MCP server starts (per IDE / per developer).
+ * Identity: a profile is only applied for a VERIFIED agent identity — see
+ *   agent-identity.ts. Run `mergen-server agent-register <profile-id>` to
+ *   issue a signed MERGEN_AGENT_TOKEN; the caller must present a valid token
+ *   to have this profile's allow/block lists enforced. The old bare
+ *   MERGEN_AGENT_ID env var alone is not sufficient — it's self-asserted by
+ *   the same actor a profile is meant to constrain.
  */
 
 import fs from 'fs';
@@ -86,10 +90,14 @@ export function deleteProfile(id: string): boolean {
 /**
  * Check a tool call against the active agent profile (if any).
  * Returns null if allowed, or a reason string if blocked.
- * Reads MERGEN_AGENT_ID from env — set once per IDE session by the operator.
+ *
+ * `verifiedAgentId` must come from agent-identity.ts's resolveAgentIdentity()
+ * with `verified: true` — a profile's allow/block lists are a privilege
+ * boundary, so they must never be satisfiable by a self-asserted identity.
+ * Pass undefined (no profile applies) when the caller has no verified token.
  */
-export function checkAgentProfile(toolName: string, service?: string): string | null {
-  const agentId = process.env.MERGEN_AGENT_ID;
+export function checkAgentProfile(toolName: string, service?: string, verifiedAgentId?: string): string | null {
+  const agentId = verifiedAgentId;
   if (!agentId) return null;
 
   load();

@@ -81,6 +81,17 @@ export interface BlunderEvent {
    * hashing is presence-aware so old chains still verify.
    */
   triggeredRules?: string[] | null;
+  /**
+   * Agent identity fields — wired from the MCP client context.
+   * agentId: registered agent identifier (e.g. 'claude-alice', 'cursor-ci-bot').
+   * humanOwner: the human developer who owns / authorized this agent session.
+   * sessionId: MCP session that produced this call (links to gate event ring).
+   * Absent (undefined) on entries recorded before this field existed — hashing
+   * is presence-aware so old chains still verify.
+   */
+  agentId?:        string | null;
+  humanOwner?:     string | null;
+  sessionId?:      string | null;
   /** SHA-256 over all fields except `hash` itself, prepended with previousHash. */
   previousHash:    string;
   hash:            string;
@@ -117,6 +128,11 @@ function _hashableContent(
   // it only when the field exists. v3 entries always carry it (null when no
   // rule fired), so stripping the field from a v3 entry breaks its hash.
   if (event.triggeredRules !== undefined) content.triggeredRules = event.triggeredRules;
+  // Presence-aware: agent identity fields were added after v3 — include only
+  // when present so pre-identity chains still verify.
+  if (event.agentId !== undefined)    content.agentId    = event.agentId;
+  if (event.humanOwner !== undefined) content.humanOwner = event.humanOwner;
+  if (event.sessionId !== undefined)  content.sessionId  = event.sessionId;
   return previousHash + JSON.stringify(content);
 }
 
@@ -201,6 +217,11 @@ export function recordBlunder(event: Omit<BlunderEvent, 'hash' | 'previousHash' 
       // Normalize to null so every new entry carries the field explicitly —
       // presence distinguishes v3 entries from pre-migration v2 ones.
       triggeredRules: event.triggeredRules ?? null,
+      // Agent identity — normalize undefined → null so presence-aware hashing
+      // works correctly: new entries always carry these fields explicitly.
+      agentId:    event.agentId    ?? null,
+      humanOwner: event.humanOwner ?? null,
+      sessionId:  event.sessionId  ?? null,
     };
     // Use || not ?? — v1 legacy entries have hash='' (empty string), which is
     // falsy but not nullish. ?? would leave previousHash as '' and corrupt the
@@ -214,14 +235,17 @@ export function recordBlunder(event: Omit<BlunderEvent, 'hash' | 'previousHash' 
     if (_blunders.length > MAX_BLUNDERS) _blunders = _blunders.slice(-MAX_BLUNDERS);
     persist();
     logger.info(
-      { blunderType: event.blunderType, cmd: event.command?.slice(0, 80), service: event.service },
+      { blunderType: event.blunderType, cmd: event.command?.slice(0, 80), service: event.service, agentId: event.agentId },
       'agent-blunder: intercepted',
     );
   });
 }
 
-export function getBlunders(): BlunderEvent[] {
+export function getBlunders(filter?: { agentId?: string }): BlunderEvent[] {
   load(true);
+  if (filter?.agentId) {
+    return _blunders.filter((b) => b.agentId === filter.agentId);
+  }
   return [..._blunders];
 }
 

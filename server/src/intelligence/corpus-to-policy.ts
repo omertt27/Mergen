@@ -209,11 +209,11 @@ export function autoActivateReviewedRules(incidentTag: string, service: string):
   return staged;
 }
 
-// ── Opt-in proposal path (MERGEN_AUTO_CORPUS_PROPOSE) ─────────────────────────
+// ── Proposal path (MERGEN_AUTO_CORPUS_PROPOSE) ────────────────────────────────
 
-/** True when the opt-in corpus→proposal bridge is enabled. Default: off. */
+/** True unless explicitly disabled. Default: on (opt out with MERGEN_AUTO_CORPUS_PROPOSE=false). */
 export function autoCorpusProposeEnabled(): boolean {
-  return process.env.MERGEN_AUTO_CORPUS_PROPOSE === 'true';
+  return process.env.MERGEN_AUTO_CORPUS_PROPOSE !== 'false';
 }
 
 /**

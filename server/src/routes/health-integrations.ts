@@ -20,6 +20,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { getAuditHealth } from '../sensor/audit-log.js';
 import { getStaleErrors } from '../sensor/buffer.js';
+import { testConnection as testDatadogConnection } from '../datadog/client.js';
 
 export interface IntegrationHealth {
   id:       string;
@@ -113,17 +114,13 @@ async function checkDatadog(): Promise<IntegrationHealth> {
     detail: 'DD_API_KEY set but DD_APP_KEY missing',
     fix: 'export DD_APP_KEY=...  # https://app.datadoghq.com/organization-settings/application-keys',
   };
-  const site = process.env.DATADOG_SITE ?? 'datadoghq.com';
+  const site = process.env.DATADOG_SITE ?? process.env.DD_SITE ?? 'datadoghq.com';
   try {
-    const r = await fetch(`https://api.${site}/api/v1/validate`, {
-      headers: { 'DD-API-KEY': apiKey, 'DD-APPLICATION-KEY': appKey },
-      signal: AbortSignal.timeout(4000),
-    });
-    return r.ok
-      ? { id: 'datadog', name: 'Datadog', status: 'ok', detail: `Connected — site: ${site}` }
-      : { id: 'datadog', name: 'Datadog', status: 'warn', detail: `Auth failed (${r.status})`, fix: 'Run: mergen-server init to re-configure' };
-  } catch {
-    return { id: 'datadog', name: 'Datadog', status: 'warn', detail: `Keys set but ${site} unreachable` };
+    await testDatadogConnection();
+    return { id: 'datadog', name: 'Datadog', status: 'ok', detail: `Connected — site: ${site}` };
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    return { id: 'datadog', name: 'Datadog', status: 'warn', detail, fix: 'Run: mergen-server init to re-configure' };
   }
 }
 

@@ -1,16 +1,19 @@
 /**
  * routes/overrides.ts — Override corpus HTTP API.
  *
- *   POST   /overrides              record an engineer override
- *   PATCH  /overrides/:id/outcome  update the outcome after resolution
- *   GET    /override-corpus        aggregated summary per detector tag
- *   GET    /overrides/:tag         raw override history for a specific tag
+ *   POST   /overrides                 record an engineer override
+ *   PATCH  /overrides/:id/outcome     update the outcome after resolution
+ *   POST   /overrides/import          import a mergen-pack policy pack
+ *   GET    /override-corpus           aggregated summary per detector tag
+ *   GET    /override-corpus/export    export team overrides as a shareable pack
+ *   GET    /overrides/:tag            raw override history for a specific tag
  */
 
 import { Router } from 'express';
 import { z } from 'zod';
 import {
   OVERRIDE_REASONS,
+  buildOverridePack,
   type OverrideReason,
   type OverrideOutcome,
 } from '../intelligence/override-corpus.js';
@@ -36,6 +39,30 @@ const OutcomeSchema = z.object({
   outcome: z.enum(OVERRIDE_OUTCOMES as [OverrideOutcome, ...OverrideOutcome[]]),
 });
 
+const PackEntrySchema = z.object({
+  incidentTag:     z.string().min(1).max(200),
+  proposedCommand: z.string().min(1).max(500),
+  overrideReason:  z.enum(OVERRIDE_REASONS as [OverrideReason, ...OverrideReason[]]),
+  note:            z.string().max(200).optional(),
+  rationale:       z.string().max(300).optional(),
+  service:         z.string().min(1).max(100),
+  environment:     z.string().max(50).default('production'),
+  dayOfWeek:       z.number().int().min(0).max(6),
+  hourOfDay:       z.number().int().min(0).max(23),
+  manualAction:    z.string().max(500).optional(),
+  outcome:         z.enum(OVERRIDE_OUTCOMES as [OverrideOutcome, ...OverrideOutcome[]]).optional(),
+  expiresInDays:   z.number().int().min(1).max(3650).optional(),
+}).refine((e) => e.overrideReason !== 'other' || !!e.note, {
+  message: 'note is required when overrideReason is "other"',
+});
+
+const PackSchema = z.object({
+  format:  z.literal('mergen-pack'),
+  version: z.literal(1),
+  name:    z.string().max(200).optional(),
+  entries: z.array(PackEntrySchema).min(1).max(500),
+});
+
 export function createOverridesRouter(): Router {
   const router = Router();
 
@@ -51,8 +78,16 @@ export function createOverridesRouter(): Router {
       return;
     }
     const event = await getStores().overrides.recordOverride(parsed.data, req.tenantId);
-    logger.info({ id: event.id, tag: event.incidentTag }, 'override recorded via API');
-    res.status(201).json({ ok: true, override: event });
+    logger.info({ id: event.id, tag: event.incidentTag, conflicts: (event as {conflictsWith?: string[]}).conflictsWith }, 'override recorded via API');
+    const { conflictsWith, ...overrideData } = event as typeof event & { conflictsWith?: string[] };
+    res.status(201).json({
+      ok: true,
+      override: overrideData,
+      ...(conflictsWith && conflictsWith.length > 0 ? {
+        warning: `This entry may conflict with ${conflictsWith.length} existing corpus entry/entries. Review IDs: ${conflictsWith.join(', ')}`,
+        conflictsWith,
+      } : {}),
+    });
   });
 
   // ── Update outcome ─────────────────────────────────────────────────────────
@@ -174,7 +209,96 @@ export function createOverridesRouter(): Router {
     res.json({ ok: true, reviewedAt: Date.now(), activatedRules });
   });
 
+  // ── Export corpus as a shareable policy pack ────────────────────────────────
+  // The pack strips team-local provenance (ids, actors, timestamps) and keeps
+  // only the pattern fields, so it can be shared outside the team. Community-
+  // sourced entries are excluded unless ?includeCommunity=true, so re-exports
+  // don't echo imported packs back into circulation.
+  router.get('/override-corpus/export', async (req, res) => {
+    const events = await getStores().overrides.getAllOverrides(req.tenantId);
+    const pack = buildOverridePack(events, {
+      name: typeof req.query.name === 'string' ? req.query.name.slice(0, 200) : undefined,
+      includeCommunity: req.query.includeCommunity === 'true',
+    });
+    res.json(pack);
+  });
+
+  // ── Import a policy pack ─────────────────────────────────────────────────────
+  // Idempotent: entries whose pattern key (tag/reason/day/hour/service) already
+  // exists are skipped, so team overrides always take precedence. Imported
+  // entries are tagged source: 'community' and dayOfWeek/hourOfDay are preserved
+  // from the pack — the time window is part of the pattern.
+  // Mutating route: covered by the x-mergen-secret guard on /overrides.
+  router.post('/overrides/import', async (req, res) => {
+    const parsed = PackSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'validation failed', details: parsed.error.issues });
+      return;
+    }
+    const { imported, skipped } = await getStores().overrides.importOverrides(
+      parsed.data.entries,
+      { source: 'community' },
+      req.tenantId,
+    );
+    logger.info({ pack: parsed.data.name, imported, skipped }, 'override pack imported via API');
+    res.status(201).json({ ok: true, pack: parsed.data.name ?? null, imported, skipped });
+  });
+
+  // ── Expiring-soon corpus entries + Slack renewal prompts ─────────────────────
+  // Returns override entries expiring within the next N days (default: 14).
+  // Used to surface renewal prompts: "Is 'never touch payments DB during settlement
+  // run' still valid?" Prevents stale knowledge from blocking valid actions forever.
+  //
+  // Also optionally fires a Slack message summarising expiring entries when
+  // MERGEN_SLACK_BOT_TOKEN is set and ?notify=true is passed.
+  router.get('/overrides/expiring-soon', async (req, res) => {
+    const windowDays = Math.min(90, Math.max(1, Number(req.query.windowDays ?? 14)));
+    const expiring   = await getStores().overrides.getExpiringSoon(windowDays, req.tenantId);
+
+    // Optionally fire a Slack notification
+    if (req.query.notify === 'true') {
+      const webhookUrl = process.env.MERGEN_HITL_WEBHOOK_URL;
+      if (webhookUrl && expiring.length > 0) {
+        const lines = expiring.slice(0, 10).map((e) => {
+          const daysLeft = Math.ceil(((e.expiresAt ?? 0) - Date.now()) / 86_400_000);
+          return `• \`${e.incidentTag}\` / ${e.service} — expires in ${daysLeft}d (reason: ${e.overrideReason})`;
+        });
+        void fetch(webhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: `🕐 *Override corpus renewal needed*: ${expiring.length} entries expiring in ${windowDays} days.\n${lines.join('\n')}\nReview at \`GET /override-corpus/stale\` or call \`POST /overrides/:id/review\` to re-affirm.`,
+            mergen: { type: 'corpus_renewal_prompt', count: expiring.length },
+          }),
+          signal: AbortSignal.timeout(5_000),
+        }).catch(() => { /* non-fatal */ });
+      }
+    }
+
+    res.json({
+      ok: true,
+      windowDays,
+      expiringCount: expiring.length,
+      expiring: expiring.map((e) => ({
+        id:            e.id,
+        incidentTag:   e.incidentTag,
+        service:       e.service,
+        overrideReason: e.overrideReason,
+        note:          e.note ?? null,
+        recordedAt:    e.recordedAt,
+        expiresAt:     e.expiresAt ?? null,
+        daysLeft:      e.expiresAt ? Math.ceil((e.expiresAt - Date.now()) / 86_400_000) : null,
+        reviewUrl:     `/overrides/${e.id}/review`,
+      })),
+      note: expiring.length > 0
+        ? `${expiring.length} corpus entries expire within ${windowDays} days. Review and re-affirm or they will stop influencing gate decisions.`
+        : `No corpus entries expiring within ${windowDays} days.`,
+    });
+  });
+
   // ── Raw history for a tag ──────────────────────────────────────────────────
+  // Registered last: the `:tag` param is a catch-all under /overrides, so it must
+  // come after the specific /overrides/* routes (import, expiring-soon, :id/*).
   router.get('/overrides/:tag', async (req, res) => {
     const events = await getStores().overrides.getOverridesForTag(req.params.tag, req.tenantId);
     res.json({ ok: true, tag: req.params.tag, overrides: events });

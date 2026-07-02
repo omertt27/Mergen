@@ -29,6 +29,20 @@ const EnterprisePolicyRuleSchema = z.object({
     repos:        z.array(z.string()).optional(),
     /** e.g. ['claude-alice', 'ci-bot'] — only enforce for these registered agent IDs */
     agentIds:     z.array(z.string()).optional(),
+    /**
+     * Role-based scoping — only enforce for actors with one of these roles.
+     * Roles are sourced from MERGEN_ACTOR_ROLES env var (format: "actor:role,actor:role")
+     * or from the x-mergen-actor-role request header on API calls.
+     * e.g. ['ci-bot', 'overnight-agent'] — restrict this rule to only these actor roles.
+     */
+    roles:        z.array(z.string()).optional(),
+    /**
+     * Branch-scoped policies — only enforce when the current git branch matches
+     * one of these glob-like patterns. Sourced from MERGEN_GIT_BRANCH env var or
+     * request param. Supports '*' wildcard within a segment.
+     * e.g. ['main', 'release/*', 'hotfix/*'] — stricter rules for protected branches.
+     */
+    branches:     z.array(z.string()).optional(),
   }),
 });
 
@@ -287,7 +301,7 @@ export function loadEnterprisePolicy(force = false): EnterprisePolicyConfig {
   return _cachedConfig;
 }
 
-export function saveEnterprisePolicy(config: EnterprisePolicyConfig): void {
+export function saveEnterprisePolicy(config: EnterprisePolicyConfig, actor = 'unknown'): void {
   const result = EnterprisePolicyConfigSchema.safeParse(config);
   if (!result.success) throw new Error(`Invalid policy: ${JSON.stringify(result.error.issues)}`);
   const content = JSON.stringify(result.data, null, 2);
@@ -302,8 +316,15 @@ export function saveEnterprisePolicy(config: EnterprisePolicyConfig): void {
       fs.writeFileSync(sigTmp, sig, { encoding: 'utf8', mode: 0o600 });
       fs.renameSync(sigTmp, ENTERPRISE_POLICY_SIG_FILE);
     }
+    const previous = _cachedConfig;
     _cachedConfig = result.data;
     logger.info({ path: ENTERPRISE_POLICY_FILE }, 'policy-engine: enterprise policy saved');
+    // Record the change in the policy history (non-blocking, non-fatal)
+    try {
+      void import('../sensor/policy-history.js').then(({ recordPolicyChange }) => {
+        recordPolicyChange(previous, result.data, actor);
+      });
+    } catch { /* history recording must never block a policy save */ }
   } catch (err) {
     try { fs.unlinkSync(tmp); } catch { /* ignore */ }
     throw err;
@@ -383,6 +404,41 @@ export function isAiActor(actorName: string): boolean {
   return true;
 }
 
+// ── Actor role lookup ────────────────────────────────────────────────────────
+// MERGEN_ACTOR_ROLES format: "actor1:role1,actor2:role2"
+// e.g. "cursor-bot:ci-agent,overnight-claude:overnight-agent"
+const _actorRoles: Map<string, string> = new Map(
+  (process.env.MERGEN_ACTOR_ROLES ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => {
+      const idx = s.lastIndexOf(':');
+      if (idx === -1) return null;
+      return [s.slice(0, idx).trim().toLowerCase(), s.slice(idx + 1).trim().toLowerCase()] as [string, string];
+    })
+    .filter((e): e is [string, string] => e !== null),
+);
+
+function _lookupActorRole(actor: string): string | null {
+  if (!actor) return null;
+  return _actorRoles.get(actor.toLowerCase()) ?? null;
+}
+
+// ── Branch pattern matching ──────────────────────────────────────────────────
+// Supports '*' wildcard within a single path segment (not across slashes).
+// e.g. "release/*" matches "release/1.2.3" but not "release/1.2.3/hotfix"
+function _matchBranchPattern(branch: string, pattern: string): boolean {
+  if (pattern === '*') return true;
+  if (!pattern.includes('*')) return branch.toLowerCase() === pattern.toLowerCase();
+  // Convert glob pattern to regex: escape everything then un-escape '*' → [^/]*
+  const reStr = pattern
+    .toLowerCase()
+    .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '[^/]*');
+  return new RegExp(`^${reStr}$`).test(branch.toLowerCase());
+}
+
 export interface EvaluationInput {
   files: string[];
   /** Tool name + serialized args — checked against conditions.commands patterns. */
@@ -396,6 +452,16 @@ export interface EvaluationInput {
   repo?: string;
   /** Registered agent ID (e.g. 'claude-alice') — matched against conditions.agentIds */
   agentId?: string;
+  /**
+   * Actor role — sourced from MERGEN_ACTOR_ROLES env var or request header.
+   * Matched against conditions.roles. Format: single role string per evaluation.
+   */
+  actorRole?: string;
+  /**
+   * Current git branch — sourced from MERGEN_GIT_BRANCH env var or request param.
+   * Matched against conditions.branches (supports '*' wildcard within a segment).
+   */
+  branch?: string;
 }
 
 export interface PolicyEvaluationResult {
@@ -503,11 +569,18 @@ export function evaluateEnterprisePolicy(input: EvaluationInput, policyOverride?
     ? config.rules
     : config.rules.filter(rule => IMMUTABLE_RULE_IDS.has(rule.id));
 
-  const { files, commands = [], actor, service, timestamp = Date.now(), environment, repo, agentId } = input;
+  const { files, commands = [], actor, service, timestamp = Date.now(), environment, repo, agentId, actorRole, branch } = input;
   const isAi = isAiActor(actor);
   const date = new Date(timestamp);
   const dayOfWeek = date.getUTCDay();
   const hourOfDay = date.getUTCHours();
+
+  // Role lookup: prefer explicit actorRole param, then fall back to MERGEN_ACTOR_ROLES env var
+  // env format: "actor1:role1,actor2:role2" → look up role for this actor
+  const resolvedRole: string | null = actorRole ?? _lookupActorRole(actor);
+
+  // Branch: prefer explicit branch param, then MERGEN_GIT_BRANCH env
+  const resolvedBranch: string | null = branch ?? process.env.MERGEN_GIT_BRANCH ?? null;
 
   for (const rule of rulesToEvaluate) {
     const cond = rule.conditions;
@@ -520,6 +593,8 @@ export function evaluateEnterprisePolicy(input: EvaluationInput, policyOverride?
     let envMatched     = true;
     let repoMatched    = true;
     let agentMatched   = true;
+    let roleMatched    = true;
+    let branchMatched  = true;
 
     // 1. Files Condition
     if (cond.files && cond.files.length > 0) {
@@ -587,7 +662,22 @@ export function evaluateEnterprisePolicy(input: EvaluationInput, policyOverride?
         : false;
     }
 
-    if (fileMatched && commandMatched && actorMatched && dayMatched && hourMatched && serviceMatched && envMatched && repoMatched && agentMatched) {
+    // 10. Role Condition — rule only fires for actors with a matching role
+    if (cond.roles && cond.roles.length > 0) {
+      roleMatched = resolvedRole
+        ? cond.roles.some((r) => r.toLowerCase() === resolvedRole.toLowerCase())
+        : false; // no role → rule doesn't apply
+    }
+
+    // 11. Branch Condition — rule only fires when git branch matches a pattern
+    //     Supports simple glob: '*' matches any sequence of non-slash characters.
+    if (cond.branches && cond.branches.length > 0) {
+      branchMatched = resolvedBranch
+        ? cond.branches.some((pat) => _matchBranchPattern(resolvedBranch, pat))
+        : false;
+    }
+
+    if (fileMatched && commandMatched && actorMatched && dayMatched && hourMatched && serviceMatched && envMatched && repoMatched && agentMatched && roleMatched && branchMatched) {
       result.triggeredRules.push(rule.id);
       result.reasons.push(rule.reason);
       
@@ -596,6 +686,10 @@ export function evaluateEnterprisePolicy(input: EvaluationInput, policyOverride?
         result.verdict = 'block';
       } else if (rule.action === 'warn' && result.verdict !== 'block') {
         result.verdict = 'warn';
+        // Record shadow-promote hit asynchronously — must not be in the synchronous gate path
+        void import('../sensor/shadow-promote.js').then(({ recordShadowRuleHit }) => {
+          recordShadowRuleHit(rule.id, rule.name);
+        }).catch(() => { /* never break the gate path */ });
       }
     }
   }

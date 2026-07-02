@@ -16,6 +16,8 @@ import { postmortemCommand, timelineCommand, watchCommand, explainCommand, statu
 import { approveCommand, shadowReportCommand, allowCommand, verifyLogCommand, guardCommand, policyPushCommand, policyPullCommand, policyDiffCommand, testSafetyCommand } from './commands/policy.js';
 import { prCommand, prShadowCommand, feedbackCommand, backfillCommand, connectCommand } from './commands/github.js';
 import { inviteCommand, joinCommand, impactReportCommand, exportCommand, initCommand, demoCommand, exportRiskReportCommand, partnerShortlistCommand, execCommand } from './commands/team.js';
+import { agentRegisterCommand, agentListCommand } from './commands/agent-identity.js';
+import { gateCheckCommand } from './commands/gate.js';
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
@@ -170,6 +172,18 @@ async function main(): Promise<void> {
       await replayCommand(args.slice(1));
       break;
 
+    case 'agent-register':
+      await agentRegisterCommand(args.slice(1));
+      break;
+
+    case 'agent-list':
+      await agentListCommand();
+      break;
+
+    case 'gate-check':
+      await gateCheckCommand(args.slice(1));
+      break;
+
     case 'version':
     case '--version':
     case '-v':
@@ -215,7 +229,9 @@ Usage:
   mergen-server export [label]     Export session as JSON + HTML report
   mergen-server export-risk-report Print CISO security risk report
   mergen-server export-risk-report --markdown  Save as shareable Markdown file
-  mergen-server exec -- <cmd>      Run a command through the Mergen policy gate
+  mergen-server exec -- <cmd>      Run a command through the full Mergen gate (policy, HITL, blast radius), then execute
+  mergen-server exec --allow-offline -- <cmd>  Same, but degrade to a local-only check if mergen-server isn't running
+  mergen-server gate-check -- <cmd>  Evaluate only, no execution (exit 0=pass 1=blocked). Used by the Claude Code PreToolUse hook
   mergen-server impact-report      Print the 5 pre-agreed Day-30 metrics
   mergen-server impact-report --slide     Screenshot-ready 5-number card
   mergen-server impact-report --baseline  Save Day-1 numbers (compare at Day 30)
@@ -230,6 +246,8 @@ Usage:
   mergen-server policy-pull --merge  Merge (add new rules only, keep existing)
   mergen-server policy-diff        Show diff between .mergen/policy.json and live server
   mergen-server replay <dir>       Score historical incidents against the detector pipeline
+  mergen-server agent-register <id>  Issue a signed identity token for an agent profile (see agent-profiles API)
+  mergen-server agent-list         List issued agent identity tokens on this machine
   mergen-server verify-log         Verify Agent Blunder Log hash chain (tamper-evident audit)
   mergen-server guard              Pre-commit runtime check (includes incident history for staged services)
   mergen-server guard --install    Install as git pre-commit hook

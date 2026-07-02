@@ -11,6 +11,7 @@
   let _intentAbort     = null;
   let _activeServiceFilter = null;
   let _lastState = null;
+  let _activeTab = 'overview';
 
   // ── Message passing to extension host ─────────────────────────────────────
   function send(type)                { vscode.postMessage({ type }); }
@@ -30,6 +31,18 @@
     send('clear');
   }
 
+  // ── Tab switching ──────────────────────────────────────────────────────────
+  function switchTab(name) {
+    _activeTab = name;
+    const tabs = ['overview', 'decisions', 'visualizer', 'policies', 'settings'];
+    tabs.forEach(t => {
+      const pane = document.getElementById('tab-' + t);
+      const btn  = document.getElementById('tab-btn-' + t);
+      if (pane) pane.className = 'tab-pane' + (t === name ? ' active' : '');
+      if (btn)  btn.className  = 'tab-btn'  + (t === name ? ' active' : '');
+    });
+  }
+
   // Expose everything that HTML onclick attributes reference
   window.send         = send;
   window.sendFeedback = sendFeedback;
@@ -37,6 +50,7 @@
   window.runCmd       = runCmd;
   window.onRefresh    = onRefresh;
   window.onClear      = onClear;
+  window.switchTab    = switchTab;
   window.approveBypassToken = (token) => vscode.postMessage({ type: 'approveBypass', token });
   window.approveBypassTokenWithRemember = (token) => vscode.postMessage({ type: 'approveBypass', token, remember: true });
   window.denyBypassToken = (token) => vscode.postMessage({ type: 'denyBypass', token });
@@ -234,7 +248,7 @@
     document.getElementById('dot').className = 'dot' + (connected ? ' ok' : '');
     showEl('disconnected',   !connected);
 
-    // Update header Gateway status and active policies count
+    // Update header gateway status
     const gatewayStatus = document.getElementById('gateway-status');
     const gatewayPolicies = document.getElementById('gateway-policies-active');
     if (connected) {
@@ -251,36 +265,42 @@
 
       if (gatewayStatus) {
         if (pending > 0) {
-          gatewayStatus.textContent = `Pending Approval (${pending})`;
+          gatewayStatus.textContent = `PENDING (${pending})`;
           gatewayStatus.style.color = 'var(--vscode-charts-yellow)';
         } else if (blocked > 0) {
-          gatewayStatus.textContent = `Action Blocked (${blocked})`;
+          gatewayStatus.textContent = `BLOCKED (${blocked})`;
           gatewayStatus.style.color = 'var(--vscode-charts-red)';
         } else if (pols && !pols.enabled) {
-          gatewayStatus.textContent = 'Shadow Mode (Passive)';
+          gatewayStatus.textContent = 'SHADOW MODE';
           gatewayStatus.style.color = 'var(--vscode-charts-yellow)';
         } else {
-          gatewayStatus.textContent = 'Protected ✓';
+          gatewayStatus.textContent = 'ACTIVE ✓';
           gatewayStatus.style.color = 'var(--vscode-charts-green)';
         }
       }
     } else {
       if (gatewayPolicies) gatewayPolicies.textContent = '0 active';
       if (gatewayStatus) {
-        gatewayStatus.textContent = 'Offline';
+        gatewayStatus.textContent = 'OFFLINE';
         gatewayStatus.style.color = 'var(--vscode-charts-red)';
       }
+      // Zero out header counters when disconnected
+      setEl('hdr-protected', '—');
+      setEl('hdr-blocked',   '—');
+      setEl('hdr-escalated', '—');
     }
 
     showEl('card-buffer',     connected);
     showEl('card-server',     connected);
-    showEl('card-security-metrics', connected);
-    showEl('card-policies-coverage', connected);
     showEl('card-execution-timeline', connected);
+    showEl('card-policy-summary', connected);
+    showEl('card-policies-coverage', connected);
     showEl('card-advanced', connected);
-    showEl('card-milestone',  false);   // static placeholder — never shown
+    showEl('card-account',  connected);
+    showEl('tab-bar',       connected);
+    showEl('card-milestone', false); // static placeholder — never shown
 
-    // ── Account card — always shown when server is connected ─────────────────
+    // ── Account card ─────────────────────────────────────────────────────────
     const acct = state.account;
     showEl('card-account', connected);
     if (connected && acct) {
@@ -319,25 +339,37 @@
     }
 
     if (!connected) {
-      ['card-pack','card-activity','card-signals','card-history','card-detectors','card-usage','card-account','card-services','card-bypasses','card-security-metrics','card-policies-coverage','card-execution-timeline','card-advanced'].forEach(id => showEl(id, false));
+      ['card-pack','card-activity','card-signals','card-history','card-detectors','card-usage','card-account',
+       'card-services','card-bypasses','card-policy-summary','card-policies-coverage',
+       'card-execution-timeline','card-advanced','tab-bar'].forEach(id => showEl(id, false));
       return;
     }
 
     const h = state.health;
     const u = state.usage;
 
-    setEl('plan-badge',  (u && u.planName) || '—');
+    // plan-badge in header — only show when on a paid plan (hidden for free/unknown)
+    const planBadgeEl = document.getElementById('plan-badge');
+    if (planBadgeEl) {
+      const planName = u && u.planName && u.planName !== 'Free' ? u.planName : null;
+      planBadgeEl.textContent = planName || '';
+      planBadgeEl.style.display = planName ? 'inline' : 'none';
+    }
     setEl('stat-errors', h.errors);
     setEl('stat-warns',  h.warnings);
     setEl('stat-net',    h.networkErrors);
 
-    // ── Security Metrics ──
+    // ── Security Metrics (card + header counters) ──
     const secMetrics = state.securityMetrics;
     if (connected && secMetrics) {
       setEl('metric-protected-actions', secMetrics.protectedActions);
-      setEl('metric-blocked-actions', secMetrics.blockedActions);
+      setEl('metric-blocked-actions',   secMetrics.blockedActions);
       setEl('metric-approvals-requested', secMetrics.approvalsRequested);
       setEl('metric-shadow-violations', secMetrics.shadowViolations);
+      // Mirror the three most important numbers into the always-visible header
+      setEl('hdr-protected', secMetrics.protectedActions ?? '—');
+      setEl('hdr-blocked',   secMetrics.blockedActions   ?? '—');
+      setEl('hdr-escalated', secMetrics.approvalsRequested ?? '—');
       if (typeof secMetrics.latencyMs === 'number') {
         setEl('gateway-latency', secMetrics.latencyMs.toFixed(2) + 'ms');
       }
@@ -395,52 +427,66 @@
       }
 
       if (gateCovers) {
-        const totalPatternCount = gateCovers.totalPatterns || 20;
         const hardBlocks = gateCovers.hardBlocks || [];
         const reviews = gateCovers.humanReviewRequired || [];
         const activeCount = hardBlocks.length + reviews.length;
-        
+
         const coveragePercent = Math.min(100, Math.round((activeCount / 5) * 87));
-        
+        const coverageColor = coveragePercent >= 75 ? 'var(--vscode-charts-green)' : coveragePercent >= 50 ? 'var(--vscode-charts-yellow)' : 'var(--vscode-charts-red)';
+
+        // Policies tab — full coverage widget
         setEl('policy-coverage-badge', coveragePercent + '% Coverage');
         setEl('critical-actions-count', activeCount + '/' + activeCount);
-        
         const covBar = document.getElementById('coverage-bar');
-        if (covBar) {
-          covBar.style.width = coveragePercent + '%';
-          covBar.style.background = coveragePercent >= 75 ? 'var(--vscode-charts-green)' : coveragePercent >= 50 ? 'var(--vscode-charts-yellow)' : 'var(--vscode-charts-red)';
-        }
-        
-        setEl('gateway-policies-active', activeCount + ' active');
+        if (covBar) { covBar.style.width = coveragePercent + '%'; covBar.style.background = coverageColor; }
+
+        // Overview tab — compact policy summary
+        const blockCount = polState ? polState.rules.filter(r => r.action === 'block').length : 0;
+        const totalActive = polState ? polState.rules.filter(r => r.action !== 'pass').length : 0;
+        setEl('policy-summary-badge', coveragePercent + '%');
+        setEl('policy-summary-active', totalActive);
+        setEl('policy-summary-block',  blockCount);
+        const summaryBadge = document.getElementById('policy-summary-badge');
+        if (summaryBadge) summaryBadge.style.background = coverageColor;
+        const summaryBar = document.getElementById('policy-summary-bar');
+        if (summaryBar) { summaryBar.style.width = coveragePercent + '%'; summaryBar.style.background = coverageColor; }
       }
     }
 
-    // ── Execution Timeline ──
+    // ── Recent Decisions (Execution Timeline) ──
     const activity = state.activity || [];
     const timelineList = document.getElementById('execution-timeline-list');
     if (connected && activity.length > 0) {
       if (timelineList) {
         timelineList.innerHTML = activity.map(ev => {
           const time = new Date(ev.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-          let badgeColor = 'var(--vscode-charts-green)';
-          let badgeText = 'ALLOW';
-          if (ev.verdict === 'BLOCK') {
+          let badgeColor  = 'var(--vscode-charts-green)';
+          let badgeText   = 'ALLOW';
+          let leftBorder  = 'var(--vscode-charts-green)';
+          if (ev.verdict === 'BLOCK' || ev.verdict === 'block') {
             badgeColor = 'var(--vscode-charts-red)';
-            badgeText = 'BLOCK';
-          } else if (ev.verdict === 'HOLD') {
+            badgeText  = 'BLOCK';
+            leftBorder = 'var(--vscode-charts-red)';
+          } else if (ev.verdict === 'HOLD' || ev.verdict === 'hold' || ev.verdict === 'warn') {
             badgeColor = 'var(--vscode-charts-yellow)';
-            badgeText = 'HOLD';
+            badgeText  = 'HOLD';
+            leftBorder = 'var(--vscode-charts-yellow)';
+          } else if (ev.verdict === 'ESCALATE' || ev.verdict === 'escalate') {
+            badgeColor = 'var(--vscode-charts-orange, #d18616)';
+            badgeText  = 'ESCALATE';
+            leftBorder = 'var(--vscode-charts-orange, #d18616)';
           }
-          const ruleText = ev.ruleNames && ev.ruleNames.length > 0 
-            ? `<div style="font-size:9px;color:var(--vscode-descriptionForeground);margin-top:2px">Rule: ${escHtml(ev.ruleNames.join(', '))}</div>` 
+          const ruleText = ev.ruleNames && ev.ruleNames.length > 0
+            ? `<div style="font-size:9px;color:var(--vscode-descriptionForeground);margin-top:3px">↳ ${escHtml(ev.ruleNames.join(', '))}</div>`
             : '';
+          const cmd = ev.commandArg || ev.toolName || '';
           return `
-            <div style="background:var(--vscode-sideBar-background);border:1px solid var(--vscode-widget-border, rgba(127,127,127,.15));border-radius:4px;padding:6px 8px;font-size:11px">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-                <span style="font-weight:700;color:${badgeColor}">${badgeText}</span>
+            <div style="background:var(--vscode-sideBar-background);border:1px solid var(--vscode-widget-border, rgba(127,127,127,.15));border-left:3px solid ${leftBorder};border-radius:4px;padding:6px 8px;font-size:11px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+                <span style="font-weight:700;letter-spacing:.04em;color:${badgeColor};font-size:10px">${badgeText}</span>
                 <span style="color:var(--vscode-descriptionForeground);font-size:9px">${time}</span>
               </div>
-              <div style="font-family:var(--vscode-editor-font-family, monospace);font-size:10px;background:var(--vscode-editor-background);padding:3px 5px;border-radius:2px;word-break:break-all;white-space:pre-wrap">${escHtml(ev.commandArg || ev.toolName)}</div>
+              <div style="font-family:var(--vscode-editor-font-family, monospace);font-size:10px;color:var(--vscode-foreground);word-break:break-all;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%" title="${escHtml(cmd)}">${escHtml(cmd.length > 60 ? cmd.slice(0, 60) + '…' : cmd)}</div>
               ${ruleText}
             </div>
           `;
@@ -448,7 +494,7 @@
       }
     } else {
       if (timelineList) {
-        timelineList.innerHTML = '<div style="font-size:11px;color:var(--vscode-descriptionForeground);text-align:center;padding:10px 0">No events recorded yet</div>';
+        timelineList.innerHTML = '<div style="font-size:11px;color:var(--vscode-descriptionForeground);text-align:center;padding:12px 0;opacity:0.7">No agent decisions recorded yet.<br><span style="font-size:10px">Decisions appear here as your AI agents run.</span></div>';
       }
     }
 
@@ -467,7 +513,7 @@
           return `
             <div style="background:var(--vscode-sideBar-background);border:1px solid var(--vscode-widget-border, rgba(127,127,127,.15));border-radius:4px;padding:8px 10px;font-size:11px">
               <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-weight:600">
-                <span style="color:var(--vscode-charts-red)">Blocked ${b.toolName}</span>
+                <span style="color:var(--vscode-charts-red)">⏸ Approval Required: ${b.toolName}</span>
                 <span style="color:var(--vscode-descriptionForeground);font-size:9px">Expires in ${expiresMin}m</span>
               </div>
               <div style="font-family:var(--vscode-editor-font-family, monospace);font-size:10px;background:var(--vscode-editor-background);padding:4px 6px;border-radius:2px;margin-bottom:6px;word-break:break-all;white-space:pre-wrap">${escHtml(b.commandArg)}</div>

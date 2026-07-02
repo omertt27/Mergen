@@ -77,6 +77,7 @@ import { createPolicyNlRouter } from './routes/policy-nl.js';
 import { createAgentsRouter } from './routes/agents.js';
 import { createActivityFeedRouter } from './routes/activity-feed.js';
 import { createAuditExportRouter } from './routes/audit-export.js';
+import { createGateRouter } from './routes/gate.js';
 import { cloudAuthMiddleware, CLOUD_MODE } from './sensor/cloud-auth.js';
 import { handleSlackActions, handleFeedbackLink } from './intelligence/slack.js';
 import { getPrometheusMetrics } from './sensor/otel-exporter.js';
@@ -103,6 +104,8 @@ const MUTATING_PATHS = [
   '/shadow-report',
   // Demo injection routes → write directly to the ring buffer
   '/demo',
+  // CLI/hook gate evaluation — same enforcement decision as an MCP tool call
+  '/gate',
 ];
 
 /** Hostnames always valid for local-only mode. */
@@ -445,6 +448,7 @@ export function createApp(opts: { serverVersion: string; localSecret: string; po
   app.use(createAgentsRouter());        // Per-agent identity and permissions
   app.use(createActivityFeedRouter());  // Real-time agent activity feed (JSON + SSE)
   app.use(createAuditExportRouter());   // Compliance-grade audit export (SOC 2 / ISO 27001)
+  app.use(createGateRouter(port));      // CLI/hook entrypoint into the same gate MCP calls use
 
   // GET /service-graph — in cloud mode, require API key (exposes internal topology)
   app.get('/service-graph', ...(CLOUD_MODE ? [cloudAuthMiddleware] : []), (_req, res) => {

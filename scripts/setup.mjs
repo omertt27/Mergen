@@ -6,6 +6,8 @@
  *
  * Usage:
  *   node scripts/setup.mjs
+ *   node scripts/setup.mjs --git-hooks        # install pre-commit + pre-push hooks non-interactively
+ *   node scripts/setup.mjs --git-hooks-only   # same as --git-hooks but skip IDE setup
  */
 
 import { createInterface } from 'readline';
@@ -22,10 +24,21 @@ const SERVER_ENTRY = resolve(REPO_ROOT, 'server', 'dist', 'index.js');
 // ── Preflight checks ──────────────────────────────────────────────────────────
 
 if (!existsSync(SERVER_ENTRY)) {
-  console.error(`\nERROR: ${SERVER_ENTRY} not found.`);
-  console.error('Run this first:\n');
-  console.error('  cd server && npm install && npm run build\n');
-  process.exit(1);
+  console.log(`\n${SERVER_ENTRY} not found — building server first...\n`);
+  const serverDir = resolve(REPO_ROOT, 'server');
+  try {
+    execSync('npm install', { cwd: serverDir, stdio: 'inherit' });
+    execSync('npm run build', { cwd: serverDir, stdio: 'inherit' });
+  } catch {
+    console.error('\nERROR: Build failed. Run manually and check the output:\n');
+    console.error('  cd server && npm install && npm run build\n');
+    process.exit(1);
+  }
+  if (!existsSync(SERVER_ENTRY)) {
+    console.error(`\nERROR: Build finished but ${SERVER_ENTRY} still missing.\n`);
+    process.exit(1);
+  }
+  console.log('\nBuild complete.\n');
 }
 
 const nodeVersion = process.versions.node.split('.')[0];
@@ -67,6 +80,28 @@ function deepMerge(target, source) {
 }
 
 function hr() { console.log('\n' + '─'.repeat(60)); }
+
+// ── IDE auto-detection ────────────────────────────────────────────────────────
+// Best-effort presence checks so the menu can highlight (and default to) IDEs
+// that are actually installed, instead of asking the user to guess a number.
+
+function commandExists(cmd) {
+  try {
+    execSync(process.platform === 'win32' ? `where ${cmd}` : `which ${cmd}`, { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function detectInstalledIDEs() {
+  const detected = new Set();
+  if (commandExists('claude')) detected.add('claude');
+  if (commandExists('code')) detected.add('vscode');
+  if (existsSync(resolve(homedir(), '.cursor'))) detected.add('cursor');
+  if (existsSync(resolve(homedir(), '.codeium', 'windsurf'))) detected.add('windsurf');
+  return detected;
+}
 
 // ── IDE config writers ────────────────────────────────────────────────────────
 
@@ -321,17 +356,84 @@ exit 0
   console.log(`Hook location: ${hookPath}\n`);
 }
 
+/**
+ * setupPrePushHook — installs the Mergen pre-push enforcement gate.
+ * This physically blocks a push when the CI gate returns a BLOCK verdict,
+ * sending the full branch diff through the policy engine before the remote
+ * ever sees the code.
+ */
+function setupPrePushHook() {
+  const gitDir = resolve(REPO_ROOT, '.git');
+  if (!existsSync(gitDir)) {
+    console.error('\nERROR: .git directory not found. Run from the repo root.\n');
+    return;
+  }
+
+  const hooksDir = resolve(gitDir, 'hooks');
+  if (!existsSync(hooksDir)) mkdirSync(hooksDir, { recursive: true });
+
+  const sourcePath = resolve(REPO_ROOT, 'scripts', 'pre-push');
+  const hookPath   = resolve(hooksDir, 'pre-push');
+
+  if (!existsSync(sourcePath)) {
+    console.error('\nERROR: scripts/pre-push not found. Is the repo fully checked out?\n');
+    return;
+  }
+
+  const hookContent = readFileSync(sourcePath, 'utf8');
+  writeFileSync(hookPath, hookContent, { mode: 0o755 });
+
+  hr();
+  console.log('Git pre-push hook installed.\n');
+  console.log('On every push the hook will:');
+  console.log('  • Send the full branch diff through the Mergen CI gate');
+  console.log('  • BLOCK the push if the policy engine returns a BLOCK verdict');
+  console.log('  • Print specific line hits when individual lines trigger the gate');
+  console.log('  • Skip gracefully if the Mergen server is not running\n');
+  console.log('Environment overrides:');
+  console.log('  MERGEN_URL         — server URL (default: http://127.0.0.1:3000)');
+  console.log('  MERGEN_SECRET      — shared secret for authenticated endpoints');
+  console.log('  MERGEN_BLOCK_ON_WARN — set "true" to treat WARN as blocking\n');
+  console.log(`Hook location: ${hookPath}`);
+  console.log('Emergency bypass: git push --no-verify\n');
+}
+
 console.log('\n' + '═'.repeat(60));
 console.log('  Mergen — AI Operations Layer for Backend & Infrastructure');
 console.log('═'.repeat(60));
 console.log('\n  Triages production incidents autonomously.');
 console.log('  PagerDuty → diagnose → fix → validate → Slack thread reply.\n');
 console.log('Server entry:', SERVER_ENTRY);
+
+// ── Non-interactive --git-hooks flag ─────────────────────────────────────────
+const args = process.argv.slice(2);
+if (args.includes('--git-hooks') || args.includes('--git-hooks-only')) {
+  setupGitHook();
+  setupPrePushHook();
+  if (!args.includes('--git-hooks-only')) {
+    console.log('\nRun without flags to configure IDE integrations.\n');
+  }
+  process.exit(0);
+}
+const IDE_ID_BY_KEY = { '1': 'claude', '2': 'cursor', '3': 'windsurf', '4': 'vscode' };
+const detectedIDEs = detectInstalledIDEs();
+
 console.log('\nWhich IDE do you want to configure?\n');
-IDES.forEach(({ key, label }) => console.log(`  ${key}) ${label}`));
+IDES.forEach(({ key, label }) => {
+  const id = IDE_ID_BY_KEY[key];
+  const tag = id && detectedIDEs.has(id) ? '  (detected)' : '';
+  console.log(`  ${key}) ${label}${tag}`);
+});
+
+// If exactly one known IDE was detected, offer it as the Enter-to-accept default.
+const defaultKey = Object.entries(IDE_ID_BY_KEY).find(([, id]) => detectedIDEs.has(id))?.[0]
+  ?? null;
+const onlyOneDetected = [...detectedIDEs].filter((id) => Object.values(IDE_ID_BY_KEY).includes(id)).length === 1;
+const promptDefault = onlyOneDetected ? defaultKey : null;
 
 const rl = createInterface({ input: process.stdin, output: process.stdout });
-const answer = (await ask(rl, '\nChoice [1-6]: ')).trim();
+const rawAnswer = (await ask(rl, `\nChoice [1-6]${promptDefault ? ` (Enter for ${promptDefault})` : ''}: `)).trim();
+const answer = rawAnswer || promptDefault || '';
 
 const chosen = IDES.find((ide) => ide.key === answer);
 

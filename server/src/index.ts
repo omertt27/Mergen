@@ -52,6 +52,7 @@ import { getPlan } from './intelligence/plans.js';
 import { registerTools, toolCallCounts } from './intelligence/tools.js';
 import { createGuardedServer, loadBypasses, persistBypasses, setBypassSecret, denyStaleHoldsOnStartup, assertGateCoversRegisteredTools } from './intelligence/tool-guard.js';
 import { setPolicySigningSecret, assertUnsignedPolicyFlagIsSafe } from './intelligence/enterprise-policy-engine.js';
+import { setAgentTokenSecret } from './intelligence/agent-identity.js';
 import { flushApprovals } from './intelligence/execution-gate.js';
 import { registerResources } from './intelligence/mcp-resources.js';
 import { registerPrompts } from './intelligence/mcp-prompts.js';
@@ -357,6 +358,20 @@ async function main(): Promise<void> {
   }
   setPolicySigningSecret(policySigningSecret);
 
+  // Agent identity token secret: same env-first-then-localSecret precedent as
+  // the policy signing secret above — prefer a dedicated, env-injected secret
+  // so a verified MERGEN_AGENT_TOKEN can't be forged by anything with the same
+  // filesystem access that can read ~/.mergen/secret.
+  const agentTokenSecret = process.env.MERGEN_AGENT_TOKEN_SECRET || localSecret;
+  if (!process.env.MERGEN_AGENT_TOKEN_SECRET) {
+    logger.warn(
+      'startup: MERGEN_AGENT_TOKEN_SECRET not set — agent identity tokens are signed with the same ' +
+      'on-disk secret (~/.mergen/secret) used for admin API auth. Set MERGEN_AGENT_TOKEN_SECRET to a ' +
+      'value supplied only via the environment for production/team deployments.',
+    );
+  }
+  setAgentTokenSecret(agentTokenSecret);
+
   // Restore pending bypass tokens so a server restart doesn't strand in-flight
   // `mergen approve <token>` commands issued just before shutdown.
   loadBypasses();
@@ -578,11 +593,13 @@ async function main(): Promise<void> {
     try { startSlackOverrideLoop(); } catch (err) { logger.error({ err }, 'startup: startSlackOverrideLoop failed — override loop disabled'); }
   }
 
-  // ── Corpus → HOLD-only policy proposals (opt-in, every 6h) ───────────────
-  // When enabled, repeatedly-overridden corpus patterns are staged as HOLD-only
-  // proposals for one-click operator approval at GET /policy-suggestions. Never
-  // auto-activates and never proposes a BLOCK — see corpus-to-policy.ts.
-  if (process.env.MERGEN_AUTO_CORPUS_PROPOSE === 'true') {
+  // ── Corpus → HOLD-only policy proposals (on by default, every 6h) ────────
+  // Repeatedly-overridden corpus patterns are staged as HOLD-only proposals for
+  // one-click operator approval at GET /policy-suggestions. Never auto-activates
+  // and never proposes a BLOCK — three independent guards enforce this in
+  // corpus-to-policy.ts and routes/policies.ts. Opt out with
+  // MERGEN_AUTO_CORPUS_PROPOSE=false.
+  if (process.env.MERGEN_AUTO_CORPUS_PROPOSE !== 'false') {
     const { proposeRulesFromCorpus } = await import('./intelligence/corpus-to-policy.js');
     const runProposalScan = () => {
       try { proposeRulesFromCorpus(); }
@@ -590,7 +607,7 @@ async function main(): Promise<void> {
     };
     runProposalScan();
     setInterval(runProposalScan, 6 * 60 * 60 * 1000).unref();
-    logger.info('startup: corpus→proposal bridge enabled (MERGEN_AUTO_CORPUS_PROPOSE)');
+    logger.info('startup: corpus→proposal bridge enabled (default on; MERGEN_AUTO_CORPUS_PROPOSE=false to disable)');
   }
 
   // ── Graduated urgency — local desktop notification on sustained degradation ─

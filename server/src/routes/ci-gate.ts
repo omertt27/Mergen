@@ -140,6 +140,10 @@ export function createCIGateRouter(): Router {
 
     logger.info({ verdict, riskScore, tags: inferredTags, service, actor, files: files.length }, 'ci-gate: evaluated PR');
 
+    // Diff-to-decision linking: map specific diff lines to the policy rules that triggered.
+    // This lets the PR author see exactly which line caused the block, not just the verdict.
+    const lineHits = diff ? _linkDiffToDecisions(diff, matchedRules, reasons) : [];
+
     res.json({
       ok: true,
       verdict,
@@ -147,6 +151,7 @@ export function createCIGateRouter(): Router {
       reasons,
       recommendation,
       corpusMatches: matchedRules,
+      lineHits,
       meta: { service, inferredTags, filesChecked: files.length, actor },
     });
   });
@@ -220,4 +225,66 @@ function computeRiskScore(verdict: 'pass' | 'warn' | 'block', rules: CompactedRu
   if (verdict === 'block') return Math.min(100, 70 + rules.length * 5);
   if (verdict === 'warn')  return Math.min(69, 30 + rules.length * 10);
   return Math.max(0, 10 - rules.length * 2);
+}
+
+/**
+ * Diff-to-decision linking: scan the diff line by line and find lines that
+ * contain patterns from triggered corpus rules or semantic risk keywords.
+ * Returns an array of { lineNumber, lineContent, reason } hits so the PR
+ * author can see exactly which line caused the block.
+ */
+function _linkDiffToDecisions(
+  diff: string,
+  matchedRules: CompactedRule[],
+  reasons: string[],
+): Array<{ lineNumber: number; lineContent: string; matchedPattern: string; reason: string }> {
+  const lines  = diff.split('\n');
+  const hits: Array<{ lineNumber: number; lineContent: string; matchedPattern: string; reason: string }> = [];
+
+  // Extract keywords from triggered rule tags and reasons
+  const patterns: Array<{ pattern: RegExp; reason: string }> = [];
+
+  for (const rule of matchedRules) {
+    const tag = rule.tag ?? '';
+    const slug = tag.replace(/_/g, '[-_\\s]').replace(/\//g, '\\/');
+    if (slug) patterns.push({ pattern: new RegExp(slug, 'i'), reason: `Corpus rule: ${tag} (${rule.overrideReason})` });
+  }
+
+  // Semantic risk patterns from the reason strings
+  const semanticKeywords = [
+    { re: /DROP\s+TABLE|TRUNCATE|DELETE\s+FROM(?!\s+\w+\s+WHERE)/i, reason: 'Destructive SQL operation' },
+    { re: /terraform\s+destroy|aws\s+s3\s+rm/i, reason: 'Destructive infrastructure command' },
+    { re: /rm\s+-rf/i, reason: 'Destructive filesystem command' },
+    { re: /ALTER\s+TABLE/i, reason: 'Schema mutation' },
+    { re: /process\.env\.\w*(SECRET|KEY|TOKEN|PASS|PWD)/i, reason: 'Potential secret exposure' },
+    { re: /kubectl\s+delete\s+namespace/i, reason: 'Cluster-scope kubectl delete' },
+  ];
+  for (const kw of semanticKeywords) {
+    patterns.push({ pattern: kw.re, reason: kw.reason });
+  }
+
+  let lineNumber = 0;
+  for (const line of lines) {
+    lineNumber++;
+    // Only check added lines in the diff (lines starting with '+', not '+++')
+    if (!line.startsWith('+') || line.startsWith('+++')) continue;
+    const content = line.slice(1); // strip leading '+'
+    for (const { pattern, reason } of patterns) {
+      if (pattern.test(content)) {
+        // Avoid duplicates for the same line
+        if (!hits.some((h) => h.lineNumber === lineNumber)) {
+          hits.push({
+            lineNumber,
+            lineContent: content.slice(0, 200).trim(),
+            matchedPattern: pattern.source.slice(0, 80),
+            reason,
+          });
+        }
+        break;
+      }
+    }
+    if (hits.length >= 20) break; // cap to avoid huge responses
+  }
+
+  return hits;
 }

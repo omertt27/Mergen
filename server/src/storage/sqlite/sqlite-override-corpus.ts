@@ -21,12 +21,15 @@ import {
   compileOverrideFromSlackThread,
   compileOverridesFromSlackThread,
   getStaleOverrides,
+  getExpiringSoon,
   markOverrideReviewed,
+  importOverrides,
 } from '../../intelligence/override-corpus.js';
 import type {
   OverrideEvent,
   OverrideReason,
   OverrideOutcome,
+  OverridePackEntry,
   CompactedRule,
   OverrideSummary,
 } from '../../intelligence/override-corpus.js';
@@ -122,7 +125,19 @@ export class SqliteOverrideCorpus implements IOverrideCorpus {
     return Promise.resolve(getStaleOverrides(daysThreshold));
   }
 
+  async getExpiringSoon(windowDays = 14, _tenantId?: string): Promise<OverrideEvent[]> {
+    return Promise.resolve(getExpiringSoon(windowDays));
+  }
+
   async markOverrideReviewed(id: string, _tenantId?: string): Promise<boolean> {
     return Promise.resolve(markOverrideReviewed(id));
+  }
+
+  async importOverrides(
+    entries: OverridePackEntry[],
+    opts?: { source?: 'team' | 'community'; actor?: string },
+    _tenantId?: string,
+  ): Promise<{ imported: number; skipped: number }> {
+    return Promise.resolve(importOverrides(entries, opts));
   }
 }

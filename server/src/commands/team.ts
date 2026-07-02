@@ -687,101 +687,102 @@ export async function partnerShortlistCommand(subArgs: string[]): Promise<void> 
 }
 
 export async function execCommand(args: string[]): Promise<void> {
-  // Usage: mergen-server exec [--actor <name>] [--service <name>] -- <command> [args...]
+  // Usage: mergen-server exec [--actor <name>] [--service <name>] [--allow-offline] -- <command> [args...]
   let actor = 'claude';
   let service = 'cli';
+  let allowOffline = false;
   let dashDash = args.indexOf('--');
   const flagArgs = dashDash >= 0 ? args.slice(0, dashDash) : args;
 
   for (let i = 0; i < flagArgs.length; i++) {
     if (flagArgs[i] === '--actor' && flagArgs[i + 1]) actor = flagArgs[++i];
     else if (flagArgs[i] === '--service' && flagArgs[i + 1]) service = flagArgs[++i];
+    else if (flagArgs[i] === '--allow-offline') allowOffline = true;
   }
 
   const cmdParts = dashDash >= 0 ? args.slice(dashDash + 1) : args;
   if (cmdParts.length === 0) {
-    error('Usage: mergen-server exec [--actor <name>] [--service <name>] -- <command> [args...]');
+    error('Usage: mergen-server exec [--actor <name>] [--service <name>] [--allow-offline] -- <command> [args...]');
     process.exit(1);
   }
 
   const fullCommand = cmdParts.join(' ');
 
-  // Evaluate against enterprise policy.
-  // Always check the built-in default rules first (immutable layer), then the
-  // user's on-disk policy. Verdict is the stricter of the two.
-  const {
-    evaluateEnterprisePolicy,
-    loadEnterprisePolicy,
-    DEFAULT_ENTERPRISE_POLICY: DEFAULT_POLICY,
-    _resetPolicyCacheForTesting: _resetPolicy,
-  } = await import('../intelligence/enterprise-policy-engine.js');
+  // Route through the running server's real gate (tool-guard.ts's applyGate,
+  // via routes/gate.ts) — the same decision path an MCP tool call goes
+  // through: policy, HITL hold/wait, blast-radius upgrade, injection
+  // detection, blunder logging. A standalone local-only check here would be
+  // a materially weaker gate for the same class of command.
+  const { evaluateViaGate } = await import('./gate.js');
+  let evaluation: Awaited<ReturnType<typeof evaluateViaGate>>;
+  try {
+    evaluation = await evaluateViaGate(fullCommand);
+  } catch (err) {
+    error(`exec: gate evaluation request failed — ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+    return;
+  }
 
-  const evalInput = { files: [], commands: [fullCommand], actor, service };
-
-  const savedPolicy = loadEnterprisePolicy();
-  _resetPolicy(DEFAULT_POLICY);
-  const defaultResult = evaluateEnterprisePolicy(evalInput);
-  _resetPolicy(savedPolicy);
-  const userResult = evaluateEnterprisePolicy(evalInput);
-
-  // Merge: block > warn > pass
-  const verdictRank = (v: string) => v === 'block' ? 2 : v === 'warn' ? 1 : 0;
-  const result = verdictRank(defaultResult.verdict) >= verdictRank(userResult.verdict)
-    ? defaultResult
-    : userResult;
-
-  if (result.verdict === 'block') {
+  if (evaluation.reachable) {
+    if (evaluation.isError) {
+      hr();
+      console.error('⬡ Mergen — BLOCKED\n');
+      console.error(evaluation.text);
+      hr();
+      process.exit(1);
+    }
+    // PASS (or a HOLD that a human has since approved) — execute below.
+  } else if (!allowOffline) {
     hr();
-    console.error('⬡ Mergen — BLOCKED\n');
-    console.error(`  Command : ${fullCommand}`);
-    console.error(`  Reason  : ${result.reasons[0] ?? 'Destructive pattern matched'}`);
-    console.error('');
-    console.error('  What to do instead:');
-    console.error('    1. Check your runbooks: mergen-server status');
-    console.error('    2. Request human approval: mergen-server approve --request');
-    console.error('    3. Override (audit logged): set MERGEN_TRUSTED_HUMANS=<your-name>');
+    error('exec: no mergen-server is running — refusing to execute (fail closed).');
+    console.error('  Start it with: mergen-server start');
+    console.error('  Or explicitly accept reduced, local-only checks: mergen-server exec --allow-offline -- ...');
     hr();
+    process.exit(1);
+  } else {
+    // ── --allow-offline: degraded, local-only fallback ────────────────────────
+    // No HITL hold, no blast-radius upgrade, no injection detection, no
+    // session/reputation tracking — just a static policy match. Opt-in only.
+    console.warn('⬡ Mergen — mergen-server not reachable, running with reduced local-only checks (--allow-offline)');
 
-    // Record to blunder log via server if available
-    const { randomUUID } = await import('crypto');
-    const blunder = {
-      id: randomUUID(),
-      recordedAt: Date.now(),
-      type: 'blunder',
-      blunderType: 'pipeline_block',
-      command: fullCommand,
-      blockReason: result.reasons[0] ?? 'Destructive pattern matched',
-      service,
-      actor,
-    };
+    const {
+      evaluateEnterprisePolicy,
+      loadEnterprisePolicy,
+      DEFAULT_ENTERPRISE_POLICY: DEFAULT_POLICY,
+      _resetPolicyCacheForTesting: _resetPolicy,
+    } = await import('../intelligence/enterprise-policy-engine.js');
 
-    let success = false;
-    try {
-      const port = await findPort();
-      if (port) {
-        const { join } = await import('path');
-        const { homedir } = await import('os');
-        const { existsSync, readFileSync } = await import('fs');
-        let secret = '';
-        const secretPath = join(homedir(), '.mergen', 'secret');
-        if (existsSync(secretPath)) {
-          try { secret = readFileSync(secretPath, 'utf8').trim(); } catch {}
-        }
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (secret) headers['x-mergen-secret'] = secret;
+    const evalInput = { files: [], commands: [fullCommand], actor, service };
 
-        const resp = await fetch(`http://127.0.0.1:${port}/ingest`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(blunder),
-          signal: AbortSignal.timeout(1000),
-        });
-        if (resp.ok) success = true;
-      }
-    } catch {}
+    const savedPolicy = loadEnterprisePolicy();
+    _resetPolicy(DEFAULT_POLICY);
+    const defaultResult = evaluateEnterprisePolicy(evalInput);
+    _resetPolicy(savedPolicy);
+    const userResult = evaluateEnterprisePolicy(evalInput);
 
-    if (!success) {
-      // Save locally as offline blunder
+    const verdictRank = (v: string) => v === 'block' ? 2 : v === 'warn' ? 1 : 0;
+    const result = verdictRank(defaultResult.verdict) >= verdictRank(userResult.verdict)
+      ? defaultResult
+      : userResult;
+
+    if (result.verdict === 'block') {
+      hr();
+      console.error('⬡ Mergen — BLOCKED (offline check)\n');
+      console.error(`  Command : ${fullCommand}`);
+      console.error(`  Reason  : ${result.reasons[0] ?? 'Destructive pattern matched'}`);
+      hr();
+
+      const { randomUUID } = await import('crypto');
+      const blunder = {
+        id: randomUUID(),
+        recordedAt: Date.now(),
+        type: 'blunder',
+        blunderType: 'pipeline_block',
+        command: fullCommand,
+        blockReason: result.reasons[0] ?? 'Destructive pattern matched',
+        service,
+        actor,
+      };
       try {
         const { appendFileSync, mkdirSync } = await import('fs');
         const { join, dirname } = await import('path');
@@ -790,14 +791,14 @@ export async function execCommand(args: string[]): Promise<void> {
         mkdirSync(dirname(file), { recursive: true });
         appendFileSync(file, JSON.stringify(blunder) + '\n', 'utf8');
       } catch {}
+
+      process.exit(1);
     }
 
-    process.exit(1);
-  }
-
-  if (result.verdict === 'warn') {
-    console.warn(`⬡ Mergen — WARNING: ${result.reasons[0] ?? 'Action requires review'}`);
-    console.warn('  Proceeding — but this action has been flagged for audit.');
+    if (result.verdict === 'warn') {
+      console.warn(`⬡ Mergen — WARNING: ${result.reasons[0] ?? 'Action requires review'}`);
+      console.warn('  Proceeding — but this action has been flagged for audit (offline mode: no HITL hold available).');
+    }
   }
 
   // Execute the command

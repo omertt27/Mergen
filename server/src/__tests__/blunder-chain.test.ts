@@ -20,6 +20,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
+import { createHash } from 'crypto';
 import {
   recordBlunder,
   verifyChain,
@@ -228,6 +229,74 @@ describe('hash chain: legacy-entry anchor-reset exploit (closed)', () => {
     expect(result.valid).toBe(true);
     expect(result.verified).toBe(2); // only the v2 entries count
     expect(result.truncated).toBe(false);
+  });
+});
+
+// ── v3: triggeredRules field ───────────────────────────────────────────────────
+
+describe('hash chain: v3 triggeredRules field', () => {
+  it('entries recorded with triggeredRules store them and the chain verifies', () => {
+    recordBlunder({ ...BASE_EVENT, triggeredRules: ['no_terraform_destroy', 'blast_radius_gate'] });
+    recordBlunder({ ...BASE_EVENT });
+
+    const blunders = getBlunders();
+    expect(blunders[0].triggeredRules).toEqual(['no_terraform_destroy', 'blast_radius_gate']);
+    // Omitted → normalized to null (field present), marking the entry as v3.
+    expect(blunders[1].triggeredRules).toBeNull();
+
+    const result = verifyChain();
+    expect(result.valid).toBe(true);
+    expect(result.verified).toBe(2);
+  });
+
+  it('detects modification of triggeredRules', () => {
+    recordN(1);
+    recordBlunder({ ...BASE_EVENT, triggeredRules: ['real_rule'] });
+    const blunders = getBlunders();
+    (blunders[1] as { triggeredRules: string[] }).triggeredRules = ['forged_rule'];
+
+    const result = verifyChain();
+    expect(result.valid).toBe(false);
+  });
+
+  it('detects stripping triggeredRules from a v3 entry', () => {
+    recordBlunder({ ...BASE_EVENT, triggeredRules: ['real_rule'] });
+    const blunders = getBlunders();
+    delete (blunders[0] as { triggeredRules?: string[] | null }).triggeredRules;
+
+    // Presence-aware hashing: removing the field makes the recomputed hash
+    // match the v2 format, which differs from the stored v3 hash.
+    const result = verifyChain();
+    expect(result.valid).toBe(false);
+  });
+
+  it('v2 entries hashed without the field still verify alongside v3 entries', () => {
+    // Craft a genuine v2-era entry: hashed over the canonical field set
+    // WITHOUT triggeredRules, exactly as the old _hashableContent did.
+    const GENESIS = '0'.repeat(64);
+    const content = {
+      id:              'v2-era-entry',
+      recordedAt:      1_000,
+      blunderType:     'allowlist_block' as BlunderType,
+      command:         'rm -rf /',
+      blockReason:     'v2 era block',
+      service:         'api',
+      tag:             'disk_full',
+      actor:           'autopilot',
+      pid:             'test-pid',
+      confidenceScore: 0.9,
+    };
+    const hash = createHash('sha256').update(GENESIS + JSON.stringify(content)).digest('hex');
+    _injectRawForTesting({ ...content, previousHash: GENESIS, hash });
+
+    // New v3 entries chain onto the v2 anchor.
+    recordBlunder({ ...BASE_EVENT, triggeredRules: ['rule_x'] });
+    recordN(1);
+
+    const result = verifyChain();
+    expect(result.valid).toBe(true);
+    expect(result.truncated).toBe(false);
+    expect(result.verified).toBe(3);
   });
 });
 

@@ -1,6 +1,6 @@
 /**
- * policy-proposals.test.ts — invariants for the opt-in corpus→proposal bridge
- * (MERGEN_AUTO_CORPUS_PROPOSE).
+ * policy-proposals.test.ts — invariants for the corpus→proposal bridge
+ * (MERGEN_AUTO_CORPUS_PROPOSE, on by default; set to 'false' to disable).
  *
  * Guarantees:
  *   1. Proposals are ALWAYS HOLD ('warn') — never 'block' — even when the
@@ -8,7 +8,7 @@
  *   2. A proposed rule is inert: not in loadEnterprisePolicy() and not evaluated
  *      by the gate until it is explicitly approved.
  *   3. Approval installs the rule (as a HOLD) into live policy.
- *   4. With the flag off, proposeRulesFromCorpus() is a no-op.
+ *   4. With MERGEN_AUTO_CORPUS_PROPOSE=false, proposeRulesFromCorpus() is a no-op.
  *
  * Uses a scratch MERGEN_DATA_DIR so it drives the real file-backed corpus,
  * proposal store, and policy engine.
@@ -63,16 +63,16 @@ function seedThreeOverrides(tag: string, service: string): void {
 }
 
 describe('proposeRulesFromCorpus (MERGEN_AUTO_CORPUS_PROPOSE)', () => {
-  it('is a no-op when the flag is off', () => {
-    delete process.env.MERGEN_AUTO_CORPUS_PROPOSE;
+  it('is a no-op when explicitly disabled (MERGEN_AUTO_CORPUS_PROPOSE=false)', () => {
+    process.env.MERGEN_AUTO_CORPUS_PROPOSE = 'false';
     seedThreeOverrides('infra_prop_off', 'svc-off');
     const proposals = proposeRulesFromCorpus({ incidentTag: 'infra_prop_off', service: 'svc-off' });
     expect(proposals).toEqual([]);
     expect(getProposals('proposed')).toHaveLength(0);
   });
 
-  it('stages HOLD-only proposals (never block) when the flag is on', () => {
-    process.env.MERGEN_AUTO_CORPUS_PROPOSE = 'true';
+  it('stages HOLD-only proposals (never block) by default (flag unset)', () => {
+    delete process.env.MERGEN_AUTO_CORPUS_PROPOSE;
     seedThreeOverrides('infra_prop_hold', 'svc-hold');
     const proposals = proposeRulesFromCorpus({ incidentTag: 'infra_prop_hold', service: 'svc-hold' });
 

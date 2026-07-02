@@ -15,6 +15,7 @@ import type {
   OverrideEvent,
   OverrideReason,
   OverrideOutcome,
+  OverridePackEntry,
   CompactedRule,
   OverrideSummary,
 } from '../intelligence/override-corpus.js';
@@ -109,7 +110,13 @@ export interface IOverrideCorpus {
     tenantId?: string,
   ): Promise<OverrideEvent[]>;
   getStaleOverrides(daysThreshold?: number, tenantId?: string): Promise<OverrideEvent[]>;
+  getExpiringSoon(windowDays?: number, tenantId?: string): Promise<OverrideEvent[]>;
   markOverrideReviewed(id: string, tenantId?: string): Promise<boolean>;
+  importOverrides(
+    entries: OverridePackEntry[],
+    opts?: { source?: 'team' | 'community'; actor?: string },
+    tenantId?: string,
+  ): Promise<{ imported: number; skipped: number }>;
 }
 
 // ── Shadow log ────────────────────────────────────────────────────────────────

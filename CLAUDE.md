@@ -160,10 +160,11 @@ MERGEN_SLACK_SIGNING_SECRET=...    # HMAC secret to verify inbound Slack events
 MERGEN_SLACK_DIGEST=true           # post daily operational digest at 09:00 UTC (incidents, calibration, overrides, runbooks)
 MERGEN_SLACK_OVERRIDE_LOOP=true    # auto-scan incident channel every 6h for postmortem threads → build override corpus automatically
 MERGEN_GIT_ADR_SYNC=true           # scan git history + ADR records for operational constraints → materialise as override corpus entries (daily)
-MERGEN_AUTO_CORPUS_PROPOSE=true    # opt-in: every 6h, stage repeatedly-overridden corpus patterns as HOLD-only policy
+MERGEN_AUTO_CORPUS_PROPOSE=false   # on by default: every 6h, stage repeatedly-overridden corpus patterns as HOLD-only policy
                                    # proposals for one-click approval at GET /policy-suggestions. Never auto-activates and
                                    # never proposes a BLOCK — approve via POST /policies/proposals/:id/approve (or /reject).
                                    # This is the low-friction, safe counterpart to the review→auto-activate bridge.
+                                   # Set to false to disable.
 MERGEN_PR_COMMENTS=true            # post AI code review comments on PRs (enables habituation tracking)
 
 # ── PagerDuty ─────────────────────────────────────────────────────────────────

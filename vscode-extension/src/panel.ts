@@ -1285,20 +1285,82 @@ export class MergenPanel implements vscode.WebviewViewProvider {
     margin-left: 4px;
     letter-spacing: .03em;
   }
+  /* ── Tabs ── */
+  .tab-bar {
+    display: flex;
+    border-bottom: 1px solid var(--vscode-widget-border, rgba(127,127,127,.2));
+    margin: 10px 0 10px;
+  }
+  .tab-btn {
+    flex: 1;
+    padding: 5px 2px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .02em;
+    text-align: center;
+    cursor: pointer;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--vscode-descriptionForeground);
+    font-family: inherit;
+    transition: color .15s, border-color .15s;
+    position: relative;
+  }
+  .tab-btn:hover { color: var(--vscode-foreground); opacity: 1; }
+  .tab-btn.active {
+    color: var(--vscode-foreground);
+    border-bottom-color: var(--vscode-focusBorder, var(--vscode-charts-blue));
+  }
+  .tab-btn .tab-badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--vscode-charts-red);
+    display: none;
+  }
+  .tab-btn .tab-badge.visible { display: block; }
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; }
 </style>
 </head>
 <body>
 
 <!-- Header -->
-<div class="header" style="flex-direction: column; align-items: stretch; gap: 8px;">
-  <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+<div class="header" style="flex-direction: column; align-items: stretch; gap: 0;">
+  <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; margin-bottom: 8px;">
     <span class="header-title"><span class="dot" id="dot"></span>Mergen Gateway</span>
-    <span class="badge" id="plan-badge">—</span>
+    <span class="badge" id="plan-badge" style="display:none"></span>
   </div>
-  <div class="gateway-status-bar" style="display: flex; justify-content: space-between; font-size: 10px; color: var(--vscode-descriptionForeground); border-top: 1px solid var(--vscode-widget-border, rgba(127,127,127,.15)); padding-top: 6px; margin-top: 4px; width: 100%;">
-    <span>Status: <span id="gateway-status" style="color: var(--vscode-charts-green); font-weight: 600;">Protected ✓</span></span>
-    <span>Latency: <span id="gateway-latency">0.84ms</span></span>
-    <span>Policies: <span id="gateway-policies-active">0 active</span></span>
+  <!-- Gateway status block — always visible, mirrors the homepage value prop -->
+  <div id="gateway-status-block" style="background: var(--vscode-editor-background); border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.2)); border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px;">
+    <!-- Row 1: ACTIVE status + latency -->
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+      <span style="font-size: 11px; font-weight: 700; letter-spacing: .03em;">
+        Gateway: <span id="gateway-status" style="color: var(--vscode-charts-green);">ACTIVE</span>
+      </span>
+      <span style="font-size: 10px; color: var(--vscode-descriptionForeground);">
+        Latency: <span id="gateway-latency" style="font-weight: 600; color: var(--vscode-foreground);">—</span>
+      </span>
+    </div>
+    <!-- Row 2: three key counters -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px;">
+      <div style="text-align: center; background: var(--vscode-sideBar-background); border-radius: 4px; padding: 5px 4px;">
+        <div style="font-size: 15px; font-weight: 700; color: var(--vscode-charts-blue); line-height: 1;" id="hdr-protected">—</div>
+        <div style="font-size: 9px; color: var(--vscode-descriptionForeground); margin-top: 2px; text-transform: uppercase; letter-spacing: .04em;">Protected</div>
+      </div>
+      <div style="text-align: center; background: var(--vscode-sideBar-background); border-radius: 4px; padding: 5px 4px;">
+        <div style="font-size: 15px; font-weight: 700; color: var(--vscode-charts-red); line-height: 1;" id="hdr-blocked">—</div>
+        <div style="font-size: 9px; color: var(--vscode-descriptionForeground); margin-top: 2px; text-transform: uppercase; letter-spacing: .04em;">Blocked</div>
+      </div>
+      <div style="text-align: center; background: var(--vscode-sideBar-background); border-radius: 4px; padding: 5px 4px;">
+        <div style="font-size: 15px; font-weight: 700; color: var(--vscode-charts-yellow); line-height: 1;" id="hdr-escalated">—</div>
+        <div style="font-size: 9px; color: var(--vscode-descriptionForeground); margin-top: 2px; text-transform: uppercase; letter-spacing: .04em;">Escalated</div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1336,306 +1398,320 @@ export class MergenPanel implements vscode.WebviewViewProvider {
   </div>
 </div>
 
-<!-- Account card -->
-<div class="card" id="card-account" style="display:none">
-  <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
-    <span>Account</span>
-    <span id="account-plan-badge" class="badge" style="display:none"></span>
-  </div>
-  <div id="account-signed-in" style="display:none">
-    <div class="row">
-      <span class="row-label">Signed in as</span>
-      <span class="row-value" id="account-email" style="font-size:11px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
-    </div>
-    <div class="btn-row" style="margin-top:8px">
-      <button onclick="send('signOut')">Sign out</button>
-      <a class="signal-run" href="https://mergen.dev/dashboard" title="Open dashboard" style="text-align:center">↗ Dashboard</a>
-    </div>
-  </div>
-  <div id="account-signed-out">
-    <div style="font-size:11px;color:var(--vscode-descriptionForeground);margin-bottom:8px">
-      Connect your Mergen account to unlock your plan and sync credits.
-    </div>
-    <div class="btn-row">
-      <button class="primary" onclick="send('connectAccount')">→ Connect Account</button>
-      <button onclick="send('enterKey')">Enter key…</button>
-    </div>
-  </div>
-  <!-- Contextual upgrade CTA — shown when a higher plan is available -->
-  <div id="account-upgrade" style="display:none; margin-top:10px; border-top:1px solid var(--vscode-widget-border,rgba(127,127,127,.2)); padding-top:10px">
-    <div style="font-size:11px; font-weight:600; margin-bottom:2px" id="account-upgrade-title"></div>
-    <div style="font-size:11px; opacity:0.75; margin-bottom:8px" id="account-upgrade-tagline"></div>
-    <a class="signal-run primary" id="account-upgrade-link" href="#" title="Upgrade your Mergen plan" style="text-align:center; display:block">↑ Upgrade</a>
-  </div>
+<!-- Tab bar (hidden until connected) -->
+<div class="tab-bar" id="tab-bar" style="display:none">
+  <button class="tab-btn active" id="tab-btn-overview"    onclick="switchTab('overview')">Overview</button>
+  <button class="tab-btn"        id="tab-btn-decisions"   onclick="switchTab('decisions')">Decisions</button>
+  <button class="tab-btn"        id="tab-btn-visualizer"  onclick="switchTab('visualizer')">Visualizer</button>
+  <button class="tab-btn"        id="tab-btn-policies"    onclick="switchTab('policies')">Policies</button>
+  <button class="tab-btn"        id="tab-btn-settings"    onclick="switchTab('settings')">Settings</button>
 </div>
 
-<!-- Security Metrics -->
-<div class="card" id="card-security-metrics" style="display:none">
-  <div class="card-title">Security Metrics</div>
-  <div class="stats-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px;">
-    <div class="stat-box" style="background: var(--vscode-sideBar-background); border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.15)); border-radius: 4px; padding: 8px; text-align: center; border-left: 3px solid var(--vscode-charts-blue);">
-      <div style="font-size: 15px; font-weight: 700; color: var(--vscode-charts-blue);" id="metric-protected-actions">—</div>
-      <div style="font-size: 9px; color: var(--vscode-descriptionForeground); text-transform: uppercase; margin-top: 2px;">Protected Actions</div>
+<!-- ══════════════════════════════════════════════════════════
+     TAB: OVERVIEW — Mission Control
+     Answers three questions: Am I protected? What happened?
+     Do I need to take action?
+     ══════════════════════════════════════════════════════════ -->
+<div class="tab-pane active" id="tab-overview">
+
+  <!-- Approvals Required — only shown when there are pending actions -->
+  <div class="card" id="card-bypasses" style="display:none">
+    <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
+      <span>Approvals Required</span>
+      <span style="font-size:10px;font-weight:700;background:var(--vscode-charts-red);color:#fff;border-radius:3px;padding:1px 5px" id="bypasses-count">0</span>
     </div>
-    <div class="stat-box" style="background: var(--vscode-sideBar-background); border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.15)); border-radius: 4px; padding: 8px; text-align: center; border-left: 3px solid var(--vscode-charts-red);">
-      <div style="font-size: 15px; font-weight: 700; color: var(--vscode-charts-red);" id="metric-blocked-actions">—</div>
-      <div style="font-size: 9px; color: var(--vscode-descriptionForeground); text-transform: uppercase; margin-top: 2px;">Blocked Actions</div>
+    <div style="font-size:10px;color:var(--vscode-descriptionForeground);margin-bottom:8px">Agent tool executions awaiting human approval before they run.</div>
+    <div id="bypasses-list" style="display:flex;flex-direction:column;gap:6px"></div>
+  </div>
+
+  <!-- Recent Decisions -->
+  <div class="card" id="card-execution-timeline" style="display:none">
+    <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
+      <span>Recent Decisions</span>
+      <a style="font-size:10px;color:var(--vscode-descriptionForeground);cursor:pointer;text-decoration:none" onclick="switchTab('decisions')" title="See full log">All →</a>
     </div>
-    <div class="stat-box" style="background: var(--vscode-sideBar-background); border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.15)); border-radius: 4px; padding: 8px; text-align: center; border-left: 3px solid var(--vscode-charts-yellow);">
-      <div style="font-size: 15px; font-weight: 700; color: var(--vscode-charts-yellow);" id="metric-approvals-requested">—</div>
-      <div style="font-size: 9px; color: var(--vscode-descriptionForeground); text-transform: uppercase; margin-top: 2px;">Approvals Req</div>
+    <div id="execution-timeline-list" style="display:flex;flex-direction:column;gap:5px"></div>
+  </div>
+
+  <!-- Policy Coverage (summary) -->
+  <div class="card" id="card-policy-summary" style="display:none">
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span>Policy Coverage</span>
+      <span id="policy-summary-badge" style="font-size:10px;font-weight:700;background:var(--vscode-charts-green);color:#fff;border-radius:3px;padding:1px 5px">—%</span>
     </div>
-    <div class="stat-box" style="background: var(--vscode-sideBar-background); border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.15)); border-radius: 4px; padding: 8px; text-align: center; border-left: 3px solid var(--vscode-charts-orange, #d18616);">
-      <div style="font-size: 15px; font-weight: 700; color: var(--vscode-charts-orange, #d18616);" id="metric-shadow-violations">—</div>
-      <div style="font-size: 9px; color: var(--vscode-descriptionForeground); text-transform: uppercase; margin-top: 2px;">Shadow Violations</div>
-    </div>
-  </div>
-</div>
-
-<!-- Policies & Coverage -->
-<div class="card" id="card-policies-coverage" style="display:none">
-  <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-    <span>Active Policies</span>
-    <span id="policy-coverage-badge" style="font-size:10px;font-weight:700;background:var(--vscode-charts-green);color:#fff;border-radius:3px;padding:1px 5px">— Coverage</span>
-  </div>
-  <div style="font-size:10px;color:var(--vscode-descriptionForeground);margin-bottom:8px">Safety policies enforced on all autonomous agents.</div>
-  
-  <div id="policies-list" style="display:flex;flex-direction:column;gap:5px;margin-bottom:10px">
-    <!-- Active policies list -->
-  </div>
-
-  <div style="border-top:1px solid var(--vscode-widget-border, rgba(127,127,127,.15));padding-top:8px;margin-top:8px">
-    <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px">
-      <span style="color:var(--vscode-descriptionForeground)">Critical Actions Protected</span>
-      <span style="font-weight:600" id="critical-actions-count">—</span>
-    </div>
-    <div class="credit-bar-wrap" style="height:6px; background:rgba(127,127,127,0.2);">
-      <div class="credit-bar-fill" id="coverage-bar" style="width:0%; background:var(--vscode-charts-green)"></div>
-    </div>
-  </div>
-  <div style="margin-top:10px">
-    <a class="signal-run" href="command:mergen.openPolicies" style="text-align:center;display:block" title="Open Web Policy Editor">⚙ Open Policy Editor</a>
-  </div>
-</div>
-
-<!-- Execution Timeline -->
-<div class="card" id="card-execution-timeline" style="display:none">
-  <div class="card-title">Execution Timeline</div>
-  <div style="font-size:10px;color:var(--vscode-descriptionForeground);margin-bottom:8px">Real-time log of agent decisions and safety checks.</div>
-  <div id="execution-timeline-list" style="display:flex;flex-direction:column;gap:6px"></div>
-</div>
-
-<!-- Pending Bypasses -->
-<div class="card" id="card-bypasses" style="display:none">
-  <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
-    <span>Pending Bypasses</span>
-    <span style="font-size:10px;font-weight:700;background:var(--vscode-charts-red);color:#fff;border-radius:3px;padding:1px 5px" id="bypasses-count">0</span>
-  </div>
-  <div style="font-size:10px;color:var(--vscode-descriptionForeground);margin-bottom:8px">AI agent tool executions requiring manual approval.</div>
-  <div id="bypasses-list" style="display:flex;flex-direction:column;gap:6px"></div>
-</div>
-
-<!-- Live Context Pack — promoted to first: root cause is the primary question -->
-<div class="card" id="card-pack" style="display:none">
-  <div class="card-title">Context Pack <span id="pack-time" class="pack-time"></span></div>
-  <div style="font-size:10px;color:var(--vscode-descriptionForeground);margin-bottom:6px">Live snapshot of errors, root cause, and traces — send directly to AI Chat.</div>
-  <div class="pack-trigger" id="pack-trigger"></div>
-  <div class="hyp" id="pack-hyp" style="display:none">
-    <div class="hyp-head">
-      <span class="hyp-tag" id="hyp-tag">—</span>
-      <span class="hyp-conf" id="hyp-conf">—</span>
-    </div>
-    
-    <!-- Causal Chain Breadcrumbs — populated by JS from hyp.causalPath -->
-    <div id="causal-chain" style="display:none"></div>
-    
-    <div class="hyp-summary" id="hyp-summary"></div>
-    <div class="hyp-fix" id="hyp-fix" style="display:none"></div>
-    
-    <!-- Blast Radius UI -->
-    <div id="blast-radius-box" style="margin-top:10px; padding:8px 10px; border:1px solid var(--vscode-charts-yellow); border-radius:4px; background:rgba(255,200,0,0.05); display:none">
-      <div style="font-size:10px; font-weight:700; color:var(--vscode-charts-yellow); margin-bottom:4px; letter-spacing:0.05em">BLAST RADIUS</div>
-      <div id="blast-radius-risk" style="font-size:11px; color:var(--vscode-foreground); line-height:1.4">Risk: 12% (No DB migrations involved, low traffic window)</div>
-    </div>
-
-    <div class="calib" id="hyp-calib" style="display:none"></div>
-  </div>
-  <div class="pack-meta">
-    <span id="pack-counts">—</span>
-  </div>
-  <div class="btn-row" style="margin-top:8px">
-    <button class="primary" id="pack-send">→ Send to AI Chat</button>
-    <button id="pack-copy">⧉ Copy Pack</button>
-  </div>
-</div>
-
-<!-- Service Map (Execution Visualizer) -->
-<div class="card" id="card-services" style="display:none">
-  <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-    <span>Execution Visualizer</span>
-    <span id="service-filter-badge" style="display:none; font-size:10px; font-weight:700; background:var(--vscode-charts-blue); color:#fff; border-radius:3px; padding:1px 5px; cursor:pointer" onclick="onClearServiceFilter()" title="Clear filter">
-      Filter: <span id="service-filter-name"></span> ✕
-    </span>
-  </div>
-  <div style="font-size:10px;color:var(--vscode-descriptionForeground);margin-bottom:8px">Active SDK connections and co-occurrence topology.</div>
-  
-  <div id="service-map-container" style="position:relative; width:100%; height:160px; background:var(--vscode-sideBar-background); border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.1)); border-radius:4px; overflow:hidden">
-    <svg id="service-map-svg" width="100%" height="100%" style="display:block; overflow:visible; cursor:grab"></svg>
-    <div id="service-map-tooltip" style="position:absolute; display:none; background:var(--vscode-editor-background); color:var(--vscode-foreground); padding:4px 8px; border-radius:3px; font-size:10px; font-family:var(--vscode-editor-font-family); pointer-events:none; z-index:10; border:1px solid var(--vscode-widget-border, rgba(127,127,127,.25))"></div>
-  </div>
-  <div id="service-map-summary" style="font-size:9px; color:var(--vscode-descriptionForeground); margin-top:4px; text-align:right"></div>
-</div>
-
-<!-- Unified Timeline -->
-<div class="card" id="card-activity" style="display:none">
-  <div class="card-title">Diagnostics Timeline</div>
-  <div id="root-cause-box" style="display:none;margin-bottom:8px;padding:8px 10px;border-radius:4px;background:rgba(255,100,100,.08);border-left:3px solid var(--vscode-charts-red)">
-    <div style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--vscode-charts-red);margin-bottom:3px">
-      Root Cause · <span id="rc-confidence"></span>
-    </div>
-    <div id="rc-hypothesis" style="font-size:11px;color:var(--vscode-foreground);line-height:1.4"></div>
-    <div id="rc-fix" style="display:none;font-size:10px;color:var(--vscode-descriptionForeground);margin-top:4px"></div>
-    <div id="rc-recurrence" style="display:none;margin-top:6px;padding:6px 8px;background:rgba(255,200,0,0.08);border-left:2px solid var(--vscode-charts-yellow);font-size:10px;border-radius:0 4px 4px 0"></div>
-  </div>
-  <div id="activity-list"></div>
-</div>
-
-<!-- Proactive signals -->
-<div class="card" id="card-signals" style="display:none">
-  <div class="card-title">Detected Patterns</div>
-  <div id="signals-list"></div>
-</div>
-
-<!-- Intent card — PR context for the currently active file -->
-<div class="card" id="card-intent" style="display:none">
-  <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
-    <span>Why This File? <span id="intent-file" style="font-weight:400;text-transform:none;letter-spacing:0;font-size:10px;color:var(--vscode-descriptionForeground)"></span></span>
-    <button style="flex:0;padding:2px 8px;font-size:10px" onclick="runCmd('mergen.whyThisFile')">↗ AI Chat</button>
-  </div>
-  <div id="intent-list"></div>
-</div>
-
-<!-- Collapsible Advanced Section -->
-<div class="card" id="card-advanced" style="display:none">
-  <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none" onclick="toggleAdvanced()">
-    <span>Advanced Diagnostics</span>
-    <span id="advanced-toggle-icon">▶</span>
-  </div>
-  <div id="advanced-content" style="display:none;margin-top:10px;border-top:1px solid var(--vscode-widget-border, rgba(127,127,127,.15));padding-top:10px">
-    
-    <!-- Detector Health -->
-    <div class="adv-section" id="card-detectors" style="display:none">
-      <div style="font-size:11px;font-weight:600;margin-bottom:6px;display:flex;justify-content:space-between">
-        <span>Detector Health</span>
-        <span id="detector-summary" style="font-size:9px;color:var(--vscode-descriptionForeground)"></span>
+    <div id="policy-summary-rows" style="margin-top:6px">
+      <div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0">
+        <span style="color:var(--vscode-descriptionForeground)">Active policies</span>
+        <span style="font-weight:600" id="policy-summary-active">—</span>
       </div>
-      <div id="detector-list"></div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px solid var(--vscode-widget-border,rgba(127,127,127,.1))">
+        <span style="color:var(--vscode-descriptionForeground)">High-risk (block)</span>
+        <span style="font-weight:600;color:var(--vscode-charts-red)" id="policy-summary-block">—</span>
+      </div>
     </div>
-    
-    <!-- Buffer stats -->
-    <div class="adv-section" id="card-buffer" style="display:none">
-      <div style="font-size:11px;font-weight:600;margin-bottom:6px">Buffer Diagnostics</div>
-      <div class="stats" style="margin-bottom:8px">
-        <div class="stat">
-          <div class="stat-value red"   id="stat-errors">0</div>
-          <div class="stat-label">Errors</div>
-        </div>
-        <div class="stat">
-          <div class="stat-value amber" id="stat-warns">0</div>
-          <div class="stat-label">Warnings</div>
-        </div>
-        <div class="stat">
-          <div class="stat-value blue"  id="stat-net">0</div>
-          <div class="stat-label">Net Errors</div>
-        </div>
+    <div class="credit-bar-wrap" style="height:5px;background:rgba(127,127,127,0.15);margin-top:8px">
+      <div class="credit-bar-fill" id="policy-summary-bar" style="width:0%;background:var(--vscode-charts-green)"></div>
+    </div>
+    <div style="margin-top:8px;text-align:right">
+      <a style="font-size:10px;color:var(--vscode-descriptionForeground);cursor:pointer;text-decoration:none" onclick="switchTab('policies')" title="Manage policies">Manage policies →</a>
+    </div>
+  </div>
+
+</div><!-- /tab-overview -->
+
+<!-- ══════════════════════════════════════════════════════════
+     TAB: DECISIONS — Full decision log + diagnostics
+     ══════════════════════════════════════════════════════════ -->
+<div class="tab-pane" id="tab-decisions">
+
+  <!-- Agent Actions (causal timeline with root-cause) -->
+  <div class="card" id="card-activity" style="display:none">
+    <div class="card-title">Agent Actions</div>
+    <div id="root-cause-box" style="display:none;margin-bottom:8px;padding:8px 10px;border-radius:4px;background:rgba(255,100,100,.08);border-left:3px solid var(--vscode-charts-red)">
+      <div style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--vscode-charts-red);margin-bottom:3px">
+        Root Cause · <span id="rc-confidence"></span>
+      </div>
+      <div id="rc-hypothesis" style="font-size:11px;color:var(--vscode-foreground);line-height:1.4"></div>
+      <div id="rc-fix" style="display:none;font-size:10px;color:var(--vscode-descriptionForeground);margin-top:4px"></div>
+      <div id="rc-recurrence" style="display:none;margin-top:6px;padding:6px 8px;background:rgba(255,200,0,0.08);border-left:2px solid var(--vscode-charts-yellow);font-size:10px;border-radius:0 4px 4px 0"></div>
+    </div>
+    <div id="activity-list"></div>
+  </div>
+
+  <!-- Threat Signals -->
+  <div class="card" id="card-signals" style="display:none">
+    <div class="card-title">Threat Signals</div>
+    <div id="signals-list"></div>
+  </div>
+
+  <!-- Context Pack -->
+  <div class="card" id="card-pack" style="display:none">
+    <div class="card-title">Context Pack <span id="pack-time" class="pack-time"></span></div>
+    <div style="font-size:10px;color:var(--vscode-descriptionForeground);margin-bottom:6px">Live snapshot of errors, root cause, and traces — send directly to AI Chat.</div>
+    <div class="pack-trigger" id="pack-trigger"></div>
+    <div class="hyp" id="pack-hyp" style="display:none">
+      <div class="hyp-head">
+        <span class="hyp-tag" id="hyp-tag">—</span>
+        <span class="hyp-conf" id="hyp-conf">—</span>
+      </div>
+      <div id="causal-chain" style="display:none"></div>
+      <div class="hyp-summary" id="hyp-summary"></div>
+      <div class="hyp-fix" id="hyp-fix" style="display:none"></div>
+      <div id="blast-radius-box" style="margin-top:10px;padding:8px 10px;border:1px solid var(--vscode-charts-yellow);border-radius:4px;background:rgba(255,200,0,0.05);display:none">
+        <div style="font-size:10px;font-weight:700;color:var(--vscode-charts-yellow);margin-bottom:4px;letter-spacing:0.05em">BLAST RADIUS</div>
+        <div id="blast-radius-risk" style="font-size:11px;color:var(--vscode-foreground);line-height:1.4"></div>
+      </div>
+      <div class="calib" id="hyp-calib" style="display:none"></div>
+    </div>
+    <div class="pack-meta"><span id="pack-counts">—</span></div>
+    <div class="btn-row" style="margin-top:8px">
+      <button class="primary" id="pack-send">→ Send to AI Chat</button>
+      <button id="pack-copy">⧉ Copy Pack</button>
+    </div>
+  </div>
+
+  <!-- Recent Diagnoses -->
+  <div class="card" id="card-history" style="display:none">
+    <div class="card-title">Recent Diagnoses</div>
+    <div id="history-list"></div>
+  </div>
+
+</div><!-- /tab-decisions -->
+
+<!-- ══════════════════════════════════════════════════════════
+     TAB: VISUALIZER — Service topology & execution graph
+     ══════════════════════════════════════════════════════════ -->
+<div class="tab-pane" id="tab-visualizer">
+
+  <div class="card" id="card-services" style="display:none">
+    <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <span>Execution Visualizer</span>
+      <span id="service-filter-badge" style="display:none;font-size:10px;font-weight:700;background:var(--vscode-charts-blue);color:#fff;border-radius:3px;padding:1px 5px;cursor:pointer" onclick="onClearServiceFilter()" title="Clear filter">
+        Filter: <span id="service-filter-name"></span> ✕
+      </span>
+    </div>
+    <div style="font-size:10px;color:var(--vscode-descriptionForeground);margin-bottom:8px">Active agent connections and execution topology.</div>
+    <div id="service-map-container" style="position:relative;width:100%;height:200px;background:var(--vscode-sideBar-background);border:1px solid var(--vscode-widget-border,rgba(127,127,127,.1));border-radius:4px;overflow:hidden">
+      <svg id="service-map-svg" width="100%" height="100%" style="display:block;overflow:visible;cursor:grab"></svg>
+      <div id="service-map-tooltip" style="position:absolute;display:none;background:var(--vscode-editor-background);color:var(--vscode-foreground);padding:4px 8px;border-radius:3px;font-size:10px;font-family:var(--vscode-editor-font-family);pointer-events:none;z-index:10;border:1px solid var(--vscode-widget-border,rgba(127,127,127,.25))"></div>
+    </div>
+    <div id="service-map-summary" style="font-size:9px;color:var(--vscode-descriptionForeground);margin-top:4px;text-align:right"></div>
+  </div>
+
+</div><!-- /tab-visualizer -->
+
+<!-- ══════════════════════════════════════════════════════════
+     TAB: POLICIES — Policy editor + coverage
+     ══════════════════════════════════════════════════════════ -->
+<div class="tab-pane" id="tab-policies">
+
+  <div class="card" id="card-policies-coverage" style="display:none">
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span>Policy Coverage</span>
+      <span id="policy-coverage-badge" style="font-size:10px;font-weight:700;background:var(--vscode-charts-green);color:#fff;border-radius:3px;padding:1px 5px">— Coverage</span>
+    </div>
+    <div style="font-size:10px;color:var(--vscode-descriptionForeground);margin-bottom:8px">Enforcement rules governing every agent action.</div>
+    <div id="policies-list" style="display:flex;flex-direction:column;gap:5px;margin-bottom:10px"></div>
+    <div style="border-top:1px solid var(--vscode-widget-border,rgba(127,127,127,.15));padding-top:8px;margin-top:8px">
+      <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px">
+        <span style="color:var(--vscode-descriptionForeground)">Critical Actions Protected</span>
+        <span style="font-weight:600" id="critical-actions-count">—</span>
+      </div>
+      <div class="credit-bar-wrap" style="height:6px;background:rgba(127,127,127,0.2)">
+        <div class="credit-bar-fill" id="coverage-bar" style="width:0%;background:var(--vscode-charts-green)"></div>
+      </div>
+    </div>
+    <div style="margin-top:10px">
+      <a class="signal-run" href="command:mergen.openPolicies" style="text-align:center;display:block" title="Open Web Policy Editor">⚙ Open Policy Editor</a>
+    </div>
+  </div>
+
+  <!-- Intent card — PR context for the currently active file -->
+  <div class="card" id="card-intent" style="display:none">
+    <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
+      <span>Why This File? <span id="intent-file" style="font-weight:400;text-transform:none;letter-spacing:0;font-size:10px;color:var(--vscode-descriptionForeground)"></span></span>
+      <button style="flex:0;padding:2px 8px;font-size:10px" onclick="runCmd('mergen.whyThisFile')">↗ AI Chat</button>
+    </div>
+    <div id="intent-list"></div>
+  </div>
+
+  <!-- Hidden IDs that JS still writes to (kept for compatibility) -->
+  <div id="metric-protected-actions"  style="display:none"></div>
+  <div id="metric-blocked-actions"    style="display:none"></div>
+  <div id="metric-approvals-requested" style="display:none"></div>
+  <div id="metric-shadow-violations"  style="display:none"></div>
+  <div id="gateway-policies-active"   style="display:none"></div>
+
+</div><!-- /tab-policies -->
+
+<!-- ══════════════════════════════════════════════════════════
+     TAB: SETTINGS — Account, credits, diagnostics
+     ══════════════════════════════════════════════════════════ -->
+<div class="tab-pane" id="tab-settings">
+
+  <!-- Account card -->
+  <div class="card" id="card-account" style="display:none">
+    <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
+      <span>Account</span>
+      <span id="account-plan-badge" class="badge" style="display:none"></span>
+    </div>
+    <div id="account-signed-in" style="display:none">
+      <div class="row">
+        <span class="row-label">Signed in as</span>
+        <span class="row-value" id="account-email" style="font-size:11px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+      </div>
+      <div class="btn-row" style="margin-top:8px">
+        <button onclick="send('signOut')">Sign out</button>
+        <a class="signal-run" href="https://mergen.dev/dashboard" title="Open dashboard" style="text-align:center">↗ Dashboard</a>
+      </div>
+    </div>
+    <div id="account-signed-out">
+      <div style="font-size:11px;color:var(--vscode-descriptionForeground);margin-bottom:8px">
+        Connect your Mergen account to unlock your plan and sync credits.
       </div>
       <div class="btn-row">
-        <button class="primary" id="btn-refresh" onclick="onRefresh()">
-          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-right:4px;vertical-align:middle;"><path d="M13.6 4.6A7 7 0 1 0 15 8h-2a5 5 0 1 1-1-3l2.2-2.2v4.8h-4.8z"/></svg>Refresh
-        </button>
-        <button id="btn-capture" onclick="send('startCapture')" title="Mark a start point — reproduce your bug — then ask your AI what happened since capture">
-          <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--vscode-charts-red);margin-right:4px;vertical-align:middle;"></span>Capture
-        </button>
-        <button id="btn-clear" onclick="onClear()">
-          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-right:4px;vertical-align:middle;"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>Clear
-        </button>
+        <button class="primary" onclick="send('connectAccount')">→ Connect Account</button>
+        <button onclick="send('enterKey')">Enter key…</button>
       </div>
-      <div id="capture-status" style="display:none;margin-top:6px;font-size:10px;color:var(--vscode-charts-green)"></div>
     </div>
+    <div id="account-upgrade" style="display:none;margin-top:10px;border-top:1px solid var(--vscode-widget-border,rgba(127,127,127,.2));padding-top:10px">
+      <div style="font-size:11px;font-weight:600;margin-bottom:2px" id="account-upgrade-title"></div>
+      <div style="font-size:11px;opacity:0.75;margin-bottom:8px" id="account-upgrade-tagline"></div>
+      <a class="signal-run primary" id="account-upgrade-link" href="#" title="Upgrade your Mergen plan" style="text-align:center;display:block">↑ Upgrade</a>
+    </div>
+  </div>
 
-    <!-- Server info -->
-    <div class="adv-section" id="card-server" style="display:none">
-      <div style="font-size:11px;font-weight:600;margin-bottom:6px">Server Details</div>
+  <!-- Credits -->
+  <div class="card" id="card-usage" style="display:none">
+    <div class="card-title">Credits — <span id="usage-month"></span></div>
+    <div id="usage-unlimited" style="display:none">
       <div class="row">
-        <span class="row-label">Port</span>
-        <span class="row-value" id="server-port">—</span>
+        <span class="row-label">Used this month</span>
+        <span class="row-value" id="usage-used-unlim">0</span>
       </div>
       <div class="row">
-        <span class="row-label">Version</span>
-        <span class="row-value" id="server-version">—</span>
-      </div>
-      <div class="row">
-        <span class="row-label">Buffer</span>
-        <span class="row-value" id="server-buffered">—</span>
-      </div>
-      <div class="row" title="Automatic causal-chain rebuilds — Mergen's continuous-watch metric">
-        <span class="row-label">Analyses today</span>
-        <span class="row-value" id="server-analyses">—</span>
+        <span class="row-label">Quota</span>
+        <span class="row-value">Unlimited ∞</span>
       </div>
     </div>
+    <div id="usage-quota" style="display:none">
+      <div class="credit-bar-wrap">
+        <div class="credit-bar-fill" id="credit-bar"></div>
+      </div>
+      <div class="credit-meta">
+        <span id="usage-used-label">0 / 0 used</span>
+        <span id="usage-remaining-label">0 left</span>
+      </div>
+      <div id="usage-overage" style="display:none;margin-top:8px">
+        <div class="row">
+          <span class="row-label">Overage calls</span>
+          <span class="row-value red" id="overage-count">0</span>
+        </div>
+        <div class="row">
+          <span class="row-label">Estimated charge</span>
+          <span class="row-value" id="overage-est">$0.00</span>
+        </div>
+        <div class="row">
+          <span class="row-label">Billing status</span>
+          <span class="row-value" id="billing-status">—</span>
+        </div>
+      </div>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <span class="row-label">Resets</span>
+      <span class="row-value" id="usage-resets">—</span>
+    </div>
   </div>
-</div>
 
-<!-- Credits -->
-<div class="card" id="card-usage" style="display:none">
-  <div class="card-title">Credits — <span id="usage-month"></span></div>
-  <div id="usage-unlimited" style="display:none">
-    <div class="row">
-      <span class="row-label">Used this month</span>
-      <span class="row-value" id="usage-used-unlim">0</span>
+  <!-- Advanced diagnostics (collapsed by default) -->
+  <div class="card" id="card-advanced" style="display:none">
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none" onclick="toggleAdvanced()">
+      <span>Advanced Diagnostics</span>
+      <span id="advanced-toggle-icon">▶</span>
     </div>
-    <div class="row">
-      <span class="row-label">Quota</span>
-      <span class="row-value">Unlimited ∞</span>
+    <div id="advanced-content" style="display:none;margin-top:10px;border-top:1px solid var(--vscode-widget-border,rgba(127,127,127,.15));padding-top:10px">
+      <div class="adv-section" id="card-detectors" style="display:none">
+        <div style="font-size:11px;font-weight:600;margin-bottom:6px;display:flex;justify-content:space-between">
+          <span>Detector Health</span>
+          <span id="detector-summary" style="font-size:9px;color:var(--vscode-descriptionForeground)"></span>
+        </div>
+        <div id="detector-list"></div>
+      </div>
+      <div class="adv-section" id="card-buffer" style="display:none">
+        <div style="font-size:11px;font-weight:600;margin-bottom:6px">Runtime Buffer</div>
+        <div class="stats" style="margin-bottom:8px">
+          <div class="stat"><div class="stat-value red"   id="stat-errors">0</div><div class="stat-label">Errors</div></div>
+          <div class="stat"><div class="stat-value amber" id="stat-warns">0</div><div class="stat-label">Warnings</div></div>
+          <div class="stat"><div class="stat-value blue"  id="stat-net">0</div><div class="stat-label">Net Errors</div></div>
+        </div>
+        <div class="btn-row">
+          <button class="primary" id="btn-refresh" onclick="onRefresh()">
+            <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-right:4px;vertical-align:middle;"><path d="M13.6 4.6A7 7 0 1 0 15 8h-2a5 5 0 1 1-1-3l2.2-2.2v4.8h-4.8z"/></svg>Refresh
+          </button>
+          <button id="btn-capture" onclick="send('startCapture')">
+            <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--vscode-charts-red);margin-right:4px;vertical-align:middle;"></span>Capture
+          </button>
+          <button id="btn-clear" onclick="onClear()">
+            <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-right:4px;vertical-align:middle;"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>Clear
+          </button>
+        </div>
+        <div id="capture-status" style="display:none;margin-top:6px;font-size:10px;color:var(--vscode-charts-green)"></div>
+      </div>
+      <div class="adv-section" id="card-server" style="display:none">
+        <div style="font-size:11px;font-weight:600;margin-bottom:6px">Server Details</div>
+        <div class="row"><span class="row-label">Port</span><span class="row-value" id="server-port">—</span></div>
+        <div class="row"><span class="row-label">Version</span><span class="row-value" id="server-version">—</span></div>
+        <div class="row"><span class="row-label">Buffer</span><span class="row-value" id="server-buffered">—</span></div>
+        <div class="row" title="Automatic causal-chain rebuilds"><span class="row-label">Analyses today</span><span class="row-value" id="server-analyses">—</span></div>
+      </div>
     </div>
   </div>
-  <div id="usage-quota" style="display:none">
-    <div class="credit-bar-wrap">
-      <div class="credit-bar-fill" id="credit-bar"></div>
-    </div>
-    <div class="credit-meta">
-      <span id="usage-used-label">0 / 0 used</span>
-      <span id="usage-remaining-label">0 left</span>
-    </div>
-    <div id="usage-overage" style="display:none; margin-top:8px">
-      <div class="row">
-        <span class="row-label">Overage calls</span>
-        <span class="row-value red" id="overage-count">0</span>
-      </div>
-      <div class="row">
-        <span class="row-label">Estimated charge</span>
-        <span class="row-value" id="overage-est">$0.00</span>
-      </div>
-      <div class="row">
-        <span class="row-label">Billing status</span>
-        <span class="row-value" id="billing-status">—</span>
-      </div>
-    </div>
-  </div>
-  <div class="row" style="margin-top:6px">
-    <span class="row-label">Resets</span>
-    <span class="row-value" id="usage-resets">—</span>
-  </div>
-</div>
 
-<!-- Hypothesis history (C1) -->
-<div class="card" id="card-history" style="display:none">
-  <div class="card-title">Recent Diagnoses</div>
-  <div id="history-list"></div>
-</div>
+</div><!-- /tab-settings -->
 
 <script src="${scriptUri}"></script>
 </body>
 </html>`;
-  }
+
+}
 }

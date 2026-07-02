@@ -13,6 +13,7 @@ import { computePolicySuggestions } from '../intelligence/policy-suggester.js';
 import { getProposals, getProposal, markProposalDecided } from '../intelligence/policy-proposals.js';
 import { activateProposedRule } from '../intelligence/corpus-to-policy.js';
 import { recordActivity } from '../intelligence/activity-feed.js';
+import { getPolicyHistory } from '../sensor/policy-history.js';
 
 export function createPoliciesRouter(localSecret = ''): Router {
   const router = Router();
@@ -146,6 +147,61 @@ export function createPoliciesRouter(localSecret = ''): Router {
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }
+  });
+
+  // ── GET /policies/history — tamper-evident policy changelog ─────────────────
+  // Returns the full history of enterprise-policy.json changes: who changed what,
+  // when, and a structural diff (rules added/removed/modified). Policy changes are
+  // as consequential as code changes — this answers "why was my PR blocked after
+  // last Tuesday?" without requiring git access to the policy file.
+  router.get('/policies/history', (_req, res) => {
+    const history = getPolicyHistory();
+    res.json({
+      ok: true,
+      count:   history.length,
+      history,
+    });
+  });
+
+  // ── GET /policies/shadow-promote/stats — per-rule shadow hit statistics ──────
+  // Shows which warn-mode rules are accumulating clean shadow hits and how
+  // close they are to automatic promotion eligibility (14 days, ≥5 hits, 0 FPs).
+  router.get('/policies/shadow-promote/stats', async (_req, res) => {
+    const { getShadowRuleStats } = await import('../sensor/shadow-promote.js');
+    const stats = getShadowRuleStats();
+    const WINDOW_MS = 14 * 24 * 60 * 60 * 1_000;
+    const MIN_HITS  = 5;
+    const enriched = stats.map((s) => ({
+      ...s,
+      eligible: s.totalHits >= MIN_HITS && s.falsePositives === 0 && (Date.now() - s.firstHitAt) >= WINDOW_MS,
+      daysUntilEligible: Math.max(0, Math.ceil((s.firstHitAt + WINDOW_MS - Date.now()) / 86_400_000)),
+      hitsUntilEligible: Math.max(0, MIN_HITS - s.totalHits),
+    }));
+    res.json({ ok: true, count: enriched.length, stats: enriched });
+  });
+
+  // ── POST /policies/shadow-promote/feedback — submit false-positive annotation ─
+  router.post('/policies/shadow-promote/feedback', async (req, res) => {
+    const schema = z.object({
+      ruleId:          z.string().min(1),
+      ruleName:        z.string().min(1),
+      isFalsePositive: z.boolean(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ ok: false, error: 'Invalid body', issues: parsed.error.issues });
+      return;
+    }
+    const { recordShadowRuleFeedback } = await import('../sensor/shadow-promote.js');
+    recordShadowRuleFeedback(parsed.data.ruleId, parsed.data.ruleName, parsed.data.isFalsePositive);
+    res.json({ ok: true, recorded: true, ruleId: parsed.data.ruleId, isFalsePositive: parsed.data.isFalsePositive });
+  });
+
+  // ── DELETE /policies/shadow-promote/stats/:ruleId — reset stats for a rule ──
+  router.delete('/policies/shadow-promote/stats/:ruleId', async (req, res) => {
+    const { resetShadowRuleStats } = await import('../sensor/shadow-promote.js');
+    resetShadowRuleStats(req.params.ruleId);
+    res.json({ ok: true, reset: true, ruleId: req.params.ruleId });
   });
 
   // ── GET /policies/export — full policy JSON for sync ────────────────────────
@@ -389,6 +445,160 @@ export function createPoliciesRouter(localSecret = ''): Router {
       wouldBlock, wouldHold, wouldPass,
       blockRate: total > 0 ? Math.round((wouldBlock / total) * 100) : 0,
       examples,
+    });
+  });
+
+  // ── POST /policies/preview — validate a rule against blunder history ──────────
+  // Accepts a full or partial policy config. Replays the last 90 days of blunder
+  // log entries against it (not just the in-memory gate ring) and returns how many
+  // would have been blocked/warned/passed. Use this before activating a new rule to
+  // understand its real-world impact on historical traffic — not just recent calls.
+  //
+  // Unlike /policies/simulate (gate ring only), this runs against the full
+  // persisted blunder log so the result is meaningful even after a server restart.
+  router.post('/policies/preview', async (req, res) => {
+    const PolicySchema = z.object({
+      enabled: z.boolean().default(true),
+      rules:   z.array(z.object({
+        id:          z.string().default('__preview__'),
+        name:        z.string().default('Preview'),
+        description: z.string().default(''),
+        action:      z.enum(['block', 'warn', 'pass']).default('block'),
+        reason:      z.string().default('Preview block'),
+        conditions:  z.object({
+          files:        z.array(z.string()).optional(),
+          commands:     z.array(z.string()).optional(),
+          actorType:    z.enum(['ai', 'human', 'all']).optional(),
+          daysOfWeek:   z.array(z.number().int().min(0).max(6)).optional(),
+          hourWindow:   z.tuple([z.number().int().min(0).max(23), z.number().int().min(0).max(24)]).optional(),
+          services:     z.array(z.string()).optional(),
+          environments: z.array(z.string()).optional(),
+          repos:        z.array(z.string()).optional(),
+          agentIds:     z.array(z.string()).optional(),
+          roles:        z.array(z.string()).optional(),
+          branches:     z.array(z.string()).optional(),
+        }),
+      })),
+    });
+
+    const parsed = PolicySchema.safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ error: parsed.error.issues }); return; }
+
+    const previewPolicy = parsed.data as EnterprisePolicyConfig;
+    const windowDays    = Math.min(90, Math.max(1, Number(req.query.windowDays ?? 30)));
+    const cutoff        = Date.now() - windowDays * 24 * 60 * 60 * 1_000;
+
+    const store    = getStores().blunders;
+    const blunders = await store.list();
+    const inWindow = blunders.filter((b) => b.recordedAt >= cutoff);
+
+    let wouldBlock = 0, wouldWarn = 0, wouldPass = 0;
+    const changedVerdicts: Array<{
+      id: string; command: string | null; original: string; preview: string; service: string | null;
+    }> = [];
+
+    for (const b of inWindow) {
+      const result = evaluateEnterprisePolicy({
+        files:     [],
+        commands:  [b.command ?? b.blockReason].filter(Boolean),
+        actor:     b.actor ?? 'unknown',
+        service:   b.service ?? 'unknown',
+        timestamp: b.recordedAt,
+      }, previewPolicy);
+
+      if (result.verdict === 'block')      wouldBlock++;
+      else if (result.verdict === 'warn')  wouldWarn++;
+      else                                  wouldPass++;
+
+      // Track when preview verdict differs from the original block
+      if (result.verdict !== 'block' && changedVerdicts.length < 10) {
+        changedVerdicts.push({
+          id:       b.id,
+          command:  b.command,
+          original: 'block',
+          preview:  result.verdict,
+          service:  b.service,
+        });
+      }
+    }
+
+    const total = inWindow.length;
+    res.json({
+      ok: true,
+      windowDays,
+      blundersEvaluated: total,
+      wouldBlock,
+      wouldWarn,
+      wouldPass,
+      blockRate: total > 0 ? Math.round((wouldBlock / total) * 100) : 0,
+      warnRate:  total > 0 ? Math.round((wouldWarn  / total) * 100) : 0,
+      passRate:  total > 0 ? Math.round((wouldPass  / total) * 100) : 0,
+      changedVerdicts,
+      note: total === 0
+        ? `No blunders in the last ${windowDays} days to evaluate against.`
+        : `Replayed ${total} blunder log entries from the last ${windowDays} days against the preview policy.`,
+    });
+  });
+
+  // ── POST /policies/counterfactual — "what would have changed?" replay ─────────
+  // Given a policy config, replays the last N blunder log entries and returns
+  // which ones would have been handled differently (different verdict, different
+  // rules fired). Essential for CISO conversations: "if we had this rule, the last
+  // 3 incidents would have been caught."
+  router.post('/policies/counterfactual', async (req, res) => {
+    const body = z.object({
+      policy: z.object({
+        enabled: z.boolean().default(true),
+        rules:   z.array(z.any()),
+      }),
+      limit: z.number().int().min(1).max(500).default(100),
+    }).safeParse(req.body);
+
+    if (!body.success) { res.status(400).json({ error: body.error.issues }); return; }
+
+    const { policy: counterPolicy, limit } = body.data;
+    const store    = getStores().blunders;
+    const blunders = (await store.list()).slice(-limit);
+    const current  = loadEnterprisePolicy();
+
+    type VerdictRow = { id: string; command: string | null; service: string | null; recordedAt: number;
+                        currentVerdict: string; counterfactualVerdict: string;
+                        currentRules: string[]; counterfactualRules: string[] };
+    const changed: VerdictRow[]   = [];
+    const unchanged: VerdictRow[] = [];
+
+    for (const b of blunders) {
+      const input = {
+        files:     [],
+        commands:  [b.command ?? b.blockReason].filter(Boolean),
+        actor:     b.actor ?? 'unknown',
+        service:   b.service ?? 'unknown',
+        timestamp: b.recordedAt,
+      };
+      const currentResult = evaluateEnterprisePolicy(input, current);
+      const cfResult      = evaluateEnterprisePolicy(input, counterPolicy as EnterprisePolicyConfig);
+      const row: VerdictRow = {
+        id: b.id, command: b.command, service: b.service, recordedAt: b.recordedAt,
+        currentVerdict:          currentResult.verdict,
+        counterfactualVerdict:   cfResult.verdict,
+        currentRules:            currentResult.triggeredRules,
+        counterfactualRules:     cfResult.triggeredRules,
+      };
+      if (currentResult.verdict !== cfResult.verdict) changed.push(row);
+      else unchanged.push(row);
+    }
+
+    res.json({
+      ok: true,
+      evaluated:          blunders.length,
+      changedCount:       changed.length,
+      unchangedCount:     unchanged.length,
+      changed:            changed.slice(0, 50),
+      summary: {
+        wouldNowBlock: changed.filter((r) => r.counterfactualVerdict === 'block').length,
+        wouldNowHold:  changed.filter((r) => r.counterfactualVerdict === 'warn').length,
+        wouldNowPass:  changed.filter((r) => r.counterfactualVerdict === 'pass').length,
+      },
     });
   });
 
