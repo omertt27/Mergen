@@ -33,14 +33,14 @@ const productFeatures = [
     desc: 'Map out an auto-generated, living graph of how your services actually communicate and behave at runtime. Mergen traces the causal path of all agent actions, providing an immediate visual audit trail of agent activity.',
   },
   {
-    label: 'Git Guard',
-    title: 'Pre-commit prevention of recurring outages',
-    desc: 'A git pre-commit hook that cross-references modified workspace paths against the local SQLite history of past outages. Surfacing warnings like "this file was modified in 3 recent incident loops" before changes are pushed, enforcing incident postmortem recommendations.',
+    label: 'Incident Memory',
+    title: 'SQLite-powered incident re-occurrence prevention',
+    desc: 'When an error occurs, Mergen checks SQLite history and returns: "This error has happened before. Here\'s what you did last time and why it worked," eliminating recurring outage loops.',
   },
   {
-    label: 'Override Corpus',
-    title: 'Transient human decisions transformed into permanent policy',
-    desc: 'Every manual approval or rejection of an agent action is recorded. These overrides compile into a structured SQLite corpus, establishing a machine-readable operational policy. Friday settlement windows, data sanitization rules, and developer preferences automatically enforce invariants.',
+    label: 'Interception Gate',
+    title: 'Pre-empt confidently wrong edits',
+    desc: 'Intercept proposed code changes and tool calls against historical failures and local safety rules, flashing alerts like: "This change previously caused incident #12 in your repository" before execution.',
   },
   {
     label: 'Blunder Log',

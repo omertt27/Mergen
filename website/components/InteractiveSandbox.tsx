@@ -23,10 +23,10 @@ const scenarios: Scenario[] = [
     remedy: 'redact_credentials(file-reader)',
   },
   {
-    name: 'Incident Re-occurrence Guard',
+    name: 'Incident Re-occurrence Prevention',
     key: 'incident_repeat',
-    logic: 'if (touches_auth_middleware === true && stack_depth > 4)',
-    remedy: 'block_recursive_stack_depth(git-hook)',
+    logic: 'if (sqlite_matches > 0 && has_resolution_playbook === true)',
+    remedy: 'inject_previous_fix_postmortem(incident-12)',
   },
 ]
 
@@ -44,8 +44,8 @@ export default function InteractiveSandbox() {
   const [isCredential, setIsCredential] = useState(true)
 
   // Scenario C State
-  const [stackDepth, setStackDepth] = useState(6)
-  const [riskScore, setRiskScore] = useState(1.8)
+  const [sqliteMatches, setSqliteMatches] = useState(3)
+  const [hasPlaybook, setHasPlaybook] = useState(true)
 
   // Clear output on scenario selection change
   useEffect(() => {
@@ -69,10 +69,10 @@ export default function InteractiveSandbox() {
     eventText = `Agent requested read_file tool execution`
     confidence = isMatched ? Math.min(99, Math.round(80 + (accessDepth - 5) * 3)) : 0
   } else {
-    isMatched = stackDepth > 4 && riskScore > 1.0
-    telemetry = `Git diff touches auth_middleware.ts (depth=${stackDepth}/10, risk=${riskScore.toFixed(1)}/3.0)`
-    eventText = `Agent requested git_commit tool execution`
-    confidence = isMatched ? Math.min(99, Math.round(85 + (riskScore - 1.0) * 4 + (stackDepth > 5 ? 5 : 0))) : 0
+    isMatched = sqliteMatches > 0 && hasPlaybook
+    telemetry = `Target path modified. Found ${sqliteMatches} SQLite outage logs. Playbook active: ${hasPlaybook.toString()}`
+    eventText = `Agent encountered build/runtime error in workspace`
+    confidence = isMatched ? Math.min(99, Math.round(85 + sqliteMatches * 2)) : 0
   }
 
   function runDetector() {
@@ -89,11 +89,20 @@ export default function InteractiveSandbox() {
 
     setTimeout(() => {
       if (isMatched) {
-        setOutput(prev => [
-          ...prev,
-          `> Policy MATCHED: ${selected.logic}`,
-          `> BLOCKED: Applied local gate policy: ${selected.remedy} (${confidence}% security confidence)`
-        ])
+        if (selected.key === 'incident_repeat') {
+          setOutput(prev => [
+            ...prev,
+            `> Policy MATCHED: ${selected.logic}`,
+            `> BLOCKED: Applied local gate policy: ${selected.remedy} (${confidence}% security confidence)`,
+            `> Operational Memory Injection: "Incident #12 previously occurred on this path. Fix: increase pool_size to 20."`
+          ])
+        } else {
+          setOutput(prev => [
+            ...prev,
+            `> Policy MATCHED: ${selected.logic}`,
+            `> BLOCKED: Applied local gate policy: ${selected.remedy} (${confidence}% security confidence)`
+          ])
+        }
       } else {
         setOutput(prev => [
           ...prev,
@@ -236,36 +245,28 @@ export default function InteractiveSandbox() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
-                      <span style={{ color: 'var(--text-main)' }}>Recursion Stack Depth</span>
-                      <span style={{ fontFamily: 'var(--font-mono)', color: stackDepth > 4 ? 'var(--color-block)' : 'var(--text-bold)' }}>
-                        {stackDepth}/10 {stackDepth > 4 && '(Deep Recursion)'}
+                      <span style={{ color: 'var(--text-main)' }}>SQLite Outage Matches</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', color: sqliteMatches > 0 ? 'var(--color-block)' : 'var(--text-bold)' }}>
+                        {sqliteMatches} {sqliteMatches > 0 && '(Outage Risk)'}
                       </span>
                     </div>
                     <input
                       type="range"
-                      min="1"
-                      max="10"
-                      value={stackDepth}
-                      onChange={(e) => { setStackDepth(Number(e.target.value)); setOutput([]); }}
+                      min="0"
+                      max="5"
+                      value={sqliteMatches}
+                      onChange={(e) => { setSqliteMatches(Number(e.target.value)); setOutput([]); }}
                       style={{ width: '100%', accentColor: 'var(--color-block)' }}
                     />
                   </div>
 
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
-                      <span style={{ color: 'var(--text-main)' }}>Change Risk Score</span>
-                      <span style={{ fontFamily: 'var(--font-mono)', color: riskScore > 1.0 ? 'var(--color-block)' : 'var(--text-bold)' }}>
-                        {riskScore.toFixed(1)}/3.0 {riskScore > 1.0 && '(High Risk)'}
-                      </span>
-                    </div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem', marginTop: '0.5rem' }}>
+                    <span style={{ color: 'var(--text-main)' }}>Resolution Playbook Found</span>
                     <input
-                      type="range"
-                      min="0.1"
-                      max="3.0"
-                      step="0.1"
-                      value={riskScore}
-                      onChange={(e) => { setRiskScore(Number(e.target.value)); setOutput([]); }}
-                      style={{ width: '100%', accentColor: 'var(--color-block)' }}
+                      type="checkbox"
+                      checked={hasPlaybook}
+                      onChange={(e) => { setHasPlaybook(e.target.checked); setOutput([]); }}
+                      style={{ width: '16px', height: '16px', accentColor: 'var(--color-block)', cursor: 'pointer' }}
                     />
                   </div>
                 </div>
@@ -370,7 +371,7 @@ export default function InteractiveSandbox() {
                     <div style={{ color: 'var(--text-muted)' }}>→ Action: <span style={{ color: 'var(--text-main)' }}>{
                       selected.key === 'destructive_cmd' ? `terraform destroy prod (danger=${dangerLevel}/10, blast=${blastRadius}%)` :
                       selected.key === 'secret_leak' ? `Read credential file: .env (depth=${accessDepth}/10, cred=${isCredential.toString()})` :
-                      `Prisma schema migration stack depth ${stackDepth}/10 (risk=${riskScore.toFixed(1)}/3.0)`
+                      `SQLite match count: ${sqliteMatches} (playbook active: ${hasPlaybook.toString()})`
                     }</span></div>
                     <div style={{ color: 'var(--text-muted)' }}>→ Rule: <code style={{ color: 'var(--color-block)', background: 'var(--bg-hover)', padding: '1px 4px' }}>{selected.remedy}</code></div>
                   </div>

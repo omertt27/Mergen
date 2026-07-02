@@ -90,7 +90,7 @@ div[role="button"]:focus-visible {
 
 /* ─── LAYOUT WRAPPERS ───────────────────────────────────────────────────── */
 .page-main {
-  padding-top: 76px;
+  padding-top: 96px;
   min-height: 100vh;
 }
 
@@ -139,7 +139,7 @@ section {
   left: 0;
   right: 0;
   z-index: 200;
-  height: 64px;
+  height: 80px;
   background: var(--bg-base);
   border-bottom: 1px solid var(--border-color);
 }
@@ -157,16 +157,16 @@ section {
 .nav-logo {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   font-weight: 700;
-  font-size: 1.1rem;
+  font-size: 1.35rem;
   color: var(--text-bold);
   text-decoration: none;
 }
 
 .nav-logo-icon {
-  width: 16px;
-  height: 16px;
+  width: 22px;
+  height: 22px;
   color: var(--color-block);
 }
 
@@ -177,11 +177,11 @@ section {
 
 .nav-links {
   display: flex;
-  gap: 1.5rem;
+  gap: 2rem;
 }
 
 .nav-link {
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   font-weight: 500;
   color: var(--text-muted);
   text-decoration: none;
@@ -195,14 +195,14 @@ section {
 .nav-actions {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 1.25rem;
 }
 
 .nav-github {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 0.8rem;
+  gap: 8px;
+  font-size: 0.9rem;
   color: var(--text-muted);
   text-decoration: none;
 }
@@ -226,8 +226,8 @@ section {
 .nav-cta {
   background: var(--text-bold);
   color: var(--bg-base);
-  padding: 6px 12px;
-  font-size: 0.8rem;
+  padding: 10px 20px;
+  font-size: 0.9rem;
   font-weight: 600;
   text-decoration: none;
   border: 1px solid var(--text-bold);
@@ -284,11 +284,15 @@ section {
 .btn-primary {
   background: var(--text-bold);
   color: var(--bg-base);
-  padding: 10px 20px;
-  font-size: 0.9rem;
+  padding: 14px 28px;
+  font-size: 1.05rem;
   font-weight: 600;
   border: 1px solid var(--text-bold);
   transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
 }
 
 .btn-primary:hover {
@@ -299,18 +303,74 @@ section {
 .btn-secondary {
   background: transparent;
   color: var(--text-main);
-  padding: 10px 20px;
-  font-size: 0.9rem;
+  padding: 14px 28px;
+  font-size: 1.05rem;
   font-weight: 600;
   border: 1px solid var(--border-color);
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  gap: 10px;
   transition: all 0.15s ease;
+  text-decoration: none;
 }
 
 .btn-secondary:hover {
   border-color: var(--text-main);
+}
+
+/* Base button rules to style missing definitions on other pages */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 24px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  transition: all 0.15s ease;
+  cursor: pointer;
+  text-decoration: none;
+  border-radius: var(--radius-tight, 4px);
+}
+
+.btn-outline {
+  background: transparent;
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+}
+
+.btn-outline:hover {
+  border-color: var(--text-bold);
+  color: var(--text-bold);
+}
+
+.btn-white {
+  background: var(--text-bold);
+  color: var(--bg-base);
+  border: 1px solid var(--text-bold);
+}
+
+.btn-white:hover {
+  background: transparent;
+  color: var(--text-bold);
+}
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-decoration: underline;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.btn-ghost:hover {
+  color: var(--text-bold);
 }
 
 .hero-install {
